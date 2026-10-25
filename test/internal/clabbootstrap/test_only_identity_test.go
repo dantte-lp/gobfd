@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/dantte-lp/gobfd/test/internal/vendorprofiles"
 )
 
 type testOnlyIdentityRunner struct {
@@ -67,6 +69,7 @@ func TestTestOnlyValidatesLiveContainerIdentitiesBeforeEvidence(t *testing.T) {
 		wantInvoked bool
 		networkID   string
 		legacy      bool
+		recordedNOS bool
 	}{
 		{
 			name: "exact identities",
@@ -104,6 +107,15 @@ func TestTestOnlyValidatesLiveContainerIdentitiesBeforeEvidence(t *testing.T) {
 			wantErr:    true,
 		},
 		{
+			name: "recorded unqualified NOS",
+			containers: map[string]string{
+				gobfdContainer: gobfdID, frrContainer: frrID,
+				"clab-gobfd-vendors-arista": "owned-arista-id",
+			},
+			recordedNOS: true,
+			wantErr:     true,
+		},
+		{
 			name: "unrecorded live vendor",
 			containers: map[string]string{
 				gobfdContainer:              gobfdID,
@@ -115,7 +127,7 @@ func TestTestOnlyValidatesLiveContainerIdentitiesBeforeEvidence(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			root := t.TempDir()
+			root := bootstrapTestRoot(t)
 			if err := ensureRuntimeDirectory(root); err != nil {
 				t.Fatalf("create runtime directory: %v", err)
 			}
@@ -136,6 +148,10 @@ func TestTestOnlyValidatesLiveContainerIdentitiesBeforeEvidence(t *testing.T) {
 				FRR: lifecycleImage{Reference: frrImageRepo + ":" + runID, ID: testFRRImageID},
 			}
 			receipt.Network.ID = test.networkID
+			if test.recordedNOS {
+				receipt.ExpectedContainers = append(receipt.ExpectedContainers, "clab-gobfd-vendors-arista")
+				receipt.Containers["clab-gobfd-vendors-arista"] = "owned-arista-id"
+			}
 			if test.legacy {
 				receipt.SchemaVersion = ownedReceiptV2
 				receipt.FRR = lifecycleImage{}
@@ -150,7 +166,8 @@ func TestTestOnlyValidatesLiveContainerIdentitiesBeforeEvidence(t *testing.T) {
 			options.TestOnly = true
 
 			err := runTopologyLocked(t.Context(), options, runner)
-			if test.wantErr && !errors.Is(err, errLifecycleState) && !errors.Is(err, ErrBootstrapFailed) {
+			if test.wantErr && !errors.Is(err, errLifecycleState) && !errors.Is(err, ErrBootstrapFailed) &&
+				!errors.Is(err, vendorprofiles.ErrUnavailable) {
 				t.Fatalf("test-only error = %v, want identity failure", err)
 			}
 			if !test.wantErr && err != nil {

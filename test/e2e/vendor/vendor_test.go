@@ -10,40 +10,11 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
+
+	"github.com/dantte-lp/gobfd/test/internal/vendorprofiles"
 )
-
-const profileManifestPath = "test/e2e/vendor/profiles.json"
-
-type manifest struct {
-	Runtime  runtimeContract `json:"runtime"`
-	Profiles []profile       `json:"profiles"`
-}
-
-type runtimeContract struct {
-	ContainerlabRuntime string `json:"containerlab_runtime"`
-	PodmanRequired      bool   `json:"podman_required"`
-	PublicCIDefault     string `json:"public_ci_default"`
-}
-
-type profile struct {
-	ID           string   `json:"id"`
-	Vendor       string   `json:"vendor"`
-	Platform     string   `json:"platform"`
-	ProfileClass string   `json:"profile_class"`
-	TopologyNode string   `json:"topology_node"`
-	ConfigPaths  []string `json:"config_paths"`
-	Images       []string `json:"images"`
-	Build        *build   `json:"build,omitempty"`
-	SkipPolicy   string   `json:"skip_policy"`
-	Scenario     string   `json:"scenario"`
-	Standards    []string `json:"standards"`
-	Evidence     []string `json:"evidence"`
-}
-
-type build struct {
-	Context    string `json:"context"`
-	Dockerfile string `json:"dockerfile"`
-}
 
 func TestVendorProfilesContract(t *testing.T) {
 	m := readManifest(t)
@@ -77,6 +48,13 @@ func TestVendorProfilesContract(t *testing.T) {
 			t.Fatalf("unexpected profile id %q", p.ID)
 		}
 		required[p.ID] = true
+		if p.ID == "frr" {
+			if p.ExecutionPolicy != vendorprofiles.OwnedReceiptRequired || !m.AllowsNode(p.TopologyNode) {
+				t.Fatalf("FRR profile must require the owned receipt: %+v", p)
+			}
+		} else if p.ExecutionPolicy != vendorprofiles.RetainedUnavailable || m.AllowsNode(p.TopologyNode) {
+			t.Fatalf("profile %s must retain unavailable qualification: %+v", p.ID, p)
+		}
 		if p.Vendor == "" || p.Platform == "" || p.TopologyNode == "" || p.Scenario == "" {
 			t.Fatalf("profile %s has incomplete metadata: %+v", p.ID, p)
 		}
@@ -165,50 +143,63 @@ func TestPrimaryVendorSetAndCiscoDeferred(t *testing.T) {
 
 func TestContainerlabTopologyMatchesManifest(t *testing.T) {
 	m := readManifest(t)
-	topology, err := os.ReadFile(repoPath(t, "test/interop-clab/gobfd-vendors.clab.yml"))
+	data, err := os.ReadFile(repoPath(t, "test/interop-clab/gobfd-vendors.clab.yml"))
 	if err != nil {
 		t.Fatalf("read containerlab topology: %v", err)
 	}
-	runner, err := os.ReadFile(repoPath(t, "test/internal/clabbootstrap/lifecycle.go"))
-	if err != nil {
-		t.Fatalf("read containerlab runner: %v", err)
+	var topology struct {
+		Topology struct {
+			Nodes map[string]map[string]any `yaml:"nodes"`
+			Links []struct {
+				Endpoints []string `yaml:"endpoints"`
+			} `yaml:"links"`
+		} `yaml:"topology"`
+	}
+	if err := yaml.Unmarshal(data, &topology); err != nil {
+		t.Fatalf("decode containerlab topology: %v", err)
+	}
+	if len(topology.Topology.Nodes) != 2 {
+		t.Fatalf("active topology node count = %d, want 2 owned applications", len(topology.Topology.Nodes))
+	}
+	for _, name := range []string{"clab-gobfd-vendors-gobfd", "frr"} {
+		node := topology.Topology.Nodes[name]
+		if node["kind"] != "ext-container" {
+			t.Fatalf("application node %s must be external: %v", name, node)
+		}
+		if _, present := node["image"]; present {
+			t.Fatalf("application node %s bypasses the owned image receipt: %v", name, node)
+		}
 	}
 	for _, p := range m.Profiles {
-		if !strings.Contains(string(topology), p.TopologyNode+":") {
-			t.Fatalf("topology does not define node %q for profile %s", p.TopologyNode, p.ID)
-		}
-		for _, image := range p.Images {
-			if strings.Contains(string(topology), image) || strings.Contains(string(runner), image) {
-				continue
-			}
-			if p.ID == "cisco-xrd" && strings.Contains(string(runner), "ios-xr/xrd-control-plane") {
-				continue
-			}
-			t.Fatalf("profile %s image %q is not referenced by topology or runner", p.ID, image)
+		_, active := topology.Topology.Nodes[p.TopologyNode]
+		if active != m.AllowsNode(p.TopologyNode) {
+			t.Fatalf("profile %s active topology presence = %t, violates %s", p.ID, active, p.ExecutionPolicy)
 		}
 	}
+	if len(topology.Topology.Links) != 1 ||
+		!slices.Equal(topology.Topology.Links[0].Endpoints, []string{"clab-gobfd-vendors-gobfd:eth6", "frr:eth1"}) {
+		t.Fatalf("active topology must contain only the owned FRR link: %v", topology.Topology.Links)
+	}
 	writeJSONArtifact(t, "skip-summary.json", map[string]any{
-		"topology":            "test/interop-clab/gobfd-vendors.clab.yml",
-		"runner":              "test/internal/clabbootstrap/lifecycle.go",
-		"primary_profiles":    []string{"arista-ceos", "nokia-srlinux", "sonic-vs", "vyos"},
-		"baseline_profiles":   []string{"frr"},
-		"deferred_profiles":   []string{"cisco-xrd"},
-		"missing_images":      "documented as skips",
-		"public_ci_default":   m.Runtime.PublicCIDefault,
-		"cisco_xrd_profile":   "deferred until an operator-provided XRd image is available",
-		"primary_skip_policy": "primary profile images are explicit evidence, not public CI requirements",
+		"topology":                      "test/interop-clab/gobfd-vendors.clab.yml",
+		"runner":                        "test/internal/clabbootstrap/lifecycle.go",
+		"primary_profiles":              []string{"arista-ceos", "nokia-srlinux", "sonic-vs", "vyos"},
+		"baseline_profiles":             []string{"frr"},
+		"deferred_profiles":             []string{"cisco-xrd"},
+		"retained_unavailable_profiles": []string{"arista-ceos", "nokia-srlinux", "cisco-xrd", "sonic-vs", "vyos"},
+		"qualification_tracking":        "gobfd-qj0.8.2.8.5.2.7.4",
+		"public_ci_default":             m.Runtime.PublicCIDefault,
+		"cisco_xrd_profile":             "deferred; native qualification retained unavailable",
+		"primary_skip_policy":           "historical profile class does not authorize execution",
+		"retained_unavailable_behavior": "cached images do not authorize preparation or execution",
 	})
 }
 
-func readManifest(t *testing.T) manifest {
+func readManifest(t *testing.T) vendorprofiles.Manifest {
 	t.Helper()
-	data, err := os.ReadFile(repoPath(t, profileManifestPath))
+	m, err := vendorprofiles.Load(repoPath(t, ""))
 	if err != nil {
-		t.Fatalf("read %s: %v", profileManifestPath, err)
-	}
-	var m manifest
-	if err := json.Unmarshal(data, &m); err != nil {
-		t.Fatalf("decode %s: %v", profileManifestPath, err)
+		t.Fatalf("load vendor profiles: %v", err)
 	}
 	return m
 }

@@ -524,7 +524,14 @@ podman exec <tshark-контейнер> tshark -r /captures/bfd.pcapng -Y bfd \
 | **Interop: Базовый** | 172.20.0.0/24 | gobfd, frr, bird3, holo, holo-config, thoro, tshark | — |
 | **Interop: BGP+BFD** | 172.21.0.0/24 | gobfd, gobgp, frr, bird3, exabgp, gobfd-sidecar | — |
 | **Interop: RFC** | 172.22.0.0/24 | gobfd-rfc, gobfd-rfc9384, gobgp-rfc, frr-rfc, frr-rfc-bgp, frr-rfc-unsolicited, tshark-rfc | — |
-| **Interop: Вендоры** | 10.0.x.0/30 | gobfd, gobgp, nokia, arista, frr, sonic, vyos; cisco отложен | — |
+| **Interop: Вендоры** | 10.0.6.0/30; fd00:0:6::/127 | Только свои gobfd, gobgp, frr; нативная приёмка не завершена | — |
+
+Порядок работы Containerlab из исходников сохраняет профили Arista, Nokia, Cisco, SONiC
+и VyOS как `retained-unavailable` в `gobfd-qj0.8.2.8.5.2.7.4`.
+Их метаданные и локальные образы не разрешают скачивание, подготовку или запуск.
+Базовый профиль FRR отдельно требует свою квитанцию владения и нативную приёмку в
+`gobfd-qj0.8.2.8.5.2.7.3`; проверка компилятора, движка и сокета отслеживается в
+`gobfd-qj0.8.2.8.5.2.7.3.4`.
 
 RFC-топология также содержит независимый `echo-reflector`. Её подсеть
 пересекается с примером быстрого переключения BGP; не запускайте обе сети

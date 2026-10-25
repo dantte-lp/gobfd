@@ -18,6 +18,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/dantte-lp/gobfd/test/internal/interopproject"
+	"github.com/dantte-lp/gobfd/test/internal/vendorprofiles"
 )
 
 const (
@@ -185,6 +186,9 @@ func runTopologyLocked(ctx context.Context, options Options, runner Runner) erro
 		if receipt.Topology == "" || len(receipt.Containers) == 0 {
 			return fmt.Errorf("vendor topology is not deployed: %w", errLifecycleState)
 		}
+		if err := validateTestPolicy(options, receipt); err != nil {
+			return err
+		}
 		if imageErr := validateApplicationImages(ctx, runner, receipt); imageErr != nil {
 			return imageErr
 		}
@@ -198,6 +202,23 @@ func runTopologyLocked(ctx context.Context, options Options, runner Runner) erro
 	default:
 		return deployTopology(ctx, options, runner)
 	}
+}
+
+func validateTestPolicy(options Options, receipt lifecycleReceipt) error {
+	policy, err := vendorprofiles.Load(options.ProjectRoot)
+	if err != nil {
+		return fmt.Errorf("load test-only vendor policy: %w", err)
+	}
+	names := slices.Clone(receipt.ExpectedContainers)
+	for name := range receipt.Containers {
+		names = append(names, name)
+	}
+	for _, name := range names {
+		if name != gobfdContainer && !policy.AllowsNode(strings.TrimPrefix(name, "clab-"+labName+"-")) {
+			return fmt.Errorf("test receipt contains unqualified container %s: %w", name, vendorprofiles.ErrUnavailable)
+		}
+	}
+	return nil
 }
 
 func validateDeployedContainerIdentities(
@@ -283,7 +304,10 @@ func dryRunTopology(ctx context.Context, options Options, runner Runner, imageRe
 	if err := validateFRRTemplate(options.ProjectRoot); err != nil {
 		return err
 	}
-	profiles := defaultDryRunProfiles(options, frrImageRepo+":dry-run")
+	profiles, err := availableProfiles(ctx, options, runner, frrImageRepo+":dry-run")
+	if err != nil {
+		return err
+	}
 	if err := startGoBFDContainer(ctx, options, runner, "dry-run", imageReference); err != nil {
 		return err
 	}
@@ -427,12 +451,23 @@ func availableProfiles(
 	if err := validateFRRTemplate(options.ProjectRoot); err != nil {
 		return nil, err
 	}
+	policy, err := vendorprofiles.Load(options.ProjectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("load executable vendor profiles: %w", err)
+	}
 	candidates := vendorCandidates(options, frrReference)
 	profiles := make([]vendorProfile, 0, len(candidates))
 	for _, candidate := range candidates {
-		image, err := firstAvailableImage(ctx, options, runner, candidate.images)
-		if err != nil {
-			return nil, fmt.Errorf("inspect %s image: %w", candidate.profile.name, err)
+		if !policy.AllowsNode(candidate.profile.name) {
+			continue
+		}
+		image := frrReference
+		if !options.DryRun {
+			var imageErr error
+			image, imageErr = firstAvailableImage(ctx, options, runner, candidate.images)
+			if imageErr != nil {
+				return nil, fmt.Errorf("inspect %s image: %w", candidate.profile.name, imageErr)
+			}
 		}
 		if image == "" {
 			if options.Logger != nil {
@@ -543,30 +578,6 @@ func firstAvailableImage(ctx context.Context, options Options, runner Runner, ca
 		}
 	}
 	return "", nil
-}
-
-func defaultDryRunProfiles(options Options, frrReference string) []vendorProfile {
-	profiles := []vendorProfile{
-		{
-			name: vendorNokia, image: "ghcr.io/nokia/srlinux:" + options.Tags.Nokia,
-			index: 2, peerIPv4: "10.0.2.2", localIPv4: "10.0.2.1",
-			peerIPv6: "fd00:0:2::1", localIPv6: "fd00:0:2::", asn: 65003,
-		},
-		{
-			name: vendorSONiC, image: "docker.io/netreplica/docker-sonic-vs:" + options.Tags.Sonic,
-			index: 4, peerIPv4: "10.0.4.2", localIPv4: "10.0.4.1", asn: 65005,
-		},
-		{name: "vyos", image: vyosTargetImage, index: 5, peerIPv4: "10.0.5.2", localIPv4: "10.0.5.1", asn: 65006},
-		{
-			name: "frr", image: frrReference, index: 6,
-			peerIPv4: "10.0.6.2", localIPv4: "10.0.6.1",
-			peerIPv6: "fd00:0:6::1", localIPv6: "fd00:0:6::", asn: 65007,
-		},
-	}
-	for index := range profiles {
-		profiles[index].container = "clab-" + labName + "-" + profiles[index].name
-	}
-	return profiles
 }
 
 func writeRuntimeTopology(options Options, profiles []vendorProfile, receipt lifecycleReceipt) (string, error) {

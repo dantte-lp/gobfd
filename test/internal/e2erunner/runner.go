@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/dantte-lp/gobfd/test/internal/vendorprofiles"
 )
 
 const (
@@ -426,8 +428,10 @@ func (r *runner) runVendor(ctx context.Context) (runErr error) {
 			{"Vendor profiles", "`vendor-profiles.json`"},
 			{"Image availability", "`vendor-images.json`"},
 			{"Skip summary", "`skip-summary.json`"},
-			{"Primary profiles", "`arista-ceos,nokia-srlinux,sonic-vs,vyos`"},
-			{"Deferred profiles", "`cisco-xrd`"},
+			{"Historical primary profiles", "`arista-ceos,nokia-srlinux,sonic-vs,vyos`"},
+			{"Historical deferred profiles", "`cisco-xrd`"},
+			{"Retained unavailable", "`arista-ceos,nokia-srlinux,cisco-xrd,sonic-vs,vyos`"},
+			{"Executable baseline", "`frr` (owned receipt required)"},
 		}))
 	}()
 
@@ -446,66 +450,33 @@ func (r *runner) runVendor(ctx context.Context) (runErr error) {
 	return nil
 }
 
-type vendorManifest struct {
-	Profiles []vendorProfile `json:"profiles"`
-}
-
-type vendorProfile struct {
-	ID           string       `json:"id"`
-	ProfileClass string       `json:"profile_class"`
-	Images       []string     `json:"images"`
-	Build        *vendorBuild `json:"build,omitempty"`
-	SkipPolicy   string       `json:"skip_policy"`
-}
-
-type vendorBuild struct {
-	Context    string `json:"context"`
-	Dockerfile string `json:"dockerfile"`
-}
-
 type vendorImageEvidence struct {
-	ProfileID    string       `json:"profile_id"`
-	ProfileClass string       `json:"profile_class"`
-	Images       []string     `json:"images"`
-	Build        *vendorBuild `json:"build,omitempty"`
-	Available    []string     `json:"available"`
-	Status       string       `json:"status"`
-	Reason       string       `json:"reason"`
+	ProfileID             string                `json:"profile_id"`
+	ProfileClass          string                `json:"profile_class"`
+	Images                []string              `json:"images"`
+	Build                 *vendorprofiles.Build `json:"build,omitempty"`
+	ExecutionPolicy       string                `json:"execution_policy"`
+	QualificationTracking string                `json:"qualification_tracking"`
+	Available             []string              `json:"available"`
+	Status                string                `json:"status"`
+	Reason                string                `json:"reason"`
 }
 
-func (r *runner) writeVendorImages(ctx context.Context) error {
-	manifestPath := filepath.Join(r.root, "test", "e2e", "vendor", "profiles.json")
-	data, err := os.ReadFile(manifestPath)
+func (r *runner) writeVendorImages(_ context.Context) error {
+	manifest, err := vendorprofiles.Load(r.root)
 	if err != nil {
-		return fmt.Errorf("read vendor profiles: %w", err)
-	}
-	var manifest vendorManifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
-		return fmt.Errorf("decode vendor profiles: %w", err)
+		return fmt.Errorf("load vendor profiles: %w", err)
 	}
 	evidence := make([]vendorImageEvidence, 0, len(manifest.Profiles))
 	for _, profile := range manifest.Profiles {
 		item := vendorImageEvidence{
 			ProfileID: profile.ID, ProfileClass: profile.ProfileClass, Images: profile.Images,
-			Available: []string{}, Status: "skipped", Reason: profile.SkipPolicy,
+			ExecutionPolicy: profile.ExecutionPolicy, QualificationTracking: profile.QualificationTracking,
+			Available: []string{}, Status: profile.ExecutionPolicy, Reason: profile.ExecutionPolicy,
 		}
 		if profile.Build != nil {
 			item.Build = profile.Build
-			item.Status = "owned-receipt-required"
 			item.Reason = "run-owned-build"
-			evidence = append(evidence, item)
-			continue
-		}
-		for _, image := range profile.Images {
-			if err := r.command(
-				ctx, commandTimeout, io.Discard, io.Discard, podmanCommand, "image", "exists", image,
-			); err == nil {
-				item.Available = append(item.Available, image)
-			}
-		}
-		if len(item.Available) > 0 {
-			item.Status = "available"
-			item.Reason = ""
 		}
 		evidence = append(evidence, item)
 	}

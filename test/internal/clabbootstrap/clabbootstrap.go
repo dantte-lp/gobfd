@@ -13,6 +13,8 @@ var ErrBootstrapFailed = errors.New("containerlab bootstrap failed")
 
 const executablePodman = "podman"
 
+const vyosTargetImage = "vyos:latest"
+
 const (
 	executableContainerlab = "containerlab"
 	// ContainerlabVersion is the exact CLI version required by the vendor interoperability harness.

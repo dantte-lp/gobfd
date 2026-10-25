@@ -101,6 +101,7 @@ func (runner *ownedImageRunner) Run(_ context.Context, command Command) (Result,
 
 func stageTestImages(t *testing.T, options Options, runner Runner) (lifecycleReceipt, error) {
 	t.Helper()
+	copyVendorPolicyFixture(t, options.ProjectRoot)
 	t.Setenv("GOBFD_BUILD_REVISION", "713cef8f0eb1be05c6ddce38fa4c7bbe22b0c7ef")
 	return stageOwnedImages(t.Context(), options, runner)
 }

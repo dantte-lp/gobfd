@@ -31,7 +31,9 @@
         "show bfd peers detail",
         "show ip bgp summary",
         "show ipv6 bgp summary"
-      ]
+      ],
+      "execution_policy": "retained-unavailable",
+      "qualification_tracking": "gobfd-qj0.8.2.8.5.2.7.4"
     },
     {
       "id": "nokia-srlinux",
@@ -56,7 +58,9 @@
       "evidence": [
         "bfd neighbor state",
         "bgp neighbor state"
-      ]
+      ],
+      "execution_policy": "retained-unavailable",
+      "qualification_tracking": "gobfd-qj0.8.2.8.5.2.7.4"
     },
     {
       "id": "cisco-xrd",
@@ -82,7 +86,9 @@
       "evidence": [
         "show bfd session",
         "show bgp neighbor"
-      ]
+      ],
+      "execution_policy": "retained-unavailable",
+      "qualification_tracking": "gobfd-qj0.8.2.8.5.2.7.4"
     },
     {
       "id": "sonic-vs",
@@ -108,7 +114,9 @@
       "evidence": [
         "show bfd summary",
         "show ip bgp summary"
-      ]
+      ],
+      "execution_policy": "retained-unavailable",
+      "qualification_tracking": "gobfd-qj0.8.2.8.5.2.7.4"
     },
     {
       "id": "vyos",
@@ -135,7 +143,9 @@
       "evidence": [
         "show protocols bfd",
         "show ip bgp summary"
-      ]
+      ],
+      "execution_policy": "retained-unavailable",
+      "qualification_tracking": "gobfd-qj0.8.2.8.5.2.7.4"
     },
     {
       "id": "frr",
@@ -163,7 +173,9 @@
       "build": {
         "context": "test/interop/frr",
         "dockerfile": "Containerfile"
-      }
+      },
+      "execution_policy": "owned-receipt-required",
+      "qualification_tracking": "gobfd-qj0.8.2.8.5.2.7.3"
     }
   ]
 }

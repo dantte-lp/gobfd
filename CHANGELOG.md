@@ -351,6 +351,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Keep five Containerlab NOS profiles as `retained-unavailable` with explicit
+  qualification tracking, independently of historical primary/deferred roles
+  and cached images. Share strict profile loading across bootstrap, native
+  discovery and E2E artifacts; retain only the owned FRR IPv4/IPv6 execution
+  baseline and two-node topology. Reject archive/ISO preparation before external
+  commands and remove the unused preparation implementation. Preserve full
+  collision inventory, historical exact-owned cleanup and the race/CGO test
+  command; native FRR acceptance and the compiler/engine/socket gate remain open.
+
 - Build the Containerlab FRR peer from the shared Debian recipe and retain
   separate immutable GoBFD/FRR image identities in schema-3 receipts. Guard
   network ownership and partial-deployment cleanup; retain discovery containers

@@ -12,6 +12,8 @@ import (
 	"sync"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/dantte-lp/gobfd/test/internal/vendorprofiles"
 )
 
 var errInvalidBootstrapOptions = errors.New("invalid containerlab bootstrap options")
@@ -30,6 +32,15 @@ type pullResult struct {
 func Run(ctx context.Context, options Options, runner Runner) error {
 	if err := validateOptions(options, runner); err != nil {
 		return err
+	}
+	if !options.Down {
+		if _, err := vendorprofiles.Load(options.ProjectRoot); err != nil {
+			return fmt.Errorf("load vendor execution policy: %w", err)
+		}
+		if options.Archives != (VendorArchives{}) || options.VyOSISO != "" ||
+			(options.VyOSVersion != "" && options.VyOSVersion != "latest") {
+			return fmt.Errorf("NOS archive and ISO preparation remains unqualified: %w", vendorprofiles.ErrUnavailable)
+		}
 	}
 	if options.DryRun {
 		return runLocked(ctx, options, runner)
@@ -57,9 +68,8 @@ func runLocked(ctx context.Context, options Options, runner Runner) error {
 	if err := runPreflight(ctx, options, runner); err != nil {
 		return err
 	}
-	images := publicImages(options.Tags)
+	images := publicImages()
 	failures := pullImages(ctx, options, runner, images)
-	failures = append(failures, runVendorPhases(ctx, options, runner, images)...)
 	if len(failures) != 0 {
 		return fmt.Errorf("%w: %s", ErrBootstrapFailed, strings.Join(failures, ", "))
 	}
@@ -67,7 +77,9 @@ func runLocked(ctx context.Context, options Options, runner Runner) error {
 	if err != nil {
 		return fmt.Errorf("%w: prepare owned application images: %w", ErrBootstrapFailed, err)
 	}
-	inspectInventory(ctx, options, runner, receipt.FRR.Reference, receipt.Image.Reference)
+	if err := inspectInventory(ctx, options, runner, receipt.FRR.Reference, receipt.Image.Reference); err != nil {
+		return err
+	}
 	if err := runTopology(ctx, options, runner, receipt.Image.Reference); err != nil {
 		return fmt.Errorf("%w: deploy/test: %w", ErrBootstrapFailed, err)
 	}
@@ -166,11 +178,8 @@ func runPreflight(ctx context.Context, options Options, runner Runner) error {
 	return nil
 }
 
-func publicImages(tags ImageTags) []imageReference {
+func publicImages() []imageReference {
 	return []imageReference{
-		{name: vendorNokia, reference: "ghcr.io/nokia/srlinux:" + tags.Nokia},
-		{name: vendorSONiC, reference: "docker.io/netreplica/docker-sonic-vs:" + tags.Sonic},
-		{name: "vyos", reference: "docker.io/muruu1/vyos:" + tags.VyOS},
 		{
 			name: "golang",
 			reference: "docker.io/library/golang:1.27.3-trixie@sha256:" +
@@ -281,38 +290,27 @@ func imageExists(ctx context.Context, options Options, runner Runner, reference 
 	}
 }
 
-func runVendorPhases(ctx context.Context, options Options, runner Runner, images []imageReference) []string {
-	failures := make([]string, 0, 3)
-	if err := prepareVyOS(ctx, options, runner, images[2].reference); err != nil {
-		failures = append(failures, "vyos")
-	}
-	if options.Archives.Arista != "" {
-		if err := importArista(ctx, options, runner); err != nil {
-			failures = append(failures, "arista")
-		}
-	}
-	if options.Archives.Cisco != "" {
-		if err := importCisco(ctx, options, runner); err != nil {
-			failures = append(failures, "cisco")
-		}
-	}
-	return failures
-}
-
 func inspectInventory(
 	ctx context.Context,
 	options Options,
 	runner Runner,
 	frrReference string,
 	gobfdReference string,
-) {
+) error {
+	policy, err := vendorprofiles.Load(options.ProjectRoot)
+	if err != nil {
+		return fmt.Errorf("load vendor inventory policy: %w", err)
+	}
+	if options.Logger != nil {
+		for _, profile := range policy.Profiles {
+			if !policy.AllowsNode(profile.TopologyNode) {
+				options.Logger.InfoContext(ctx, "vendor profile retained", "name", profile.ID,
+					"status", profile.ExecutionPolicy, "qualification_tracking", profile.QualificationTracking)
+			}
+		}
+	}
 	images := []imageReference{
-		{name: vendorNokia, reference: "ghcr.io/nokia/srlinux:" + options.Tags.Nokia},
-		{name: vendorSONiC, reference: "docker.io/netreplica/docker-sonic-vs:" + options.Tags.Sonic},
-		{name: "vyos", reference: "vyos:latest"},
 		{name: "frr", reference: frrReference},
-		{name: "arista", reference: options.Tags.Arista},
-		{name: "cisco", reference: options.Tags.Cisco},
 	}
 	if gobfdReference != "" {
 		images = append(images, imageReference{name: "gobfd", reference: gobfdReference})
@@ -345,6 +343,7 @@ func inspectInventory(
 		}
 		options.Logger.InfoContext(ctx, "image inventory", "name", image.name, "reference", image.reference, "status", status)
 	}
+	return nil
 }
 
 func runCommand(ctx context.Context, runner Runner, command Command) error {

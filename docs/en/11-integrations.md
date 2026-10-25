@@ -522,7 +522,14 @@ Reference: [tshark.dev](https://tshark.dev/) — tshark documentation and tutori
 | **Interop: Base** | 172.20.0.0/24 | gobfd, frr, bird3, holo, holo-config, thoro, tshark | — |
 | **Interop: BGP+BFD** | 172.21.0.0/24 | gobfd, gobgp, frr, bird3, exabgp, gobfd-sidecar | — |
 | **Interop: RFC** | 172.22.0.0/24 | gobfd-rfc, gobfd-rfc9384, gobgp-rfc, frr-rfc, frr-rfc-bgp, frr-rfc-unsolicited, tshark-rfc | — |
-| **Interop: Vendor** | 10.0.x.0/30 | gobfd, gobgp, nokia, arista, frr, sonic, vyos; cisco deferred | — |
+| **Interop: Vendor** | 10.0.6.0/30; fd00:0:6::/127 | Owned gobfd, gobgp, frr only; native acceptance pending | — |
+
+The Containerlab source workflow retains Arista, Nokia, Cisco, SONiC and VyOS
+profiles as `retained-unavailable` under `gobfd-qj0.8.2.8.5.2.7.4`.
+Their metadata and cached images do not authorize pulls, preparation or
+execution. The FRR baseline separately requires its owned receipt and native
+acceptance under `gobfd-qj0.8.2.8.5.2.7.3`; the compiler/engine/socket gate is
+`gobfd-qj0.8.2.8.5.2.7.3.4`.
 
 The RFC topology also includes the independent `echo-reflector`. Its subnet
 overlaps the BGP fast-failover example; do not start both networks concurrently

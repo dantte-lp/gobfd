@@ -12,7 +12,8 @@
 //
 // Primary vendors: Arista cEOS, Nokia SR Linux, SONiC-VS, VyOS.
 // Baseline vendor: FRRouting. Deferred vendor: Cisco XRd.
-// Tests are skipped for vendors whose container images are not available.
+// Only manifest-approved profiles are executable; other definitions retain provenance.
+// Allowed profiles are skipped when their containers are not available.
 //
 // Container management uses the Podman REST API via unix socket
 // (/run/podman/podman.sock).
@@ -28,11 +29,16 @@ package interop_clab_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dantte-lp/gobfd/test/internal/vendorprofiles"
 )
 
 // =========================================================================
@@ -67,7 +73,17 @@ type vendorPeer struct {
 	upMatch   string   // Substring in show output indicating BFD Up.
 }
 
-func vendorPeers() []vendorPeer {
+func vendorPeers() ([]vendorPeer, error) {
+	// Precompiled suites must retain test/interop-clab as their working directory.
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		return nil, fmt.Errorf("resolve vendor manifest repository root: %w", err)
+	}
+	manifest, err := vendorprofiles.Load(root)
+	if err != nil {
+		return nil, fmt.Errorf("load native vendor execution policy: %w", err)
+	}
+
 	peers := []vendorPeer{
 		{
 			name:      "arista",
@@ -186,21 +202,39 @@ func vendorPeers() []vendorPeer {
 	for _, peer := range peers {
 		expected := fmt.Sprintf("clab-%s-%s", labName, peer.baseName)
 		if peer.container != expected {
-			panic(fmt.Sprintf("vendor %s container name mismatch: %s != %s", peer.name, peer.container, expected))
+			return nil, fmt.Errorf("vendor %s container name mismatch: %s != %s", peer.name, peer.container, expected)
 		}
 	}
 
-	return peers
+	peers = slices.DeleteFunc(peers, func(peer vendorPeer) bool {
+		return !manifest.AllowsNode(peer.baseName)
+	})
+	if len(peers) == 0 {
+		return nil, errors.New("native vendor execution policy allows no peers")
+	}
+	return peers, nil
 }
 
 func TestMain(m *testing.M) {
-	_ = vendorPeers()
+	if _, err := vendorPeers(); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "native vendor policy: %v\n", err)
+		os.Exit(2)
+	}
 	os.Exit(m.Run())
 }
 
 // =========================================================================
 // Helpers
 // =========================================================================
+
+func executableVendorPeers(t *testing.T) []vendorPeer {
+	t.Helper()
+	peers, err := vendorPeers()
+	if err != nil {
+		t.Fatalf("load executable vendor peers: %v", err)
+	}
+	return peers
+}
 
 // vendorAvailable checks if a vendor container is running.
 func vendorAvailable(ctx context.Context, v vendorPeer) bool {
@@ -322,7 +356,7 @@ func resetGoBGPNeighbor(ctx context.Context, t *testing.T, v vendorPeer) {
 
 	// Collect all peers sharing the same container (IPv4 + IPv6 siblings).
 	var siblings []vendorPeer
-	for _, peer := range vendorPeers() {
+	for _, peer := range executableVendorPeers(t) {
 		if peer.container == v.container {
 			siblings = append(siblings, peer)
 		}
@@ -377,7 +411,7 @@ func dumpDebugInfo(t *testing.T, v vendorPeer) {
 func TestVendorBFD_SessionEstablish(t *testing.T) {
 	ctx := t.Context()
 
-	for _, v := range vendorPeers() {
+	for _, v := range executableVendorPeers(t) {
 		t.Run(v.name, func(t *testing.T) {
 			if !vendorAvailable(ctx, v) {
 				t.Skipf("vendor %s container not available (image not installed)", v.name)
@@ -413,7 +447,7 @@ func TestVendorBFD_SessionEstablish(t *testing.T) {
 func TestVendorBFD_FailureDetection(t *testing.T) {
 	ctx := t.Context()
 
-	for _, v := range vendorPeers() {
+	for _, v := range executableVendorPeers(t) {
 		t.Run(v.name, func(t *testing.T) {
 			if !vendorAvailable(ctx, v) {
 				t.Skipf("vendor %s container not available", v.name)
@@ -562,7 +596,7 @@ func TestVendorBFD_SessionIndependence(t *testing.T) {
 
 	// Collect available vendors.
 	var available []vendorPeer
-	for _, v := range vendorPeers() {
+	for _, v := range executableVendorPeers(t) {
 		if vendorAvailable(ctx, v) {
 			available = append(available, v)
 		}
@@ -648,7 +682,7 @@ func TestVendorBFD_SessionIndependence(t *testing.T) {
 func TestVendorBFD_TimerNegotiation(t *testing.T) {
 	ctx := t.Context()
 
-	for _, v := range vendorPeers() {
+	for _, v := range executableVendorPeers(t) {
 		t.Run(v.name, func(t *testing.T) {
 			if !vendorAvailable(ctx, v) {
 				t.Skipf("vendor %s container not available", v.name)
@@ -704,7 +738,7 @@ func TestVendorBFD_TimerNegotiation(t *testing.T) {
 func TestVendorBFD_DetectionTiming(t *testing.T) {
 	ctx := t.Context()
 
-	for _, v := range vendorPeers() {
+	for _, v := range executableVendorPeers(t) {
 		t.Run(v.name, func(t *testing.T) {
 			if !vendorAvailable(ctx, v) {
 				t.Skipf("vendor %s container not available", v.name)
@@ -786,7 +820,7 @@ func TestVendorBFD_AllAvailable(t *testing.T) {
 	ctx := t.Context()
 
 	availableCount := 0
-	for _, v := range vendorPeers() {
+	for _, v := range executableVendorPeers(t) {
 		if vendorAvailable(ctx, v) {
 			availableCount++
 			t.Logf("vendor %s: available (container %s)", v.name, v.container)
@@ -799,10 +833,10 @@ func TestVendorBFD_AllAvailable(t *testing.T) {
 		t.Fatal("no vendor containers available — deploy containerlab topology first")
 	}
 
-	t.Logf("%d/%d vendor containers available", availableCount, len(vendorPeers()))
+	t.Logf("%d/%d vendor containers available", availableCount, len(executableVendorPeers(t)))
 
 	// Wait for all available BFD sessions to establish.
-	for _, v := range vendorPeers() {
+	for _, v := range executableVendorPeers(t) {
 		if !vendorAvailable(ctx, v) {
 			continue
 		}
