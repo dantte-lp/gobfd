@@ -166,7 +166,7 @@ func runPreflight(ctx context.Context, options Options, runner Runner) error {
 	commands := []Command{
 		{
 			Executable: executablePodman,
-			Arguments:  []string{"version", "--format", "{{.Client.Version}}"},
+			Arguments:  []string{"version", networkFormatOption, "{{.Client.Version}}"},
 			DryRun:     options.DryRun,
 		},
 	}
@@ -181,14 +181,12 @@ func runPreflight(ctx context.Context, options Options, runner Runner) error {
 func publicImages() []imageReference {
 	return []imageReference{
 		{
-			name: "golang",
-			reference: "docker.io/library/golang:1.27.3-trixie@sha256:" +
-				"604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c",
+			name:      "golang",
+			reference: testCompilerImage,
 		},
 		{
-			name: "debian",
-			reference: "docker.io/library/debian:trixie-slim@sha256:" +
-				"a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f",
+			name:      "debian",
+			reference: testRuntimeImage,
 		},
 	}
 }

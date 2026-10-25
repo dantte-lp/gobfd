@@ -8,7 +8,9 @@ import (
 func TestVendorTestsEnableRaceWithCGO(t *testing.T) {
 	t.Parallel()
 	runner := &recordingRunner{}
-	if err := runVendorTests(t.Context(), DefaultOptions(t.TempDir()), runner); err != nil {
+	options := DefaultOptions(t.TempDir())
+	options.DryRun = true
+	if err := runVendorTests(t.Context(), options, runner); err != nil {
 		t.Fatal(err)
 	}
 	for _, command := range runner.commands {

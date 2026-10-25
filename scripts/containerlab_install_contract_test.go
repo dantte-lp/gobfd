@@ -43,14 +43,8 @@ func TestContainerlabBootstrapOwnedOrchestrationUsesGo(t *testing.T) {
 	}
 
 	makefile := readContractFile(t, "../Makefile")
-	for _, required := range []string{
-		"interop-clab-bootstrap:",
-		"go run ./test/cmd/clabbootstrap",
-	} {
-		if !strings.Contains(makefile, required) {
-			t.Errorf("Makefile lacks bootstrap split contract %q", required)
-		}
-	}
+	// TestMakeClabTargetsUseIsolatedColdController executes the actual Make targets;
+	// keep this contract focused on source retention and the removed Python entrypoint.
 	if strings.Contains(makefile, "test/interop-clab/bootstrap.py") {
 		t.Error("Makefile still references the legacy Python bootstrap")
 	}

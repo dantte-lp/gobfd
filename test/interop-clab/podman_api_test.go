@@ -10,12 +10,20 @@ import (
 )
 
 func containerExec(ctx context.Context, container string, command ...string) (string, error) {
+	result, err := containerExecResult(ctx, container, command...)
+	return result.Stdout + result.Stderr, err
+}
+
+func containerExecResult(ctx context.Context, container string, command ...string) (podmanapi.ExecResult, error) {
 	client, err := podmanapi.NewClientFromEnvironment()
 	if err != nil {
-		return "", err
+		return podmanapi.ExecResult{}, fmt.Errorf("create podman exec client: %w", err)
 	}
 	result, err := client.Exec(ctx, container, command)
-	return result.Stdout + result.Stderr, err
+	if err != nil {
+		return result, fmt.Errorf("exec in container %s: %w", container, err)
+	}
+	return result, nil
 }
 
 func containerExists(ctx context.Context, container string) bool {

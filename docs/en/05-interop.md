@@ -756,15 +756,35 @@ digest-pinned Debian trixie; retained NOS metadata is not an OS-policy waiver.
 The source workflow below is FRR-only. Its native lifecycle acceptance and
 the compiler/engine/socket gate `gobfd-qj0.8.2.8.5.2.7.3.4` remain separate;
 source commands and contract tests do not establish a passed native run.
-Use the qualified pinned compiler and intended engine/socket, without a
-legacy compiler or socket substitution.
+Use the pinned compiler and intended engine/socket. The source checks below
+do not establish native compiler/runtime or FRR acceptance.
 
+Before preparing a test run, bootstrap loads the private topology receipt and
+selects its API client once. It requires both full container IDs and owner/run
+labels to match the original receipt through the CLI and selected API. The
+runtime entry repeats these checks after compilation, using the same receipt
+and client. A changed environment or on-disk receipt does not select another
+API client or ownership baseline. Each check phase uses a 30-second context;
+malformed, duplicate or invalid-UTF-8 JSON, missing fields and API failures
+reject the phase before its compiler/runtime container is created. Source
+regressions cover these guards under `gobfd-qj0.8.2.8.5.2.7.3.4.4`; native FRR
+acceptance remains open.
+A read-only socket mount still grants engine authority. These checks do not
+make later external Podman operations atomic.
+
+- Linux on native amd64 or arm64, GNU Make/coreutils and util-linux `flock`;
+  host Go and a running development container are not required
 - **Podman** with socket API active (`/run/podman/podman.sock`)
 - **containerlab** exactly 0.82.0 (enforced by `test/internal/clabbootstrap/orchestration.go`)
 - Application container capabilities: `NET_ADMIN`, `NET_RAW`; this FRR fixture
   also uses `SYS_ADMIN`
 - Both application images are built by bootstrap; five retained NOS profiles
   remain unavailable even when images are cached
+- Preload the exact SDK and Debian runtime image references declared in
+  [`test_compiler_source.go`](../../test/internal/clabbootstrap/test_compiler_source.go).
+  Controller and test containers use `--pull=never`; the cold controller
+  compiler additionally needs Go module downloads over its
+  bridge network. It receives no engine socket.
 
 Use the [official v0.82.0 archives](https://github.com/srl-labs/containerlab/releases/tag/v0.82.0)
 and verify their SHA256 against the [published checksums](https://github.com/srl-labs/containerlab/releases/download/v0.82.0/checksums.txt):
@@ -781,29 +801,31 @@ post-destroy absence checks remain required.
 
 ### Lab Preparation (Go Bootstrap)
 
-The Go bootstrap reads the shared policy before external commands. It prepares
+The Go controller reads the shared policy before application-image or topology
+commands. Make first compiles that controller in the pinned SDK, then runs
+the verified native binary. It prepares
 only the owned GoBFD/GoBGP and FRR images, using bounded application-base pulls
 and builds. The former vendor archive/ISO preparation implementation is removed;
 its historical source remains in Git.
 
 ```bash
-# Source workflow: prepare owned GoBFD/GoBGP and FRR only
-go run ./test/cmd/clabbootstrap -v
+# Prepare owned GoBFD/GoBGP and FRR only
+make interop-clab-bootstrap ARGS=-v
 
 # Prepare and deploy the FRR-only topology
-go run ./test/cmd/clabbootstrap --deploy
+make interop-clab-up
 
 # Prepare, run the FRR suite, and clean owned resources
-go run ./test/cmd/clabbootstrap --test
+make interop-clab
 
-# Dry run (show what would be done)
-go run ./test/cmd/clabbootstrap --dry-run
+# Show controller actions after a real isolated controller build
+make interop-clab-bootstrap ARGS=--dry-run
 ```
 
 The command handles:
 
 - **Policy checks**: exact-checkout manifest validation and rejection of NOS
-  archive/ISO inputs or a nondefault VyOS version before external commands
+  archive/ISO inputs or a nondefault VyOS version before application commands
 - **Preflight checks**: exact Containerlab version and Podman availability
 - **Parallel image pulls**: pinned application build dependencies only
 - **GoBFD image build**: multi-stage Containerfile with GoBGP sidecar, using a
@@ -832,6 +854,16 @@ Run `make interop-clab-bootstrap ARGS=--help` for all options. The bootstrap
 runner retains its fixed command allowlist; there is no vendor preparation
 fallback.
 
+All five Make entrypoints build a fresh controller; `--help`, `--dry-run` and
+`--down` also perform this build. Compilation has no engine socket, uses a
+private source snapshot and checks native Linux ABI/build metadata before
+execution. Compiler failure, OOM or unexpected process state prevents execution;
+an older binary is never a fallback. If cleanup after an interruption cannot
+complete, private intent/identity state remains for the next entrypoint to
+recover. The empty private
+`controller-build.lock` remains in `test/interop-clab/gobfd/.runtime/` to keep
+one lock inode across invocations; it is not an abandoned build directory.
+
 ### Running Vendor Tests
 
 ```bash
@@ -840,7 +872,7 @@ make interop-clab
 
 # Step by step
 make interop-clab-up     # Build + deploy topology
-make interop-clab-bootstrap ARGS=--test-only  # Revalidate identities, then test
+make interop-clab-test   # Revalidate identities, then run the race-enabled payload
 make interop-clab-down   # Destroy owned containers, links, network and both images
 
 # Prepare only, then either consume or remove both staged owned images
@@ -887,26 +919,55 @@ Topology cleanup also rejects unrecorded containers in that fixed lab namespace
 before any destroy or image removal and retains the receipt for recovery.
 Image-only staged cleanup does not select or destroy a topology.
 
-The guarded bootstrap test path forces `CGO_ENABLED=1` and `go test -race`.
-The direct `make interop-clab-test` target bypasses that receipt validation
-and omits `-race`; it is not the guarded qualification path above. Both suite
-entrypoints still enforce the retained-NOS execution policy.
+`make interop-clab-test` selects the same guarded `--test-only` path. It checks
+the deployed identities before and after compilation. A socket-free,
+network-disabled SDK compiles the frozen suite with `CGO_ENABLED=1` and
+`go test -c -race`, plus a static `test2json` converter. The SDK stops before
+the Debian runtime starts; that runtime receives the exact hashed artifacts
+and the selected Unix engine socket, with no Go compiler. The socket grants
+engine authority even when mounted read-only; it is not a read-only API.
+See [Podman API security](https://docs.podman.io/en/latest/markdown/podman-system-service.1.html#security).
+
+The test journal binds source, build metadata, hashes and exact owned container
+IDs. Failed cleanup retains it for `--down`; successful cleanup removes the
+test containers, private snapshot and journal. A private
+`test-result-<run-id>.json` retains stdout, stderr and the result in
+`test/interop-clab/gobfd/.runtime/`. Neither path removes shared SDK/runtime images.
+Container limits are 2 CPUs, 2 GiB, no additional swap and 512 PIDs; the native
+host controller has a timeout but no corresponding hard memory cap.
+
+Success requires package PASS and ten named PASS results: IPv4/IPv6
+establishment, failure detection, timer negotiation and detection timing, plus
+packet format and all-available checks. Any failure or unexpected skip fails
+the run; only `TestVendorBFD_SessionIndependence` may skip for the FRR-only
+profile. Verdict completeness does not prove the underlying assertions or
+native qualification.
 
 ### FRR Scenario Contract
 
-These are configured scenario checks, not a recorded native qualification.
-The packet-format check captures traffic on the central GoBFD container; it
-does not independently qualify every IPv4/IPv6 wire requirement. The
+These are implemented scenario assertions, not a recorded native qualification.
+The packet-format check captures twenty complete Ethernet PCAP records on
+the central GoBFD container's FRR link. Every record must match an expected
+IPv4/IPv6 tuple, BFD version 1, TTL/Hop Limit 255, UDP destination 3784 and a
+stable source port in 49152–65535; both families must occur. Capture, framing
+or command failure fails the test. Successful output retains `FRR_PCAP_HEX`
+for recovery of the bounded raw capture from the private result receipt.
+
+Timer checks parse exact GoBFD and FRR JSON fields and require unique matching
+peers, Up states, nominal 300 ms intervals, multipliers 3 and a 900 ms detection
+time. FRR's jittered actual transmit interval is not a nominal timer. These
+independent parser fixtures pass locally; real command execution and the full
+native FRR run remain open under `gobfd-qj0.8.2.8.5.2.7.3.5`. The
 cross-vendor independence test requires two vendor groups and skips in the
 FRR-only baseline.
 
 | Test | RFC Section | Description |
 |---|---|---|
 | Session establishment (v4+v6) | 5880 Section 6.8.6 | Three-way handshake reaches Up state |
-| Failure detection (v4+v6) | 5880 Section 6.8.4 | Detection within DetectMult x interval |
-| Packet capture | 5880 Section 4.1, 5881 Sections 4-5 | Central capture with a UDP 3784 check; no full family-specific acceptance claim |
-| Timer negotiation (v4+v6) | 5880 Section 6.8.2 | Negotiated TX = max(DesiredMinTx, RemoteMinRx) |
-| Detection timing (v4+v6) | 5880 Section 6.8.4 | Detection time ~900ms (3 x 300ms) |
+| Failure detection (v4+v6) | 5880 Section 6.8.4 | Down after pausing the peer, followed by recovery; no exact detection-time assertion |
+| Packet capture | 5880 Section 4.1, 5881 Sections 4-5 | Twenty complete dual-stack frames; required tuple, version, hop limit and port assertions |
+| Timer negotiation (v4+v6) | 5880 Section 6.8.2 | Typed JSON verifies nominal/negotiated 300 ms intervals and 900 ms detection |
+| Detection timing (v4+v6) | 5880 Section 6.8.4 | Nominal 900ms (3 x 300ms); the test accepts up to 5s |
 | Session independence | 5880 Section 6.8.1 | Retained multi-group scenario; skipped with FRR alone |
 
 ### Vendor-Specific Notes

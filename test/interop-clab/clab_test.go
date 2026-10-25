@@ -24,7 +24,7 @@
 //
 // Run with:
 //
-//	go test -tags interop_clab -v -count=1 -timeout 600s ./test/interop-clab/
+//	make interop-clab-test
 package interop_clab_test
 
 import (
@@ -528,63 +528,27 @@ func TestVendorBFD_FailureDetection(t *testing.T) {
 // =========================================================================
 
 func TestVendorBFD_RFC5880_PacketFormat(t *testing.T) {
-	ctx := t.Context()
-
-	// Capture BFD packets on the GoBFD container for a short period.
-	// tcpdump -c 20: capture 20 packets then exit.
-	captureCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	for _, peer := range executableVendorPeers(t) {
+		ensureBFDUp(t.Context(), t, peer)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
-	output, err := containerExec(captureCtx, gobfdContainer,
-		"tcpdump", "-c", "20", "-nn", "-v",
-		"-i", "any", "udp port 3784",
+	capture, err := containerExecResult(ctx, gobfdContainer,
+		"timeout", "--signal=TERM", "--kill-after=2s", "25s",
+		"tcpdump", "-i", "eth6", "-s", "256", "-U", "-c", "20", "-w", "-",
+		"udp and ((src host 10.0.6.1 and dst host 10.0.6.2) or "+
+			"(src host fd00:0:6:: and dst host fd00:0:6::1))",
 	)
-	if err != nil && !strings.Contains(err.Error(), "exited with code") {
-		t.Fatalf("tcpdump on gobfd: %v", err)
+	if err != nil {
+		t.Fatalf("capture FRR control packets: %v", err)
 	}
-
-	if output == "" {
-		t.Fatal("no BFD packets captured on gobfd container")
+	if err := validateFRRWireCapture([]byte(capture.Stdout)); err != nil {
+		t.Fatalf("validate RFC 5880/5881 FRR capture: %v; tcpdump stderr: %s", err, capture.Stderr)
 	}
-
-	t.Logf("captured BFD packets:\n%s", output)
-
-	// RFC 5881 §4: BFD Control packets MUST use dest port 3784.
-	if !strings.Contains(output, ".3784:") && !strings.Contains(output, ".3784 ") {
-		t.Error("RFC 5881 §4: no packets with dest port 3784 found")
-	}
-
-	// RFC 5881 §5: TTL MUST be 255 for single-hop.
-	if strings.Contains(output, "ttl 255") || strings.Contains(output, "TTL 255") {
-		t.Log("RFC 5881 §5: TTL=255 verified in captured packets")
-	}
-
-	// RFC 5880 §4.1: Version MUST be 1.
-	// tcpdump -v shows "BFDv1" in verbose output.
-	if strings.Contains(output, "BFDv1") {
-		t.Log("RFC 5880 §4.1: BFD version=1 verified")
-	}
-
-	// RFC 5881 §5: IPv6 BFD uses Hop Limit=255 (GTSM) instead of TTL.
-	if strings.Contains(output, "hlim 255") || strings.Contains(output, "hop limit 255") {
-		t.Log("RFC 5881 §5: Hop Limit=255 verified in IPv6 BFD packets")
-	}
-
-	// Verify packets come from the expected source port range.
-	// RFC 5881 §4: Source port SHOULD be in range 49152-65535.
-	// tcpdump output shows source.port format.
-	for line := range strings.SplitSeq(output, "\n") {
-		if !strings.Contains(line, ".3784:") && !strings.Contains(line, ".3784 ") {
-			continue
-		}
-		// Check that we see packets from/to our configured subnets (IPv4 and IPv6).
-		if strings.Contains(line, "10.0.") {
-			t.Logf("BFD packet on IPv4 subnet: %s", strings.TrimSpace(line))
-		}
-		if strings.Contains(line, "fd00:") {
-			t.Logf("BFD packet on IPv6 subnet: %s", strings.TrimSpace(line))
-		}
-	}
+	// Hex retains the bounded raw capture in the private test result without a writable artifact mount.
+	t.Logf("FRR_PCAP_HEX=%x", []byte(capture.Stdout))
+	t.Logf("tcpdump: %s", capture.Stderr)
 }
 
 // =========================================================================
@@ -680,53 +644,36 @@ func TestVendorBFD_SessionIndependence(t *testing.T) {
 // =========================================================================
 
 func TestVendorBFD_TimerNegotiation(t *testing.T) {
-	ctx := t.Context()
-
-	for _, v := range executableVendorPeers(t) {
-		t.Run(v.name, func(t *testing.T) {
-			if !vendorAvailable(ctx, v) {
-				t.Skipf("vendor %s container not available", v.name)
+	for _, peer := range executableVendorPeers(t) {
+		t.Run(peer.name, func(t *testing.T) {
+			if !vendorAvailable(t.Context(), peer) {
+				t.Skipf("vendor %s container not available", peer.name)
 			}
-
-			t.Cleanup(func() { //nolint:contextcheck // cleanup uses own context after parent cancellation
+			t.Cleanup(func() {
 				if t.Failed() {
-					dumpDebugInfo(t, v)
+					dumpDebugInfo(t, peer)
 				}
 			})
-
-			ensureBFDUp(ctx, t, v)
-
-			// Check GoBFD side via gobfdctl.
-			gobfdOutput, err := containerExec(ctx, gobfdContainer,
-				"gobfdctl", "--addr", "localhost:50052", "session", "list")
-			if err != nil {
-				t.Logf("gobfdctl session list: %v (may not have gRPC client)", err)
-			} else {
-				t.Logf("gobfdctl sessions:\n%s", gobfdOutput)
-
-				// Verify the peer is listed and shows negotiated parameters.
-				if !strings.Contains(gobfdOutput, v.peerIP) {
-					t.Errorf("peer %s not found in gobfdctl output", v.peerIP)
+			ensureBFDUp(t.Context(), t, peer)
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+			defer cancel()
+			waitForCondition(t, peer.name+" exact FRR/GoBFD timer status", 30*time.Second, func() (bool, error) {
+				gobfd, err := containerExecResult(ctx, gobfdContainer,
+					"gobfdctl", "--addr", "localhost:50052", "--format", "json", "session", "list")
+				if err != nil {
+					return false, fmt.Errorf("query GoBFD timer status: %w", err)
 				}
-			}
-
-			// Check vendor side for timer values.
-			output, err := containerExec(ctx, v.container, v.showCmd...)
-			if err != nil {
-				t.Fatalf("exec show bfd on %s: %v", v.name, err)
-			}
-
-			// RFC 5880 §6.8.2: Negotiated TX interval = max(DesiredMinTx, RemoteMinRx).
-			// Both sides configured 300ms, so negotiated should be 300ms (300000μs).
-			// Detection time = DetectMult(3) × 300ms = 900ms.
-			t.Logf("%s BFD timers:\n%s", v.name, output)
-
-			// Verify interval values appear in output.
-			// Most vendors show 300 or 300ms or 300000 (microseconds for Nokia).
-			hasInterval := strings.Contains(output, "300") || strings.Contains(output, "300000")
-			if !hasInterval {
-				t.Errorf("could not verify 300ms interval in %s output — expected '300' or '300000'", v.name)
-			}
+				frr, err := containerExecResult(ctx, peer.container, "vtysh", "-c", "show bfd peers json")
+				if err != nil {
+					return false, fmt.Errorf("query FRR timer status: %w", err)
+				}
+				if err := validateFRRTimers(gobfd.Stdout, frr.Stdout, peer); err != nil {
+					return false, err
+				}
+				t.Logf("GoBFD_TIMER_JSON=%s", gobfd.Stdout)
+				t.Logf("FRR_TIMER_JSON=%s", frr.Stdout)
+				return true, nil
+			})
 		})
 	}
 }

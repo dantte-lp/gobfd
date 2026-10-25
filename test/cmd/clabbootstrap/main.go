@@ -9,7 +9,9 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/dantte-lp/gobfd/test/internal/clabbootstrap"
 )
@@ -17,7 +19,10 @@ import (
 var errUnexpectedArguments = errors.New("unexpected positional arguments")
 
 func main() {
-	os.Exit(run(context.Background(), os.Args[1:], os.Stderr))
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	code := run(ctx, os.Args[1:], os.Stderr)
+	stop()
+	os.Exit(code)
 }
 
 func run(ctx context.Context, arguments []string, stderr io.Writer) int {

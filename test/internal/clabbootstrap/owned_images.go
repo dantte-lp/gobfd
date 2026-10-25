@@ -267,7 +267,7 @@ func validateOwnedImageForCleanup(
 func inspectOwnedImage(ctx context.Context, runner Runner, reference, runID string) (string, error) {
 	result, err := runner.Run(ctx, Command{
 		Executable: executablePodman,
-		Arguments:  []string{"image", "inspect", "--format", inspectImageOwnershipFormat, reference},
+		Arguments:  []string{"image", podmanInspect, networkFormatOption, inspectImageOwnershipFormat, reference},
 	})
 	if err != nil {
 		return "", fmt.Errorf("inspect owned image %s: %w", reference, err)

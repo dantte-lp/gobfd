@@ -351,6 +351,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Build a fresh Containerlab controller in the pinned socket-free SDK for all
+  five Make entrypoints, including test-only and cleanup. Compile the frozen
+  race-enabled suite separately and execute its exact hashed artifacts in a
+  Debian runtime with the selected engine socket and no compiler. Retain owned
+  recovery journals and private result receipts. Recheck CLI and selected API
+  container IDs and owner/run labels against the original receipt before
+  preparation and runtime entry. Require ten named PASS results
+  and package PASS, permitting only the FRR-only independence skip. Native
+  payload/FRR and real wire/timer qualification remain pending.
+
+- Replace FRR's textual capture and substring timer checks with bounded
+  dual-stack PCAP assertions and typed GoBFD/FRR JSON status checks. Require
+  every captured frame's tuple, BFD version, hop limit and UDP ports, and exact
+  nominal timers. Preserve binary stdout separately from diagnostics, reject
+  command errors and retain raw capture evidence. Independent fixtures pass;
+  native command and full FRR qualification remain separate.
+
 - Keep five Containerlab NOS profiles as `retained-unavailable` with explicit
   qualification tracking, independently of historical primary/deferred roles
   and cached images. Share strict profile loading across bootstrap, native

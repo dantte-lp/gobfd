@@ -143,7 +143,10 @@ make int-bgp-failover-down   # Cleanup
 
 **Directory:** `deployments/integrations/haproxy-health/`
 
-Sub-second backend failure detection via BFD, integrated with HAProxy's agent-check protocol.
+BFD state drives HAProxy's agent-check protocol. The example uses nominal
+300 ms BFD intervals, Detect Mult 3 and a 1 s agent polling interval. Measure
+backend removal latency separately; these settings do not guarantee removal
+in less than one second.
 
 ### Architecture
 
@@ -530,6 +533,16 @@ Their metadata and cached images do not authorize pulls, preparation or
 execution. The FRR baseline separately requires its owned receipt and native
 acceptance under `gobfd-qj0.8.2.8.5.2.7.3`; the compiler/engine/socket gate is
 `gobfd-qj0.8.2.8.5.2.7.3.4`.
+Its five Make entrypoints build the native controller without host Go or an
+engine socket in the compiler. The race-enabled test payload compiles in a
+separate socket-free SDK and executes in Debian with the selected engine
+socket. Strict PCAP and typed timer assertions pass independent local fixtures;
+source/launcher checks do not establish native FRR acceptance. Actual wire
+and command qualification remains open under `gobfd-qj0.8.2.8.5.2.7.3.5`.
+CLI and API ownership checks reuse the original receipt and selected client
+before preparation and runtime entry. The local source regressions in
+`gobfd-qj0.8.2.8.5.2.7.3.4.4` do not close native acceptance; see the
+[Containerlab prerequisites](05-interop.md#prerequisites).
 
 The RFC topology also includes the independent `echo-reflector`. Its subnet
 overlaps the BGP fast-failover example; do not start both networks concurrently

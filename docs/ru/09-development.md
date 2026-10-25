@@ -153,11 +153,23 @@ make test-run RUN=TestFSMTransition PKG=./internal/bfd
 | `make interop-bgp-up` | Запуск топологии BGP+BFD |
 | `make interop-bgp-test` | Запуск Go-тестов BGP+BFD |
 | `make interop-bgp-down` | Остановка топологии BGP+BFD |
-| `make interop-clab-bootstrap` | Подготовка вендорных образов и привязанного к квитанции образа GoBFD (`ARGS=...`) |
-| `make interop-clab` | Полный цикл вендорных NOS-тестов (Nokia, FRR и др.) |
-| `make interop-clab-up` | Деплой вендорной NOS-топологии |
-| `make interop-clab-test` | Прямой запуск Go-тестов вендора; проверка идентификаторов: `make interop-clab-bootstrap ARGS=--test-only` |
-| `make interop-clab-down` | Удаление записанных ресурсов NOS и точного принадлежащего запуску образа GoBFD |
+| `make interop-clab-bootstrap` | Сборка изолированного контроллера и подготовка своих образов GoBFD/GoBGP и FRR (`ARGS=...`) |
+| `make interop-clab` | Сборка, развёртывание, тест с race detector и очистка своих ресурсов FRR-only топологии |
+| `make interop-clab-up` | Развёртывание своей топологии FRR |
+| `make interop-clab-test` | Защищённый `--test-only`: проверка ID развёрнутых контейнеров, компиляция без сокета, исполнение точного payload |
+| `make interop-clab-down` | Восстановление прерванных своих тестов; удаление записанной топологии и обоих точных образов приложений |
+
+Пять целей требуют Linux, GNU Make/coreutils, `flock`, Podman и заранее
+загруженные закреплённые образы, а не Go на хосте или сервис разработки Compose.
+Каждая цель сначала собирает новый нативный контроллер в SDK без сокета,
+включая справку, пробный запуск и очистку. Тестовый payload собирается отдельно
+с race detector и исполняется в Debian без компилятора. См.
+[требования и изоляцию Containerlab](05-interop.md#предварительные-требования).
+Проверки исходников не заменяют нативную квалификацию FRR и пакетов;
+пять профилей NOS остаются `retained-unavailable`.
+Идентичности CLI и выбранного API проверяются по одной исходной квитанции
+до подготовки и входа в runtime; `gobfd-qj0.8.2.8.5.2.7.3.4.4` фиксирует
+локальные регрессии исходников, а не нативную квалификацию FRR.
 
 #### Примеры интеграций
 

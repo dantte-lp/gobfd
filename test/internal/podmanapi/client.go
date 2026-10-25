@@ -483,10 +483,10 @@ func DemuxDockerStream(r io.Reader) (string, string, error) {
 	for {
 		_, readErr := io.ReadFull(r, header)
 		if readErr != nil {
-			if errors.Is(readErr, io.EOF) || errors.Is(readErr, io.ErrUnexpectedEOF) {
+			if errors.Is(readErr, io.EOF) {
 				break
 			}
-			return out.String(), errOut.String(), readErr
+			return out.String(), errOut.String(), fmt.Errorf("read docker stream header: %w", readErr)
 		}
 
 		size := int(header[4])<<24 | int(header[5])<<16 | int(header[6])<<8 | int(header[7])
@@ -504,7 +504,7 @@ func DemuxDockerStream(r io.Reader) (string, string, error) {
 
 		payload := make([]byte, size)
 		if _, readErr := io.ReadFull(r, payload); readErr != nil {
-			return out.String(), errOut.String(), readErr
+			return out.String(), errOut.String(), fmt.Errorf("read docker stream payload: %w", readErr)
 		}
 
 		switch header[0] {

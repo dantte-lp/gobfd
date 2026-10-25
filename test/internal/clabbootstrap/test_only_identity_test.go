@@ -32,8 +32,10 @@ func (runner *testOnlyIdentityRunner) Run(_ context.Context, command Command) (R
 			return Result{Stdout: id + "|" + labName + "|" + runner.runID}, nil
 		}
 		return Result{}, nil
-	case "compose":
-		runner.testInvoked = true
+	case "start":
+		if len(command.Arguments) > 1 && command.Arguments[1] == "--attach" {
+			runner.testInvoked = true
+		}
 		return Result{}, nil
 	case "container":
 		name := command.Arguments[len(command.Arguments)-1]
@@ -164,6 +166,7 @@ func TestTestOnlyValidatesLiveContainerIdentitiesBeforeEvidence(t *testing.T) {
 			runner := &testOnlyIdentityRunner{containers: test.containers, runID: runID}
 			options := DefaultOptions(root)
 			options.TestOnly = true
+			options.DryRun = true
 
 			err := runTopologyLocked(t.Context(), options, runner)
 			if test.wantErr && !errors.Is(err, errLifecycleState) && !errors.Is(err, ErrBootstrapFailed) &&

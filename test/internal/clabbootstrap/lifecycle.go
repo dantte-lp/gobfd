@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -100,10 +99,7 @@ afi-safi-name = %q
 		`{{ index .Labels "io.gobfd.interop-clab.run" }}`
 )
 
-var (
-	errLifecycleState = errors.New("invalid vendor lab lifecycle state")
-	projectSlugRE     = regexp.MustCompile(`[^a-z0-9_-]+`)
-)
+var errLifecycleState = errors.New("invalid vendor lab lifecycle state")
 
 type vendorProfile struct {
 	name      string
@@ -923,7 +919,7 @@ func waitContainerRunning(ctx context.Context, runner Runner, container string, 
 	return waitHostCommand(
 		ctx,
 		runner,
-		[]string{"inspect", "--type", "container", "--format", "{{.State.Running}}", container},
+		[]string{podmanInspect, "--type", "container", networkFormatOption, "{{.State.Running}}", container},
 		"true",
 		timeout,
 	)
@@ -942,24 +938,13 @@ func waitForBFD(ctx context.Context, options Options, runner Runner) {
 }
 
 func runVendorTests(ctx context.Context, options Options, runner Runner) error {
-	rootName := strings.ToLower(filepath.Base(options.ProjectRoot))
-	project := strings.Trim(projectSlugRE.ReplaceAllString(rootName, "-"), "-")
-	if project == "" {
-		return fmt.Errorf("derive Compose project name from %s: %w", options.ProjectRoot, errInvalidBootstrapOptions)
-	}
-	return runCommand(ctx, runner, Command{
-		Executable: executablePodman,
-		Arguments: []string{
-			"compose", "-p", project, "-f", filepath.Join(options.ProjectRoot, "deployments", "compose", "compose.dev.yml"),
-			podmanExec, "-T", "dev", "env", "CGO_ENABLED=1", "GOBFD_INTEROP_CLAB_TEST_IN_CONTAINER=1",
-			"go", "test", "-race", "-tags", "interop_clab", "-v", "-count=1", "-timeout", "600s", "./test/interop-clab/",
-		},
-		Directory: options.ProjectRoot,
-		DryRun:    options.DryRun,
-	})
+	return runIsolatedVendorTests(ctx, options, runner)
 }
 
 func destroyTopology(ctx context.Context, options Options, runner Runner) error {
+	if err := recoverTestRun(ctx, options, runner); err != nil {
+		return err
+	}
 	receipt, err := loadLifecycleReceipt(options.ProjectRoot)
 	if err != nil {
 		return err
@@ -1193,7 +1178,7 @@ func inspectContainerIdentity(ctx context.Context, runner Runner, name, runID st
 	result, err := runner.Run(ctx, Command{
 		Executable: executablePodman,
 		Arguments: []string{
-			"inspect", "--type", "container", "--format",
+			podmanInspect, "--type", "container", networkFormatOption,
 			inspectOwnershipFormat,
 			name,
 		},
@@ -1260,7 +1245,10 @@ func releaseLifecycleLock(lock *interopproject.ProjectLock) error {
 }
 
 func createLifecycleReceipt(projectRoot string, receipt lifecycleReceipt) error {
-	path := receiptPath(projectRoot)
+	return createPrivateReceipt(receiptPath(projectRoot), receipt)
+}
+
+func createPrivateReceipt(path string, receipt any) error {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("create vendor lifecycle receipt: %w", err)
@@ -1272,7 +1260,7 @@ func createLifecycleReceipt(projectRoot string, receipt lifecycleReceipt) error 
 	if writeErr := errors.Join(encodeErr, syncErr, closeErr); writeErr != nil {
 		return fmt.Errorf("write vendor lifecycle receipt: %w", writeErr)
 	}
-	directory, err := os.Open(runtimeDirectory(projectRoot))
+	directory, err := os.Open(filepath.Dir(path))
 	if err != nil {
 		return fmt.Errorf("open created receipt directory: %w", err)
 	}
@@ -1289,36 +1277,42 @@ func writeLifecycleReceipt(projectRoot string, receipt lifecycleReceipt) error {
 }
 
 func loadLifecycleReceipt(projectRoot string) (lifecycleReceipt, error) {
-	path := receiptPath(projectRoot)
-	info, err := os.Lstat(path)
-	if err != nil {
-		return lifecycleReceipt{}, fmt.Errorf("inspect vendor lifecycle receipt: %w", err)
-	}
-	if !privateReceiptFile(info) || info.Size() <= 0 || info.Size() > maxReceiptSize {
-		return lifecycleReceipt{}, fmt.Errorf("validate vendor lifecycle receipt %s: %w", path, errLifecycleState)
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return lifecycleReceipt{}, fmt.Errorf("open vendor lifecycle receipt: %w", err)
-	}
-	data, readErr := io.ReadAll(io.LimitReader(file, maxReceiptSize+1))
-	if err := errors.Join(readErr, file.Close()); err != nil {
-		return lifecycleReceipt{}, fmt.Errorf("read vendor lifecycle receipt: %w", err)
-	}
-	// v1 decoding alone accepts duplicate names and replaces invalid UTF-8.
-	if len(data) > maxReceiptSize || !jsontext.Value(data).IsValid() {
-		return lifecycleReceipt{}, fmt.Errorf("require one strict ownership JSON document: %w", errLifecycleState)
-	}
 	var receipt lifecycleReceipt
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&receipt); err != nil {
-		return lifecycleReceipt{}, fmt.Errorf("decode vendor lifecycle receipt: %w", err)
+	if err := loadPrivateReceipt(receiptPath(projectRoot), &receipt); err != nil {
+		return lifecycleReceipt{}, err
 	}
 	if !validLifecycleReceipt(receipt) {
 		return lifecycleReceipt{}, fmt.Errorf("validate vendor lifecycle receipt fields: %w", errLifecycleState)
 	}
 	return receipt, nil
+}
+
+func loadPrivateReceipt(path string, receipt any) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect private receipt: %w", err)
+	}
+	if !privateReceiptFile(info) || info.Size() <= 0 || info.Size() > maxReceiptSize {
+		return fmt.Errorf("validate private receipt %s: %w", path, errLifecycleState)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open private receipt: %w", err)
+	}
+	data, readErr := io.ReadAll(io.LimitReader(file, maxReceiptSize+1))
+	if err := errors.Join(readErr, file.Close()); err != nil {
+		return fmt.Errorf("read private receipt: %w", err)
+	}
+	// v1 decoding alone accepts duplicate names and replaces invalid UTF-8.
+	if len(data) > maxReceiptSize || !jsontext.Value(data).IsValid() {
+		return fmt.Errorf("require one strict ownership JSON document: %w", errLifecycleState)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(receipt); err != nil {
+		return fmt.Errorf("decode private receipt: %w", err)
+	}
+	return nil
 }
 
 func validLifecycleReceipt(receipt lifecycleReceipt) bool {

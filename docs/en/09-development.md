@@ -148,11 +148,23 @@ make test-run RUN=TestFSMTransition PKG=./internal/bfd
 | `make interop-bgp-up` | Start BGP+BFD topology |
 | `make interop-bgp-test` | Run BGP+BFD Go tests |
 | `make interop-bgp-down` | Stop BGP+BFD topology |
-| `make interop-clab-bootstrap` | Prepare vendor images and a receipt-owned GoBFD image (`ARGS=...`) |
-| `make interop-clab` | Full cycle vendor NOS tests (Nokia, FRR, etc.) |
-| `make interop-clab-up` | Deploy vendor NOS topology |
-| `make interop-clab-test` | Direct vendor Go tests; identity-checked path: `make interop-clab-bootstrap ARGS=--test-only` |
-| `make interop-clab-down` | Destroy recorded vendor resources and the exact owned GoBFD image |
+| `make interop-clab-bootstrap` | Build the isolated controller and prepare owned GoBFD/GoBGP and FRR images (`ARGS=...`) |
+| `make interop-clab` | Owned FRR-only build, deploy, race-enabled test and cleanup |
+| `make interop-clab-up` | Deploy the owned FRR topology |
+| `make interop-clab-test` | Guarded `--test-only`: verify deployed identities, compile without a socket, execute the exact payload |
+| `make interop-clab-down` | Recover interrupted owned test runs; destroy recorded topology and both exact application images |
+
+These five targets require Linux, GNU Make/coreutils, `flock`, Podman and the
+preloaded pinned images, not host Go or the Compose development service.
+Each target builds a fresh native controller in a socket-free SDK first,
+including help, dry-run and cleanup. The test payload compiles separately with
+race detection and runs in Debian without a compiler. See
+[Containerlab prerequisites and isolation](05-interop.md#prerequisites).
+Source checks do not replace native FRR or wire qualification; five NOS
+profiles remain `retained-unavailable`.
+CLI and selected API identities are checked against the same original receipt
+before preparation and runtime entry; `gobfd-qj0.8.2.8.5.2.7.3.4.4` records
+the local source regressions, not native FRR qualification.
 
 #### Integration Examples
 

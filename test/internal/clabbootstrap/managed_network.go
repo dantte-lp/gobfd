@@ -12,6 +12,7 @@ const (
 	networkOwnershipFields = 4
 	labelOption            = "--label"
 	networkFormatOption    = "--format"
+	podmanInspect          = "inspect"
 	networkExistsCommand   = "exists"
 )
 
@@ -136,7 +137,7 @@ func validateNetworkReference(network lifecycleNetwork, runID string) error {
 func inspectOwnedNetwork(ctx context.Context, runner Runner, name, runID string) (string, error) {
 	result, err := runner.Run(ctx, Command{
 		Executable: executablePodman,
-		Arguments:  []string{"network", "inspect", networkFormatOption, inspectNetworkOwnershipFormat, name},
+		Arguments:  []string{"network", podmanInspect, networkFormatOption, inspectNetworkOwnershipFormat, name},
 	})
 	if err != nil {
 		return "", fmt.Errorf("inspect management network: %w", err)
