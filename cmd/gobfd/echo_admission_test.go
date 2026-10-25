@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"net/http/httptest"
+	"net/http"
 	"testing"
 	"time"
 
@@ -25,8 +25,8 @@ func TestEchoPreviewDaemonDefaultFailsClosed(t *testing.T) {
 	t.Cleanup(mgr.Close)
 	srv := newGRPCServer(config.GRPCConfig{UnsafeLoopbackMutations: true}, false,
 		mgr, nil, nil, newDaemonHealthChecker(), nil, logger, nil)
-	ts := httptest.NewTestServer(t, srv.Handler)
-	client := bfdv1connect.NewEchoServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
+	baseURL := serveLoopback(t, srv)
+	client := bfdv1connect.NewEchoServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, baseURL)))
 	_, err := client.AddEchoSession(t.Context(), &bfdv1.AddEchoSessionRequest{
 		PeerAddress: "192.0.2.10", LocalAddress: "192.0.2.1",
 		TxInterval: durationpb.New(time.Second), DetectMultiplier: 3,
