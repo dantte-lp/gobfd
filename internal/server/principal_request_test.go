@@ -22,13 +22,18 @@ func TestRequirePrincipal(t *testing.T) {
 		}
 		return &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{{URIs: []*url.URL{u}}}}}
 	}
-	policy := MutationPolicy{MutatingIdentities: []string{"spiffe://gobfd.test/ops"}}
+	policy := MutationPolicy{AllowAnonymous: true, MutatingIdentities: []string{"spiffe://gobfd.test/ops"}}
 	for _, tc := range []struct {
 		name string
 		tls  *tls.ConnectionState
 		want int
 	}{
 		{"anonymous", nil, http.StatusForbidden},
+		{
+			"verified certificate without principal",
+			&tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{{}}}},
+			http.StatusForbidden,
+		},
 		{"listed identity", tlsFor("spiffe://gobfd.test/ops"), http.StatusOK},
 		{"unlisted identity", tlsFor("spiffe://gobfd.test/monitor"), http.StatusForbidden},
 		{"TLS URI cannot impersonate Unix UID", tlsFor("uid:1000"), http.StatusForbidden},

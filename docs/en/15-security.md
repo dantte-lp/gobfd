@@ -77,10 +77,11 @@ Production rules:
 API session claims belong to the caller's principal: one principal cannot
 release another's session (`PermissionDenied`, logged), and
 a nonempty `grpc.mutating_identities` makes unlisted recognized mTLS identities read-only.
-With the unsafe opt-in enabled, the current guard also admits CA-verified
-clients without URI/DNS SANs on remote TLS listeners, outside that role check.
-Keep the option `false`; the source correction is tracked as
-`gobfd-qj0.8.2.3.8`. See the [configuration limitation](03-configuration.md#grpc----connectrpc-server).
+CA-verified clients without URI/DNS SANs cannot mutate, including with the
+unsafe opt-in enabled. That opt-in requires a direct plaintext TCP connection
+with both endpoints on loopback; unknown transport proof is refused. Headers
+cannot grant permission, and local proxies remain local processes. See the
+[transport requirements](03-configuration.md#grpc----connectrpc-server).
 Control,
 Micro-BFD and Echo API claims are principal-scoped. Compatible Echo claims share
 one wire with configuration or other principals; release never removes another

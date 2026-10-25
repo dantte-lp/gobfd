@@ -13,6 +13,8 @@ import (
 
 type principalKey struct{}
 
+type loopbackTCPKey struct{}
+
 type principalKind string
 
 const (
@@ -39,6 +41,14 @@ func (p transportPrincipal) display() string {
 // connect(2) (SO_PEERCRED) as the request principal "uid:<n>". Other
 // connections carry no principal (gobfd-330).
 func ConnContext(ctx context.Context, c net.Conn) context.Context {
+	if tcp, ok := c.(*net.TCPConn); ok {
+		local, localOK := tcp.LocalAddr().(*net.TCPAddr)
+		remote, remoteOK := tcp.RemoteAddr().(*net.TCPAddr)
+		if localOK && remoteOK && local.IP.IsLoopback() && remote.IP.IsLoopback() {
+			return context.WithValue(ctx, loopbackTCPKey{}, true)
+		}
+		return ctx
+	}
 	uc, ok := c.(*net.UnixConn)
 	if !ok {
 		return ctx

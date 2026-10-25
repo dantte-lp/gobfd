@@ -1010,6 +1010,12 @@
 
 ### Безопасность
 
+- `grpc.unsafe_loopback_mutations` ограничен проверенными прямыми TCP-соединениями
+  без шифрования на loopback. TLS-клиенты без URI/DNS-принципала и запросы без
+  подтверждения транспорта не могут изменять состояние даже при включённом
+  небезопасном режиме. Доступ по Unix UID пира, распознанные роли mTLS и доступ
+  только для чтения сохраняют прежние правила.
+
 - Пакетный `gobfd.service` получил измеренный контракт песочницы:
   `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK`,
   `SystemCallFilter=@system-service` с `SystemCallErrorNumber=EPERM`,

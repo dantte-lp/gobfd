@@ -983,6 +983,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Restrict `grpc.unsafe_loopback_mutations` to verified direct plaintext
+  loopback TCP connections. TLS clients without URI/DNS principals and requests
+  without transport proof cannot mutate, including when the unsafe opt-in is
+  enabled. Unix peer-UID access, recognized mTLS roles and read-only access
+  retain their existing policies.
+
 - The packaged `gobfd.service` adds a measured sandbox contract:
   `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK`,
   `SystemCallFilter=@system-service` with `SystemCallErrorNumber=EPERM`,

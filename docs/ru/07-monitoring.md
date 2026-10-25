@@ -446,8 +446,8 @@ go tool trace -http=127.0.0.1:0 trace.out
 Health и готовность systemd не доказывают доступность пира.
 
 `gobfd.management` находится в `NOT_SERVING`, пока
-`grpc.unsafe_loopback_mutations` включён, иначе `SERVING`. Текущее ограничение
-авторизации этой опции описано в [Безопасности](15-security.md#connectrpc-api).
+`grpc.unsafe_loopback_mutations` включён, иначе `SERVING`. Требования к транспорту
+этой опции описаны в [Безопасности](15-security.md#connectrpc-api).
 При `gobgp.enabled` именованная проверка
 `gobfd.gobgp` находится в
 `NOT_SERVING` до успешного preflight GoBGP v4, а также после неудачного
