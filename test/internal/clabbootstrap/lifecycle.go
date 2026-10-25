@@ -245,7 +245,11 @@ func dryRunTopology(ctx context.Context, options Options, runner Runner, imageRe
 	if options.TestOnly {
 		return runVendorTests(ctx, options, runner)
 	}
-	profiles := defaultDryRunProfiles(options, mustFRRReference(options.ProjectRoot))
+	frrReference, err := loadFRRReference(options.ProjectRoot)
+	if err != nil {
+		return err
+	}
+	profiles := defaultDryRunProfiles(options, frrReference)
 	if err := startGoBFDContainer(ctx, options, runner, "dry-run", imageReference); err != nil {
 		return err
 	}
@@ -1387,12 +1391,4 @@ func receiptPath(projectRoot string) string {
 
 func runtimeTopologyPath(projectRoot string) string {
 	return filepath.Join(projectRoot, "test", "interop-clab", "gobfd-vendors.generated.clab.yml")
-}
-
-func mustFRRReference(projectRoot string) string {
-	reference, err := loadFRRReference(projectRoot)
-	if err != nil {
-		return "quay.io/frrouting/frr:10.7.0"
-	}
-	return reference
 }

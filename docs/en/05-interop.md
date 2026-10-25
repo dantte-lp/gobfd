@@ -798,6 +798,10 @@ The command handles:
   interoperability on GoBGP v4 is not qualified yet
 - **Inventory report**: final list of all images with ready/missing status
 
+Deployment dry runs require a readable, valid topology with a digest-pinned
+FRR image. Loading or validation errors stop topology commands; a floating FRR
+image is never substituted. Down and test-only paths keep their own receipt rules.
+
 Run `make interop-clab-bootstrap ARGS=--help` for all options. HTTPS redirects,
 archive extraction, and external image-tool argv are validated by the Go
 bootstrap boundary.
