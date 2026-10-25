@@ -31,6 +31,13 @@ release notes and exact API sources. This is a protocol reference, not a new
 Go dependency or a qualified provider image. Native HTTP avoids embedding the
 CA dependency graph; spawning the step CLI is not used.
 
+The existing certificate authenticates as a TLS client to the CA. An EKU
+restriction must permit `clientAuth`; a management server certificate used for
+renewal must also retain `serverAuth`. A server-only certificate cannot use
+this mTLS renewal path. The adapter preserves EKU and cannot add the missing
+purpose during renewal. Unrestricted leaves still face the verification rules
+below.
+
 The trust boundary requires:
 
 - Explicit HTTPS origin and explicit root certificates; no system-root,
@@ -75,6 +82,10 @@ promise rollback of an already visible replacement.
 Initial enrollment, ACME/provisioner integration, unattended scheduling,
 connection recycling and trust-root rollover require separate lifecycle
 decisions. No automatic CA discovery or root download is introduced.
+Smallstep passive revocation prevents renewal; it does not revoke an
+established GoBFD connection. GoBFD does not check CRL or OCSP on new
+handshakes either. CA renewal policy is separate from immediate API access
+removal.
 Local TLS fixtures are not actual step-ca qualification. The plan and remaining
 acceptance criteria live in Beads `gobfd-qj0.8.2.3.7`; transport provenance is
 `gobfd-qj0.8.2.3.5`.
@@ -88,6 +99,7 @@ acceptance criteria live in Beads `gobfd-qj0.8.2.3.7`; transport provenance is
 - [step-ca renewal](https://smallstep.com/docs/step-ca/renewal/)
 - [Renew API source](https://github.com/smallstep/certificates/blob/v0.30.2/api/renew.go)
 - [Response schema](https://github.com/smallstep/certificates/blob/v0.30.2/api/sign.go)
+- [CA mTLS policy](https://github.com/smallstep/certificates/blob/6e8ec61405239cf3f37b2bbf260a587b7d2e4e31/ca/ca.go#L679-L681)
 - [Release notes](https://github.com/smallstep/certificates/releases/tag/v0.30.2)
 - [Go specification](https://go.dev/ref/spec)
 - [Go 1.27 release notes](https://go.dev/doc/go1.27)

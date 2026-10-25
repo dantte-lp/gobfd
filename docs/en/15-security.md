@@ -130,6 +130,13 @@ pending in `gobfd-qj0.8.2.3.7.4`. See the
 [CLI contract](04-cli.md#certificate-renewal) and
 [`internal/stepca`](../../internal/stepca/client.go).
 
+CA renewal policy and GoBFD access control are separate. Smallstep passive
+revocation prevents renewal; it does not cancel an established GoBFD TLS
+connection. GoBFD performs no CRL or OCSP revocation check, including on a new
+handshake. Certificate renewal or CA revocation alone is therefore not an
+immediate API access-removal mechanism. See
+[ADR-0005](adr/0005-smallstep-management-certificates.md).
+
 ## Secrets
 
 RFC 5880 auth secrets may be supplied through YAML or gRPC `AddSession`.

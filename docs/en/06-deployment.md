@@ -432,8 +432,8 @@ are in [`cmd/gobfdctl/commands/root.go`](../../cmd/gobfdctl/commands/root.go).
 
 ### Management Certificate Renewal
 
-With an existing valid certificate, its matching private key and explicit
-trusted CA roots, run renewal outside the daemon:
+With an existing certificate valid for TLS client authentication, its matching
+private key and explicit trusted CA roots, run renewal outside the daemon:
 
 ```bash
 gobfdctl certificate renew \
@@ -449,6 +449,10 @@ public certificate atomically. Use a caller-owned key with mode `0400` or
 trusted parent directories that are not group- or world-writable. An
 `ErrCommitted` error reports an already replaced certificate with potentially
 uncertain durability; do not assume rollback.
+
+A management server certificate restricted to `serverAuth` cannot authenticate
+the renewal request. See the [CLI prerequisites](04-cli.md#certificate-renewal)
+before selecting the certificate profile at initial enrollment.
 
 The server reads PEM files on each new TLS handshake. Existing TLS connections
 retain their negotiated identity. `gobfdctl` and persistent bridge clients load

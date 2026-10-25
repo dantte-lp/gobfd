@@ -1132,9 +1132,9 @@ after-v1 P2 `gobfd-ebu`.
 [ADR-0006](adr/0006-session-preserving-reload-policy.md) records the accepted
 policy. Packet-policy child `gobfd-qj0.8.2.2.7.2` is closed on dev;
 P0 integration `gobfd-qj0.8.2.2.7.4` with `gobfd-qj0.8.2.2.7.4.1` and
-`gobfd-qj0.8.2.2.7.4.2` has bounded local Go qualification and remains in progress
-pending documentation checks/local integration. Mandatory P0 actual-wire gate
-`gobfd-qj0.8.2.2.7.5` remains open, including RFC 9764 peer/MTU qualification.
+`gobfd-qj0.8.2.2.7.4.2` is accepted and closed on local dev. This source
+acceptance does not close mandatory P0 actual-wire gate
+`gobfd-qj0.8.2.2.7.5`, including final RFC 9764 peer/MTU qualification.
 Coordinated key-ID rotation remains after-v1 P2 in `gobfd-khr`.
 
 The following settings require a process restart: `grpc.*`, `metrics.*`,

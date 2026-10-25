@@ -379,6 +379,13 @@ uses native mTLS `POST /renew`, a 10-second HTTP timeout and caller cancellation
 (including SIGINT/SIGTERM). It bypasses daemon RPC initialization; `--addr` and
 the management `--tls-*` flags do not configure CA access.
 
+The existing certificate must be valid for TLS client authentication to the
+CA. If its EKU extension restricts usage, it must permit `clientAuth`;
+`serverAuth` alone cannot authenticate this renewal request. A daemon
+certificate used for both serving management and renewal needs both usages.
+Renewal preserves the usage profile; it cannot add a missing usage. See the
+[Smallstep transport decision](adr/0005-smallstep-management-certificates.md).
+
 Use three distinct regular, single-link input files without final-component
 symlinks in trusted parent directories. The inputs and their immediate parent
 directories must not be group- or world-writable and must belong to root or the
