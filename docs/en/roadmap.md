@@ -4,7 +4,47 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
-## Publication boundary — 2026-10-25
+## Publication boundary — 2026-10-26
+
+The source baseline for this review is local
+`dev@6e56db641e74c09420d543c1cdb017b36230a77a`. It includes the Kubernetes
+loopback/probe correction and the Podman output-header fix. The last accepted
+bilingual review is `gobfd-qj0.8.2.8.7.2.19` at
+`28d6fd4809cb05eea017a127845d19d1cce67c09`; the current English/source and
+Russian semantic review is tracked by `gobfd-qj0.8.2.8.7.2.20`.
+
+The Containerlab compiler/runtime and strict wire/timer changes remain in an
+unmerged candidate. Its CLI and API can select different engines; topology
+identity is not yet checked through the selected API client. This P0 blocks
+candidate acceptance under `gobfd-qj0.8.2.8.5.2.7.3.4.4`. Local parser and
+Debian artifact-loader checks do not close native FRR qualification.
+
+Publication remains held. Reference-load/24h, thread-pin A/B, final wire,
+integration and security qualification remain separate gates under
+`gobfd-qj0.8.2.6`. Alpha readiness `gobfd-qj0.8.2.6.4` does not yet provide a
+prerelease path. Beads, rather than this dated projection, owns their status.
+
+| Area | Current boundary | Beads authority |
+|---|---|---|
+| Documentation | The 31-pair source and Russian translation audit is accepted locally through the Kubernetes follow-up; the current review covers later source and unmerged-candidate deltas | `gobfd-qj0.8.2.8.7.2.19`, `gobfd-qj0.8.2.8.7.2.20` |
+| Management/reload | Unsafe-loopback policy changes reject before candidate acceptance; core pending activation is accepted locally; the parent retains separate P2 interface-validation and P3 runtime-VNI work | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6`, `gobfd-qj0.8.2.2.6.5`, `gobfd-qj0.8.2.2.6.6` |
+| Sender recovery | Same-socket IPv4/IPv6 rebind and denied-privilege failure pass locally; matching named scope no longer increases packet-loop allocations after recreation | `gobfd-qj0.8.2.2.6.7` |
+| Pending qualification | Typed reason classes and active-address checks retain generation, claims and sockets; all-five periodic resource checks also cover missing monitor events; local process evidence remains separate from final release qualification | `gobfd-qj0.8.2.2.6.8`, `gobfd-qj0.8.2.2.6.8.1`, `gobfd-qj0.8.2.2.6.8.2` |
+| Echo ownership | Idempotent principal claims share a canonical wire with config and retain RX through config withdrawal; this is management policy, not returned-packet authentication | `gobfd-qj0.8.2.2.8` |
+| Smallstep | Existing-certificate renewal locally qualified against a real CA with an isolated dependency profile; enrollment, scheduling, reconnect and root rollover remain separate post-v1 lifecycle work | `gobfd-qj0.8.2.3.7`, `gobfd-qj0.8.2.3.7.4`, `gobfd-qj0.8.2.3.7.5` |
+| Containerlab | Compiler/runtime isolation and strict parser changes are unmerged; CLI/API engine binding, native FRR qualification and integration into `dev` remain open; five NOS profiles remain unavailable in that candidate | `gobfd-qj0.8.2.8.5.2.7.3.4`, `gobfd-qj0.8.2.8.5.2.7.3.4.4`, `gobfd-qj0.8.2.8.5.2.7.4` |
+| Echo preview | Declarative and API IPv4/IPv6 TX binding, UDP/3785 and lease cleanup pass local checks; API receive claims honor the requested interface; full RFC qualification remains open | `gobfd-qj0.8.2.1.19`, `gobfd-qj0.8.2.1.17` |
+| Legacy demos | HAProxy/Kubernetes CLI and pod-selector drift require source fixes and actual execution | `gobfd-qj0.8.2.8.7.1.4.1` |
+| Kubernetes API exposure | Source binds GoBGP API to loopback and uses bounded exec API probes; live-cluster probe and resource qualification remains open | `gobfd-qj0.8.2.8.7.1.4.1.1` |
+| Runtime | Bounded CPU, GC, scheduler and fixed-manifest churn fixtures exist; calibrated distributions, clock qualification and thread-pin A/B remain incomplete | `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7` |
+| Wire/integrations | Retained development slices do not replace final exact-candidate qualification | `gobfd-qj0.8.2.2.7.5.5`, `gobfd-qj0.8.2.8.5.2` |
+| Security | The unsafe mutation opt-in is restricted to verified plaintext loopback TCP; TLS clients without a recognized principal cannot mutate. Local guard/CA regressions remain separate from final candidate security evidence | `gobfd-qj0.8.4.1`, `gobfd-qj0.8.2.3.8` |
+
+Oracle Linux 10 is outside v1 OCI/lifecycle scope; generic RPM generation and
+historical v0.6 evidence remain. These status rows neither close their owners
+nor create an executable plan. Use Beads for current priorities and acceptance.
+
+## Documentation acceptance history — 2026-10-25
 
 This projection describes local `dev` implementation, not published stable
 delivery. The full 30-pair source and translation audit is accepted at
@@ -42,26 +82,6 @@ These documentation gates are separate from release qualification; later
 accepted source changes require review of the affected pages. Publication
 remains held; alpha readiness
 `gobfd-qj0.8.2.6.4` does not yet provide a prerelease path.
-
-| Area | Current boundary | Beads authority |
-|---|---|---|
-| Documentation | The 31-pair source and Russian translation audit, receipt-writer and transport-fix reviews are accepted locally; the Kubernetes and isolated compiler follow-up retains separate source boundaries | `gobfd-qj0.8.2.8.7.2.18`, `gobfd-qj0.8.2.8.7.2.19` |
-| Management/reload | Unsafe-loopback policy changes reject before candidate acceptance; core pending activation is accepted locally; the parent retains separate P2 interface-validation and P3 runtime-VNI work | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6`, `gobfd-qj0.8.2.2.6.5`, `gobfd-qj0.8.2.2.6.6` |
-| Sender recovery | Same-socket IPv4/IPv6 rebind and denied-privilege failure pass locally; matching named scope no longer increases packet-loop allocations after recreation | `gobfd-qj0.8.2.2.6.7` |
-| Pending qualification | Typed reason classes and active-address checks retain generation, claims and sockets; all-five periodic resource checks also cover missing monitor events; local process evidence remains separate from final release qualification | `gobfd-qj0.8.2.2.6.8`, `gobfd-qj0.8.2.2.6.8.1`, `gobfd-qj0.8.2.2.6.8.2` |
-| Echo ownership | Idempotent principal claims share a canonical wire with config and retain RX through config withdrawal; this is management policy, not returned-packet authentication | `gobfd-qj0.8.2.2.8` |
-| Smallstep | Existing-certificate renewal locally qualified against a real CA with an isolated dependency profile; enrollment, scheduling, reconnect and root rollover remain separate post-v1 lifecycle work | `gobfd-qj0.8.2.3.7`, `gobfd-qj0.8.2.3.7.4`, `gobfd-qj0.8.2.3.7.5` |
-| Containerlab | The unmerged FRR lifecycle and vendor-policy candidate has local source checks; compiler/runtime isolation, native FRR qualification and integration into `dev` remain open; five NOS profiles remain unavailable in that candidate | `gobfd-qj0.8.2.8.5.2.7.3`, `gobfd-qj0.8.2.8.5.2.7.3.4`, `gobfd-qj0.8.2.8.5.2.7.4` |
-| Echo preview | Declarative and API IPv4/IPv6 TX binding, UDP/3785 and lease cleanup pass local checks; API receive claims honor the requested interface; full RFC qualification remains open | `gobfd-qj0.8.2.1.19`, `gobfd-qj0.8.2.1.17` |
-| Legacy demos | HAProxy/Kubernetes CLI and pod-selector drift require source fixes and actual execution | `gobfd-qj0.8.2.8.7.1.4.1` |
-| Kubernetes API exposure | Source binds GoBGP API to loopback and uses bounded exec API probes; live-cluster probe and resource qualification remains open | `gobfd-qj0.8.2.8.7.1.4.1.1` |
-| Runtime | Bounded CPU, GC, scheduler and fixed-manifest churn fixtures exist; calibrated distributions, clock qualification and thread-pin A/B remain incomplete | `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7` |
-| Wire/integrations | Retained development slices do not replace final exact-candidate qualification | `gobfd-qj0.8.2.2.7.5.5`, `gobfd-qj0.8.2.8.5.2` |
-| Security | The unsafe mutation opt-in is restricted to verified plaintext loopback TCP; TLS clients without a recognized principal cannot mutate. Local guard/CA regressions remain separate from final candidate security evidence | `gobfd-qj0.8.4.1`, `gobfd-qj0.8.2.3.8` |
-
-Oracle Linux 10 is outside v1 OCI/lifecycle scope; generic RPM generation and
-historical v0.6 evidence remain. These status rows neither close their owners
-nor create an executable plan. Use Beads for current priorities and acceptance.
 
 The publication closeout `gobfd-qj0.8.2.8.7.2.14` is accepted at
 `d57e9ef277d477c0626d99279c83c29f668a5897`: 33 Markdown files, 31 EN/RU pairs,

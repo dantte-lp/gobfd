@@ -854,15 +854,31 @@ and omits `-race`; it is not the guarded qualification path above.
 
 ### RFC Compliance Matrix
 
-| Test | RFC Section | Description |
+This table names scenario expectations, not a complete RFC assertion set.
+The current vendor suite in this checkout has the limitations below; a passed
+test does not establish every listed packet or timing requirement.
+
+| Test | RFC Section | Scenario expectation |
 |---|---|---|
 | Session establishment (v4+v6) | 5880 Section 6.8.6 | Three-way handshake reaches Up state |
-| Failure detection (v4+v6) | 5880 Section 6.8.4 | Detection within DetectMult x interval |
+| Failure detection (v4+v6) | 5880 Section 6.8.4 | Down after pausing the peer, followed by recovery; no exact detection-time assertion |
 | Packet format (v4) | 5880 Section 4.1, 5881 Sections 4-5 | Version=1, TTL=255, port 3784 |
 | Packet format (v6) | 5880 Section 4.1, 5881 Sections 4-5 | Version=1, Hop Limit=255, port 3784 |
 | Timer negotiation (v4+v6) | 5880 Section 6.8.2 | Negotiated TX = max(DesiredMinTx, RemoteMinRx) |
-| Detection timing (v4+v6) | 5880 Section 6.8.4 | Detection time ~900ms (3 x 300ms) |
+| Detection timing (v4+v6) | 5880 Section 6.8.4 | Nominal 900ms (3 x 300ms); the test accepts up to 5s |
 | Session independence | 5880 Section 6.8.1 | Failure of one vendor doesn't affect others (grouped by baseName) |
+
+The packet test searches textual tcpdump output for port 3784. Version,
+TTL=255 and Hop Limit=255 are log-only observations; both address families
+and the source-port range are not mandatory assertions. Capture errors whose
+text contains `exited with code` are tolerated. Timer negotiation searches
+vendor output for `300` or `300000`; a failed GoBFD status command is only
+logged. These checks do not prove exact negotiated intervals, multiplier or
+detection-time fields.
+
+Strict PCAP and typed timer assertions are implemented only in the unmerged
+FRR candidate under `gobfd-qj0.8.2.8.5.2.7.3.5`. Their local parser fixtures
+do not replace native command, wire or final-candidate qualification.
 
 ### Vendor-Specific Notes
 
