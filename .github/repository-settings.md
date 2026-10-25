@@ -2,6 +2,9 @@
 
 ## Current Metadata
 
+Read-only GitHub API snapshot: 2026-10-25. These values describe repository
+settings, not the qualification or publication status of a release.
+
 | Setting | Value |
 |---|---|
 | Repository | `dantte-lp/gobfd` |
@@ -34,7 +37,7 @@
 | Conversation resolution | Not required |
 | Required status checks | All 11 exact contexts listed below on `master` and `release/v*` |
 | Strict up-to-date branches | Not required |
-| v0.6 release branch | `release/v0.6` does not yet exist |
+| v0.6 release branch | `release/v0.6` exists; snapshot tip `145d7a33571b76f234fd06ccb00798586a40b8d5` |
 | Release branch protection | Active `release-protection` ruleset (ID `21655254`) targets `refs/heads/release/v*`; deletion and non-fast-forward updates are prohibited |
 | Release tag protection | Active `release-tags` ruleset (ID `21655273`) targets `refs/tags/v*`; deletion and updates are prohibited |
 | Immutable releases | Enabled (`enabled=true`) |
@@ -96,7 +99,7 @@ The required status-check contexts are exact and case-sensitive:
 | Projects | Optional |
 | Releases | GitHub Actions release workflow only |
 | Branch naming | `feat/*`, `fix/*`, `docs/*`, `chore/*`, `ci/*`, `deps/*` |
-| Delete head branches | Enabled after merge |
+| Delete head branches | Disabled; preserve source branches, with deletion subject to separate approval |
 | Linear history | Optional; keep disabled while merge commits are allowed |
 
 ## Sources

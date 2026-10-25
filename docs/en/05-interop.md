@@ -366,7 +366,7 @@ sequenceDiagram
     participant G as GoBFD (172.20.0.10)
     participant F as FRR (172.20.0.20)
 
-    T->>G: Create session (peer=172.20.0.20)
+    T->>G: Start daemon with configured peer 172.20.0.20
     G->>F: Control(State=Down)
     F->>G: Control(State=Down)
     Note over G: Down -> Init
@@ -375,7 +375,7 @@ sequenceDiagram
     F->>G: Control(State=Up)
     Note over G: Init -> Up
     T->>G: Verify state == Up
-    T->>G: Delete session
+    T->>G: Stop daemon (SIGTERM)
     G->>F: Control(State=AdminDown)
     Note over F: Up -> Down (Diag=NeighborDown)
 ```
@@ -537,9 +537,12 @@ are retained locally in `reports/e2e/bgp-trixie-20260908/`. This does not
 qualify arm64, remaining image consumers, timer reloads or full RFC
 compliance. Debian package resolution is not snapshot-pinned; final images are
 not claimed to be bit-reproducible.
-GoBGP v3.37.0 has no fix for `GO-2026-4736`; on GoBGP v4.10.0 the strict
-runtime `govulncheck` reports no reachable finding, and the remaining
-module-level exception is described in [SECURITY.md](../../SECURITY.md).
+The recorded v0.6 risk acceptance covers GoBGP v3.37.0. On `dev`, the
+`GO-2026-4736` exception permits only module-level findings for the pinned
+GoBGP v4 module; the final candidate still requires fresh runtime and tool
+scans. The acceptance rationale and removal trigger are described in
+[SECURITY.md](../../SECURITY.md) and the
+[dependency risk register](reference/dependency-risk.md).
 Keep these peers isolated from untrusted networks; BGP functionality and SBOMs
 are not a security qualification.
 

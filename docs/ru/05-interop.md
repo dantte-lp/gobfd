@@ -359,11 +359,11 @@ make interop-capture
 
 ```mermaid
 sequenceDiagram
-    participant T as Test Runner
+    participant T as Исполнитель теста
     participant G as GoBFD (172.20.0.10)
     participant F as FRR (172.20.0.20)
 
-    T->>G: Create session (peer=172.20.0.20)
+    T->>G: Запустить демон с настроенным пиром 172.20.0.20
     G->>F: Control(State=Down)
     F->>G: Control(State=Down)
     Note over G: Down -> Init
@@ -371,8 +371,8 @@ sequenceDiagram
     Note over F: Down -> Up
     F->>G: Control(State=Up)
     Note over G: Init -> Up
-    T->>G: Verify state == Up
-    T->>G: Delete session
+    T->>G: Проверить состояние Up
+    T->>G: Остановить демон (SIGTERM)
     G->>F: Control(State=AdminDown)
     Note over F: Up -> Down (Diag=NeighborDown)
 ```
@@ -533,9 +533,12 @@ SHA-256. Узкое исключение для выполнения ExaBGP не
 Это не квалификация arm64, остальных потребителей образов, перезагрузки таймеров
 или полного соответствия RFC. Разрешение Debian-пакетов не закреплено
 снимком репозитория; побитовая воспроизводимость итоговых образов не заявляется.
-Для `GO-2026-4736` в GoBGP v3.37.0 исправления нет; с GoBGP v4.10.0 строгий
-`govulncheck` рабочего модуля не обнаруживает достижимых находок, оставшееся
-исключение на уровне модуля описано в [SECURITY.md](../../SECURITY.md).
+Записанное принятие риска v0.6 охватывает GoBGP v3.37.0. В `dev` исключение
+`GO-2026-4736` допускает только находки уровня модуля для закреплённого GoBGP v4;
+финальный кандидат по-прежнему требует свежего сканирования рабочего модуля
+и инструментов. Основание принятия риска и условие удаления описаны в
+[SECURITY.md](../../SECURITY.md) и
+[реестре рисков зависимостей](reference/dependency-risk.md).
 Изолируйте этих пиров от недоверенных сетей; функциональные BGP-тесты и SBOM
 не означают квалификацию безопасности.
 

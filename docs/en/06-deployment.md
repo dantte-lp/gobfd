@@ -444,10 +444,10 @@ gobfdctl certificate renew \
 ```
 
 The native mTLS `POST /renew` retains the key and exact SAN, replacing only the
-public certificate atomically. Use a caller-owned key with mode `0400` or
-`0600`; input files must be regular, single-link and free of symlinks, with
-trusted parent directories that are not group- or world-writable. An
-`ErrCommitted` error reports an already replaced certificate with potentially
+public certificate atomically. The key must belong to root or the calling UID
+and have mode `0400` or `0600`; input files must be regular, single-link and
+free of symlinks, with trusted parent directories that are not group- or
+world-writable. An `ErrCommitted` error reports an already replaced certificate with potentially
 uncertain durability; do not assume rollback.
 
 A management server certificate restricted to `serverAuth` cannot authenticate
