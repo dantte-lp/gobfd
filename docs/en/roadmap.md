@@ -11,22 +11,23 @@ delivery. The full 30-pair source and translation audit is accepted at
 `f88872cc44c0422844cc52d61eb8e616d26335fe` under
 `gobfd-qj0.8.2.8.7.2.9`; workload report corrections follow at
 `308ce357f2c553fe71210f7888cf422c30f44f7b` under
-`gobfd-qj0.8.2.8.7.2.10`. This source review uses
-`dev@706991db9433b13cec47e0bb8ea2549b01e948d9`, including Echo API transport,
-principal claims and sender recovery after interface recreation. Echo ownership
+`gobfd-qj0.8.2.8.7.2.10`. The complete 31-pair documentation review is accepted
+at `dev@93b8d19867edd3731f1a964d37c2badefd6c6a68`, including Echo API transport,
+principal claims and the sender recovery regression boundary. Echo ownership
 is accepted locally under `gobfd-qj0.8.2.2.8` and
-[ADR-0009](adr/0009-echo-principal-claims.md). Sender recovery remains P0:
-the native IPv6 link-local regression records 3 allocations per packet before
-recreation and 51 afterward with the cached numeric zone. Functional recovery
-does not establish its hot-path acceptance. Unmerged work is outside this
-projection. Publication remains held; alpha readiness `gobfd-qj0.8.2.6.4`
+[ADR-0009](adr/0009-echo-principal-claims.md). The sender follow-up uses verified
+socket device scope for matching named IPv6 zones: the native combined packet
+loop retains 3 allocations before and after two recreations, replacing the
+historical rise to 51. This is local fixture evidence, not whole-daemon or
+reference-load acceptance. Unrelated unmerged work is outside this projection.
+Publication remains held; alpha readiness `gobfd-qj0.8.2.6.4`
 does not yet provide a prerelease path.
 
 | Area | Current boundary | Beads authority |
 |---|---|---|
-| Documentation | The previous 31-pair audit covers shared Echo ownership; the new full review checks the named source baseline and Russian translations before publication | `gobfd-qj0.8.2.8.7.2.13` |
+| Documentation | The 31-pair source and Russian translation audit is accepted locally; the sender follow-up updates the affected paired pages | `gobfd-qj0.8.2.8.7.2.13` |
 | Management/reload | Unsafe-loopback policy changes reject before candidate acceptance; complete pending activation remains open | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6` |
-| Sender recovery | Same-socket rebind has local IPv4/IPv6 packet evidence; numeric link-local zone lookup allocation regression remains unresolved | `gobfd-qj0.8.2.2.6.7` |
+| Sender recovery | Same-socket IPv4/IPv6 rebind and denied-privilege failure pass locally; matching named scope no longer increases packet-loop allocations after recreation | `gobfd-qj0.8.2.2.6.7` |
 | Pending qualification | Whole-daemon IPv4/IPv6 activation, repeated events, permanent failure and readiness still require isolated process evidence | `gobfd-qj0.8.2.2.6.8` |
 | Echo ownership | Idempotent principal claims share a canonical wire with config and retain RX through config withdrawal; this is management policy, not returned-packet authentication | `gobfd-qj0.8.2.2.8` |
 | Smallstep | Existing-certificate renewal implemented; actual CA and lifecycle qualification incomplete | `gobfd-qj0.8.2.3.7` |

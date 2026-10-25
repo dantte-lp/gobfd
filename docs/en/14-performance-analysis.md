@@ -450,16 +450,18 @@ not cover every receive, authentication, management, lifecycle or notification
 path and does not exclude runtime pauses. Refer to the named benchmark body
 and exact toolchain receipt when claiming an allocation result.
 
-Sender recovery after interface recreation has a separate unresolved cost.
-At `706991db9433b13cec47e0bb8ea2549b01e948d9`, the IPv6 link-local native test
-records 3 allocations per packet before recreation and 51 afterward in its
-combined send/receive assertion loop. The cached numeric zone can trigger Go
-interface-table refresh on subsequent sends. These counts are fixture costs,
-not a standalone `SendPacket` benchmark or a latency distribution. The open P0
-`gobfd-qj0.8.2.2.6.7` requires both functional recovery and a bounded successful
-send path; packet delivery alone does not satisfy it. See the
-[sender recovery contract](03-configuration.md#hot-reload-sighup) and local evidence
-`reports/sender-rebind-20261025/red08-test.txt`.
+The historical numeric-zone sender recovery at
+`706991db9433b13cec47e0bb8ea2549b01e948d9` raised the native IPv6 link-local
+test's combined send/receive assertion cost from 3 to 51 allocations per
+packet. The `gobfd-qj0.8.2.2.6.7` follow-up uses verified socket device scope
+for the matching named zone. The same fixture records 3 allocations before
+recreation and 3 after each of two recreation cycles, retaining source port
+49152 and the new bound ifindex. This removes the forced numeric-zone
+interface-table refresh; it does not establish a zero-allocation standalone
+`SendPacket` benchmark, latency distribution or supported scale. See the
+[sender recovery contract](03-configuration.md#hot-reload-sighup), historical
+`reports/sender-rebind-20261025/red08-test.txt` and corrected
+`reports/sender-rebind-20261025/green03-artifacts/sender-rebind-IPv6LinkLocal.json`.
 
 ## Deployment measurement
 

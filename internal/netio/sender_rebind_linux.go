@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strconv"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -34,10 +33,13 @@ func (s *UDPSender) rebindDevice(ctx context.Context, dst *net.UDPAddr, namedZon
 	if err != nil {
 		return err
 	}
+	if index <= 0 {
+		return fmt.Errorf("rebind sender device %s: %w", s.bindDevice, unix.ENODEV)
+	}
 	if namedZone {
-		// The Go name-zone cache may still refer to the deleted interface.
-		s.deviceZone = strconv.Itoa(index)
-		dst.Zone = s.deviceZone
+		// A numeric zone forces Go interface-table refresh; the verified socket supplies scope.
+		s.deviceScope = true
+		dst.Zone = ""
 	}
 	return nil
 }

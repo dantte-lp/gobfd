@@ -35,7 +35,7 @@ type UDPSender struct {
 	dfBit           bool   // RFC 9764: Don't Fragment bit for path MTU verification
 	paddingPrepared bool   // Immutable proof of successful DF socket preparation.
 	bindDevice      string // SO_BINDTODEVICE interface name (RFC 7130 micro-BFD per-member)
-	deviceZone      string // Numeric IPv6 scope refreshed with a recreated device.
+	deviceScope     bool   // Use verified socket binding instead of a stale named IPv6 zone.
 	writeBufferSize int    // SO_SNDBUF size in bytes (0 = OS default)
 }
 
@@ -284,13 +284,13 @@ func (s *UDPSender) SendPacket(
 		s.mu.Unlock()
 		return fmt.Errorf("send to %s: %w", addr, ErrSocketClosed)
 	}
-	zone := s.deviceZone
+	deviceScope := s.deviceScope
 	s.mu.Unlock()
 
 	dst := net.UDPAddrFromAddrPort(netip.AddrPortFrom(addr, s.dstPort))
 	namedZone := addr.Zone() != "" && addr.Zone() == s.bindDevice
-	if namedZone && zone != "" {
-		dst.Zone = zone
+	if namedZone && deviceScope {
+		dst.Zone = ""
 	}
 
 	written, sendErr := s.conn.WriteToUDP(buf, dst)

@@ -980,13 +980,14 @@ create listeners, so such a source is `failed`.
 An existing device-bound UDP sender also retains its socket and source port
 through interface recreation. A zero-byte write failure with `ENODEV` or
 `ENETUNREACH` revalidates the named device, updates a stale `SO_BINDTODEVICE`
-binding and retries the datagram once. A matching named IPv6 zone is cached as
-the current numeric ifindex; numeric or unrelated zones are preserved. A
-successful first write does not enter GoBFD's rebind helper, but the cached
-numeric zone still passes through Go's UDP address conversion and zone lookup.
-The native post-rebind allocation regression remains unresolved in P0
-`gobfd-qj0.8.2.2.6.7`; this recovery is not a lookup-free or allocation-free
-send guarantee. See [`SendPacket`](../../internal/netio/sender.go) and
+binding and retries the datagram once. After verifying a positive bound ifindex,
+a zone matching the device name uses the socket's device scope instead of a
+per-datagram zone. Subsequent matching sends retain that scope, avoiding the
+forced Go interface-table refresh caused by a cached numeric zone. Explicit
+numeric and unrelated zones are preserved. Successful writes do not enter
+GoBFD's rebind helper; this is not a guarantee that `SendPacket` allocates no
+memory. Corrective task: `gobfd-qj0.8.2.2.6.7`. See
+[`SendPacket`](../../internal/netio/sender.go) and
 [`rebindDevice`](../../internal/netio/sender_rebind_linux.go).
 During recovery, missing devices, denied rebinding and canceled or closed owners remain errors;
 the sender never clears its device binding or falls back to another interface.
@@ -1224,4 +1225,4 @@ the error contains no address or interface values.
 
 ---
 
-*Reviewed against `dev` source: 2026-10-25 (`706991db9433b13cec47e0bb8ea2549b01e948d9`).*
+*Reviewed against `dev` source: 2026-10-25; baseline `93b8d19867edd3731f1a964d37c2badefd6c6a68`, with sender recovery follow-up `gobfd-qj0.8.2.2.6.7`.*

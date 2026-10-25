@@ -624,6 +624,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Avoid repeated Go interface-table refresh after device-bound IPv6 sender
+  recovery. A matching named zone uses verified socket device scope; explicit
+  numeric or unrelated zones keep their meaning, with the same socket and
+  source port retained.
+
 - Device-bound UDP senders recover from interface recreation after an
   `ENODEV`/`ENETUNREACH` write failure without replacing the socket or source
   port. Recovery refreshes matching named IPv6 scope, retries at most once and

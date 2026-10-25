@@ -117,6 +117,17 @@ func testSenderRecreation(t *testing.T, peer netip.Addr, family string, deny boo
 		received++
 	}
 	checkPacket("before")
+	measure := func() float64 {
+		t.Helper()
+		return testing.AllocsPerRun(10, func() { checkPacket("allocation-sample") })
+	}
+	baselineAllocs := 0.0
+	var packetAllocs []float64
+	if peer.Zone() != "" {
+		baselineAllocs = measure()
+		packetAllocs = make([]float64, 1, 3)
+		packetAllocs[0] = baselineAllocs
+	}
 	indexes := make([]int, 1, 3)
 	indexes[0] = first
 	for range 2 {
@@ -140,6 +151,13 @@ func testSenderRecreation(t *testing.T, peer netip.Addr, family string, deny boo
 		}
 		checkPacket("after")
 		checkPacket("after-again")
+		if peer.Zone() != "" {
+			afterAllocs := measure()
+			packetAllocs = append(packetAllocs, afterAllocs)
+			if afterAllocs > baselineAllocs {
+				t.Errorf("per-packet allocations after rebind = %g, before = %g", afterAllocs, baselineAllocs)
+			}
+		}
 	}
 	raw, rawErr := sender.SyscallConn()
 	if rawErr != nil {
@@ -157,6 +175,7 @@ func testSenderRecreation(t *testing.T, peer netip.Addr, family string, deny boo
 	}
 	writeJSONArtifact(t, "sender-rebind-"+family+".json", map[string]any{
 		"if_indexes": indexes, "source_port": sender.SrcPort(), "received_packets": received,
+		"packet_loop_allocations": packetAllocs,
 	})
 }
 
