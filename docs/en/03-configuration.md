@@ -972,6 +972,17 @@ the binding `NOT_SERVING` and is retried. At startup any listener failure,
 including an absent interface, still fails the start. Non-Linux builds cannot
 create listeners, so such a source is `failed`.
 
+An existing device-bound UDP sender also retains its socket and source port
+through interface recreation. A zero-byte write failure with `ENODEV` or
+`ENETUNREACH` revalidates the named device, updates a stale `SO_BINDTODEVICE`
+binding and retries the datagram once. A matching named IPv6 zone is cached as
+the current numeric ifindex; numeric or unrelated zones are preserved. The
+first-attempt successful write performs no new interface lookup or socket-option
+call. During recovery, missing devices, denied rebinding and canceled or closed owners remain errors;
+the sender never clears its device binding or falls back to another interface.
+This recovery requires the existing `CAP_NET_RAW` grant. It does not guarantee
+hitless delivery or prevent BFD timeout while the interface/address is absent.
+
 Overlay backends are part of the generation as well. One userspace-udp socket
 serves each tunnel kind and outer local address (VXLAN UDP 4789, Geneve UDP
 6081). Before the VXLAN or Geneve source applies, it claims the identities of

@@ -116,19 +116,23 @@ func createAddressedVeth(t *testing.T, nl *routeSocket) int {
 	if err != nil {
 		t.Fatalf("resolve %s: %v", rebindLinkA, err)
 	}
-	if err := nl.addIPv4Address(iface.Index, rebindLocal(), rebindPrefixLen); err != nil {
+	if err := nl.addIPAddress(iface.Index, rebindLocal(), rebindPrefixLen); err != nil {
 		t.Fatalf("add %s to %s: %v", rebindLocal(), rebindLinkA, err)
 	}
 	return iface.Index
 }
 
-func (s *routeSocket) addIPv4Address(index int, addr netip.Addr, prefixLen uint8) error {
+func (s *routeSocket) addIPAddress(index int, addr netip.Addr, prefixLen uint8) error {
 	body := make([]byte, unix.SizeofIfAddrmsg)
 	body[0] = unix.AF_INET
+	if addr.Is6() {
+		body[0] = unix.AF_INET6
+		body[2] = unix.IFA_F_NODAD
+	}
 	body[1] = prefixLen
 	binary.NativeEndian.PutUint32(body[4:8], uint32(index))
-	raw := addr.As4()
-	attrs := append(netlinkAttr(unix.IFA_LOCAL, raw[:], false), netlinkAttr(unix.IFA_ADDRESS, raw[:], false)...)
+	raw := addr.AsSlice()
+	attrs := append(netlinkAttr(unix.IFA_LOCAL, raw, false), netlinkAttr(unix.IFA_ADDRESS, raw, false)...)
 	return s.request(unix.RTM_NEWADDR, unix.NLM_F_CREATE|unix.NLM_F_EXCL, body, attrs)
 }
 

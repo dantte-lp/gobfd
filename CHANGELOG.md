@@ -624,6 +624,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Device-bound UDP senders recover from interface recreation after an
+  `ENODEV`/`ENETUNREACH` write failure without replacing the socket or source
+  port. Recovery refreshes matching named IPv6 scope, retries at most once and
+  preserves device isolation when the interface or rebind privilege is absent.
+
 - Echo API claims are principal-scoped and admitted identical retries reuse
   the canonical wire, discriminator and sender. Compatible config/API claims
   share the wire; deletion releases only the caller's claim and the final

@@ -35,6 +35,7 @@ type UDPSender struct {
 	dfBit           bool   // RFC 9764: Don't Fragment bit for path MTU verification
 	paddingPrepared bool   // Immutable proof of successful DF socket preparation.
 	bindDevice      string // SO_BINDTODEVICE interface name (RFC 7130 micro-BFD per-member)
+	deviceZone      string // Numeric IPv6 scope refreshed with a recreated device.
 	writeBufferSize int    // SO_SNDBUF size in bytes (0 = OS default)
 }
 
@@ -274,7 +275,7 @@ func setSenderOptsIPv6(fd int, dfBit bool) error {
 //
 // This method satisfies the bfd.PacketSender interface.
 func (s *UDPSender) SendPacket(
-	_ context.Context,
+	ctx context.Context,
 	buf []byte,
 	addr netip.Addr,
 ) error {
@@ -283,13 +284,27 @@ func (s *UDPSender) SendPacket(
 		s.mu.Unlock()
 		return fmt.Errorf("send to %s: %w", addr, ErrSocketClosed)
 	}
+	zone := s.deviceZone
 	s.mu.Unlock()
 
 	dst := net.UDPAddrFromAddrPort(netip.AddrPortFrom(addr, s.dstPort))
+	namedZone := addr.Zone() != "" && addr.Zone() == s.bindDevice
+	if namedZone && zone != "" {
+		dst.Zone = zone
+	}
 
-	if _, err := s.conn.WriteToUDP(buf, dst); err != nil {
+	written, sendErr := s.conn.WriteToUDP(buf, dst)
+	if written == 0 && sendErr != nil && s.bindDevice != "" &&
+		(errors.Is(sendErr, unix.ENODEV) || errors.Is(sendErr, unix.ENETUNREACH)) {
+		if bindErr := s.rebindDevice(ctx, dst, namedZone); bindErr != nil {
+			sendErr = errors.Join(sendErr, bindErr)
+		} else {
+			_, sendErr = s.conn.WriteToUDP(buf, dst)
+		}
+	}
+	if sendErr != nil {
 		return fmt.Errorf("send BFD packet to %s:%d: %w",
-			addr, s.dstPort, err)
+			addr, s.dstPort, sendErr)
 	}
 
 	return nil
