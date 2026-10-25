@@ -72,7 +72,7 @@ func parseOptions(projectRoot string, arguments []string, stderr io.Writer) (cla
 		&options.SkipBuild,
 		"skip-build",
 		false,
-		"consume the exact staged GoBFD image from the ownership receipt",
+		"consume the exact staged GoBFD and FRR images from the ownership receipt",
 	)
 	flags.BoolVar(&options.SkipPull, "skip-pull", false, "skip images already present")
 	flags.BoolVar(&options.Deploy, "deploy", false, "deploy the prepared vendor topology and leave it running")
@@ -82,7 +82,7 @@ func parseOptions(projectRoot string, arguments []string, stderr io.Writer) (cla
 		&options.Down,
 		"down",
 		false,
-		"remove the exact vendor topology and GoBFD image recorded by the ownership receipt",
+		"remove the owned topology and recorded GoBFD/FRR images",
 	)
 	flags.BoolVar(&options.DryRun, "dry-run", false, "show commands without executing them")
 	flags.IntVar(&options.Jobs, "jobs", options.Jobs, "maximum parallel image pulls")

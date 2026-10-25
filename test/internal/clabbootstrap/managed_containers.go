@@ -102,6 +102,9 @@ func recoverPartialTopology(ctx context.Context, options Options, runner Runner,
 	if receipt.SchemaVersion != ownedReceiptV3 || receipt.Topology == "" {
 		return nil
 	}
+	if receipt.Containers == nil {
+		receipt.Containers = make(map[string]string, len(receipt.ExpectedContainers))
+	}
 	for _, name := range receipt.ExpectedContainers {
 		if _, recorded := receipt.Containers[name]; recorded {
 			continue

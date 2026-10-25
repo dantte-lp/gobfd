@@ -388,6 +388,9 @@ func activateTopology(
 	if err := startManagedApplications(ctx, options, runner, receipt); err != nil {
 		return err
 	}
+	if err := validateDeployedNetwork(ctx, runner, *receipt); err != nil {
+		return err
+	}
 	if err := runCommand(ctx, runner, Command{
 		Executable: executableContainerlab,
 		Arguments:  []string{"deploy", "--runtime", "podman", "--topo", receipt.Topology},
@@ -950,6 +953,9 @@ func destroyTopology(ctx context.Context, options Options, runner Runner) error 
 	if err != nil {
 		return err
 	}
+	if err := recoverPartialTopology(ctx, options, runner, &receipt); err != nil {
+		return err
+	}
 	return cleanupTopology(ctx, options, runner, receipt)
 }
 
@@ -1191,7 +1197,7 @@ func inspectContainerIdentity(ctx context.Context, runner Runner, name, runID st
 	if len(fields) != 4 || fields[0] == "" {
 		return "", fmt.Errorf("decode ownership for container %s: %w", name, errLifecycleState)
 	}
-	if strict {
+	if strict || name == gobfdContainer {
 		if fields[2] != labName || fields[3] != runID {
 			return "", fmt.Errorf("application container %s is not owned by run %s: %w", name, runID, errLifecycleState)
 		}

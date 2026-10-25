@@ -9,9 +9,12 @@
 # Primary profiles: Arista cEOS, Nokia SR Linux, SONiC-VS, VyOS.
 # Baseline profile: FRR. Deferred profile: Cisco XRd.
 #
-# Usage:
-#   containerlab --runtime podman deploy -t gobfd-vendors.clab.yml
-#   containerlab --runtime podman destroy -t gobfd-vendors.clab.yml --cleanup
+# Renderer input; logical external node names require the Go lifecycle.
+# Vendor profiles retain their separate OS-policy and runtime gates.
+# Usage from the repository root:
+#   make interop-clab-up
+#   make interop-clab-bootstrap ARGS=--test-only
+#   make interop-clab-down
 
 name: gobfd-vendors
 

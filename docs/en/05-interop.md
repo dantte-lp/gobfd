@@ -691,7 +691,7 @@ make interop-rfc
 ## Vendor NOS Interoperability (Containerlab)
 
 ![Nokia](https://img.shields.io/badge/Nokia-SR_Linux-124191?style=for-the-badge)
-![FRR](https://img.shields.io/badge/FRR-10.7.0-dc3545?style=for-the-badge)
+![FRR](https://img.shields.io/badge/FRR-10.7.1-dc3545?style=for-the-badge)
 ![Arista](https://img.shields.io/badge/Arista-cEOS-2962FF?style=for-the-badge)
 ![Cisco](https://img.shields.io/badge/Cisco-XRd-049FD9?style=for-the-badge)
 ![containerlab](https://img.shields.io/badge/containerlab-0.82.0-1a73e8?style=for-the-badge)
@@ -705,7 +705,8 @@ make interop-rfc
 
 The star topology uses IPv4 /30 links and, where configured, IPv6 /127 on the
 same veth pair. RFC 3021 concerns /31 rather than these /30 links. Go-owned
-lifecycle code starts the external GoBFD container through Podman, then invokes
+lifecycle code starts external GoBFD and FRR containers by their recorded image
+IDs through Podman, then invokes
 `containerlab deploy --runtime podman` with its generated topology. Cleanup
 uses the recorded topology and identities. Containerlab is an executed
 dependency, not only a topology reference.
@@ -746,7 +747,7 @@ graph TD
 | Vendor | Image | IPv4 Subnet | IPv6 Subnet | ASN | Status | License |
 |---|---|---|---|---|---|---|
 | **Nokia SR Linux** | `ghcr.io/nokia/srlinux:25.10.2` | `10.0.2.0/30` | `fd00:0:2::/127` | 65003 | Primary, public image | Free, no registration |
-| **FRRouting** | `quay.io/frrouting/frr:10.7.0` | `10.0.6.0/30` | `fd00:0:6::/127` | 65007 | Baseline | GPL, free |
+| **FRRouting** | Run-owned `localhost/gobfd-clab-frr:<run-id>`, shared Debian FRR 10.7.1 recipe | `10.0.6.0/30` | `fd00:0:6::/127` | 65007 | Baseline; native run pending | GPL, free |
 | **Arista cEOS** | `ceos:4.36.0.1F` | `10.0.1.0/30` | `fd00:0:1::/127` | 65002 | Primary, operator image | Free Arista.com account |
 | SONiC-VS | `docker.io/netreplica/docker-sonic-vs:latest` | `10.0.4.0/30` | -- | 65005 | Primary, public image | Free |
 | VyOS | `docker.io/muruu1/vyos:latest` | `10.0.5.0/30` | -- | 65006 | Primary, public mirror; ISO build fallback | Free rolling/community image |
@@ -755,14 +756,16 @@ graph TD
 ### Prerequisites
 
 These vendor commands describe the existing harness, not permission to run
-unqualified images. The legacy FRR image above is blocked by the container
-base policy; other vendor profiles need recorded image and privilege admission.
+unqualified images. The shared Debian FRR consumer still needs native lifecycle
+acceptance; other vendor profiles need recorded image and privilege admission.
 An available tag alone does not qualify its base, security or interoperability.
 
 - **Podman** with socket API active (`/run/podman/podman.sock`)
 - **containerlab** exactly 0.82.0 (enforced by `test/internal/clabbootstrap/orchestration.go`)
-- Container capabilities: `NET_ADMIN`, `NET_RAW`
-- At least one vendor image available
+- Application container capabilities: `NET_ADMIN`, `NET_RAW`; this FRR fixture
+  also uses `SYS_ADMIN`
+- Both application images are built by bootstrap; optional NOS profiles remain
+  image-gated
 
 Use the [official v0.82.0 archives](https://github.com/srl-labs/containerlab/releases/tag/v0.82.0)
 and verify their SHA256 against the [published checksums](https://github.com/srl-labs/containerlab/releases/download/v0.82.0/checksums.txt):
@@ -785,7 +788,7 @@ Arista/Cisco archive imports. No repository Python or shell helper participates
 in vendor image preparation.
 
 ```bash
-# Pull all public images + prepare VyOS tag + build GoBFD
+# Pull public vendor/build images + prepare VyOS tag + build GoBFD and FRR
 go run ./test/cmd/clabbootstrap -v
 
 # With commercial images
@@ -803,8 +806,8 @@ go run ./test/cmd/clabbootstrap --dry-run
 ```
 
 The command handles:
-- **Preflight checks**: exact Containerlab version, Podman and Go availability
-- **Parallel image pulls**: Nokia SR Linux, SONiC-VS, VyOS, FRRouting (+ build dependencies)
+- **Preflight checks**: exact Containerlab version and Podman availability
+- **Parallel image pulls**: Nokia SR Linux, SONiC-VS, VyOS and build dependencies
 - **VyOS image preparation**: pulls `docker.io/muruu1/vyos:latest`, tags it as `vyos:latest`, and keeps ISO build as fallback
 - **Commercial image import**: Arista cEOS (`podman load`); Cisco XRd remains deferred until an operator-provided image is available
 - **GoBFD image build**: multi-stage Containerfile with GoBGP sidecar, using a
@@ -812,11 +815,16 @@ The command handles:
   sidecar is GoBGP v4.10.0 built from the same source pin as
   `test/interop/gobgp`; a contract test keeps both pins identical. Vendor
   interoperability on GoBGP v4 is not qualified yet
+- **FRR image build**: the shared `test/interop/frr/Containerfile` recipe builds
+  Debian FRR 10.7.1 as `localhost/gobfd-clab-frr:<run-id>`; its exact ID is
+  checkpointed separately from GoBFD. Both builds have CPU, memory and job limits
 - **Inventory report**: final list of all images with ready/missing status
 
-Deployment dry runs require a readable, valid topology with a digest-pinned
-FRR image. Loading or validation errors stop topology commands; a floating FRR
-image is never substituted. Down and test-only paths keep their own receipt rules.
+Deployment dry runs require a readable, valid topology whose logical `frr`
+node is `ext-container` without an image. The runtime renderer uses the actual
+FRR container name in both the node and link endpoints; Containerlab only wires
+the already-started applications. Invalid input stops topology commands.
+Down and test-only paths keep their own receipt rules.
 
 Run `make interop-clab-bootstrap ARGS=--help` for all options. HTTPS redirects,
 archive extraction, and external image-tool argv are validated by the Go
@@ -825,34 +833,50 @@ bootstrap boundary.
 ### Running Vendor Tests
 
 ```bash
-# Full cycle: build GoBFD image + deploy + test + cleanup
+# Full cycle: build GoBFD and FRR images + deploy + test + cleanup
 make interop-clab
 
 # Step by step
 make interop-clab-up     # Build + deploy topology
 make interop-clab-bootstrap ARGS=--test-only  # Revalidate identities, then test
-make interop-clab-down   # Destroy owned containers, links, and the exact GoBFD image
+make interop-clab-down   # Destroy owned containers, links, network and both images
 
-# Prepare only, then either consume or remove the staged owned image
+# Prepare only, then either consume or remove both staged owned images
 make interop-clab-bootstrap
 make interop-clab-bootstrap ARGS="--deploy --skip-build"
 # or: make interop-clab-down
 ```
 
-`make interop-clab` pulls public Nokia SR Linux, SONiC-VS, VyOS, and FRRouting
+`make interop-clab` pulls public Nokia SR Linux, SONiC-VS and VyOS
 images before availability checks. Cisco XRd and Arista cEOS remain
 operator-provided images. The Go lifecycle renders a topology containing only
 available profiles, records exact container identities in a mode-0600 receipt,
-and records the run-owned GoBFD image reference, ID, and ownership labels in
-the same mode-0600 receipt. Cleanup validates all recorded identities before
-its first mutation, removes the image by exact ID without `--force`, and deletes
-the receipt last. A standalone bootstrap intentionally leaves the staged image
+and records both run-owned application image references, IDs and ownership
+labels in a schema-3 receipt. Updates replace a synced temporary file in the
+private runtime directory. Cleanup validates all recorded identities before
+its first mutation, removes both images by exact ID without `--force` or parent
+pruning, and deletes the receipt last. A standalone bootstrap leaves both staged images
 and receipt for a later `--skip-build` deployment or exact `--down` cleanup;
 `--skip-build` never trusts a shared `latest` tag. A UID-scoped host-global lock
 serializes the fixed Containerlab lab namespace across repository worktrees.
 Before `--test-only` emits evidence, it revalidates every recorded live
 container ID and ownership label and rejects any unrecorded fixed-name
 container that the test suite could otherwise discover.
+
+An FRR-only topology uses no management network. Mixed topologies pre-create
+a uniquely named, ownership-labeled network and checkpoint its exact ID.
+Containerlab destroy always retains the management network; the Go lifecycle
+separately removes only its own empty network. A failed destroy preserves the
+discovery containers and receipt for retry. `CLAB_LABDIR_BASE` must be unset.
+Before deploy, network identity is rechecked after application startup; this
+does not make external Podman/Containerlab operations atomic. A later `--down`
+recovers only intended names with matching owner/run labels after interrupted
+checkpoints, and rejects foreign containers before destroy or removal.
+Legacy schema-1/2 receipts remain cleanup inputs, not two-image readiness
+evidence. Native FRR lifecycle qualification remains open under
+`gobfd-qj0.8.2.8.5.2.7.3`; vendor OS-policy and native acceptance remain
+separate under `gobfd-qj0.8.2.8.5.2.7.4`. These commands are not approval to
+execute an unqualified vendor image.
 
 Topology cleanup also rejects unrecorded containers in that fixed lab namespace
 before any destroy or image removal and retains the receipt for recovery.

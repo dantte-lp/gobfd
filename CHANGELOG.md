@@ -351,6 +351,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Build the Containerlab FRR peer from the shared Debian recipe and retain
+  separate immutable GoBFD/FRR image identities in schema-3 receipts. Guard
+  network ownership and partial-deployment cleanup; retain discovery containers
+  after failed destroy so cleanup can be retried. Legacy receipts remain
+  cleanup-only inputs; native FRR and vendor qualification remain separate.
+
 - Require Containerlab 0.82.0 for vendor bootstrap and publish verified amd64
   and arm64 archive checksums. This includes upstream destroy/cleanup fixes;
   vendor runtime qualification remains separate.
