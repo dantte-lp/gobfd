@@ -10,17 +10,22 @@ import (
 	"testing"
 )
 
-const testImageID = "sha256:7d8d17484db26d642502e6ba7f4fcb8f18c571c7ba5b456f38675261b154d25b"
+const (
+	testImageID    = "sha256:7d8d17484db26d642502e6ba7f4fcb8f18c571c7ba5b456f38675261b154d25b"
+	testFRRImageID = "sha256:9fc12c7a7191ca910982f8d869b432c66cb1f5a6a479115f659507571513856a"
+)
 
 type ownedImageRunner struct {
-	commands  []Command
-	reference string
-	runID     string
-	imageID   string
-	exists    bool
-	removed   bool
-	foreignID string
-	collision bool
+	commands         []Command
+	reference        string
+	runID            string
+	images           map[string]string
+	removed          bool
+	foreignID        string
+	foreignReference string
+	failFRRBuild     bool
+	unrecorded       string
+	collision        bool
 }
 
 func (runner *ownedImageRunner) Run(_ context.Context, command Command) (Result, error) {
@@ -29,11 +34,28 @@ func (runner *ownedImageRunner) Run(_ context.Context, command Command) (Result,
 		return Result{}, nil
 	}
 	switch command.Arguments[0] {
+	case "container":
+		if len(command.Arguments) == 3 && command.Arguments[1] == "exists" &&
+			command.Arguments[2] == runner.unrecorded {
+			return Result{}, nil
+		}
+		return Result{ExitCode: 1}, nil
 	case "build":
-		runner.reference = argumentAfter(command.Arguments, "-t")
+		reference := argumentAfter(command.Arguments, "-t")
 		runner.runID = strings.TrimPrefix(argumentAfter(command.Arguments, "--label", 1), runLabel+"=")
-		runner.imageID = testImageID
-		runner.exists = true
+		if runner.images == nil {
+			runner.images = make(map[string]string)
+		}
+		id := testImageID
+		if strings.HasPrefix(reference, frrImageRepo+":") {
+			id = testFRRImageID
+		} else {
+			runner.reference = reference
+		}
+		runner.images[reference] = id
+		if id == testFRRImageID && runner.failFRRBuild {
+			return Result{ExitCode: 9}, nil
+		}
 	case "image":
 		if len(command.Arguments) < 3 {
 			return Result{}, nil
@@ -43,25 +65,44 @@ func (runner *ownedImageRunner) Run(_ context.Context, command Command) (Result,
 			if runner.collision {
 				return Result{}, nil
 			}
-			if runner.exists && (command.Arguments[2] == runner.reference || command.Arguments[2] == runner.imageID) {
+			if _, exists := runner.images[command.Arguments[2]]; exists {
 				return Result{}, nil
+			}
+			for _, id := range runner.images {
+				if id == command.Arguments[2] {
+					return Result{}, nil
+				}
 			}
 			return Result{ExitCode: 1}, nil
 		case "inspect":
-			id := runner.imageID
-			if runner.foreignID != "" {
+			id := runner.images[command.Arguments[len(command.Arguments)-1]]
+			if runner.foreignID != "" && (runner.foreignReference == "" ||
+				runner.foreignReference == command.Arguments[len(command.Arguments)-1]) {
 				id = runner.foreignID
 			}
 			return Result{Stdout: id + "|" + labName + "|" + runner.runID}, nil
 		case "rm":
-			if command.Arguments[2] != runner.imageID {
+			id := command.Arguments[len(command.Arguments)-1]
+			found := false
+			for reference, current := range runner.images {
+				if current == id {
+					delete(runner.images, reference)
+					found = true
+				}
+			}
+			if !found {
 				return Result{ExitCode: 2}, nil
 			}
-			runner.exists = false
 			runner.removed = true
 		}
 	}
 	return Result{}, nil
+}
+
+func stageTestImages(t *testing.T, options Options, runner Runner) (lifecycleReceipt, error) {
+	t.Helper()
+	t.Setenv("GOBFD_BUILD_REVISION", "713cef8f0eb1be05c6ddce38fa4c7bbe22b0c7ef")
+	return stageOwnedImages(t.Context(), options, runner)
 }
 
 func argumentAfter(arguments []string, name string, occurrence ...int) string {
@@ -87,12 +128,12 @@ func TestStageGoBFDImageRecordsRunOwnedIdentity(t *testing.T) {
 	options := DefaultOptions(root)
 	runner := &ownedImageRunner{}
 
-	receipt, err := stageGoBFDImage(t.Context(), options, runner)
+	receipt, err := stageTestImages(t, options, runner)
 	if err != nil {
 		t.Fatalf("stage GoBFD image: %v", err)
 	}
-	if receipt.SchemaVersion != 2 || receipt.Image.ID != testImageID {
-		t.Fatalf("receipt identity = %#v, want schema 2 and ID %q", receipt, testImageID)
+	if receipt.SchemaVersion != 3 || receipt.Image.ID != testImageID || receipt.FRR.ID != testFRRImageID {
+		t.Fatalf("receipt identity = %#v, want schema 3 and distinct application IDs", receipt)
 	}
 	if !strings.HasPrefix(receipt.Image.Reference, gobfdImageRepo+":") ||
 		strings.HasSuffix(receipt.Image.Reference, ":latest") {
@@ -117,7 +158,7 @@ func TestStageGoBFDImageRecordsRunOwnedIdentity(t *testing.T) {
 
 	runner.commands = nil
 	options.SkipBuild = true
-	reused, err := stageGoBFDImage(t.Context(), options, runner)
+	reused, err := stageTestImages(t, options, runner)
 	if err != nil {
 		t.Fatalf("consume staged GoBFD image: %v", err)
 	}
@@ -141,7 +182,7 @@ func TestStageGoBFDImageRecordsRunOwnedIdentity(t *testing.T) {
 func TestStageGoBFDImageRejectsReferenceCollisionBeforeBuild(t *testing.T) {
 	root := t.TempDir()
 	runner := &ownedImageRunner{collision: true}
-	_, err := stageGoBFDImage(t.Context(), DefaultOptions(root), runner)
+	_, err := stageTestImages(t, DefaultOptions(root), runner)
 	if !errors.Is(err, errLifecycleState) {
 		t.Fatalf("stage collision error = %v, want lifecycle state error", err)
 	}
@@ -159,7 +200,7 @@ func TestCleanupTopologyRemovesOnlyRecordedOwnedImage(t *testing.T) {
 	root := t.TempDir()
 	options := DefaultOptions(root)
 	runner := &ownedImageRunner{}
-	receipt, err := stageGoBFDImage(t.Context(), options, runner)
+	receipt, err := stageTestImages(t, options, runner)
 	if err != nil {
 		t.Fatalf("stage GoBFD image: %v", err)
 	}
@@ -175,7 +216,7 @@ func TestCleanupTopologyRemovesOnlyRecordedOwnedImage(t *testing.T) {
 	}
 	if !slices.ContainsFunc(runner.commands, func(command Command) bool {
 		return command.Executable == executablePodman &&
-			slices.Equal(command.Arguments, []string{"image", "rm", testImageID})
+			slices.Equal(command.Arguments, []string{"image", "rm", "--no-prune", testImageID})
 	}) {
 		t.Fatal("cleanup did not remove the exact recorded image ID without force")
 	}
@@ -185,7 +226,7 @@ func TestCleanupTopologyRejectsChangedImageIdentityBeforeMutation(t *testing.T) 
 	root := t.TempDir()
 	options := DefaultOptions(root)
 	runner := &ownedImageRunner{}
-	receipt, err := stageGoBFDImage(t.Context(), options, runner)
+	receipt, err := stageTestImages(t, options, runner)
 	if err != nil {
 		t.Fatalf("stage GoBFD image: %v", err)
 	}

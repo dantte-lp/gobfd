@@ -2,7 +2,6 @@ package clabbootstrap
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,54 +51,51 @@ func runLocked(ctx context.Context, options Options, runner Runner) error {
 		}
 		return runTopology(ctx, options, runner, "")
 	}
-	frrReference, err := loadFRRReference(options.ProjectRoot)
-	if err != nil {
+	if err := validateFRRTemplate(options.ProjectRoot); err != nil {
 		return err
 	}
-
 	if err := runPreflight(ctx, options, runner); err != nil {
 		return err
 	}
-
-	images := publicImages(options.Tags, frrReference)
+	images := publicImages(options.Tags)
 	failures := pullImages(ctx, options, runner, images)
 	failures = append(failures, runVendorPhases(ctx, options, runner, images)...)
-	imageReference, imageErr := prepareGoBFDImage(ctx, options, runner)
-	if imageErr != nil {
-		failures = append(failures, "gobfd-build")
-	}
-
-	inspectInventory(ctx, options, runner, frrReference, imageReference)
 	if len(failures) != 0 {
-		phaseErr := fmt.Errorf("%w: %s", ErrBootstrapFailed, strings.Join(failures, ", "))
-		if imageErr != nil {
-			return errors.Join(phaseErr, fmt.Errorf("prepare owned GoBFD image: %w", imageErr))
-		}
-		return phaseErr
+		return fmt.Errorf("%w: %s", ErrBootstrapFailed, strings.Join(failures, ", "))
 	}
-	if err := runTopology(ctx, options, runner, imageReference); err != nil {
+	receipt, err := prepareApplicationImages(ctx, options, runner)
+	if err != nil {
+		return fmt.Errorf("%w: prepare owned application images: %w", ErrBootstrapFailed, err)
+	}
+	inspectInventory(ctx, options, runner, receipt.FRR.Reference, receipt.Image.Reference)
+	if err := runTopology(ctx, options, runner, receipt.Image.Reference); err != nil {
 		return fmt.Errorf("%w: deploy/test: %w", ErrBootstrapFailed, err)
 	}
 	return nil
 }
 
-func prepareGoBFDImage(ctx context.Context, options Options, runner Runner) (string, error) {
+func prepareApplicationImages(ctx context.Context, options Options, runner Runner) (lifecycleReceipt, error) {
 	if options.DryRun {
-		if options.SkipBuild {
-			return dryRunImage, nil
+		receipt := newImageReceipt("dry-run")
+		if !options.SkipBuild {
+			for _, command := range applicationBuildCommands(options, receipt,
+				strings.Repeat("0", 40), "1970-01-01T00:00:00Z") {
+				if err := runCommand(ctx, runner, command); err != nil {
+					return lifecycleReceipt{}, err
+				}
+			}
 		}
-		return dryRunImage, runCommand(ctx, runner, buildCommand(options, dryRunImage, "dry-run"))
+		return receipt, nil
 	}
-	receipt, err := stageGoBFDImage(ctx, options, runner)
-	if err != nil {
-		return "", err
-	}
-	return receipt.Image.Reference, nil
+	return stageOwnedImages(ctx, options, runner)
 }
 
 func validateOptions(options Options, runner Runner) error {
 	if runner == nil {
 		return fmt.Errorf("validate bootstrap runner: %w", errInvalidBootstrapOptions)
+	}
+	if os.Getenv("CLAB_LABDIR_BASE") != "" {
+		return fmt.Errorf("CLAB_LABDIR_BASE must be unset for owned topology discovery: %w", errInvalidBootstrapOptions)
 	}
 	if !filepath.IsAbs(options.ProjectRoot) || options.Jobs <= 0 {
 		return fmt.Errorf(
@@ -162,9 +158,6 @@ func runPreflight(ctx context.Context, options Options, runner Runner) error {
 			DryRun:     options.DryRun,
 		},
 	}
-	if !options.SkipBuild {
-		commands = append(commands, Command{Executable: "go", Arguments: []string{"version"}, DryRun: options.DryRun})
-	}
 	for _, command := range commands {
 		if err := runCommand(ctx, runner, command); err != nil {
 			return fmt.Errorf("run bootstrap preflight: %w", err)
@@ -173,12 +166,11 @@ func runPreflight(ctx context.Context, options Options, runner Runner) error {
 	return nil
 }
 
-func publicImages(tags ImageTags, frrReference string) []imageReference {
+func publicImages(tags ImageTags) []imageReference {
 	return []imageReference{
 		{name: vendorNokia, reference: "ghcr.io/nokia/srlinux:" + tags.Nokia},
 		{name: vendorSONiC, reference: "docker.io/netreplica/docker-sonic-vs:" + tags.Sonic},
 		{name: "vyos", reference: "docker.io/muruu1/vyos:" + tags.VyOS},
-		{name: "frr", reference: frrReference},
 		{
 			name: "golang",
 			reference: "docker.io/library/golang:1.27.3-trixie@sha256:" +
@@ -192,56 +184,35 @@ func publicImages(tags ImageTags, frrReference string) []imageReference {
 	}
 }
 
-func loadFRRReference(projectRoot string) (string, error) {
+func validateFRRTemplate(projectRoot string) (returnErr error) {
 	topologyPath := filepath.Join(projectRoot, "test", "interop-clab", "gobfd-vendors.clab.yml")
-	// #nosec G304 -- projectRoot is the validated absolute repository cwd and the joined suffix is constant.
 	file, err := os.Open(topologyPath)
 	if err != nil {
-		return "", fmt.Errorf("open Containerlab topology %s: %w", topologyPath, err)
+		return fmt.Errorf("open Containerlab topology %s: %w", topologyPath, err)
 	}
-	defer file.Close()
+	defer func() { returnErr = errors.Join(returnErr, file.Close()) }()
 	info, err := file.Stat()
 	if err != nil {
-		return "", fmt.Errorf("stat Containerlab topology %s: %w", topologyPath, err)
+		return fmt.Errorf("stat Containerlab topology %s: %w", topologyPath, err)
 	}
 	const maxTopologySize = 1 << 20
 	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maxTopologySize {
-		return "", fmt.Errorf("validate Containerlab topology size %d: %w", info.Size(), errInvalidBootstrapOptions)
-	}
-
-	type topologyDocument struct {
-		Topology struct {
-			Nodes map[string]struct {
-				Image string `yaml:"image"`
-			} `yaml:"nodes"`
-		} `yaml:"topology"`
+		return fmt.Errorf("validate Containerlab topology size %d: %w", info.Size(), errInvalidBootstrapOptions)
 	}
 	var document topologyDocument
 	decoder := yaml.NewDecoder(io.LimitReader(file, maxTopologySize))
 	if err := decoder.Decode(&document); err != nil {
-		return "", fmt.Errorf("decode Containerlab topology %s: %w", topologyPath, err)
+		return fmt.Errorf("decode Containerlab topology %s: %w", topologyPath, err)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return "", fmt.Errorf(
-				"validate Containerlab topology %s: multiple YAML documents: %w",
-				topologyPath,
-				errInvalidBootstrapOptions,
-			)
-		}
-		return "", fmt.Errorf("validate Containerlab topology %s: %w", topologyPath, err)
+		return fmt.Errorf("require one Containerlab YAML document: %w", errInvalidBootstrapOptions)
 	}
-
-	reference := document.Topology.Nodes["frr"].Image
-	name, digest, found := strings.Cut(reference, "@sha256:")
-	if !found || name == "" || !strings.HasPrefix(name, "quay.io/frrouting/frr:") || len(digest) != 64 {
-		return "", fmt.Errorf("validate immutable FRR image %q: %w", reference, errInvalidBootstrapOptions)
+	node := document.Topology.Nodes["frr"]
+	if node["kind"] != "ext-container" || node["image"] != nil {
+		return fmt.Errorf("FRR must use the owned external container: %w", errInvalidBootstrapOptions)
 	}
-	if _, err := hex.DecodeString(digest); err != nil {
-		return "", fmt.Errorf("decode FRR image digest %q: %w", digest, err)
-	}
-	return reference, nil
+	return nil
 }
 
 func pullImages(ctx context.Context, options Options, runner Runner, images []imageReference) []string {
@@ -326,21 +297,6 @@ func runVendorPhases(ctx context.Context, options Options, runner Runner, images
 		}
 	}
 	return failures
-}
-
-func buildCommand(options Options, imageReference, runID string) Command {
-	return Command{
-		Executable: executablePodman,
-		Arguments: []string{
-			"build",
-			"--label", ownerLabel + "=" + labName,
-			"--label", runLabel + "=" + runID,
-			"-t", imageReference, "-f",
-			filepath.Join(options.ProjectRoot, "test", "interop-clab", "Containerfile.gobfd"),
-			options.ProjectRoot,
-		},
-		DryRun: options.DryRun,
-	}
 }
 
 func inspectInventory(

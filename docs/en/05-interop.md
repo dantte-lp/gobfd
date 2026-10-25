@@ -691,7 +691,7 @@ make interop-rfc
 ![FRR](https://img.shields.io/badge/FRR-10.7.0-dc3545?style=for-the-badge)
 ![Arista](https://img.shields.io/badge/Arista-cEOS-2962FF?style=for-the-badge)
 ![Cisco](https://img.shields.io/badge/Cisco-XRd-049FD9?style=for-the-badge)
-![containerlab](https://img.shields.io/badge/containerlab-0.79.0-1a73e8?style=for-the-badge)
+![containerlab](https://img.shields.io/badge/containerlab-0.82.0-1a73e8?style=for-the-badge)
 
 > Optional NOS profile tests. A configured topology does not establish full
 > RFC 5880/5881/5882 qualification. SONiC/VyOS profiles are IPv4-only; other
@@ -757,9 +757,22 @@ base policy; other vendor profiles need recorded image and privilege admission.
 An available tag alone does not qualify its base, security or interoperability.
 
 - **Podman** with socket API active (`/run/podman/podman.sock`)
-- **containerlab** exactly 0.79.0 (enforced by `test/internal/clabbootstrap/orchestration.go`)
+- **containerlab** exactly 0.82.0 (enforced by `test/internal/clabbootstrap/orchestration.go`)
 - Container capabilities: `NET_ADMIN`, `NET_RAW`
 - At least one vendor image available
+
+Use the [official v0.82.0 archives](https://github.com/srl-labs/containerlab/releases/tag/v0.82.0)
+and verify their SHA256 against the [published checksums](https://github.com/srl-labs/containerlab/releases/download/v0.82.0/checksums.txt):
+
+| Archive | SHA256 |
+|---|---|
+| `containerlab_0.82.0_linux_amd64.tar.gz` | `87a6415803848878c2c886bd79e89a4d0ee34091ebf889488ea1029cef7e2d78` |
+| `containerlab_0.82.0_linux_arm64.tar.gz` | `f04ac8c1f2f6a04c344585cb6a36177c446fce18cb6073b4a0dbd517f3512210` |
+
+The upgrade includes [destroy error and management-network fixes in 0.81](https://containerlab.dev/rn/0.81/)
+and [cleanup directory protection in 0.82](https://containerlab.dev/rn/0.82/).
+These fixes do not establish vendor runtime acceptance; resource ownership and
+post-destroy absence checks remain required.
 
 ### Lab Preparation (Go Bootstrap)
 
@@ -837,6 +850,10 @@ serializes the fixed Containerlab lab namespace across repository worktrees.
 Before `--test-only` emits evidence, it revalidates every recorded live
 container ID and ownership label and rejects any unrecorded fixed-name
 container that the test suite could otherwise discover.
+
+Topology cleanup also rejects unrecorded containers in that fixed lab namespace
+before any destroy or image removal and retains the receipt for recovery.
+Image-only staged cleanup does not select or destroy a topology.
 
 The direct `make interop-clab-test` target bypasses that receipt validation
 and omits `-race`; it is not the guarded qualification path above.

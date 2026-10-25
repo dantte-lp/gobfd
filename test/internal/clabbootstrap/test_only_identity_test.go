@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -19,6 +19,17 @@ func (runner *testOnlyIdentityRunner) Run(_ context.Context, command Command) (R
 		return Result{}, nil
 	}
 	switch command.Arguments[0] {
+	case "network":
+		return Result{ExitCode: 1}, nil
+	case "image":
+		if command.Arguments[1] == "inspect" {
+			id := testImageID
+			if strings.HasPrefix(command.Arguments[len(command.Arguments)-1], frrImageRepo+":") {
+				id = testFRRImageID
+			}
+			return Result{Stdout: id + "|" + labName + "|" + runner.runID}, nil
+		}
+		return Result{}, nil
 	case "compose":
 		runner.testInvoked = true
 		return Result{}, nil
@@ -37,7 +48,7 @@ func (runner *testOnlyIdentityRunner) Run(_ context.Context, command Command) (R
 	if !exists {
 		return Result{ExitCode: 1}, nil
 	}
-	if name == gobfdContainer {
+	if name == gobfdContainer || name == frrContainer {
 		return Result{Stdout: fmt.Sprintf("%s||%s|%s", id, labName, runner.runID)}, nil
 	}
 	return Result{Stdout: fmt.Sprintf("%s|%s||", id, labName)}, nil
@@ -54,6 +65,8 @@ func TestTestOnlyValidatesLiveContainerIdentitiesBeforeEvidence(t *testing.T) {
 		containers  map[string]string
 		wantErr     bool
 		wantInvoked bool
+		networkID   string
+		legacy      bool
 	}{
 		{
 			name: "exact identities",
@@ -79,6 +92,18 @@ func TestTestOnlyValidatesLiveContainerIdentitiesBeforeEvidence(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:       "missing checkpointed network",
+			containers: map[string]string{gobfdContainer: gobfdID, frrContainer: frrID},
+			networkID:  testNetworkID,
+			wantErr:    true,
+		},
+		{
+			name:       "legacy one-image receipt",
+			containers: map[string]string{gobfdContainer: gobfdID, frrContainer: frrID},
+			legacy:     true,
+			wantErr:    true,
+		},
+		{
 			name: "unrecorded live vendor",
 			containers: map[string]string{
 				gobfdContainer:              gobfdID,
@@ -95,9 +120,11 @@ func TestTestOnlyValidatesLiveContainerIdentitiesBeforeEvidence(t *testing.T) {
 				t.Fatalf("create runtime directory: %v", err)
 			}
 			receipt := lifecycleReceipt{
-				SchemaVersion: ownedReceiptV2,
-				RunID:         runID,
-				Topology:      filepath.Join(root, "gobfd-vendors.generated.clab.yml"),
+				SchemaVersion:      ownedReceiptV3,
+				RunID:              runID,
+				Topology:           runtimeTopologyPath(root),
+				Network:            lifecycleNetwork{Name: networkName(runID)},
+				ExpectedContainers: []string{gobfdContainer, frrContainer},
 				Containers: map[string]string{
 					gobfdContainer:           gobfdID,
 					"clab-gobfd-vendors-frr": frrID,
@@ -106,6 +133,14 @@ func TestTestOnlyValidatesLiveContainerIdentitiesBeforeEvidence(t *testing.T) {
 					Reference: gobfdImageRepo + ":" + runID,
 					ID:        testImageID,
 				},
+				FRR: lifecycleImage{Reference: frrImageRepo + ":" + runID, ID: testFRRImageID},
+			}
+			receipt.Network.ID = test.networkID
+			if test.legacy {
+				receipt.SchemaVersion = ownedReceiptV2
+				receipt.FRR = lifecycleImage{}
+				receipt.Network = lifecycleNetwork{}
+				receipt.ExpectedContainers = nil
 			}
 			if err := createLifecycleReceipt(root, receipt); err != nil {
 				t.Fatalf("create lifecycle receipt: %v", err)

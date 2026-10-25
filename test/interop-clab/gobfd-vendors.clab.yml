@@ -66,14 +66,10 @@ topology:
       startup-config: vyos/config.boot
 
     # === FRRouting (ASN 65007) ===
-    # Image: quay.io/frrouting/frr (freely available, no registration)
+    # Built from the shared test/interop/frr recipe and started by exact image ID.
     # RFC coverage: 5880 (base), 5881 (single-hop), 5882 (BGP-BFD), 5883 (multihop)
     frr:
-      kind: linux
-      image: quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68
-      binds:
-        - frr/daemons:/etc/frr/daemons:ro
-        - frr/frr.conf:/etc/frr/frr.conf:ro
+      kind: ext-container
 
   links:
     - endpoints: ["clab-gobfd-vendors-gobfd:eth1", "arista:eth1"]

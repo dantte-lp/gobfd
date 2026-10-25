@@ -74,7 +74,7 @@ func (runner *OSRunner) Run(ctx context.Context, command Command) (Result, error
 
 func (runner *OSRunner) resolveExecutable(name string, dryRun bool) (string, error) {
 	switch name {
-	case executableContainerlab, executablePodman, "go", "7z", "unsquashfs", "xorriso":
+	case executableContainerlab, executablePodman, "7z", "unsquashfs", "xorriso":
 	default:
 		return "", fmt.Errorf("resolve bootstrap executable %q: %w", name, errCommandNotAllowed)
 	}

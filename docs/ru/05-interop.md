@@ -689,7 +689,7 @@ make interop-rfc
 ![FRR](https://img.shields.io/badge/FRR-10.7.0-dc3545?style=for-the-badge)
 ![Arista](https://img.shields.io/badge/Arista-cEOS-2962FF?style=for-the-badge)
 ![Cisco](https://img.shields.io/badge/Cisco-XRd-049FD9?style=for-the-badge)
-![containerlab](https://img.shields.io/badge/containerlab-0.79.0-1a73e8?style=for-the-badge)
+![containerlab](https://img.shields.io/badge/containerlab-0.82.0-1a73e8?style=for-the-badge)
 
 > Опциональные тесты профилей NOS. Настройка топологии не устанавливает полную
 > квалификацию RFC 5880/5881/5882. Профили SONiC/VyOS имеют только IPv4;
@@ -756,9 +756,22 @@ graph TD
 или совместимость.
 
 - **Podman** с активным API сокета (`/run/podman/podman.sock`)
-- **containerlab** строго 0.79.0 (проверяется в `test/internal/clabbootstrap/orchestration.go`)
+- **containerlab** строго 0.82.0 (проверяется в `test/internal/clabbootstrap/orchestration.go`)
 - Привилегии контейнера: `NET_ADMIN`, `NET_RAW`
 - Хотя бы один доступный вендорный образ
+
+Используйте [официальные архивы v0.82.0](https://github.com/srl-labs/containerlab/releases/tag/v0.82.0)
+и сверяйте SHA256 с [опубликованными контрольными суммами](https://github.com/srl-labs/containerlab/releases/download/v0.82.0/checksums.txt):
+
+| Архив | SHA256 |
+|---|---|
+| `containerlab_0.82.0_linux_amd64.tar.gz` | `87a6415803848878c2c886bd79e89a4d0ee34091ebf889488ea1029cef7e2d78` |
+| `containerlab_0.82.0_linux_arm64.tar.gz` | `f04ac8c1f2f6a04c344585cb6a36177c446fce18cb6073b4a0dbd517f3512210` |
+
+Обновление включает [исправления ошибок destroy и подготовки management network в 0.81](https://containerlab.dev/rn/0.81/)
+и [защиту каталогов при cleanup в 0.82](https://containerlab.dev/rn/0.82/).
+Эти исправления не подтверждают runtime acceptance вендоров; проверки владения
+ресурсами и их отсутствия после destroy остаются обязательными.
 
 ### Подготовка лаборатории (Go bootstrap)
 
@@ -838,6 +851,10 @@ GoBFD. Перед первой операцией изменения состо�
 записанный ID работающего контейнера и метку владения, а также отклоняет любой
 незаписанный контейнер с фиксированным именем, который могли бы обнаружить
 тесты.
+
+Очистка топологии также отклоняет незаписанные контейнеры в этом фиксированном
+пространстве имён до destroy или удаления образа и сохраняет квитанцию для
+восстановления. Очистка только подготовленного образа не выбирает и не удаляет топологию.
 
 Прямая цель `make interop-clab-test` обходит проверку квитанции и не задаёт
 `-race`; она не является описанным выше защищённым путём квалификации.
