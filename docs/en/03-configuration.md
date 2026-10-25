@@ -348,10 +348,10 @@ Echo sessions detect forwarding-path failures without requiring the remote syste
 
 Echo peers are reconciled on SIGHUP reload. Session key: `(peer, local, interface)`.
 
-The declarative sender selects UDP destination port 3785 but does not apply
-`SO_BINDTODEVICE` from `interface` (`gobfd-qj0.8.2.1.19`). API-created Echo
-also ignores the interface for transport and currently sends to Control port
-3784 (`gobfd-qj0.8.2.1.17`). Neither path qualifies interface-bound Echo TX.
+Both declarative and API-created Echo send to UDP destination port 3785.
+An explicit `interface` applies `SO_BINDTODEVICE` to the receive listener
+and TX sender; an empty value leaves device selection to the kernel. These
+local transport checks do not establish full RFC 9747 qualification.
 
 API creation also requires `echo.enabled: true`, a reconciled Echo source and
 a ready runtime/receive binding. Otherwise `AddEchoSession` returns
@@ -1157,8 +1157,10 @@ These are validation identities. At runtime the listener owner keys a socket by
 `(local address with an IPv4-mapped form unmapped, interface, port, multi-hop
 flag)`, where the port is 3784, 4784, 3785, or 6784. Entries whose validation
 identities differ only by an IPv4-mapped spelling and declare the same
-interface share one socket. An API Echo session uses the Echo listener of its
-local address whatever its interface, as configured Echo peers do.
+interface share one socket. An API Echo session shares a listener only when
+its complete runtime key matches. A different requested interface, including
+an empty value, claims a distinct listener instead of reusing another device's
+socket. Configuration-file interface-conflict validation remains unchanged.
 
 `ListenerBindingConflictError` wraps `ErrAmbiguousListenerInterface`.
 Its `FieldID()` identifies `sessions[].interface` or `echo.peers[].interface`;

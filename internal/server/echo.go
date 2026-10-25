@@ -115,7 +115,9 @@ func (s *EchoServer) createEchoSessionWithSenderLease(
 	cfg bfd.EchoSessionConfig,
 ) (uint32, error) {
 	factory := func() (*bfd.SenderLease, error) {
-		sender, srcPort, err := s.senderFactory.CreateSender(cfg.LocalAddr, "", false, false, s.logger)
+		sender, srcPort, err := s.senderFactory.CreateSender(
+			cfg.LocalAddr, cfg.Interface, bfd.SessionTypeEcho, false, s.logger,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("create API echo sender: %w", err)
 		}

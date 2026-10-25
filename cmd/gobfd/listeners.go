@@ -204,8 +204,7 @@ func (o *listenerOwner) acquire(claims listenerClaims, configs []netio.ListenerC
 }
 
 // claimAPI takes one API claim on the listener of cfg, opening it when
-// absent. An API Echo session shares the per-address Echo listener, as
-// configured Echo peers do.
+// absent. Echo claims share only listeners with the same address and interface.
 func (o *listenerOwner) claimAPI(cfg netio.ListenerConfig) (listenerKey, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -213,13 +212,6 @@ func (o *listenerOwner) claimAPI(cfg netio.ListenerConfig) (listenerKey, error) 
 		return listenerKey{}, errListenerOwnerClosed
 	}
 	key := listenerKeyOf(cfg)
-	if key.port == netio.PortEcho {
-		if index := slices.IndexFunc(o.order, func(k listenerKey) bool {
-			return k.port == netio.PortEcho && k.addr == key.addr
-		}); index >= 0 {
-			key = o.order[index]
-		}
-	}
 	if owned, ok := o.listeners[key]; ok {
 		owned.apiClaims++
 		return key, nil
@@ -577,14 +569,18 @@ func (f *apiListenerSenderFactory) EchoReady() bool {
 
 // CreateSender claims the listener before it creates the sender.
 func (f *apiListenerSenderFactory) CreateSender(
-	localAddr netip.Addr, ifName string, multiHop, doNotFragment bool, logger *slog.Logger,
+	localAddr netip.Addr, ifName string, kind bfd.SessionType, doNotFragment bool, logger *slog.Logger,
 ) (bfd.PacketSender, uint16, error) {
-	lnCfg := netio.ListenerConfig{Addr: localAddr, IfName: ifName, Port: netio.PortSingleHop, MultiHop: multiHop}
-	switch {
-	case f.echo:
-		lnCfg = netio.ListenerConfig{Addr: localAddr, Port: netio.PortEcho, ExpectedTTL: netio.TTLEchoLoopback}
-	case multiHop:
+	lnCfg := netio.ListenerConfig{Addr: localAddr, IfName: ifName, Port: netio.PortSingleHop}
+	switch kind {
+	case bfd.SessionTypeSingleHop:
+	case bfd.SessionTypeEcho:
+		lnCfg.Port, lnCfg.ExpectedTTL = netio.PortEcho, netio.TTLEchoLoopback
+	case bfd.SessionTypeMultiHop:
 		lnCfg.Port = netio.PortMultiHop
+		lnCfg.MultiHop = true
+	default:
+		return nil, 0, fmt.Errorf("API listener type %d: %w", kind, bfd.ErrInvalidSessionType)
 	}
 	key, err := f.owner.claimAPI(lnCfg)
 	if err != nil {
@@ -593,7 +589,7 @@ func (f *apiListenerSenderFactory) CreateSender(
 		}
 		return nil, 0, err
 	}
-	sender, port, err := f.SenderFactory.CreateSender(localAddr, ifName, multiHop, doNotFragment, logger)
+	sender, port, err := f.SenderFactory.CreateSender(localAddr, ifName, kind, doNotFragment, logger)
 	if err != nil {
 		f.owner.releaseAPI(key)
 		return nil, 0, fmt.Errorf("create API sender: %w", addressUnavailableError(localAddr, err))

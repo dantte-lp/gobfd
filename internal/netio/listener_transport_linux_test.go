@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
+	"github.com/dantte-lp/gobfd/internal/testutil"
 )
 
 type loopbackFamily struct {
@@ -59,7 +60,7 @@ func loopbackInterface(t *testing.T) net.Interface {
 // 127.0.0.1:3784 with SO_REUSEADDR, so IPv4 uses the otherwise unused
 // 127.0.53.1. ::1 has no unused alternative: a parallel package binding
 // [::1]:3784 or [::1]:4784 could take the datagram and fail this test with a
-// receive timeout. No package binds those today.
+// receive timeout. Callers hold testutil.LockLoopbackBFD for IPv6 probes.
 func newLoopbackListener(t *testing.T, family loopbackFamily, port uint16, multiHop bool) *Listener {
 	t.Helper()
 	ln, err := NewListener(ListenerConfig{Addr: family.addr, Port: port, MultiHop: multiHop})
@@ -117,6 +118,7 @@ func recvLoopback(t *testing.T, ln *Listener) *ReceivedPacket {
 // A real RFC 5883 Section 5 listener on UDP 4784 passes a TTL/Hop Limit 250
 // packet to the session hop policy and reports the PKTINFO interface.
 func TestMultiHopListenerPort4784Families(t *testing.T) {
+	testutil.LockLoopbackBFD(t)
 	lo := loopbackIndex(t)
 	for _, family := range loopbackFamilies() {
 		t.Run(family.name, func(t *testing.T) {
@@ -136,6 +138,7 @@ func TestMultiHopListenerPort4784Families(t *testing.T) {
 // has no interface; 127.0.53.1 is routed to lo but not assigned, so its
 // session names lo explicitly.
 func TestSingleHopListenerPort3784DeliversToSession(t *testing.T) {
+	testutil.LockLoopbackBFD(t)
 	lo := loopbackInterface(t)
 	for _, family := range loopbackFamilies() {
 		t.Run(family.name, func(t *testing.T) {

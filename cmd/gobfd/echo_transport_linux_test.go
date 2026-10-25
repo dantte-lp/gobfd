@@ -16,10 +16,12 @@ import (
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
 	"github.com/dantte-lp/gobfd/internal/netio"
+	"github.com/dantte-lp/gobfd/internal/testutil"
 )
 
 // Run serially: the wire probes own UDP 3785 in their network namespace.
 func TestReconcileEchoSenderTransport(t *testing.T) {
+	testutil.LockLoopbackBFD(t)
 	lo := loopbackName(t)
 	for _, test := range []struct {
 		name, network, local, peer, device string

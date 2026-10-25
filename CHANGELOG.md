@@ -624,6 +624,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- API-created Echo sends to UDP destination port 3785 for IPv4 and IPv6 and
+  binds RX/TX to the requested interface. Receive listeners share only a matching
+  local-address/interface binding; sender-creation failures release prepared
+  receive claims and unused source ports. Base and multihop API destinations,
+  socket-buffer policy and generated API contracts remain unchanged. Echo
+  remains preview pending full RFC and peer qualification.
+
 - Declarative Echo senders honor `echo.peers[].interface` for IPv4 and IPv6,
   retaining UDP destination port 3785, startup socket-buffer policy and
   source-port lease cleanup. Invalid devices fail sender creation; unchanged

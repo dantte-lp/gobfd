@@ -190,7 +190,7 @@ gobfdctl echo add \
 |---|---|---|---|
 | `--peer` | Yes | -- | Echo target IP address |
 | `--local` | No | -- | Local IP; specify it explicitly to qualify receive binding |
-| `--interface` | No | -- | Stored in session metadata; the current API sender does not apply `SO_BINDTODEVICE` |
+| `--interface` | No | -- | Optional `SO_BINDTODEVICE` binding for both the Echo receive listener and TX sender |
 | `--tx-interval` | No | `1s` | Echo transmit interval (RFC 9747 Section 3.3) |
 | `--detect-mult` | No | `3` | Detection multiplier; `DetectionTime = mult * TxInterval` |
 
@@ -198,10 +198,11 @@ gobfdctl echo add \
 the BFD wire interval bound; violations return `InvalidArgument`. The CLI
 supplies its `1s` default, but direct API requests must include the field.
 
-API-created Echo sessions currently use Control destination port 3784 instead
-of 3785. Only declarative Echo applies `WithDstPort(PortEcho)`. This known
-limitation is tracked in `gobfd-qj0.8.2.1.17`; the command example does not
-establish a working Echo dataplane.
+API-created Echo sends to UDP destination port 3785 and claims the receive
+listener for the requested local address and interface. Sender-creation
+failure releases the prepared receive claim and unused source port. Echo
+remains preview; local socket checks do not establish peer or full RFC 9747
+qualification.
 
 #### Delete an echo session
 

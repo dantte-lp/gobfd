@@ -67,10 +67,11 @@ type SenderFactory interface {
 	// CreateSender allocates a source port and creates a PacketSender
 	// bound to localAddr and, when ifName is not empty, to that single-hop
 	// interface (RFC 5881 Section 6). Returns the sender and allocated port.
+	// kind selects SingleHop, MultiHop or Echo; dedicated transports use their owners.
 	CreateSender(
 		localAddr netip.Addr,
 		ifName string,
-		multiHop bool,
+		kind bfd.SessionType,
 		doNotFragment bool,
 		logger *slog.Logger,
 	) (bfd.PacketSender, uint16, error)
@@ -94,7 +95,7 @@ type noopSenderFactory struct{}
 func (noopSenderFactory) CreateSender(
 	_ netip.Addr,
 	_ string,
-	_ bool,
+	_ bfd.SessionType,
 	_ bool,
 	_ *slog.Logger,
 ) (bfd.PacketSender, uint16, error) {
@@ -171,7 +172,6 @@ func (s *BFDServer) createSessionWithSenderLease(
 	ctx context.Context,
 	cfg bfd.SessionConfig,
 ) (*bfd.Session, error) {
-	multiHop := cfg.Type == bfd.SessionTypeMultiHop
 	// A link-local zone selects the interface when interface_name is empty,
 	// as Manager canonicalisation does for the session itself.
 	ifName := bfd.SingleHopInterface(cfg.Interface, cfg.LocalAddr, cfg.PeerAddr)
@@ -180,7 +180,7 @@ func (s *BFDServer) createSessionWithSenderLease(
 	}
 	factory := func() (*bfd.SenderLease, error) {
 		sender, srcPort, err := s.senderFactory.CreateSender(
-			cfg.LocalAddr, ifName, multiHop, cfg.PaddedPduSize != 0, s.logger,
+			cfg.LocalAddr, ifName, cfg.Type, cfg.PaddedPduSize != 0, s.logger,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("create API session sender: %w", err)

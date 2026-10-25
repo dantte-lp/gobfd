@@ -72,7 +72,7 @@ func TestUDPSenderFactoryBindsSingleHopDevice(t *testing.T) {
 	f := newUDPSenderFactory(0)
 	logger := slog.New(slog.DiscardHandler)
 	for _, ifName := range []string{lo, ""} {
-		_, srcPort, err := f.CreateSender(netip.MustParseAddr("127.0.0.1"), ifName, false, false, logger)
+		_, srcPort, err := f.CreateSender(netip.MustParseAddr("127.0.0.1"), ifName, bfd.SessionTypeSingleHop, false, logger)
 		if err != nil {
 			t.Fatalf("CreateSender(%q): %v", ifName, err)
 		}

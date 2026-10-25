@@ -27,16 +27,23 @@ func newUDPSenderFactory(writeBufferSize int) *udpSenderFactory {
 func (f *udpSenderFactory) CreateSender(
 	localAddr netip.Addr,
 	ifName string,
-	multiHop bool,
+	kind bfd.SessionType,
 	doNotFragment bool,
 	logger *slog.Logger,
 ) (bfd.PacketSender, uint16, error) {
 	var opts []netio.SenderOption
+	switch kind {
+	case bfd.SessionTypeSingleHop, bfd.SessionTypeMultiHop:
+	case bfd.SessionTypeEcho:
+		opts = append(opts, netio.WithDstPort(netio.PortEcho))
+	default:
+		return nil, 0, fmt.Errorf("API sender type %d: %w", kind, bfd.ErrInvalidSessionType)
+	}
 	if doNotFragment {
 		opts = append(opts, netio.WithDFBit())
 	}
 	localAddr, opts = singleHopSenderBinding(localAddr, ifName, opts)
-	return f.createSenderForSession(localAddr, multiHop, logger, opts...)
+	return f.createSenderForSession(localAddr, kind == bfd.SessionTypeMultiHop, logger, opts...)
 }
 
 func (f *udpSenderFactory) CloseSender(srcPort uint16) error {

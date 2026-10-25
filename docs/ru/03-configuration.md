@@ -352,10 +352,10 @@ Echo-сессии обнаруживают отказы forwarding-path без �
 
 Echo-пиры реконсилируются при SIGHUP. Ключ сессии: `(peer, local, interface)`.
 
-Declarative sender выбирает UDP destination port 3785, но не применяет
-`SO_BINDTODEVICE` из `interface` (`gobfd-qj0.8.2.1.19`). Echo через API также
-игнорирует interface для транспорта и сейчас отправляет на Control port 3784
-(`gobfd-qj0.8.2.1.17`). Ни один путь не квалифицирует interface-bound Echo TX.
+Декларативный Echo и Echo через API отправляют на UDP-порт назначения 3785.
+Явный `interface` применяет `SO_BINDTODEVICE` к приёмному listener и
+TX sender; пустое значение оставляет выбор устройства ядру. Эти локальные
+проверки транспорта не подтверждают полную квалификацию RFC 9747.
 
 Создание через API также требует `echo.enabled: true`, реконсилированного Echo
 source и готового runtime/receive binding. Иначе `AddEchoSession` возвращает
@@ -1171,9 +1171,11 @@ IPv4-mapped адреса сохраняют mapped identity. Все записи
 сокет ключом `(local address с развёрнутой IPv4-mapped формой, interface, port,
 multi-hop flag)`, где port — 3784, 4784, 3785 или 6784. Записи, идентификаторы
 валидации которых отличаются только IPv4-mapped написанием и которые задают
-одинаковый `interface`, используют один сокет. Echo-сессия, созданная через API,
-использует Echo listener своего local address независимо от interface, как и
-настроенные Echo peers.
+одинаковый `interface`, используют один сокет. Echo-сессия через API разделяет
+listener только при совпадении полного ключа времени выполнения. Другой
+запрошенный интерфейс, включая пустое значение, получает отдельный listener
+вместо повторного использования сокета другого устройства. Проверки конфликтов
+интерфейсов в файле конфигурации сохраняются.
 
 `ListenerBindingConflictError` оборачивает `ErrAmbiguousListenerInterface`.
 Метод `FieldID()` указывает `sessions[].interface` или `echo.peers[].interface`;
