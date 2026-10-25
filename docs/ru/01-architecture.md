@@ -332,15 +332,18 @@ configuration, Micro-BFD и compatibility API используют owning UDP le
 на которые пришёл пакет, создавший её; cleanup session закрывает этот lease
 один раз.
 
-Echo sessions используют ту же границу lease принятой session с отдельными API
-и declarative sources. Compatibility-путь `CreateEchoSession` сохраняет явный
-non-owning wrapper для raw sender, а API adapter и declarative reconciler
-передают ленивые owning factories. Declarative reconciliation проверяет полный
-canonical candidate до открытия senders, не доверяет adapter-supplied keys как
-identity, сохраняет API-created Echo sessions и передаёт пустой desired set.
-Ошибка получения sender откатывает только новые принятые declarative Echo
-sessions текущего прохода; removal и shutdown ровно один раз освобождают каждый
-принятый lease после завершения Echo goroutine.
+Echo-сессии разделяют один канонический wire между совместимыми claims
+конфигурации и API principal. Повторный допущенный вызов того же владельца
+сохраняет discriminator, sender и протокольное состояние; удаление освобождает
+только claim вызывающего. Compatibility-путь `CreateEchoSession` сохраняет
+собственного владельца и явный non-owning wrapper для raw sender. API и
+декларативное создание используют ленивые owning factories; физический lease
+Echo сохраняет RX после удаления конфигурации, если остаётся API claim.
+Реконсиляция проверяет полный candidate относительно всех владельцев,
+подготавливает новые config claims до освобождения устаревших и откатывает
+только новые claims при ошибке подготовки. Последнее освобождение или shutdown
+ожидает завершения Echo goroutine перед закрытием lease. См.
+[ADR-0009](adr/0009-echo-principal-claims.md).
 
 Для сессий с аутентификацией эффективные параметры включают тип встроенного
 authenticator и неизменяемый fingerprint `StaticAuthKeyStore`. Static store

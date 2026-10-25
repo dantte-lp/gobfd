@@ -181,7 +181,7 @@ func TestOverlaySourceIncompleteAcquireKeepsWholePreviousSource(t *testing.T) {
 					c.withListeners(func(
 						ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate,
 					) sourceApplyResult {
-						return applyCompiledSource(ctx, source, candidate, mgr, sf, logger)
+						return applyCompiledSource(ctx, source, candidate, mgr, sf, logger, c.listeners)
 					}))
 				receipt = c.Snapshot().LastReceipt.Sources[source]
 				if c.Snapshot().Stale || receipt.Created != 2 || receipt.Released != 2 || !old.isClosed() {
@@ -231,7 +231,7 @@ func TestOverlaySameWireReplacementRejectsBeforeAnyMutation(t *testing.T) {
 		) sourceApplyResult {
 			applied = true
 			cancel()
-			return applyCompiledSource(ctx, source, next, mgr, sf, logger)
+			return applyCompiledSource(ctx, source, next, mgr, sf, logger, c.listeners)
 		})
 		if !errors.Is(result.Err, bfd.ErrSessionParameterConflict) || applied {
 			t.Errorf("unqualified same-wire change reached apply: %+v, applied=%t", result, applied)
@@ -299,7 +299,7 @@ func TestOverlaySourceSupersedesUnusedPreparations(t *testing.T) {
 				c.retryPendingSources(t.Context(), snapshot.DesiredGeneration, allReconciliationSources,
 					c.withListeners(func(ctx context.Context, source reconciliationSource, next compiledControlSessionCandidate,
 					) sourceApplyResult {
-						return applyCompiledSource(ctx, source, next, mgr, sf, logger)
+						return applyCompiledSource(ctx, source, next, mgr, sf, logger, c.listeners)
 					}))
 				if len(opener.opened(netip.MustParseAddr(prepared.Local))) != 1 {
 					t.Error("same-generation retry reopened its prepared backend")

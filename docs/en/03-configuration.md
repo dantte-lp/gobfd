@@ -362,6 +362,13 @@ preserve it. Readiness loss rejects subsequent admission; already admitted
 requests may complete. List/Delete remain available under management policy.
 This guard does not promote RFC 9747 beyond preview.
 
+Compatible config and API principal claims share one canonical Echo wire.
+An admitted same-principal retry retains its sender and discriminator. Removing
+`echo.peers[]` releases only the config claim; the physical lease preserves RX/TX
+for remaining API claims. Parameter conflicts reject before changing existing
+claims, and failed preparation retains the previous config set. See
+[ADR-0009](adr/0009-echo-principal-claims.md).
+
 Example:
 ```yaml
 echo:
@@ -907,9 +914,10 @@ On reload:
 5. Log level is updated dynamically after validation (no restart needed); this
    setting is not rolled back if a later source fails
 6. The base session source is reconciled, including an empty desired set
-7. Echo peers are reconciled as a source-isolated desired set, including the
-   disabled or empty state; sender leases are acquired lazily only for newly
-   accepted sessions
+7. Echo peers are reconciled as config claims, including the disabled or empty
+   desired set. Compatible API claims share the wire. New claims are prepared
+   before stale config claims are released; only new physical wires acquire
+   sender leases
 8. Micro-BFD groups and the member-session source are reconciled, including
    empty desired sets
 9. VXLAN and Geneve are reconciled as distinct sources, including empty
@@ -945,12 +953,12 @@ overlay acquire likewise holds the whole source. A pending control-session
 sender claim retains every old claim of its Manager source, while valid
 disjoint new claims may remain tracked. The address
 event that assigns the address retries the source. An API-created
-control or Echo session claims its listener with its sender and opens it when
-absent; an Echo session shares the per-address Echo listener. An absent
+control or Echo wire retains its listener with its sender and opens it when
+absent; Echo listeners share only an exact address/interface/transport key. An absent
 interface or unassigned address fails `AddSession` or `AddEchoSession` with
 `Unavailable`, another open error with `FailedPrecondition`, and no session is
-created. Destroying the session drops
-its claim. After a source applies without failed or resource-pending entries,
+created. Retiring the final session claim drops its lease-owned listener
+reference. After a source applies without failed or resource-pending entries,
 it drops its claims outside the desired set; a listener closes when its last
 source, unsolicited, or API claim goes.
 Unchanged listeners, including the startup-owned unsolicited wildcard
@@ -1094,7 +1102,8 @@ Reapplying the unchanged policy remains admissible.
 Base configuration, Echo, Micro-BFD members, VXLAN, and Geneve use distinct
 source ownership. Removing the final entry for one of these sources does not
 delete sessions owned by another source. Echo sender acquisition failure rolls
-back newly accepted Echo sessions from that pass; SIGHUP remains
+back only new config claims from that pass and preserves the previous config
+claims; surviving API claims retain their wire and RX/TX. SIGHUP remains
 non-transactional across sources and for other runtime apply failures.
 Automatic completion covers admitted base timer transactions, not arbitrary
 failed source operations. Other partial applies still require a later explicit

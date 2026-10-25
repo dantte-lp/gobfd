@@ -233,7 +233,7 @@ func (c *reconciliationCoordinator) reconcile(
 		source reconciliationSource,
 		candidate compiledControlSessionCandidate,
 	) sourceApplyResult {
-		return applyCompiledSource(ctx, source, candidate, mgr, sf, c.logger)
+		return applyCompiledSource(ctx, source, candidate, mgr, sf, c.logger, c.listeners)
 	}))
 	return nil
 }
@@ -660,9 +660,10 @@ func applyCompiledSource(
 	mgr *bfd.Manager,
 	sf declarativeSenderFactory,
 	logger *slog.Logger,
+	listeners *listenerOwner,
 ) sourceApplyResult {
 	return applyCompiledSourceWithInterfaceChecker(
-		ctx, source, candidate, mgr, sf, logger, netio.CheckInterfacesAvailable,
+		ctx, source, candidate, mgr, sf, logger, listeners, netio.CheckInterfacesAvailable,
 	)
 }
 
@@ -673,6 +674,7 @@ func applyCompiledSourceWithInterfaceChecker(
 	mgr *bfd.Manager,
 	sf declarativeSenderFactory,
 	logger *slog.Logger,
+	listeners *listenerOwner,
 	checkInterfaces interfaceAvailabilityChecker,
 ) sourceApplyResult {
 	if result := preflightCompiledSourceInterfaces(source, candidate, checkInterfaces); result.Err != nil {
@@ -686,7 +688,7 @@ func applyCompiledSourceWithInterfaceChecker(
 		))
 	case sourceEcho:
 		return sourceResultFromBFD(applyEchoSessionCandidates(
-			ctx, candidate.echo, mgr, sf, logger,
+			ctx, candidate.echo, mgr, sf, logger, listeners,
 		))
 	case sourceMicro:
 		return sourceResultFromBFD(applyMicroBFDCandidates(

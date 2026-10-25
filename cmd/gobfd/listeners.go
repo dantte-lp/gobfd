@@ -75,7 +75,7 @@ type ownedListener struct {
 	// between reads as a stale binding, never as a false ready one.
 	ifIndex int
 	claims  listenerClaims
-	// apiClaims counts the API-created senders receiving on this listener.
+	// apiClaims counts sender-owned RX leases, including shared Echo wires.
 	apiClaims    int
 	stop         context.CancelFunc
 	rebindFailed bool
@@ -203,7 +203,7 @@ func (o *listenerOwner) acquire(claims listenerClaims, configs []netio.ListenerC
 	return nil
 }
 
-// claimAPI takes one API claim on the listener of cfg, opening it when
+// claimAPI takes one sender-owned claim on the listener of cfg, opening it when
 // absent. Echo claims share only listeners with the same address and interface.
 func (o *listenerOwner) claimAPI(cfg netio.ListenerConfig) (listenerKey, error) {
 	o.mu.Lock()

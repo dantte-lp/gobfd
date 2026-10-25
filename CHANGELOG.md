@@ -624,6 +624,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Echo API claims are principal-scoped and admitted identical retries reuse
+  the canonical wire, discriminator and sender. Compatible config/API claims
+  share the wire; deletion releases only the caller's claim and the final
+  release closes its lease once. Config withdrawal retains RX for API survivors;
+  failed preparation preserves previous config claims. Echo remains preview.
+
 - API-created Echo sends to UDP destination port 3785 for IPv4 and IPv6 and
   binds RX/TX to the requested interface. Receive listeners share only a matching
   local-address/interface binding; sender-creation failures release prepared

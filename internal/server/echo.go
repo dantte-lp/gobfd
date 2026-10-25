@@ -36,10 +36,9 @@ type echoAdmission interface {
 // EchoServer implements bfdv1connect.EchoServiceHandler.
 //
 // Each RPC delegates to the bfd.Manager for actual lifecycle and
-// reuses the same SenderFactory used by BfdService. RFC 9747 Section
-// 3.3: TxInterval is locally provisioned, not negotiated, so the
-// handler validates only TxInterval and DetectMultiplier and never
-// applies remote-side reconciliation.
+// reuses the same SenderFactory used by BfdService. RFC 9747 Section 2
+// provisions TxInterval locally; the handler does not negotiate timers
+// with returned packets.
 type EchoServer struct {
 	manager       *bfd.Manager
 	senderFactory SenderFactory
@@ -71,7 +70,7 @@ func RegisterEcho(
 	bfdv1connect.RegisterEchoServiceHandler(rpc, srv)
 }
 
-// AddEchoSession creates a new RFC 9747 echo session.
+// AddEchoSession idempotently claims an Echo wire for the caller's principal.
 func (s *EchoServer) AddEchoSession(
 	ctx context.Context,
 	req *bfdv1.AddEchoSessionRequest,
@@ -91,29 +90,18 @@ func (s *EchoServer) AddEchoSession(
 		slog.Uint64("detect_mult", uint64(cfg.DetectMultiplier)),
 	)
 
-	discr, err := s.createEchoSessionWithSenderLease(ctx, cfg)
+	session, err := s.createEchoSessionWithSenderLease(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, snap := range s.manager.EchoSessions() {
-		if snap.LocalDiscr == discr {
-			return &bfdv1.AddEchoSessionResponse{
-				Session: echoSnapshotToProto(snap),
-			}, nil
-		}
-	}
-
-	return nil, connect.NewError(connect.CodeInternal,
-		fmt.Errorf("echo session %d created but not visible in snapshot: %w",
-			discr, bfd.ErrEchoSessionNotFound).Error(),
-	)
+	return &bfdv1.AddEchoSessionResponse{Session: echoSnapshotToProto(session.Snapshot())}, nil
 }
 
 func (s *EchoServer) createEchoSessionWithSenderLease(
 	ctx context.Context,
 	cfg bfd.EchoSessionConfig,
-) (uint32, error) {
+) (*bfd.EchoSession, error) {
 	factory := func() (*bfd.SenderLease, error) {
 		sender, srcPort, err := s.senderFactory.CreateSender(
 			cfg.LocalAddr, cfg.Interface, bfd.SessionTypeEcho, false, s.logger,
@@ -129,14 +117,14 @@ func (s *EchoServer) createEchoSessionWithSenderLease(
 		}), nil
 	}
 
-	discr, err := s.manager.CreateEchoSessionWithSenderLease(ctx, cfg, factory)
+	session, err := s.manager.CreateEchoSessionAs(ctx, cfg, factory, apiOwnerFromContext(ctx))
 	if err != nil {
-		return 0, mapManagerError(err, "add echo session")
+		return nil, mapManagerError(err, "add echo session")
 	}
-	return discr, nil
+	return session, nil
 }
 
-// DeleteEchoSession removes an echo session by its local discriminator.
+// DeleteEchoSession releases the caller's claim on an Echo discriminator.
 func (s *EchoServer) DeleteEchoSession(
 	ctx context.Context,
 	req *bfdv1.DeleteEchoSessionRequest,
@@ -146,7 +134,13 @@ func (s *EchoServer) DeleteEchoSession(
 		slog.Uint64("local_discr", uint64(discr)),
 	)
 
-	if err := s.manager.DestroyEchoSession(discr); err != nil {
+	owner := apiOwnerFromContext(ctx)
+	if err := s.manager.DestroyEchoSessionAs(ctx, discr, owner); err != nil {
+		if errors.Is(err, bfd.ErrSessionOwnerClaimNotFound) {
+			s.logger.WarnContext(ctx, "DeleteEchoSession refused: the caller holds no claim on the session",
+				slog.Uint64("local_discr", uint64(discr)), slog.String("owner", owner.ID),
+			)
+		}
 		return nil, mapManagerError(err, "delete echo session")
 	}
 

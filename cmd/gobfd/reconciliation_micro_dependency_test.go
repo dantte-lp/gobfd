@@ -43,7 +43,7 @@ func TestReconciliationCoordinatorMicroSourceIsOneTransaction(t *testing.T) {
 				return sourceApplyResult{}
 			}
 			return applyCompiledSourceWithInterfaceChecker(ctx, source, candidate, mgr, sf,
-				slog.New(slog.DiscardHandler), func(names []string) (int, error) {
+				slog.New(slog.DiscardHandler), nil, func(names []string) (int, error) {
 					checked = names
 					if available {
 						return 0, nil

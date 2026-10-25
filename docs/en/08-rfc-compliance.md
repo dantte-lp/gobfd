@@ -552,7 +552,14 @@ only request cleanup and do not publish a fabricated state transition.
 
 RFC 9747 defines the unaffiliated BFD echo function for forwarding-path liveness detection without requiring the remote system to run BFD. The local system sends BFD Control packets (echo packets) to the remote, which forwards them back via normal IP routing.
 
-| Requirement | Implementation |
+The table describes the current preview, not a list of satisfied RFC
+requirements. [RFC 9747 Section 2](../rfc/rfc9747.txt) requires the RFC 5880
+state machine without AdminDown, initial address/source-port demultiplexing
+when Your Discriminator is zero, and subsequent Your Discriminator-based
+demultiplexing. Section 5 recommends packet authentication. The current
+two-state loop and My Discriminator-only receive path are implementation gaps.
+
+| Surface | Current implementation |
 |---|---|
 | UDP port 3785 | `netio.PortEcho = 3785`; `echoListenerConfigs()` and API listener claims in `cmd/gobfd/listeners.go` |
 | Standard BFD Control packet format | Reuses `MarshalControlPacket` codec |
@@ -567,11 +574,21 @@ RFC 9747 defines the unaffiliated BFD echo function for forwarding-path liveness
 | Sender with port 3785 destination | Declarative and API-created Echo use `WithDstPort(PortEcho)`; base and multihop API sessions retain destinations 3784 and 4784 |
 | TX interface | `singleHopSenderBinding` applies the optional `SO_BINDTODEVICE` and scopes an unzoned IPv6 link-local source for declarative and API senders; source-port lease and write-buffer policy remain shared |
 
-Key differences from BFD control sessions:
+Management ownership is separate from RFC packet validation. Compatible config
+and API principal claims share one Echo wire; retry and final-claim cleanup
+follow [ADR-0009](adr/0009-echo-principal-claims.md). These rights do not
+authenticate returned packets or close the preview qualification gates.
+
+Current preview behavior and gaps:
 - No three-way handshake (no Init state)
 - No timer negotiation with remote (locally provisioned)
-- No authentication (echo packets are self-originated)
+- No returned-packet authentication; self-originated packets remain spoofable
 - Separate `EchoSession` type with simplified FSM
+
+Beads `gobfd-qj0.8.2.1.20` owns the FSM gap,
+`gobfd-qj0.8.2.1.13` owns returned-packet identity/authentication, and
+`gobfd-qj0.8.2.1.12` owns slow pacing before Up and after Down. Management
+transport or ownership checks do not close these protocol tasks.
 
 ### RFC 7130 Implementation Notes
 

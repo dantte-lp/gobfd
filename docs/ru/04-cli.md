@@ -191,7 +191,7 @@ gobfdctl echo add \
 | `--peer` | Да | -- | IP-адрес echo target |
 | `--local` | Нет | -- | Локальный IP; задайте явно для проверки привязки приёма |
 | `--interface` | Нет | -- | Опциональная привязка приёмного listener и TX sender Echo через `SO_BINDTODEVICE` |
-| `--tx-interval` | Нет | `1s` | Интервал отправки echo (RFC 9747 Section 3.3) |
+| `--tx-interval` | Нет | `1s` | Локально настроенный интервал отправки Echo (RFC 9747 Section 2) |
 | `--detect-mult` | Нет | `3` | Detection multiplier; `DetectionTime = mult * TxInterval` |
 
 `AddEchoSession` требует структурно корректный положительный `tx_interval`
@@ -203,6 +203,14 @@ listener для запрошенных локального адреса и ин
 sender освобождает подготовленную claim приёма и неиспользованный порт источника.
 Echo остаётся предварительной реализацией; локальные проверки сокетов не
 подтверждают совместимость с пирами или полную квалификацию RFC 9747.
+
+Повторный допущенный одинаковый Echo Add того же principal возвращает прежний
+discriminator без открытия нового sender. Совместимые claims конфигурации и
+других API principal разделяют wire; конфликт параметров возвращает
+`FailedPrecondition`. Delete освобождает только claim вызывающего
+(`PermissionDenied` без неё, `NotFound` при отсутствии discriminator). Только
+последняя claim завершает wire; удаление конфигурации сохраняет RX/TX для
+оставшейся API claim.
 
 #### Удалить echo-сессию
 

@@ -239,7 +239,7 @@ func TestManagerClosingRejectsEchoReconciliation(t *testing.T) {
 func TestManagerReconcileEchoSessionsIsOneLifecycleOperation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		barrier := &lifecycleLogBarrier{
-			target:  "reconcile: creating new echo session",
+			target:  "reconcile: claiming echo session",
 			entered: make(chan struct{}),
 			release: make(chan struct{}),
 		}

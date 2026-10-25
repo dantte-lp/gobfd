@@ -59,7 +59,7 @@ func TestReconcileEchoSenderTransport(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			result := applyEchoSessionCandidates(t.Context(), candidates, mgr, factory, logger)
+			result := applyEchoSessionCandidates(t.Context(), candidates, mgr, factory, logger, nil)
 			if test.invalid {
 				if !errors.Is(result.Err(), unix.ENODEV) || result.Created != 0 || len(mgr.EchoSessions()) != 0 {
 					t.Fatalf("invalid device accepted or wrong failure: %+v", result)
@@ -99,11 +99,11 @@ func TestReconcileEchoSenderTransport(t *testing.T) {
 				if err != nil || !bytes.Equal(received[:n], payload) || source != netip.AddrPortFrom(local, port) {
 					t.Fatalf("Echo UDP/3785 probe: source=%s bytes=%q err=%v", source, received[:n], err)
 				}
-				unchanged := applyEchoSessionCandidates(t.Context(), candidates, mgr, factory, logger)
+				unchanged := applyEchoSessionCandidates(t.Context(), candidates, mgr, factory, logger, nil)
 				if unchanged.Err() != nil || unchanged.Created != 0 || unchanged.Released != 0 {
 					t.Fatalf("unchanged Echo desired set reopened sender: %+v", unchanged)
 				}
-				removed := applyEchoSessionCandidates(t.Context(), nil, mgr, factory, logger)
+				removed := applyEchoSessionCandidates(t.Context(), nil, mgr, factory, logger, nil)
 				if removed.Err() != nil || removed.Released != 1 || len(mgr.EchoSessions()) != 0 {
 					t.Fatalf("remove Echo sender: %+v", removed)
 				}

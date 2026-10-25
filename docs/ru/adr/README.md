@@ -33,3 +33,4 @@
 | [0006](./0006-session-preserving-reload-policy.md) | Политика reload с сохранением сессии | Accepted policy; квалификация отдельно |
 | [0007](./0007-workload-phase-accounting.md) | Фазы нагрузки и конечный учёт пакетов | Accepted policy; квалификация отдельно |
 | [0008](./0008-experimental-prerelease-boundary.md) | Граница экспериментального prerelease | Proposed; публикация не разрешена |
+| [0009](./0009-echo-principal-claims.md) | Права principal на общий Echo wire | Accepted policy; локальная квалификация отдельно |

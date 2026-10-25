@@ -1,4 +1,4 @@
-// RFC 9747 — Unaffiliated BFD for Sessionless Applications.
+// RFC 9747 — Unaffiliated Bidirectional Forwarding Detection (BFD) Echo.
 //
 // The unaffiliated BFD echo function provides forwarding-path liveness
 // detection without requiring the remote system to run BFD. The local
@@ -6,13 +6,13 @@
 // forwards them back via normal IP routing. If echoes stop returning,
 // the local system declares the path down.
 //
-// Key differences from BFD control sessions (RFC 5880):
+// Current preview behavior; full RFC 9747 qualification remains incomplete:
 //   - No three-way handshake (no Init state)
 //   - No timer negotiation (locally provisioned)
 //   - DiagEchoFailed (2) on timeout instead of DiagControlTimeExpired (1)
 //   - UDP port 3785 (RFC 5881 Section 4)
 //   - TTL 255 send, exact TTL 254 receive after one-hop loopback (RFC 9747)
-//   - Demux on return by MyDiscriminator (self-originated packet)
+//   - Demux on return by MyDiscriminator, not the required YourDiscriminator path
 
 package bfd
 
@@ -29,7 +29,7 @@ import (
 )
 
 // -------------------------------------------------------------------------
-// Echo Session Configuration — RFC 9747 Section 3
+// Echo Session Configuration — RFC 9747 Section 2
 // -------------------------------------------------------------------------
 
 // EchoSessionConfig contains the parameters for an RFC 9747 echo session.
@@ -46,7 +46,7 @@ type EchoSessionConfig struct {
 	Interface string
 
 	// TxInterval is the echo transmit interval.
-	// RFC 9747 Section 3.3: locally provisioned, not negotiated.
+	// RFC 9747 Section 2: locally provisioned, not negotiated.
 	TxInterval time.Duration
 
 	// DetectMultiplier is the detection time multiplier.
@@ -77,20 +77,20 @@ const (
 )
 
 // -------------------------------------------------------------------------
-// EchoSession — RFC 9747 Section 3
+// EchoSession — current unaffiliated Echo preview
 // -------------------------------------------------------------------------
 
-// EchoSession implements an RFC 9747 unaffiliated BFD echo session.
+// EchoSession implements the current unaffiliated BFD Echo preview.
 //
 // The echo function sends BFD Control packets to the remote system,
 // which forwards them back via normal IP routing. If echoes stop
 // returning within DetectionTime, the session transitions to Down
 // with DiagEchoFailed.
 //
-// State machine (RFC 9747 Section 3.3):
+// Current two-state loop, pending the RFC 9747 Section 2 state-machine work:
 //   - Down → Up: when an echo packet is received back
 //   - Up → Down: when detection time expires (DiagEchoFailed)
-//   - No Init state, no AdminDown (simpler than control FSM)
+//   - No Init state; this differs from the required RFC 5880 FSM without AdminDown
 type EchoSession struct {
 	// --- State ---
 	observationMu    sync.RWMutex
@@ -182,7 +182,6 @@ func NewEchoSession(
 		opt(es)
 	}
 
-	// RFC 9747 Section 3.3: echo session starts in Down state.
 	es.observation = Observation{State: StateDown, LocalDiag: DiagNone, ObservationVersion: 1}
 	es.rebuildCachedPacket()
 
@@ -247,7 +246,7 @@ func (es *EchoSession) TxInterval() time.Duration { return es.txInterval }
 func (es *EchoSession) DetectMultiplier() uint8 { return es.detectMult }
 
 // DetectionTime returns the echo detection timeout.
-// RFC 9747 Section 3.3: DetectMult * TxInterval.
+// RFC 9747 Section 2: DetectMult * TxInterval.
 func (es *EchoSession) DetectionTime() time.Duration {
 	return time.Duration(int64(es.txInterval) * int64(es.detectMult))
 }
@@ -410,7 +409,6 @@ func (es *EchoSession) handleEchoRecv(ctx context.Context, detectTimer *time.Tim
 	}
 	detectTimer.Reset(es.DetectionTime())
 
-	// RFC 9747 Section 3.3: Down → Up when echo is received.
 	if es.State() == StateDown {
 		es.transitionTo(ctx, StateUp, DiagNone)
 	}
@@ -421,7 +419,7 @@ func (es *EchoSession) handleEchoRecv(ctx context.Context, detectTimer *time.Tim
 // -------------------------------------------------------------------------
 
 // handleDetectTimeout fires when no echo returns within detection time.
-// RFC 9747 Section 3.3: transition to Down with DiagEchoFailed.
+// RFC 9747 Section 2: transition to Down with DiagEchoFailed.
 func (es *EchoSession) handleDetectTimeout(ctx context.Context, detectTimer *time.Timer) {
 	if es.State() == StateUp {
 		es.transitionTo(ctx, StateDown, DiagEchoFailed)
@@ -493,7 +491,7 @@ func (es *EchoSession) sendEcho(ctx context.Context) {
 
 // rebuildCachedPacket pre-serializes the BFD echo packet.
 // RFC 9747: uses standard BFD Control packet format.
-// MyDiscriminator is set for demux on return. YourDiscriminator is zero.
+// YourDiscriminator is zero while Down and the local discriminator while Up.
 func (es *EchoSession) rebuildCachedPacket() {
 	observation := es.observationSnapshot()
 	yourDiscr := uint32(0)

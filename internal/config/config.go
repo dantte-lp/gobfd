@@ -214,7 +214,7 @@ type EchoConfig struct {
 	Enabled bool `koanf:"enabled"`
 
 	// DefaultTxInterval is the default echo transmit interval.
-	// RFC 9747 Section 3.3: locally provisioned, not negotiated.
+	// RFC 9747 Section 2: locally provisioned, not negotiated.
 	DefaultTxInterval time.Duration `koanf:"default_tx_interval"`
 
 	// DefaultDetectMultiplier is the default echo detection multiplier.

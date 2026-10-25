@@ -771,7 +771,7 @@ func TestReconcileOverlayTunnelsForwardsEmptyDesiredSets(t *testing.T) {
 	}
 	for _, source := range []reconciliationSource{sourceVXLAN, sourceGeneve} {
 		if result := applyCompiledSource(context.Background(), source, candidate, mgr,
-			newNthFailureDeclarativeSenderFactory(0), slog.New(slog.DiscardHandler)); result.Err != nil {
+			newNthFailureDeclarativeSenderFactory(0), slog.New(slog.DiscardHandler), nil); result.Err != nil {
 			t.Fatal(result.Err)
 		}
 	}

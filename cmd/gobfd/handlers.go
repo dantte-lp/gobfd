@@ -333,7 +333,7 @@ func startInterfaceMonitor(
 			coordinator.withListeners(func(
 				ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate,
 			) sourceApplyResult {
-				return applyCompiledSource(ctx, source, candidate, mgr, sf, logger)
+				return applyCompiledSource(ctx, source, candidate, mgr, sf, logger, coordinator.listeners)
 			}))
 		return nil
 	})

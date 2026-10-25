@@ -12,17 +12,18 @@ delivery. The full 30-pair source and translation audit is accepted at
 `gobfd-qj0.8.2.8.7.2.9`; workload report corrections follow at
 `308ce357f2c553fe71210f7888cf422c30f44f7b` under
 `gobfd-qj0.8.2.8.7.2.10`. The current documentation baseline is
-`dev@cc99ec5d363db295a7252bbecb656bad6da33bda`, including declarative Echo TX
-binding and accepted Russian prose corrections under `gobfd-qj0.8.2.8.7.2.11`.
-The Echo API transport follow-up below belongs to `gobfd-qj0.8.2.1.17`;
+`dev@38d6a206ee78bc6f27a500ecd5904a695428cefd`, including accepted EN/RU
+corrections and Echo API transport. The Echo principal-claim follow-up below
+belongs to `gobfd-qj0.8.2.2.8` and [ADR-0009](adr/0009-echo-principal-claims.md);
 unrelated unmerged work is outside this projection. Publication
 remains held; alpha readiness `gobfd-qj0.8.2.6.4` does not yet provide a
 prerelease path.
 
 | Area | Current boundary | Beads authority |
 |---|---|---|
-| Documentation | English-first source verification, matching Russian translation and workload report-field definitions; historical records keep their dates and scope | `gobfd-qj0.8.2.8.7.2.11` |
+| Documentation | English-first source verification and matching Russian translation cover 31 pairs including shared Echo ownership; historical records keep their dates and scope | `gobfd-qj0.8.2.8.7.2.12` |
 | Management/reload | Unsafe-loopback policy changes reject before candidate acceptance; complete pending activation remains open | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6` |
+| Echo ownership | Idempotent principal claims share a canonical wire with config and retain RX through config withdrawal; this is management policy, not returned-packet authentication | `gobfd-qj0.8.2.2.8` |
 | Smallstep | Existing-certificate renewal implemented; actual CA and lifecycle qualification incomplete | `gobfd-qj0.8.2.3.7` |
 | Echo preview | Declarative and API IPv4/IPv6 TX binding, UDP/3785 and lease cleanup pass local checks; API receive claims honor the requested interface; full RFC qualification remains open | `gobfd-qj0.8.2.1.19`, `gobfd-qj0.8.2.1.17` |
 | Legacy demos | HAProxy/Kubernetes CLI and pod-selector drift require source fixes and actual execution | `gobfd-qj0.8.2.8.7.1.4.1` |

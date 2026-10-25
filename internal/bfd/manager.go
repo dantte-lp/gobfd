@@ -298,7 +298,8 @@ type Manager struct {
 
 	// echoSessions indexed by local discriminator for echo demux.
 	// RFC 9747: echo packets are demultiplexed by MyDiscriminator on return.
-	echoSessions map[uint32]*echoSessionEntry
+	echoSessions      map[uint32]*echoSessionEntry
+	echoSessionsByKey map[SessionKey]*echoSessionEntry
 
 	// microGroups holds RFC 7130 micro-BFD groups indexed by LAG interface name.
 	// Each group tracks the aggregate state of per-member-link BFD sessions.
@@ -397,26 +398,19 @@ type sessionEntry struct {
 	cleanupPending unsolicitedCleanupPending
 }
 
-type echoSessionSource uint8
-
-const (
-	echoSessionSourceCompatibility echoSessionSource = iota
-	echoSessionSourceDeclarative
-)
-
 type retiredSession struct {
 	localDiscr uint32
 	entry      *sessionEntry
 }
 
-// echoSessionEntry holds one echo session's canonical identity, source, and
+// echoSessionEntry holds one echo session's canonical identity, claims, and
 // owned runtime resources.
 type echoSessionEntry struct {
 	session     *EchoSession
 	cancel      context.CancelFunc
 	senderLease *SenderLease
-	key         string
-	source      echoSessionSource
+	key         SessionKey
+	owners      map[SessionOwner]struct{}
 	done        chan struct{}
 }
 
@@ -532,24 +526,25 @@ func WithMicroBFDActuator(actuator MicroBFDActuator) ManagerOption {
 // BFD Control packets.
 func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 	m := &Manager{
-		sessions:        make(map[uint32]*sessionEntry),
-		sessionsByPeer:  make(map[packetDemuxKey]*sessionEntry),
-		sessionsByKey:   make(map[SessionKey]*sessionEntry),
-		echoSessions:    make(map[uint32]*echoSessionEntry),
-		microGroups:     make(map[string]*MicroBFDGroup),
-		microMembers:    make(map[microMemberKey]*MicroBFDGroup),
-		microResyncWake: make(chan struct{}, 1),
-		discriminators:  NewDiscriminatorAllocator(),
-		metrics:         noopMetrics{},
-		rawNotifyCh:     make(chan StateChange, notifyChSize),
-		cleanupWake:     make(chan struct{}, 1),
-		publicLossWake:  make(chan struct{}, 1),
-		publicNotifyCh:  make(chan StateChange, notifyChSize),
-		timerUpdateCh:   make(chan struct{}, 1),
-		subscribers:     make(map[chan StateChange]*subscriber),
-		closeDone:       make(chan struct{}),
-		shutdownCh:      make(chan struct{}),
-		logger:          logger.With(slog.String("component", "bfd.manager")),
+		sessions:          make(map[uint32]*sessionEntry),
+		sessionsByPeer:    make(map[packetDemuxKey]*sessionEntry),
+		sessionsByKey:     make(map[SessionKey]*sessionEntry),
+		echoSessions:      make(map[uint32]*echoSessionEntry),
+		echoSessionsByKey: make(map[SessionKey]*echoSessionEntry),
+		microGroups:       make(map[string]*MicroBFDGroup),
+		microMembers:      make(map[microMemberKey]*MicroBFDGroup),
+		microResyncWake:   make(chan struct{}, 1),
+		discriminators:    NewDiscriminatorAllocator(),
+		metrics:           noopMetrics{},
+		rawNotifyCh:       make(chan StateChange, notifyChSize),
+		cleanupWake:       make(chan struct{}, 1),
+		publicLossWake:    make(chan struct{}, 1),
+		publicNotifyCh:    make(chan StateChange, notifyChSize),
+		timerUpdateCh:     make(chan struct{}, 1),
+		subscribers:       make(map[chan StateChange]*subscriber),
+		closeDone:         make(chan struct{}),
+		shutdownCh:        make(chan struct{}),
+		logger:            logger.With(slog.String("component", "bfd.manager")),
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -939,6 +934,7 @@ func (m *Manager) detachCloseResources() (
 	m.sessionsByPeer = make(map[packetDemuxKey]*sessionEntry)
 	m.sessionsByKey = make(map[SessionKey]*sessionEntry)
 	m.echoSessions = make(map[uint32]*echoSessionEntry)
+	m.echoSessionsByKey = make(map[SessionKey]*echoSessionEntry)
 	m.microGroups = make(map[string]*MicroBFDGroup)
 	m.microMembers = make(map[microMemberKey]*MicroBFDGroup)
 	m.microResync = nil

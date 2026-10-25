@@ -191,7 +191,7 @@ gobfdctl echo add \
 | `--peer` | Yes | -- | Echo target IP address |
 | `--local` | No | -- | Local IP; specify it explicitly to qualify receive binding |
 | `--interface` | No | -- | Optional `SO_BINDTODEVICE` binding for both the Echo receive listener and TX sender |
-| `--tx-interval` | No | `1s` | Echo transmit interval (RFC 9747 Section 3.3) |
+| `--tx-interval` | No | `1s` | Locally provisioned Echo transmit interval (RFC 9747 Section 2) |
 | `--detect-mult` | No | `3` | Detection multiplier; `DetectionTime = mult * TxInterval` |
 
 `AddEchoSession` requires a structurally valid, positive `tx_interval` within
@@ -203,6 +203,13 @@ listener for the requested local address and interface. Sender-creation
 failure releases the prepared receive claim and unused source port. Echo
 remains preview; local socket checks do not establish peer or full RFC 9747
 qualification.
+
+An admitted identical Echo Add by the same principal returns the existing
+discriminator without opening another sender. Compatible config and other API
+principals share the wire; conflicting parameters return `FailedPrecondition`.
+Delete releases only the caller's claim (`PermissionDenied` without one,
+`NotFound` for an absent discriminator). Only the final claim retires the wire;
+removing configuration keeps RX/TX for a surviving API claim.
 
 #### Delete an echo session
 

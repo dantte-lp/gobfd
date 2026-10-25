@@ -365,6 +365,13 @@ source и готового runtime/receive binding. Иначе `AddEchoSession` 
 готовности отклоняет последующие admission; уже допущенный запрос может завершиться.
 List/Delete доступны с прежней management policy. RFC 9747 остаётся preview.
 
+Совместимые claims конфигурации и API principal разделяют один канонический
+Echo wire. Повторный допущенный вызов того же principal сохраняет sender и
+discriminator. Удаление `echo.peers[]` освобождает только config claim;
+физический lease сохраняет RX/TX для оставшихся API claims. Конфликты параметров
+отклоняются до изменения действующих claims, а ошибка подготовки сохраняет
+прежний набор конфигурации. См. [ADR-0009](adr/0009-echo-principal-claims.md).
+
 Пример:
 ```yaml
 echo:
@@ -920,9 +927,10 @@ kill -HUP $(pidof gobfd)
 5. После валидации уровень лога обновляется динамически; при последующей ошибке
    source эта настройка не откатывается
 6. Source базовых сессий реконсилируется, включая пустой desired set
-7. Echo-пиры реконсилируются как изолированный по source desired set, включая
-   disabled или пустое состояние; sender leases лениво создаются только для
-   новых принятых sessions
+7. Echo-пиры реконсилируются как config claims, включая disabled или пустой
+   desired set. Совместимые API claims разделяют wire. Новые claims
+   подготавливаются до освобождения устаревших config claims; sender leases
+   получают только новые физические wire-сессии
 8. Группы Micro-BFD и source member sessions реконсилируются, включая пустые
    desired sets
 9. VXLAN и Geneve реконсилируются как отдельные sources, включая пустые
@@ -958,13 +966,13 @@ Manager, поэтому старые claims сохраняются; неполн
 удерживает весь source. Pending sender claim Control-сессии сохраняет все
 старые claims своего Manager source; valid disjoint new claims могут остаться
 учтёнными. Address event, назначающий адрес,
-повторяет применение source. Control- или Echo-сессия, созданная через API, захватывает
-свой listener вместе с sender и открывает его при отсутствии; Echo-сессия
-использует общий Echo listener своего адреса. Отсутствующий интерфейс или
+повторяет применение source. Физическая Control- или Echo-сессия через API
+удерживает listener вместе с sender и открывает его при отсутствии; Echo listeners
+разделяются только при точном совпадении адреса, интерфейса и транспорта. Отсутствующий интерфейс или
 неназначенный адрес завершает `AddSession` или `AddEchoSession` ошибкой
 `Unavailable`, другая ошибка открытия — `FailedPrecondition`, и сессия не
-создаётся. Удаление
-сессии снимает её claim. После применения source без failed и resource-pending
+создаётся. Освобождение последнего claim сессии снимает ссылку на listener,
+принадлежащую её lease. После применения source без failed и resource-pending
 записей source снимает claims вне desired set; listener закрывается, когда
 снимается его последний claim source, unsolicited или API. Неизменённые listeners,
 включая startup-owned wildcard listeners unsolicited, не переоткрываются и не
@@ -1108,7 +1116,8 @@ reload до generation acceptance, изменения log level, peer callbacks 
 Base configuration, Echo, Micro-BFD members, VXLAN и Geneve используют
 раздельный ownership sources. Удаление последней записи одного source не
 удаляет sessions другого source. Ошибка получения sender для Echo откатывает
-новые принятые Echo sessions этого прохода; SIGHUP остаётся нетранзакционным
+только новые config claims этого прохода и сохраняет предыдущие config claims;
+сохранившиеся API claims удерживают wire и RX/TX. SIGHUP остаётся нетранзакционным
 между sources и для других runtime apply failures.
 Автоматическое завершение охватывает принятые транзакции базовых таймеров, не
 произвольные ошибки других source operations. Для остальных partial apply

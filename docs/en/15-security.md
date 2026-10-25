@@ -75,8 +75,12 @@ Production rules:
 
 API session claims belong to the caller's principal: one principal cannot
 release another's session (`PermissionDenied`, logged), and
-`grpc.mutating_identities` makes unlisted mTLS identities read-only. Control and
-Micro-BFD API objects are principal-scoped; Echo API objects are not yet scoped.
+`grpc.mutating_identities` makes unlisted mTLS identities read-only. Control,
+Micro-BFD and Echo API claims are principal-scoped. Compatible Echo claims share
+one wire with configuration or other principals; release never removes another
+owner's claim. An admitted identical Echo retry is idempotent. List/Watch remain
+daemon-wide read-only observation. See [ADR-0009](adr/0009-echo-principal-claims.md);
+these management rights do not authenticate returned Echo packets.
 
 Transport provenance is independent of the displayed identity. A certificate
 URI such as `uid:0` remains a TLS identity subject to the configured role list.

@@ -1367,7 +1367,7 @@ func TestManagerDemuxEcho(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 
 		// After receiving an echo return, the session should transition
-		// Down -> Up (RFC 9747 Section 3.3).
+		// Down -> Up under the current two-state preview.
 		snapshots := mgr.EchoSessions()
 		if len(snapshots) != 1 {
 			t.Fatalf("expected 1 echo session, got %d", len(snapshots))

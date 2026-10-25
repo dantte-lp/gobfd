@@ -502,7 +502,7 @@ func TestReloadOverlayKeepsPreviousSourceWhileEndpointPending(t *testing.T) {
 			coordinator.withListeners(func(
 				ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate,
 			) sourceApplyResult {
-				return applyCompiledSource(ctx, source, candidate, mgr, sf, slog.New(slog.DiscardHandler))
+				return applyCompiledSource(ctx, source, candidate, mgr, sf, slog.New(slog.DiscardHandler), coordinator.listeners)
 			}))
 	}
 	if endpoint := opener.opened(netip.MustParseAddr(available.Local)); len(endpoint) != 1 || endpoint[0].isClosed() {

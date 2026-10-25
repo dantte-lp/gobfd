@@ -316,15 +316,17 @@ under the owner lock and fences resumption before retiring a sole claim;
 shared configured/API claims preserve their wire session. Final replies and
 local AdminDown keep the RFC 5880 procedures.
 
-Echo sessions use the same accepted-session lease boundary with separate API
-and declarative sources. The compatibility `CreateEchoSession` path keeps an
-explicit non-owning raw-sender wrapper, while the API adapter and declarative
-reconciler pass lazy owning factories. Declarative reconciliation validates the
-complete canonical candidate before opening senders, ignores adapter-supplied
-keys for identity, preserves API-created Echo sessions, and forwards an empty
-desired set. A sender acquisition failure rolls back only the newly accepted
-declarative Echo sessions from that pass; removal and shutdown release each
-accepted lease once after its Echo goroutine exits.
+Echo sessions share one canonical wire across compatible config and API
+principal claims. An admitted same-owner retry preserves its discriminator,
+sender and protocol state; deletion releases only the caller's claim. The
+compatibility `CreateEchoSession` path retains its own owner and explicit
+non-owning raw-sender wrapper. API and declarative creation use lazy owning
+factories, and the physical Echo lease retains RX when configuration is removed
+but an API claim survives. Reconciliation validates the complete candidate
+against every owner, prepares new config claims before stale release and rolls
+back only those new claims on preparation failure. Final release or shutdown
+joins the Echo goroutine before closing its lease. See
+[ADR-0009](adr/0009-echo-principal-claims.md).
 
 For authenticated sessions, the effective parameters include the built-in
 authenticator type and an immutable fingerprint of a `StaticAuthKeyStore`.

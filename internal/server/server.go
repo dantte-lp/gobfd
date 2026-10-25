@@ -802,6 +802,7 @@ func mapManagerError(err error, operation string) *connect.Error {
 		errors.Is(err, bfd.ErrMicroBFDGroupExists):
 		return connect.NewError(connect.CodeAlreadyExists, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrSessionNotFound),
+		errors.Is(err, bfd.ErrEchoSessionNotFound),
 		errors.Is(err, bfd.ErrMicroBFDGroupNotFound):
 		return connect.NewError(connect.CodeNotFound, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrSessionOwnerClaimNotFound):
@@ -809,6 +810,7 @@ func mapManagerError(err error, operation string) *connect.Error {
 	case errors.Is(err, bfd.ErrResourceUnavailable):
 		return connect.NewError(connect.CodeUnavailable, wrapError(operation, err).Error())
 	case errors.Is(err, ErrReceiveListenerUnavailable),
+		errors.Is(err, bfd.ErrSessionParameterConflict),
 		errors.Is(err, bfd.ErrInterfaceUnresolved),
 		errors.Is(err, bfd.ErrMicroBFDMemberOwned),
 		errors.Is(err, bfd.ErrMicroBFDGroupOwnerClaimNotFound),
