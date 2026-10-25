@@ -1304,20 +1304,12 @@ func createLifecycleReceipt(projectRoot string, receipt lifecycleReceipt) error 
 }
 
 func writeLifecycleReceipt(projectRoot string, receipt lifecycleReceipt) error {
-	path := receiptPath(projectRoot)
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
-		return fmt.Errorf("validate vendor lifecycle receipt: %w", errLifecycleState)
-	}
 	data, err := json.Marshal(receipt)
 	if err != nil {
 		return fmt.Errorf("encode vendor lifecycle receipt: %w", err)
 	}
 	data = append(data, '\n')
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return fmt.Errorf("update vendor lifecycle receipt: %w", err)
-	}
-	return nil
+	return replaceLifecycleReceipt(receiptPath(projectRoot), data)
 }
 
 func loadLifecycleReceipt(projectRoot string) (lifecycleReceipt, error) {
