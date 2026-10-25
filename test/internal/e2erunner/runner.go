@@ -451,19 +451,26 @@ type vendorManifest struct {
 }
 
 type vendorProfile struct {
-	ID           string   `json:"id"`
-	ProfileClass string   `json:"profile_class"`
-	Images       []string `json:"images"`
-	SkipPolicy   string   `json:"skip_policy"`
+	ID           string       `json:"id"`
+	ProfileClass string       `json:"profile_class"`
+	Images       []string     `json:"images"`
+	Build        *vendorBuild `json:"build,omitempty"`
+	SkipPolicy   string       `json:"skip_policy"`
+}
+
+type vendorBuild struct {
+	Context    string `json:"context"`
+	Dockerfile string `json:"dockerfile"`
 }
 
 type vendorImageEvidence struct {
-	ProfileID    string   `json:"profile_id"`
-	ProfileClass string   `json:"profile_class"`
-	Images       []string `json:"images"`
-	Available    []string `json:"available"`
-	Status       string   `json:"status"`
-	Reason       string   `json:"reason"`
+	ProfileID    string       `json:"profile_id"`
+	ProfileClass string       `json:"profile_class"`
+	Images       []string     `json:"images"`
+	Build        *vendorBuild `json:"build,omitempty"`
+	Available    []string     `json:"available"`
+	Status       string       `json:"status"`
+	Reason       string       `json:"reason"`
 }
 
 func (r *runner) writeVendorImages(ctx context.Context) error {
@@ -481,6 +488,13 @@ func (r *runner) writeVendorImages(ctx context.Context) error {
 		item := vendorImageEvidence{
 			ProfileID: profile.ID, ProfileClass: profile.ProfileClass, Images: profile.Images,
 			Available: []string{}, Status: "skipped", Reason: profile.SkipPolicy,
+		}
+		if profile.Build != nil {
+			item.Build = profile.Build
+			item.Status = "owned-receipt-required"
+			item.Reason = "run-owned-build"
+			evidence = append(evidence, item)
+			continue
 		}
 		for _, image := range profile.Images {
 			if err := r.command(

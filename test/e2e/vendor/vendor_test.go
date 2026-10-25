@@ -33,10 +33,16 @@ type profile struct {
 	TopologyNode string   `json:"topology_node"`
 	ConfigPaths  []string `json:"config_paths"`
 	Images       []string `json:"images"`
+	Build        *build   `json:"build,omitempty"`
 	SkipPolicy   string   `json:"skip_policy"`
 	Scenario     string   `json:"scenario"`
 	Standards    []string `json:"standards"`
 	Evidence     []string `json:"evidence"`
+}
+
+type build struct {
+	Context    string `json:"context"`
+	Dockerfile string `json:"dockerfile"`
 }
 
 func TestVendorProfilesContract(t *testing.T) {
@@ -74,8 +80,22 @@ func TestVendorProfilesContract(t *testing.T) {
 		if p.Vendor == "" || p.Platform == "" || p.TopologyNode == "" || p.Scenario == "" {
 			t.Fatalf("profile %s has incomplete metadata: %+v", p.ID, p)
 		}
-		if len(p.Images) == 0 {
-			t.Fatalf("profile %s has no image references", p.ID)
+		if p.Build != nil {
+			if p.ID != "frr" || p.Build.Context != "test/interop/frr" ||
+				p.Build.Dockerfile != "Containerfile" || len(p.Images) != 0 {
+				t.Fatalf("profile %s has an unsupported local build: %+v", p.ID, p)
+			}
+			contextPath := repoPath(t, p.Build.Context)
+			info, err := os.Stat(contextPath)
+			if err != nil || !info.IsDir() {
+				t.Fatalf("profile %s build context is not a directory: %v", p.ID, err)
+			}
+			info, err = os.Stat(filepath.Join(contextPath, p.Build.Dockerfile))
+			if err != nil || !info.Mode().IsRegular() {
+				t.Fatalf("profile %s build recipe is not a regular file: %v", p.ID, err)
+			}
+		} else if len(p.Images) == 0 || p.ID == "frr" {
+			t.Fatalf("profile %s requires image references or the shared FRR build recipe", p.ID)
 		}
 		if !allowedSkipPolicy[p.SkipPolicy] {
 			t.Fatalf("profile %s skip policy = %q", p.ID, p.SkipPolicy)
