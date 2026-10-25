@@ -27,10 +27,17 @@ writer atomically; its documentation review is accepted at
 `b944151bec08c44bdf0514e5945f257f0404c0dd` under
 `gobfd-qj0.8.2.8.7.2.17`. The subsequent transport authorization fix is
 accepted at `f43c9b5d87247cfdcee7aa5ac8414fb4515bf90f` under
-`gobfd-qj0.8.2.3.8`; `gobfd-qj0.8.2.8.7.2.18` reviews the current
-English/source contract before the Russian translation. The review corrects
+`gobfd-qj0.8.2.3.8`; `gobfd-qj0.8.2.8.7.2.18` is accepted at
+`29828d0723ce04e79eb52ab773cbe9aaea6ea107` after the English/source review
+and Russian translation. That review corrects
 MPLS/VCCV support claims, configuration and health semantics, HAProxy timing
 and the disclosed Containerlab/compiler and Kubernetes listener boundaries.
+The Kubernetes source correction is accepted at
+`041f571babed7c60a37169f98a00218fca5be19a`: GoBGP listens on loopback and
+bounded exec probes query its local API. Isolated native-process checks do
+not close live-cluster, peer-load or resource qualification. The follow-up
+`gobfd-qj0.8.2.8.7.2.19` revalidates the publication pages against this source
+and documents the unmerged Containerlab compiler/runtime changes separately.
 These documentation gates are separate from release qualification; later
 accepted source changes require review of the affected pages. Publication
 remains held; alpha readiness
@@ -38,7 +45,7 @@ remains held; alpha readiness
 
 | Area | Current boundary | Beads authority |
 |---|---|---|
-| Documentation | The 31-pair source and Russian translation audit and receipt-writer follow-up are accepted locally; the transport-fix baseline has a separate current-source review | `gobfd-qj0.8.2.8.7.2.16`, `gobfd-qj0.8.2.8.7.2.17`, `gobfd-qj0.8.2.8.7.2.18` |
+| Documentation | The 31-pair source and Russian translation audit, receipt-writer and transport-fix reviews are accepted locally; the Kubernetes and isolated compiler follow-up retains separate source boundaries | `gobfd-qj0.8.2.8.7.2.18`, `gobfd-qj0.8.2.8.7.2.19` |
 | Management/reload | Unsafe-loopback policy changes reject before candidate acceptance; core pending activation is accepted locally; the parent retains separate P2 interface-validation and P3 runtime-VNI work | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6`, `gobfd-qj0.8.2.2.6.5`, `gobfd-qj0.8.2.2.6.6` |
 | Sender recovery | Same-socket IPv4/IPv6 rebind and denied-privilege failure pass locally; matching named scope no longer increases packet-loop allocations after recreation | `gobfd-qj0.8.2.2.6.7` |
 | Pending qualification | Typed reason classes and active-address checks retain generation, claims and sockets; all-five periodic resource checks also cover missing monitor events; local process evidence remains separate from final release qualification | `gobfd-qj0.8.2.2.6.8`, `gobfd-qj0.8.2.2.6.8.1`, `gobfd-qj0.8.2.2.6.8.2` |

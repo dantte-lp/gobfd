@@ -375,7 +375,7 @@ only when needed with
 `.golangci.yml` uses
 `linters.default: all`: 92 signal-bearing linters are enabled, while 20
 maintained linters with no project inputs, duplicate coverage, or documented
-semantic conflicts and two deprecated linters are disabled.
+semantic conflicts and three deprecated linters are disabled.
 The CI contract validates the v2 schema, the enabled-linter count, the normal
 build, and every repository-specific build tag independently. Key checks include:
 
