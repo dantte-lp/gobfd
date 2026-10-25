@@ -75,22 +75,21 @@ spec:
           image: gobgp:local
           imagePullPolicy: Never
           command: ["gobgpd"]
-          args: ["-f", "/etc/gobgp/gobgp.toml", "-l", "info"]
+          args: ["-f", "/etc/gobgp/gobgp.toml", "-l", "info", "--api-hosts=127.0.0.1:50051"]
           ports:
             - name: bgp
               containerPort: 179
               protocol: TCP
-            - name: gobgp-grpc
-              containerPort: 50051
-              protocol: TCP
           readinessProbe:
-            tcpSocket:
-              port: gobgp-grpc
+            exec:
+              command: ["/usr/local/bin/gobgp", "--host", "127.0.0.1", "--port", "50051", "global"]
+            timeoutSeconds: 3
             periodSeconds: 10
             failureThreshold: 3
           livenessProbe:
-            tcpSocket:
-              port: gobgp-grpc
+            exec:
+              command: ["/usr/local/bin/gobgp", "--host", "127.0.0.1", "--port", "50051", "global"]
+            timeoutSeconds: 3
             initialDelaySeconds: 15
             periodSeconds: 20
             failureThreshold: 3

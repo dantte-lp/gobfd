@@ -983,6 +983,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Bind the Kubernetes GoBGP API explicitly to `127.0.0.1:50051`. Readiness
+  and liveness query the loopback API through the shipped `gobgp` CLI with
+  a three-second exec-probe timeout instead of probing node TCP/50051.
+  Host-local plaintext access remains; live-cluster qualification is separate.
+
 - Restrict `grpc.unsafe_loopback_mutations` to verified direct plaintext
   loopback TCP connections. TLS clients without URI/DNS principals and requests
   without transport proof cannot mutate, including when the unsafe opt-in is

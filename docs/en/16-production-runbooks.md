@@ -89,11 +89,11 @@ Operational notes:
   network does not permit a non-loopback plaintext listener.
 - The shipped ConfigMap exposes unauthenticated metrics on `:9100` in the host
   network. Restrict reachability at the node boundary before using the example.
-- The GoBGP sidecar also exposes its plaintext API on node TCP/50051 because
-  its arguments do not override the pinned upstream API listener or enable
-  TLS. Restrict access before applying the manifest. The existing GoBGP TCP
-  probes need a compatible replacement if the API is bound to loopback;
-  `gobfd-qj0.8.2.8.7.1.4.1.1` tracks the source fix and live qualification.
+- The GoBGP sidecar binds its API to `127.0.0.1:50051`. Both GoBGP probes
+  execute the shipped `gobgp global` command against that loopback API with
+  a three-second timeout. Host-local plaintext API access remains. Verify
+  probes, OOM counters and restart behavior under the declared resource limits;
+  `gobfd-qj0.8.2.8.7.1.4.1.1` retains live-cluster qualification.
 
 The Kubernetes image import and live-cluster qualification remain incomplete.
 These manifests and probes are examples, not an accepted cluster deployment.
