@@ -675,6 +675,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reject truncated Podman multiplexed output headers instead of treating them
+  as successful EOF. Preserve completed binary stdout/stderr and wrapped read
+  errors; exec consumers fail on incomplete output.
+
 - Avoid repeated Go interface-table refresh after device-bound IPv6 sender
   recovery. A matching named zone uses verified socket device scope; explicit
   numeric or unrelated zones keep their meaning, with the same socket and
@@ -1019,6 +1023,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   follow from their eligibility dates.
 
 ### Security
+
+- Bind the Kubernetes GoBGP API explicitly to `127.0.0.1:50051`. Readiness
+  and liveness query the loopback API through the shipped `gobgp` CLI with
+  a three-second exec-probe timeout instead of probing node TCP/50051.
+  Host-local plaintext access remains; live-cluster qualification is separate.
+
+- Restrict `grpc.unsafe_loopback_mutations` to verified direct plaintext
+  loopback TCP connections. TLS clients without URI/DNS principals and requests
+  without transport proof cannot mutate, including when the unsafe opt-in is
+  enabled. Unix peer-UID access, recognized mTLS roles and read-only access
+  retain their existing policies.
 
 - The packaged `gobfd.service` adds a measured sandbox contract:
   `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK`,

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"net/netip"
 	"slices"
 	"strings"
@@ -195,6 +194,7 @@ func TestReconciliationRejectsUnsafeLoopbackPolicyChangeBeforeMutation(t *testin
 			sf := newNthFailureDeclarativeSenderFactory(0)
 			level := new(slog.LevelVar)
 			srv := newGRPCServer(startup.GRPC, false, mgr, nil, nil, checker, nil, logger, nil)
+			baseURL := serveLoopback(t, srv)
 			if err := coordinator.reconcile(t.Context(), startup, mgr, sf, level); err != nil {
 				t.Fatal(err)
 			}
@@ -234,17 +234,23 @@ func TestReconciliationRejectsUnsafeLoopbackPolicyChangeBeforeMutation(t *testin
 				after.Stale || sf.calls != 0 || len(mgr.Sessions()) != 0 {
 				t.Fatal("unchanged startup policy did not converge without creating resources")
 			}
-			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/bfd.v1.BfdService/DeleteSession",
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, baseURL+"/bfd.v1.BfdService/DeleteSession",
 				strings.NewReader(`{"localDiscriminator":42}`))
+			if err != nil {
+				t.Fatal(err)
+			}
 			req.Header.Set("Content-Type", "application/json")
-			rec := httptest.NewRecorder()
-			srv.Handler.ServeHTTP(rec, req)
+			response, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
 			wantCode, wantHealth := http.StatusForbidden, grpchealth.StatusServing
 			if tc.allowed {
 				wantCode, wantHealth = http.StatusNotFound, grpchealth.StatusNotServing
 			}
-			if rec.Code != wantCode {
-				t.Fatalf("retained anonymous mutation policy HTTP status = %d, want %d", rec.Code, wantCode)
+			if response.StatusCode != wantCode {
+				t.Fatalf("retained anonymous mutation policy HTTP status = %d, want %d", response.StatusCode, wantCode)
 			}
 			health, err := checker.Check(t.Context(), &grpchealth.CheckRequest{Service: managementHealthServiceName})
 			if err != nil || health.Status != wantHealth {

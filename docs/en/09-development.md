@@ -36,6 +36,9 @@
 > container invocation. `semgrep*` targets call the selected host executable.
 > The five E2E aggregate launchers remain a container-boundary gap in
 > `gobfd-qj0.8.2.8.7.1.4.2`; containerized payload tests do not close it.
+> Containerlab's five Make launchers build a fresh controller in a socket-free
+> SDK. Its race-enabled payload compiles separately and executes in Debian;
+> native FRR qualification remains open in `gobfd-qj0.8.2.8.5.2.7.3.4`.
 > Complete the [Compose-provider bootstrap](06-deployment.md#podman-compose)
 > before `make up`. The setup below assumes that its exported environment
 > variables remain set in the same shell.
@@ -383,7 +386,7 @@ only when needed with
 `.golangci.yml` uses
 `linters.default: all`: 92 signal-bearing linters are enabled, while 20
 maintained linters with no project inputs, duplicate coverage, or documented
-semantic conflicts and two deprecated linters are disabled.
+semantic conflicts and three deprecated linters are disabled.
 The CI contract validates the v2 schema, the enabled-linter count, the normal
 build, and every repository-specific build tag independently. Key checks include:
 
@@ -406,9 +409,13 @@ checks the preserved Conventional Commit type, scope, case, 100-byte blocking
 header limit, 120-byte non-blocking body warning, and default-ignore boundary.
 Neither check requires Node.js or npm.
 
-`make lint-spell` runs the pinned Go `misspell` tool over the exact maintained
-English documentation set. `make lint-yaml` runs pinned Go `yamlfmt` in lint
-mode with the repository's line-preserving `.yamlfmt.yaml` policy.
+`make lint-spell` runs the pinned Go `misspell` tool over `README.md`,
+`CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SUPPORT.md`, `GOVERNANCE.md`,
+`MAINTAINERS.md`, `CHANGELOG.md` and `docs/en/roadmap.md`. It does not scan
+the other English guides or Russian translations. Publication review must
+check those pages separately against the code and source-language meaning.
+`make lint-yaml` runs pinned Go `yamlfmt` in lint mode with the repository's
+line-preserving `.yamlfmt.yaml` policy.
 
 ### Python Absence Contract
 

@@ -15,6 +15,7 @@ func TestMutationGuard(t *testing.T) {
 	t.Parallel()
 
 	anonymous := context.Background()
+	loopback := rpcTLSContext(t, nil)
 	authenticated := context.WithValue(context.Background(), principalKey{}, transportPrincipal{
 		kind: principalUnix, identity: "uid:1000",
 	})
@@ -33,7 +34,7 @@ func TestMutationGuard(t *testing.T) {
 		{"anonymous DeleteMicroBFDGroup", anonymous, "/bfd.v1.MicroBFDService/DeleteMicroBFDGroup", false, true},
 		{"anonymous ListSessions", anonymous, "/bfd.v1.BfdService/ListSessions", false, false},
 		{"anonymous WatchSessionEvents", anonymous, "/bfd.v1.BfdService/WatchSessionEvents", false, false},
-		{"anonymous AddSession, unsafe opt-in", anonymous, "/bfd.v1.BfdService/AddSession", true, false},
+		{"anonymous AddSession, unsafe opt-in", loopback, "/bfd.v1.BfdService/AddSession", true, false},
 		{"authenticated AddSession", authenticated, "/bfd.v1.BfdService/AddSession", false, false},
 	}
 	for _, tt := range tests {

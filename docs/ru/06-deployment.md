@@ -292,7 +292,8 @@ Docker Buildx/Bake не входит в контракт выполнения п
 
 #### Стек разработки
 
-Описание: `deployments/compose/compose.dev.yml`.
+`deployments/compose/compose.dev.yml` предоставляет окружение разработки с
+подключённым каталогом исходников. Демон и наблюдатель за файлами не запускаются:
 
 ```bash
 # Запуск среды разработки
@@ -372,10 +373,12 @@ graph LR
 ```bash
 # Стандартная сборка
 podman build -f deployments/docker/Containerfile -t gobfd .
-
-# Multi-arch сборка (через GoReleaser)
-goreleaser release --snapshot --clean
 ```
+
+Релизные образы нескольких архитектур используют закреплённые GoReleaser,
+Syft и UPX из [release.yml](../../.github/workflows/release.yml); образ
+разработки этих инструментов не содержит. Отдельный процесс квалификации
+и публикации описан в [руководстве по выпуску](10-changelog.md).
 
 Релизные образы содержат четыре бинарных файла GoBFD и не содержат инструментов разработки:
 `gobfd`, `gobfdctl`, `gobfd-haproxy-agent` и

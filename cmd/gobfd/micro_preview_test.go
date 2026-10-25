@@ -3,7 +3,7 @@ package main
 import (
 	"errors"
 	"log/slog"
-	"net/http/httptest"
+	"net/http"
 	"slices"
 	"testing"
 	"time"
@@ -44,8 +44,9 @@ func TestMicroPreviewDaemonAPIAdmission(t *testing.T) {
 			t.Cleanup(mgr.Close)
 			srv := newGRPCServer(config.GRPCConfig{UnsafeLoopbackMutations: true}, enabled,
 				mgr, nil, nil, newDaemonHealthChecker(), nil, logger, nil)
-			ts := httptest.NewTestServer(t, srv.Handler)
-			client := bfdv1connect.NewMicroBFDServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
+			baseURL := serveLoopback(t, srv)
+			client := bfdv1connect.NewMicroBFDServiceClient(
+				connect.NewClient(connecthttp.NewTransport(http.DefaultClient, baseURL)))
 			_, err := client.AddMicroBFDGroup(t.Context(), &bfdv1.AddMicroBFDGroupRequest{
 				LagInterface: "bond0", MemberLinks: []string{"eth0"},
 				PeerAddress: "192.0.2.2", LocalAddress: "192.0.2.1",

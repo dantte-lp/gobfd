@@ -261,8 +261,9 @@ contacting the daemon.
 
 `AddMicroBFDGroup` returns `InvalidArgument` for malformed protobuf TX/RX
 durations, duplicate or empty member names, and member session values outside
-the RFC 5880 bounds (zero or out-of-range intervals, zero detect multiplier).
-Omitted intervals default to `1s`. Micro-BFD group RPCs return:
+the RFC 5880 bounds (zero TX, negative or out-of-range TX/RX intervals, zero
+detect multiplier). Omitted intervals default to `1s`; an explicitly supplied
+zero RX interval is accepted. Micro-BFD group RPCs return:
 
 | Condition | Code |
 |---|---|

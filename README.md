@@ -168,8 +168,8 @@ Full RFC texts are available in [`docs/rfc/`](docs/rfc/):
 | RFC 8971 | BFD for VXLAN | Unsafe/incomplete userspace preview |
 | RFC 9521 | BFD for Geneve | Unsafe/incomplete userspace preview |
 | RFC 9764 | BFD Large Packets | Partial; authenticated padded TX qualified with FRR/BIRD |
-| RFC 5884 | BFD for MPLS LSPs | Stub |
-| RFC 5885 | BFD for PW VCCV | Stub |
+| RFC 5884 | BFD for MPLS LSPs | Not implemented |
+| RFC 5885 | BFD for PW VCCV | Not implemented |
 
 Details: [RFC Compliance](docs/en/08-rfc-compliance.md)
 

@@ -54,10 +54,13 @@ func rpcTLSContext(t *testing.T, state *tls.ConnectionState) context.Context {
 	Register(rpc, mgr, nil, logger)
 	mux := http.NewServeMux()
 	connecthttp.Mount(mux, rpc)
-	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.TLS = state
 		mux.ServeHTTP(w, r)
 	}))
+	srv.Config.ConnContext = ConnContext
+	srv.Start()
+	t.Cleanup(srv.Close)
 	client := bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
 	if _, err := client.ListSessions(t.Context(), new(bfdv1.ListSessionsRequest)); err != nil {
 		t.Fatalf("ListSessions: %v", err)
@@ -99,24 +102,26 @@ func TestTLSPrincipalMutationRoles(t *testing.T) {
 			if got, ok := PrincipalFromContext(ctx); !ok || got != wantDisplay {
 				t.Fatalf("principal = %q, %t; want %q", got, ok, wantDisplay)
 			}
-			policy := MutationPolicy{MutatingIdentities: []string{tc.allowed}}
-			for _, procedure := range []string{
-				"/bfd.v1.BfdService/AddSession", "/bfd.v1.BfdService/DeleteSession",
-				"/bfd.v1.EchoService/AddEchoSession", "/bfd.v1.EchoService/DeleteEchoSession",
-				"/bfd.v1.MicroBFDService/AddMicroBFDGroup", "/bfd.v1.MicroBFDService/DeleteMicroBFDGroup",
-			} {
-				called := false
-				next := func(context.Context, connect.Spec, connect.ServerStream) error {
-					called = true
-					return nil
-				}
-				err := MutationGuardInterceptor(policy)(next)(ctx, connect.Spec{Procedure: procedure}, nil)
-				if tc.wantDeny {
-					if connect.CodeOf(err) != connect.CodePermissionDenied || !errors.Is(err, ErrIdentityNotMutating) || called {
-						t.Errorf("%s: error = %v, called = %t; want denied TLS identity", procedure, err, called)
+			for _, allowAnonymous := range []bool{false, true} {
+				policy := MutationPolicy{AllowAnonymous: allowAnonymous, MutatingIdentities: []string{tc.allowed}}
+				for _, procedure := range []string{
+					"/bfd.v1.BfdService/AddSession", "/bfd.v1.BfdService/DeleteSession",
+					"/bfd.v1.EchoService/AddEchoSession", "/bfd.v1.EchoService/DeleteEchoSession",
+					"/bfd.v1.MicroBFDService/AddMicroBFDGroup", "/bfd.v1.MicroBFDService/DeleteMicroBFDGroup",
+				} {
+					called := false
+					next := func(context.Context, connect.Spec, connect.ServerStream) error {
+						called = true
+						return nil
 					}
-				} else if err != nil || !called {
-					t.Errorf("%s: error = %v, called = %t; want authorized handler", procedure, err, called)
+					err := MutationGuardInterceptor(policy)(next)(ctx, connect.Spec{Procedure: procedure}, nil)
+					if tc.wantDeny {
+						if connect.CodeOf(err) != connect.CodePermissionDenied || !errors.Is(err, ErrIdentityNotMutating) || called {
+							t.Errorf("%s: error = %v, called = %t; want denied TLS identity", procedure, err, called)
+						}
+					} else if err != nil || !called {
+						t.Errorf("%s: error = %v, called = %t; want authorized handler", procedure, err, called)
+					}
 				}
 			}
 		})

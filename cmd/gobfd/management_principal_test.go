@@ -27,6 +27,7 @@ func TestManagementClaimsAndRolesOverMutualTLS(t *testing.T) {
 	serverCert, serverKey := pki.issue(t, "server", x509.ExtKeyUsageServerAuth, "")
 	opsCert, opsKey := pki.issue(t, "ops", x509.ExtKeyUsageClientAuth, "spiffe://gobfd.test/ops")
 	monCert, monKey := pki.issue(t, "monitor", x509.ExtKeyUsageClientAuth, "spiffe://gobfd.test/monitor")
+	noPrincipalCert, noPrincipalKey := pki.issue(t, "ip-only", x509.ExtKeyUsageClientAuth, "")
 	ca := filepath.Join(pki.dir, "ca.pem")
 	tlsCfg := config.GRPCTLSConfig{CertFile: serverCert, KeyFile: serverKey, ClientCAFile: ca}
 
@@ -34,7 +35,9 @@ func TestManagementClaimsAndRolesOverMutualTLS(t *testing.T) {
 		t.Helper()
 		mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 		t.Cleanup(mgr.Close)
-		srv := newGRPCServer(config.GRPCConfig{MutatingIdentities: identities}, false, mgr, nil, nil,
+		srv := newGRPCServer(config.GRPCConfig{
+			MutatingIdentities: identities, UnsafeLoopbackMutations: true,
+		}, false, mgr, nil, nil,
 			newDaemonHealthChecker(), nil, slog.New(slog.DiscardHandler), nil)
 		tcp, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 		if err != nil {
@@ -77,6 +80,16 @@ func TestManagementClaimsAndRolesOverMutualTLS(t *testing.T) {
 	}
 
 	restricted := start([]string{"spiffe://gobfd.test/ops"})
+	for _, base := range []string{open, restricted} {
+		unidentified := client(base, noPrincipalCert, noPrincipalKey)
+		if _, err = unidentified.ListSessions(t.Context(), new(bfdv1.ListSessionsRequest)); err != nil {
+			t.Fatalf("verified IP-only client ListSessions: %v", err)
+		}
+		_, err = unidentified.AddSession(t.Context(), addSessionRequest("127.0.0.7"))
+		if connect.CodeOf(err) != connect.CodePermissionDenied {
+			t.Fatalf("IP-only mTLS client AddSession with unsafe opt-in: %v; want PermissionDenied", err)
+		}
+	}
 	restrictedMonitor := client(restricted, monCert, monKey)
 	_, err = restrictedMonitor.AddSession(context.Background(), addSessionRequest("127.0.0.5"))
 	if connect.CodeOf(err) != connect.CodePermissionDenied {

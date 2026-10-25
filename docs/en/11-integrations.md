@@ -438,6 +438,17 @@ graph TD
 - **DaemonSet** — one GoBFD instance per node for consistent BFD coverage
 - **Dynamic sessions** — BFD sessions added via `gobfdctl` after discovering node IPs
 
+The shipped sidecar overrides the pinned
+[upstream API default](https://github.com/osrg/gobgp/blob/da824d99912e02124b53741245ee4186c381adcc/cmd/gobgpd/main.go#L58-L76)
+with `--api-hosts=127.0.0.1:50051`. GoBFD uses that loopback endpoint; both
+GoBGP probes execute `/usr/local/bin/gobgp --host 127.0.0.1 --port 50051 global`
+inside the container with `timeoutSeconds: 3`. The command queries the API;
+it does not prove BFD or route convergence. Host-local processes still have
+plaintext API access. Metrics TCP/9100 and BGP TCP/179 remain host-network
+listeners; restrict node reachability before applying the example.
+Live-cluster probe and resource acceptance remains with
+`gobfd-qj0.8.2.8.7.1.4.1.1`; source contracts do not close it.
+
 ### Quick Start
 
 ```bash
@@ -521,7 +532,7 @@ Reference: [tshark.dev](https://tshark.dev/) — tshark documentation and tutori
 | HAProxy Health | 172.23.0.0/24 | gobfd-monitor, haproxy-agent, haproxy, backend1/2, backend1/2-bfd, tshark | 8080 |
 | Observability | 172.25.0.0/24 | gobfd, frr, prometheus, grafana, tshark | 9090, 3000 |
 | ExaBGP Anycast | 172.24.0.0/24 | gobgp, gobfd-receiver, gobfd, exabgp, tshark | — |
-| Kubernetes | Host network | DaemonSet (gobfd + gobgp sidecar) | — |
+| Kubernetes | Host network | DaemonSet (gobfd + gobgp sidecar) | TCP 179, 9100; API TCP 50051 on loopback; UDP 3784, 4784 as configured |
 | **Interop: Base** | 172.20.0.0/24 | gobfd, frr, bird3, holo, holo-config, thoro, tshark | — |
 | **Interop: BGP+BFD** | 172.21.0.0/24 | gobfd, gobgp, frr, bird3, exabgp, gobfd-sidecar | — |
 | **Interop: RFC** | 172.22.0.0/24 | gobfd-rfc, gobfd-rfc9384, gobgp-rfc, frr-rfc, frr-rfc-bgp, frr-rfc-unsolicited, tshark-rfc | — |

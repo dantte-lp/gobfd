@@ -590,8 +590,8 @@ On SIGTERM/SIGINT (RFC 5880 Section 6.8.16):
 3. `Manager.Close()` -- enter Closing, detach sessions, cancel and wait for
    registered Manager goroutines, close notification channels, and release
    sender resources
-4. Close listener sockets
-5. Shut down HTTP servers (gRPC, metrics)
+4. Shut down HTTP servers (gRPC, metrics)
+5. Close receive listener and backend sockets
 
 `Session.SetAdminDown(ctx)` queues through the existing control channel, including
 before `Run`. A full queue waits for capacity, cancellation, or owner exit; no

@@ -70,13 +70,19 @@ Production rules:
 - Treat `AddSession`, `DeleteSession`, `AddEchoSession`,
   `DeleteEchoSession`, `AddMicroBFDGroup` and `DeleteMicroBFDGroup` as
   write-sensitive network-control operations.
-- Do not enable `grpc.unsafe_loopback_mutations` on shared hosts or with
+- Keep `grpc.unsafe_loopback_mutations` disabled with mTLS, on shared hosts or with
   Kubernetes `hostNetwork`, where loopback is reachable by every host
   process.
 
 API session claims belong to the caller's principal: one principal cannot
 release another's session (`PermissionDenied`, logged), and
-`grpc.mutating_identities` makes unlisted mTLS identities read-only. Control,
+a nonempty `grpc.mutating_identities` makes unlisted recognized mTLS identities read-only.
+CA-verified clients without URI/DNS SANs cannot mutate, including with the
+unsafe opt-in enabled. That opt-in requires a direct plaintext TCP connection
+with both endpoints on loopback; unknown transport proof is refused. Headers
+cannot grant permission, and local proxies remain local processes. See the
+[transport requirements](03-configuration.md#grpc----connectrpc-server).
+Control,
 Micro-BFD and Echo API claims are principal-scoped. Compatible Echo claims share
 one wire with configuration or other principals; release never removes another
 owner's claim. An admitted identical Echo retry is idempotent. List/Watch remain

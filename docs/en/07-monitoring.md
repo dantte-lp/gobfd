@@ -386,9 +386,10 @@ status is the AND of the components the service needs:
 | `grpc.health.v1.Health` | none; always `SERVING` as the liveness signal |
 
 - A reconciliation source is ready when the latest desired generation has no
-  pending or failed entry in it. Every service is `NOT_SERVING` before the
-  first converged generation and while an apply runs. Sender health is the
-  sender creation outcome recorded in the source receipt.
+  pending or failed entry in it. The empty aggregate and each dependent
+  `bfd.v1` service are `NOT_SERVING` before that source's first converged
+  generation and while its apply runs. Sender health is the sender creation
+  outcome recorded in the source receipt.
 - A device-bound listener interface is ready while it exists, is up and
   running, and keeps the ifindex resolved before its latest bind. Link events
   and inventory resyncs re-check it. A link down/up recovers. An interface
@@ -405,9 +406,11 @@ status is the AND of the components the service needs:
   listener can clear binding readiness while configuration sources stay converged.
 - Runtime workers are the BFD dispatch loop and the control, Echo, Micro-BFD and
   overlay receivers. A worker that returns while the daemon runs, for example a
-  receiver whose socket closed, sets every service `NOT_SERVING`, and the daemon
-  drains sessions and exits with an error (fail-stop) for systemd
-  `Restart=on-failure`. Shutdown also sets every service `NOT_SERVING`.
+  receiver whose socket closed, sets the empty aggregate and `bfd.v1` services
+  `NOT_SERVING`, and the daemon drains sessions and exits with an error
+  (fail-stop) for systemd `Restart=on-failure`. Shutdown clears the same
+  readiness services; `grpc.health.v1.Health` remains `SERVING` while the
+  health endpoint is available.
 - Link and address events re-check listener dependencies; a 2 s periodic check
   also covers all five sources with a disabled or stopped monitor. An interface
   inventory read error retains previous binding bits; an address inventory
@@ -422,7 +425,8 @@ automatically. Applied may still equal desired during this loss; inspect
 Neither health nor systemd readiness proves peer reachability.
 
 `gobfd.management` is `NOT_SERVING` while `grpc.unsafe_loopback_mutations`
-lets anonymous loopback clients mutate, `SERVING` otherwise. With
+is enabled, `SERVING` otherwise. The flag's transport requirements are
+described in [Security](15-security.md#connectrpc-api). With
 `gobgp.enabled`, the named check `gobfd.gobgp` is `NOT_SERVING` until the
 GoBGP v4 preflight passes, and after a failed preflight or a failed
 `DisablePeer`/`EnablePeer` until the next success; a BFD Down for a
