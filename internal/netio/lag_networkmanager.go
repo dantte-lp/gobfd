@@ -16,6 +16,7 @@ const (
 	networkManagerDeviceInterface   = "org.freedesktop.NetworkManager.Device"
 	networkManagerActiveInterface   = "org.freedesktop.NetworkManager.Connection.Active"
 	networkManagerSettingsInterface = "org.freedesktop.NetworkManager.Settings.Connection"
+	dbusPropertiesGetMethod         = "org.freedesktop.DBus.Properties.Get"
 	dbusNoObjectPath                = dbus.ObjectPath("/")
 )
 
@@ -308,11 +309,13 @@ func (c dbusNetworkManager) DeviceByIPInterface(
 }
 
 func (c dbusNetworkManager) DeviceActiveConnection(
-	_ context.Context,
+	ctx context.Context,
 	device dbus.ObjectPath,
 ) (dbus.ObjectPath, error) {
 	var active dbus.ObjectPath
-	err := c.object(device).StoreProperty(networkManagerDeviceInterface+".ActiveConnection", &active)
+	err := c.object(device).CallWithContext(
+		ctx, dbusPropertiesGetMethod, 0, networkManagerDeviceInterface, "ActiveConnection",
+	).Store(&active)
 	if err != nil {
 		return "", fmt.Errorf("read NetworkManager device %q active connection: %w", device, err)
 	}
@@ -321,11 +324,13 @@ func (c dbusNetworkManager) DeviceActiveConnection(
 }
 
 func (c dbusNetworkManager) DeviceAvailableConnections(
-	_ context.Context,
+	ctx context.Context,
 	device dbus.ObjectPath,
 ) ([]dbus.ObjectPath, error) {
 	var connections []dbus.ObjectPath
-	err := c.object(device).StoreProperty(networkManagerDeviceInterface+".AvailableConnections", &connections)
+	err := c.object(device).CallWithContext(
+		ctx, dbusPropertiesGetMethod, 0, networkManagerDeviceInterface, "AvailableConnections",
+	).Store(&connections)
 	if err != nil {
 		return nil, fmt.Errorf("read NetworkManager device %q available connections: %w", device, err)
 	}
@@ -334,11 +339,13 @@ func (c dbusNetworkManager) DeviceAvailableConnections(
 }
 
 func (c dbusNetworkManager) ActiveConnectionConnection(
-	_ context.Context,
+	ctx context.Context,
 	active dbus.ObjectPath,
 ) (dbus.ObjectPath, error) {
 	var connection dbus.ObjectPath
-	err := c.object(active).StoreProperty(networkManagerActiveInterface+".Connection", &connection)
+	err := c.object(active).CallWithContext(
+		ctx, dbusPropertiesGetMethod, 0, networkManagerActiveInterface, "Connection",
+	).Store(&connection)
 	if err != nil {
 		return "", fmt.Errorf("read NetworkManager active connection %q settings path: %w", active, err)
 	}

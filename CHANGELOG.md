@@ -638,6 +638,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Honor caller cancellation and deadlines while reading NetworkManager device
+  and active-connection properties. Preserve typed replies and errors; stalled
+  replies on an established D-Bus connection no longer hold manager shutdown
+  beyond the actuator context budget. Connection setup and live ownership
+  qualification remain separate.
+
 - Preserve benchmark, `benchstat`, `tee` and Go-version lookup failures in Make
   targets. Stop subsequent metadata and HTML writes while retaining raw output
   already written for diagnosis.

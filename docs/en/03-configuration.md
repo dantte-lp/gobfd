@@ -456,6 +456,12 @@ goes Down and activates the remembered or available bond port profile when the
 member recovers. Otherwise keep the default owner refusal policy for disabled
 and dry-run modes.
 
+NetworkManager property reply waits honor the actuator's context. Manager sets
+a 5 s context for each action; a stalled reply no longer blocks dispatch or
+shutdown indefinitely once the D-Bus connection is established. This does not
+qualify connection setup, NetworkManager ownership or member-wire behavior;
+see [ADR-0003](adr/0003-linux-advanced-bfd-applicability.md).
+
 Groups are reconciled on SIGHUP reload. Group key: `lag_interface`.
 
 Each group and its member sessions apply as one unit. A failed member session

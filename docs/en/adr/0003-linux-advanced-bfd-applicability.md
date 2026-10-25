@@ -54,6 +54,10 @@ Production constraints:
    distinct.
 3. Manual operator changes require reconciliation on daemon restart.
 4. Teamd and additional switching stacks remain future integrations.
+5. NetworkManager property reply waits use the caller's context. Manager assigns
+   a 5 s context to each actuator call; cancellation and stalled-reply shutdown
+   are checked on an established private D-Bus connection. Connection setup and
+   real owner interoperability require separate qualification.
 
 ### VXLAN BFD on Linux
 

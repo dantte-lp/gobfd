@@ -6,18 +6,19 @@ record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
 ## Publication boundary — 2026-10-26
 
-The source baseline for this review is local
-`dev@6e56db641e74c09420d543c1cdb017b36230a77a`. It includes the Kubernetes
-loopback/probe correction and the Podman output-header fix. The last accepted
-bilingual review is `gobfd-qj0.8.2.8.7.2.19` at
-`28d6fd4809cb05eea017a127845d19d1cce67c09`; the current English/source and
-Russian semantic review is tracked by `gobfd-qj0.8.2.8.7.2.20`.
+This projection covers local
+`dev@00ce6b7a39e3dcb13aa288d379325f73078e7a79` and the NetworkManager property
+context correction. The 31-pair publication review is accepted under
+`gobfd-qj0.8.2.8.7.2.20`. API loopback fixtures and benchmark failure propagation
+are accepted locally under `gobfd-qj0.8.2.3.9` and
+`gobfd-qj0.8.2.8.7.2.5.1`; the affected English and Russian pages are updated.
 
-The Containerlab compiler/runtime and strict wire/timer changes remain in an
-unmerged candidate. Its CLI and API can select different engines; topology
-identity is not yet checked through the selected API client. This P0 blocks
-candidate acceptance under `gobfd-qj0.8.2.8.5.2.7.3.4.4`. Local parser and
-Debian artifact-loader checks do not close native FRR qualification.
+The Containerlab compiler/runtime and strict wire/timer changes remain separate
+in candidate `4852538df409e0b0309b89505b6dc88861a49540`. Its source acceptance
+includes CLI/API engine binding, mandatory FRR verdicts and compiler checkpoint
+recovery. The 635 named passes apply to its frozen tree, not to later `dev`
+changes. Native FRR qualification and candidate integration into `dev` remain
+open; local parser and Debian artifact-loader checks do not replace them.
 
 Publication remains held. Reference-load/24h, thread-pin A/B, final wire,
 integration and security qualification remain separate gates under
@@ -26,13 +27,14 @@ prerelease path. Beads, rather than this dated projection, owns their status.
 
 | Area | Current boundary | Beads authority |
 |---|---|---|
-| Documentation | The 31-pair source and Russian translation audit is accepted locally through the Kubernetes follow-up; the current review covers later source and unmerged-candidate deltas | `gobfd-qj0.8.2.8.7.2.19`, `gobfd-qj0.8.2.8.7.2.20` |
+| Documentation | The 31-pair publication audit is accepted locally; later benchmark and NetworkManager changes include matching English and Russian updates | `gobfd-qj0.8.2.8.7.2.20`, `gobfd-qj0.8.2.8.7.2` |
 | Management/reload | Unsafe-loopback policy changes reject before candidate acceptance; core pending activation is accepted locally; the parent retains separate P2 interface-validation and P3 runtime-VNI work | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6`, `gobfd-qj0.8.2.2.6.5`, `gobfd-qj0.8.2.2.6.6` |
 | Sender recovery | Same-socket IPv4/IPv6 rebind and denied-privilege failure pass locally; matching named scope no longer increases packet-loop allocations after recreation | `gobfd-qj0.8.2.2.6.7` |
 | Pending qualification | Typed reason classes and active-address checks retain generation, claims and sockets; all-five periodic resource checks also cover missing monitor events; local process evidence remains separate from final release qualification | `gobfd-qj0.8.2.2.6.8`, `gobfd-qj0.8.2.2.6.8.1`, `gobfd-qj0.8.2.2.6.8.2` |
 | Echo ownership | Idempotent principal claims share a canonical wire with config and retain RX through config withdrawal; this is management policy, not returned-packet authentication | `gobfd-qj0.8.2.2.8` |
 | Smallstep | Existing-certificate renewal locally qualified against a real CA with an isolated dependency profile; enrollment, scheduling, reconnect and root rollover remain separate post-v1 lifecycle work | `gobfd-qj0.8.2.3.7`, `gobfd-qj0.8.2.3.7.4`, `gobfd-qj0.8.2.3.7.5` |
-| Containerlab | Compiler/runtime isolation and strict parser changes are unmerged; CLI/API engine binding, native FRR qualification and integration into `dev` remain open; five NOS profiles remain unavailable in that candidate | `gobfd-qj0.8.2.8.5.2.7.3.4`, `gobfd-qj0.8.2.8.5.2.7.3.4.4`, `gobfd-qj0.8.2.8.5.2.7.4` |
+| Containerlab | Isolated compiler/runtime, CLI/API engine binding, mandatory verdicts and checkpoint recovery are accepted in the frozen candidate; native FRR and integration into `dev` remain open; five NOS profiles remain unavailable | `gobfd-qj0.8.2.8.5.2.7.3.4`, `gobfd-qj0.8.2.8.5.2.7.3`, `gobfd-qj0.8.2.8.5.2.7.4` |
+| NetworkManager | Established-connection property reads honor the actuator context; local stalled-peer and manager shutdown regressions pass; ownership checks, connection setup and live interoperability remain separate | `gobfd-qj0.8.2.2.10`, `gobfd-qj0.8.2.2.9`, `gobfd-qj0.8.6.2.1` |
 | Echo preview | Declarative and API IPv4/IPv6 TX binding, UDP/3785 and lease cleanup pass local checks; API receive claims honor the requested interface; full RFC qualification remains open | `gobfd-qj0.8.2.1.19`, `gobfd-qj0.8.2.1.17` |
 | Legacy demos | HAProxy/Kubernetes CLI and pod-selector drift require source fixes and actual execution | `gobfd-qj0.8.2.8.7.1.4.1` |
 | Kubernetes API exposure | Source binds GoBGP API to loopback and uses bounded exec API probes; live-cluster probe and resource qualification remains open | `gobfd-qj0.8.2.8.7.1.4.1.1` |
