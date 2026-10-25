@@ -323,10 +323,27 @@ func TestListenerOwnerStartupRecordsBindTimeIndexes(t *testing.T) {
 	}
 	got := readinessBindings(coordinator.readiness)
 	want := []listenerBinding{
-		{ifName: "eth6", ifIndex: 6, component: componentControlBindings},
-		{ifName: "eth9", ifIndex: 9, component: componentControlBindings},
-		{ifName: "eth8", ifIndex: 8, component: componentEchoBindings},
-		{ifName: "eth7", ifIndex: 7, component: componentMicroBindings},
+		{
+			ifName: "eth6", ifIndex: 6, component: componentControlBindings,
+			address: netio.LocalAddress{Addr: netip.MustParseAddr("0.0.0.0"), Interface: "eth6"},
+		},
+		{
+			ifName: "eth6", ifIndex: 6, component: componentControlBindings,
+			address: netio.LocalAddress{Addr: netip.MustParseAddr("::"), Interface: "eth6"},
+		},
+		{
+			ifName: "eth9", ifIndex: 9, component: componentControlBindings,
+			address: netio.LocalAddress{Addr: netip.MustParseAddr("192.0.2.1"), Interface: "eth9"},
+		},
+		{component: componentControlBindings, address: netio.LocalAddress{Addr: netip.MustParseAddr("198.51.100.1")}},
+		{
+			ifName: "eth8", ifIndex: 8, component: componentEchoBindings,
+			address: netio.LocalAddress{Addr: netip.MustParseAddr("192.0.2.5"), Interface: "eth8"},
+		},
+		{
+			ifName: "eth7", ifIndex: 7, component: componentMicroBindings,
+			address: netio.LocalAddress{Addr: netip.MustParseAddr("192.0.2.7"), Interface: "eth7"},
+		},
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("listener bindings = %+v, want %+v", got, want)

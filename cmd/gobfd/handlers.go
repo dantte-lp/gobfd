@@ -304,6 +304,15 @@ func startInterfaceMonitor(
 	coordinator *reconciliationCoordinator,
 	logger *slog.Logger,
 ) {
+	applySource := coordinator.withListeners(func(
+		ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate,
+	) sourceApplyResult {
+		return applyCompiledSource(ctx, source, candidate, mgr, sf, logger, coordinator.listeners)
+	})
+	g.Go(func() error {
+		coordinator.runResourceRechecks(ctx, netio.CheckInterfacesAvailable, applySource)
+		return nil
+	})
 	mon, err := netio.NewInterfaceMonitor(logger)
 	if err != nil {
 		logger.Warn("interface monitoring disabled",
@@ -330,11 +339,7 @@ func startInterfaceMonitor(
 	})
 	g.Go(func() error {
 		coordinator.runInterfaceReconciliation(ctx, queue, netio.CheckInterfacesAvailable,
-			coordinator.withListeners(func(
-				ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate,
-			) sourceApplyResult {
-				return applyCompiledSource(ctx, source, candidate, mgr, sf, logger, coordinator.listeners)
-			}))
+			applySource)
 		return nil
 	})
 }

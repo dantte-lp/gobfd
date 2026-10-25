@@ -11,6 +11,8 @@ import (
 
 	"connectrpc.com/grpchealth/v2"
 
+	"github.com/dantte-lp/gobfd/internal/bfd"
+	"github.com/dantte-lp/gobfd/internal/netio"
 	"github.com/dantte-lp/gobfd/internal/server"
 )
 
@@ -28,7 +30,8 @@ const (
 	componentRuntime readinessComponent = readinessComponent(sourceCount) + iota
 	// The binding components are false while a device-bound listener's
 	// interface is missing, not up and running, or carries an ifindex other
-	// than the one recorded before its latest bind or rebind.
+	// than the one recorded before its latest bind or rebind; local bind
+	// addresses must also remain available.
 	componentControlBindings
 	componentEchoBindings
 	componentMicroBindings
@@ -64,12 +67,12 @@ func readinessServices() [4]readinessService {
 // interfaceInventory lists the current interfaces; net.Interfaces in production.
 type interfaceInventory func() ([]net.Interface, error)
 
-// listenerBinding is one device-bound listener interface and the ifindex the
-// kernel bound it to.
+// listenerBinding records a local receive address and optional device binding.
 type listenerBinding struct {
 	ifName    string
 	ifIndex   int
 	component readinessComponent
+	address   netio.LocalAddress
 }
 
 // daemonReadiness is the single writer of the aggregate "" health status and
@@ -77,11 +80,12 @@ type listenerBinding struct {
 // service needs. gobfd.gobgp and gobfd.management keep their own writers and
 // stay outside the aggregate.
 type daemonReadiness struct {
-	mu           sync.Mutex
-	ready        readinessMask
-	bindings     []listenerBinding
-	checker      *grpchealth.StaticChecker
-	capabilities server.CapabilitySnapshot
+	mu             sync.Mutex
+	ready          readinessMask
+	bindings       []listenerBinding
+	checker        *grpchealth.StaticChecker
+	capabilities   server.CapabilitySnapshot
+	checkAddresses localAddressAvailabilityChecker
 }
 
 func (r *daemonReadiness) setEchoEnabled(enabled bool) {
@@ -162,12 +166,10 @@ func (r *daemonReadiness) watchBindings(bindings []listenerBinding, interfaces i
 	return r.checkBindings(interfaces)
 }
 
-// bindingRecheckInterval bounds how long a listener interface change can go
-// unnoticed when the interface monitor is disabled, stopped, or loses events.
+// bindingRecheckInterval schedules resource checks even without interface events.
 const bindingRecheckInterval = 2 * time.Second
 
-// recheckBindings runs check on every tick until ctx is cancelled. A failed
-// inventory read keeps the previous state.
+// recheckBindings runs check on every tick until ctx is cancelled.
 func recheckBindings(ctx context.Context, interval time.Duration, check func() error, logger *slog.Logger) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -177,23 +179,23 @@ func recheckBindings(ctx context.Context, interval time.Duration, check func() e
 			return
 		case <-ticker.C:
 			if err := check(); err != nil {
-				logger.Warn("listener interface recheck failed; readiness unchanged",
+				logger.Warn("listener resource recheck failed",
 					slog.String("error", err.Error()))
 			}
 		}
 	}
 }
 
-// checkBindings re-evaluates every device-bound listener interface. A
+// checkBindings re-evaluates listener addresses and device-bound interfaces. A
 // SO_BINDTODEVICE socket stays bound to the bind-time ifindex, so an interface
 // recreated under the same name keeps the listener deaf until the listener
-// owner rebinds it and records the new index. An inventory error leaves the
-// state unchanged for the next check.
+// owner rebinds it and records the new index. Interface inventory errors retain
+// the previous state; address inventory errors make the affected component unready.
 func (r *daemonReadiness) checkBindings(interfaces interfaceInventory) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if len(r.bindings) == 0 {
-		// The last device-bound listener closed: nothing can be deaf.
+		// The last listener closed: no binding dependencies remain.
 		if r.ready&bindingComponents != bindingComponents {
 			r.setLocked(bindingComponents, true)
 			r.publishLocked()
@@ -210,16 +212,42 @@ func (r *daemonReadiness) checkBindings(interfaces interfaceInventory) error {
 	}
 	ready := bindingComponents
 	for _, binding := range r.bindings {
+		if binding.ifName == "" {
+			continue
+		}
 		iface, ok := byName[binding.ifName]
 		if !ok || iface.Index != binding.ifIndex ||
 			iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagRunning == 0 {
 			ready &^= 1 << binding.component
 		}
 	}
+	ready, addressErr := r.bindingAddressReadiness(ready)
 	r.setLocked(bindingComponents, false)
 	r.setLocked(ready, true)
 	r.publishLocked()
-	return nil
+	return addressErr
+}
+
+func (r *daemonReadiness) bindingAddressReadiness(ready readinessMask) (readinessMask, error) {
+	if r.checkAddresses == nil {
+		return ready, nil
+	}
+	var addressErrors []error
+	for component := componentControlBindings; component <= componentMicroBindings; component++ {
+		var addresses []netio.LocalAddress
+		for _, binding := range r.bindings {
+			if binding.component == component {
+				addresses = append(addresses, binding.address)
+			}
+		}
+		if _, err := r.checkAddresses(addresses); err != nil {
+			ready &^= 1 << component
+			if !errors.Is(err, bfd.ErrResourceUnavailable) {
+				addressErrors = append(addressErrors, err)
+			}
+		}
+	}
+	return ready, errors.Join(addressErrors...)
 }
 
 // runRequired runs a worker the dataplane cannot lose. A return while ctx is

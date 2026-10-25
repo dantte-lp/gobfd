@@ -21,6 +21,7 @@ import (
 	"github.com/dantte-lp/gobfd/internal/config"
 	"github.com/dantte-lp/gobfd/internal/gobgp"
 	bfdmetrics "github.com/dantte-lp/gobfd/internal/metrics"
+	"github.com/dantte-lp/gobfd/internal/netio"
 	"github.com/dantte-lp/gobfd/internal/sdnotify"
 	appversion "github.com/dantte-lp/gobfd/internal/version"
 )
@@ -153,7 +154,7 @@ func runServers(
 
 	// Start BFD packet listeners and receivers for incoming packets.
 	g.Go(func() error { return overlays.run(gCtx) })
-	if err := startListenerOwner(gCtx, g, cfg, listeners, logger); err != nil {
+	if err := startListenerOwner(gCtx, g, cfg, listeners); err != nil {
 		return fmt.Errorf("create BFD listeners: %w", err)
 	}
 
@@ -192,6 +193,8 @@ func attachReceiveOwners(
 ) (*listenerOwner, *overlayOwner) {
 	coordinator.listeners = newListenerOwner(mgr, coordinator.readiness, cfg.Socket.ReadBufferSize, logger)
 	coordinator.overlays = newOverlayOwner(cfg, sf, mgr, coordinator.readiness, logger)
+	coordinator.checkAddresses = netio.CheckLocalAddressesAvailable
+	coordinator.readiness.checkAddresses = netio.CheckLocalAddressesAvailable
 	return coordinator.listeners, coordinator.overlays
 }
 

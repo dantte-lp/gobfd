@@ -321,13 +321,16 @@ reconciliation incomplete` for a stale generation. The configured logging
 threshold applies normally, so INFO convergence events are filtered at WARN or
 ERROR. Fields include `desired_generation`, `applied_generation`, `stale`,
 aggregate `pending`/`failed`, and per-source `created`, `released`, `pending`,
-`failed`, and bounded error-code counts. Raw error text may appear only in that
+`failed`, fixed `interface_pending`/`address_pending` presence flags, and bounded
+error-code counts. The flags indicate classes, not counts or identities. Raw error text may appear only in that
 immediate event; it is not retained in the runtime snapshot or used as a label.
 
 Linux interface events update these same receipts without advancing the desired
 generation. Unavailable dependencies make readiness stale and sources pending;
-successful automatic retry can restore convergence. Duplicate receipts do not
-emit another event. Netlink receive overflow logs a resync request; a full event
+successful automatic retry can restore convergence. A transition from an
+unavailable interface to an unavailable address emits a new receipt even with
+the same pending count. Convergence clears the class flags; duplicate receipts
+do not emit another event. Netlink receive overflow logs a resync request; a full event
 channel retains that request until it can be delivered. Queue size is fixed,
 independent of event volume. The same retry opens a listener whose interface
 appears. Address events and resyncs also retry sources pending on an

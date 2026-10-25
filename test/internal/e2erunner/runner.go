@@ -19,6 +19,9 @@ const (
 	commandTimeout        = 2 * time.Minute
 	testTimeout           = 6 * time.Minute
 	podmanCommand         = "podman"
+	goTestCommand         = "test"
+	goRaceFlag            = "-race"
+	goTagsFlag            = "-tags"
 	environmentTarget     = "target"
 	environmentRunID      = "run_id"
 	environmentDevProject = "dev_project"
@@ -222,17 +225,17 @@ func (r *runner) runLinux(ctx context.Context) (runErr error) {
 			return err
 		}
 	}
-	if err := r.command(ctx, testTimeout, r.stdout, r.stderr, r.composeDev(
-		"exec", "-T", "dev", "env", "CGO_ENABLED=0", "go", "test", "-tags", "e2e_linux", "-c",
-		"-o", "/app/"+r.reportRel+"/e2e-linux.test", "./test/e2e/linux/",
-	)...); err != nil {
+	if err := r.buildLinuxBinaries(ctx); err != nil {
 		return err
 	}
 	if err := r.command(ctx, commandTimeout, io.Discard, r.stderr, podmanCommand, "create",
 		"--name", containerName, "--network", "none", "--cap-drop", "ALL", "--cap-add", "NET_ADMIN",
 		"--cap-add", "NET_RAW", "--security-opt", "label=disable", "--workdir", "/report",
-		"-e", "E2E_LINUX_REPORT_DIR=/report", "-v", r.reportDir+":/report:z", testImage,
-		"go", "tool", "test2json", "-t", "./e2e-linux.test", "-test.v", "-test.timeout=120s",
+		"--cpus", "2", "--memory", "2g", "--memory-swap", "2g", "--pids-limit", "512", "--image-volume", "ignore",
+		"-e", "GOMAXPROCS=2", "-e", "GOMEMLIMIT=1500MiB",
+		"-e", "E2E_LINUX_REPORT_DIR=/report", "-e", "E2E_LINUX_BFD_BINARY=/report/gobfd",
+		"-v", r.reportDir+":/report:z", testImage,
+		"./test2json", "-t", "./e2e-linux.test", "-test.v", "-test.timeout=180s",
 	); err != nil {
 		return err
 	}
@@ -241,6 +244,24 @@ func (r *runner) runLinux(ctx context.Context) (runErr error) {
 	}
 	if _, err := fmt.Fprintf(r.stdout, "S10.5 Linux E2E artifacts: %s\n", r.reportDir); err != nil {
 		return fmt.Errorf("write Linux artifact path: %w", err)
+	}
+	return nil
+}
+
+func (r *runner) buildLinuxBinaries(ctx context.Context) error {
+	binaryDir := "/app/" + r.reportRel + "/"
+	for _, command := range [][]string{
+		{"go", "build", goRaceFlag, "-buildvcs=false", "-o", binaryDir + "gobfd", "./cmd/gobfd"},
+		{
+			"go", goTestCommand, goRaceFlag, goTagsFlag, "e2e_linux", "-c", "-o", binaryDir + "e2e-linux.test",
+			"./test/e2e/linux/",
+		},
+		{"go", "build", "-o", binaryDir + "test2json", "cmd/test2json"},
+	} {
+		args := append([]string{"exec", "-T", "dev", "env", "CGO_ENABLED=1"}, command...)
+		if err := r.command(ctx, testTimeout, r.stdout, r.stderr, r.composeDev(args...)...); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -289,7 +310,7 @@ func (r *runner) runOverlay(ctx context.Context) (runErr error) {
 	}
 	if err := r.command(ctx, testTimeout, r.stdout, r.stderr, r.composeDev(
 		"exec", "-T", "dev", "env", "GOMAXPROCS=2", "GOMEMLIMIT=1500MiB", "CGO_ENABLED=1",
-		"go", "test", "-race", "-p", "2", "-tags", "e2e_overlay", "-c",
+		"go", goTestCommand, goRaceFlag, "-p", "2", goTagsFlag, "e2e_overlay", "-c",
 		"-o", "/app/"+r.reportRel+"/e2e-overlay.test", "./test/e2e/overlay/",
 	)...); err != nil {
 		return err
@@ -374,7 +395,7 @@ func (r *runner) runRFC(ctx context.Context) (runErr error) {
 	if err := r.loggedCommand(ctx, r.composeDev(
 		"exec", "-T", "dev", "env", "INTEROP_RFC_COMPOSE_FILE=/app/test/interop-rfc/compose.yml",
 		"INTEROP_PROJECT_NAME="+interopRFCProject,
-		"go", "test", "-tags", "interop_rfc", "-json", "-v", "-count=1", "-timeout", "300s", "./test/interop-rfc/",
+		"go", goTestCommand, goTagsFlag, "interop_rfc", "-json", "-v", "-count=1", "-timeout", "300s", "./test/interop-rfc/",
 	)...); err != nil {
 		return err
 	}
@@ -415,7 +436,7 @@ func (r *runner) runVendor(ctx context.Context) (runErr error) {
 	}
 	if err := r.loggedCommand(ctx, r.composeDev(
 		"exec", "-T", "dev", "env", "E2E_VENDOR_REPORT_DIR=/app/"+r.reportRel,
-		"go", "test", "-tags", "e2e_vendor", "-json", "-v", "-count=1", "-timeout", "120s", "./test/e2e/vendor/",
+		"go", goTestCommand, goTagsFlag, "e2e_vendor", "-json", "-v", "-count=1", "-timeout", "120s", "./test/e2e/vendor/",
 	)...); err != nil {
 		return err
 	}

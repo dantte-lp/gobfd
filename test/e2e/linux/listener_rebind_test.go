@@ -123,6 +123,14 @@ func createAddressedVeth(t *testing.T, nl *routeSocket) int {
 }
 
 func (s *routeSocket) addIPAddress(index int, addr netip.Addr, prefixLen uint8) error {
+	return s.changeIPAddress(unix.RTM_NEWADDR, unix.NLM_F_CREATE|unix.NLM_F_EXCL, index, addr, prefixLen)
+}
+
+func (s *routeSocket) deleteIPAddress(index int, addr netip.Addr, prefixLen uint8) error {
+	return s.changeIPAddress(unix.RTM_DELADDR, 0, index, addr, prefixLen)
+}
+
+func (s *routeSocket) changeIPAddress(action, flags uint16, index int, addr netip.Addr, prefixLen uint8) error {
 	body := make([]byte, unix.SizeofIfAddrmsg)
 	body[0] = unix.AF_INET
 	if addr.Is6() {
@@ -133,7 +141,7 @@ func (s *routeSocket) addIPAddress(index int, addr netip.Addr, prefixLen uint8) 
 	binary.NativeEndian.PutUint32(body[4:8], uint32(index))
 	raw := addr.AsSlice()
 	attrs := append(netlinkAttr(unix.IFA_LOCAL, raw, false), netlinkAttr(unix.IFA_ADDRESS, raw, false)...)
-	return s.request(unix.RTM_NEWADDR, unix.NLM_F_CREATE|unix.NLM_F_EXCL, body, attrs)
+	return s.request(action, flags, body, attrs)
 }
 
 // sendSingleHopDatagram sends one header-sized datagram with TTL 255, so the

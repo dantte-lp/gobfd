@@ -132,24 +132,16 @@ func newListenerOwner(
 }
 
 // startListenerOwner opens the startup listeners, then runs the owner's
-// fail-stop worker and the periodic binding recheck. Any listener failure
-// fails startup.
+// fail-stop worker. The coordinator owns periodic resource rechecks. Any
+// listener failure fails startup.
 func startListenerOwner(
-	ctx context.Context, g *errgroup.Group, cfg *config.Config, owner *listenerOwner, logger *slog.Logger,
+	ctx context.Context, g *errgroup.Group, cfg *config.Config, owner *listenerOwner,
 ) error {
 	//nolint:contextcheck // Receivers are owner-scoped: close() cancels each one before its socket closes.
 	if err := owner.openStartup(cfg); err != nil {
 		return err
 	}
 	g.Go(func() error { return owner.run(ctx) })
-	// Interface events re-check bindings promptly; the ticker covers a
-	// disabled or stopped interface monitor.
-	g.Go(func() error {
-		recheckBindings(ctx, bindingRecheckInterval, func() error {
-			return owner.checkBindings(net.Interfaces)
-		}, logger)
-		return nil
-	})
 	return nil
 }
 
@@ -364,7 +356,7 @@ func (o *listenerOwner) release(claims listenerClaims, configs []netio.ListenerC
 func (o *listenerOwner) checkBindings(interfaces interfaceInventory) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if !slices.ContainsFunc(o.order, listenerKey.deviceBound) {
+	if len(o.order) == 0 {
 		return o.readiness.watchBindings(nil, interfaces)
 	}
 	current, err := interfaces()
@@ -401,20 +393,22 @@ func (o *listenerOwner) checkBindings(interfaces interfaceInventory) error {
 }
 
 func (o *listenerOwner) bindingsLocked() []listenerBinding {
-	var bindings []listenerBinding
+	bindings := make([]listenerBinding, 0, len(o.order))
 	for _, key := range o.order {
-		if key.deviceBound() {
-			bindings = append(bindings, listenerBinding{
-				ifName: key.ifName, ifIndex: o.listeners[key].ifIndex, component: key.component(),
-			})
+		binding := listenerBinding{
+			component: key.component(), address: netio.LocalAddress{Addr: key.addr, Interface: key.ifName},
 		}
+		if key.deviceBound() {
+			binding.ifName, binding.ifIndex = key.ifName, o.listeners[key].ifIndex
+		}
+		bindings = append(bindings, binding)
 	}
 	return slices.Compact(bindings)
 }
 
 func (o *listenerOwner) publishLocked() {
 	if err := o.readiness.watchBindings(o.bindingsLocked(), o.interfaces); err != nil {
-		o.logger.Warn("listener interface check failed; readiness unchanged", slog.String("error", err.Error()))
+		o.logger.Warn("listener resource check failed", slog.String("error", err.Error()))
 	}
 }
 

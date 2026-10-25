@@ -175,6 +175,14 @@ pre-generation overlay admission nor all-source atomicity.
 
 ## Consequences
 
+Generation receipts retain only the fixed presence of unavailable interface
+and address classes, not resource identities or raw error strings. A change
+between these classes is a status change even at the same pending count;
+an identical class set remains deduplicated. Convergence clears the classes.
+Permanent failures remain failed and timer-only waits remain separate.
+See [configuration receipts](../03-configuration.md) and
+`gobfd-qj0.8.2.2.6.8.1`; whole-daemon qualification is separate.
+
 Supported changes preserve local session identity and avoid an unnecessary
 restart. Peer behavior, timing, padding acceptance and forwarding continuity
 still require measured qualification. RFC 9764 §4.1 explicitly permits the

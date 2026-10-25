@@ -933,6 +933,13 @@ On reload:
    service when all five do; runtime and listener components also apply
    (`07-monitoring.md`)
 
+Each source receipt also retains fixed `interface_pending` and `address_pending`
+presence flags. They distinguish unavailable resource classes, not claim counts
+or resource identities. A class change publishes a new receipt even if `pending`
+is unchanged; repeating the same receipt remains a no-op. Convergence clears the
+flags. Permanent failures and admitted timer-only waits do not acquire resource
+flags. Raw error text and resource IDs remain transient diagnostics.
+
 `log.level` applies immediately after the complete candidate passes validation.
 On Linux, an existing but down configured interface produces `pending` after
 whole-source availability preflight. Link events retry affected pending sources

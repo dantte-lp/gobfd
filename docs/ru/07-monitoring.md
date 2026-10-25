@@ -324,14 +324,18 @@ reconciliation incomplete` для stale generation. Обычный настро�
 threshold продолжает действовать, поэтому INFO event convergence фильтруется
 при уровнях WARN и ERROR. Поля включают `desired_generation`,
 `applied_generation`, `stale`, aggregate `pending`/`failed`, а также per-source
-`created`, `released`, `pending`, `failed` и ограниченные счётчики кодов ошибок.
+`created`, `released`, `pending`, `failed`, фиксированные признаки
+`interface_pending`/`address_pending` и ограниченные счётчики кодов ошибок.
+Признаки описывают классы, а не количество или идентификаторы ресурсов.
 Raw error text может появиться только в этом непосредственном event; он не
 сохраняется в runtime snapshot и не используется как label.
 
 Linux interface events обновляют эти же receipts без смены desired generation.
 Недоступные зависимости делают readiness stale и sources pending; успешный
-автоматический retry восстанавливает convergence. Одинаковые receipts не
-создают повторных events. Переполнение netlink записывает запрос resync в журнал;
+автоматический retry восстанавливает convergence. Переход от недоступного
+интерфейса к недоступному адресу публикует новый receipt даже при прежнем
+числе pending. Сходимость очищает признаки классов; одинаковые receipts
+не создают повторных events. Переполнение netlink записывает запрос resync в журнал;
 заполненный канал сохраняет запрос до доставки. Размер очереди фиксирован и не
 зависит от количества событий. Тот же retry открывает listener, интерфейс которого
 появился. Address events и сверка также повторяют применение sources, ожидающих
