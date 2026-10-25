@@ -638,6 +638,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reject truncated Podman multiplexed output headers instead of treating them
+  as successful EOF. Preserve completed binary stdout/stderr and wrapped read
+  errors; exec consumers fail on incomplete output.
+
 - Avoid repeated Go interface-table refresh after device-bound IPv6 sender
   recovery. A matching named zone uses verified socket device scope; explicit
   numeric or unrelated zones keep their meaning, with the same socket and
