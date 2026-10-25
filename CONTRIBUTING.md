@@ -17,7 +17,7 @@
 2. Select the pinned Compose provider using
    [Deployment](docs/en/06-deployment.md#podman-compose), then start the environment:
    ```bash
-   podman compose -f deployments/compose/compose.dev.yml up -d --build
+   make up
    ```
 3. Make your changes on a feature branch
 4. Submit a pull request

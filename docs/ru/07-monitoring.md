@@ -77,8 +77,8 @@ Echo и незавершённая обработка у владельца та
 | Метрика | Тип | Метки | Описание |
 |---|---|---|---|
 | `gobfd_bfd_sessions` | Gauge | `peer_addr`, `local_addr`, `session_type` | Текущее количество активных BFD-сессий |
-| `gobfd_bfd_packets_sent_total` | Counter | `peer_addr`, `local_addr` | Отправленные BFD Control пакеты |
-| `gobfd_bfd_packets_received_total` | Counter | `peer_addr`, `local_addr` | Полученные BFD Control пакеты |
+| `gobfd_bfd_packets_sent_total` | Counter | `peer_addr`, `local_addr` | Отправленные BFD Control и Echo пакеты |
+| `gobfd_bfd_packets_received_total` | Counter | `peer_addr`, `local_addr` | Полученные BFD Control и Echo пакеты |
 | `gobfd_bfd_packets_dropped_total` | Counter | `peer_addr`, `local_addr` | Отброшенные пакеты (ошибки валидации/буфера) |
 | `gobfd_bfd_state_transitions_total` | Counter | `peer_addr`, `local_addr`, `from_state`, `to_state` | Переходы состояний FSM |
 | `gobfd_bfd_auth_failures_total` | Counter | `peer_addr`, `local_addr` | Ошибки аутентификации |

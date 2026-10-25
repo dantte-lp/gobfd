@@ -27,6 +27,16 @@ a release tag. `benchmark-save` runs BFD and netio separately with
 `benchmark` and `benchmark-all` do not enable the race detector or write CPU/
 heap profiles. Race qualification belongs to the test gate; profiling is separate.
 
+The legacy `benchmark`, `benchmark-all`, `benchmark-save` and
+`benchmark-compare` recipes pipe tool output through `tee` without preserving
+the tool's failure status. A successful Make exit alone does not prove that
+tests or `benchstat` succeeded; `benchmark-save` can still write metadata after
+a failed benchmark. Inspect both streams and require complete expected samples
+before accepting a snapshot or comparison. The Go-owned CI/release runners
+preserve child-command failures separately. See the
+[`Makefile`](../../Makefile); Beads `gobfd-qj0.8.2.8.7.2.5.1` tracks the legacy
+failure-status defect.
+
 | Saved file | Content |
 |---|---|
 | `benchmark-bfd.txt` | BFD benchmark samples |

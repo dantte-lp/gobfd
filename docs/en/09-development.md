@@ -97,8 +97,9 @@ remain separate from `dev` task completion.
 
 Routine build and test targets run Go inside Podman via `podman compose exec`.
 The development stack is scoped by `COMPOSE_PROJECT_NAME`, which defaults to
-the current checkout directory name. Parallel worktrees use distinct default
-project names and can override `COMPOSE_PROJECT_NAME` explicitly.
+the sanitized lowercase basename of the current checkout directory. Worktrees
+with the same sanitized basename share that default; set distinct
+`COMPOSE_PROJECT_NAME` values before starting their stacks.
 
 There is no interactive Make shell target. Use the Make-owned project routing
 for a specific non-interactive test, for example:
@@ -791,7 +792,14 @@ register the complete `net/http/pprof` handler set on its public metrics mux.
 
 #### `runtime/trace.FlightRecorder`
 
-The daemon continuously records the last N seconds of trace data. With `grpc.flight_recorder: true` the management server serves the dump at `/debug/flightrecorder` to callers with a principal (Unix socket or allowed mTLS identity) for debugging latency spikes or deadlocks; it is off by default and never served on the metrics listener.
+At startup the daemon attempts to start a rolling trace recorder with
+`MinAge=500ms` and `MaxBytes=2MiB`; a start failure logs a warning and leaves
+the recorder unavailable. These settings do not define a fixed N-second
+history. With `grpc.flight_recorder: true` and a running recorder, the
+management server serves `/debug/flightrecorder` to callers with a principal
+(Unix socket or allowed mTLS identity). The endpoint is off by default and is
+never served on the metrics listener. See
+[`startFlightRecorder`](../../cmd/gobfd/shutdown.go).
 
 #### Swiss Tables
 

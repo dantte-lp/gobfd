@@ -61,8 +61,10 @@ provider support, timer accuracy or forwarding continuity.
 
 For Asynchronous BFD, local Detection Time is the received Detect Multiplier
 multiplied by `max(local RequiredMinRxInterval, remote DesiredMinTxInterval)`.
-The nominal transmit interval is
+For an Up session without a held slow-start floor, the nominal transmit interval is
 `max(local DesiredMinTxInterval, remote RequiredMinRxInterval)` before jitter.
+A non-Up state or held floor raises local TX to at least one second before
+negotiation. See [`calcTxIntervalHot`](../../internal/bfd/session_packet.go).
 A zero remote receive interval, remote Demand and Poll transactions affect
 periodic transmission; see [Protocol](02-protocol.md).
 

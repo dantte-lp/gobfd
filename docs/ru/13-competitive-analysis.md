@@ -61,8 +61,11 @@ GoBFD. Общие интервалы RFC 7419 не подтверждают по
 
 В асинхронном BFD локальное Detection Time равно принятому Detect Multiplier,
 умноженному на `max(local RequiredMinRxInterval, remote DesiredMinTxInterval)`.
-Номинальный интервал передачи до джиттера равен
+Для сессии Up без удерживаемого начального ограничения номинальный интервал до джиттера равен
 `max(local DesiredMinTxInterval, remote RequiredMinRxInterval)`.
+В состоянии вне Up или при удерживаемом ограничении локальный TX повышается
+минимум до секунды перед согласованием. Источник:
+[`calcTxIntervalHot`](../../internal/bfd/session_packet.go).
 Нулевой интервал приёма пира, его Demand и транзакции Poll влияют на
 периодическую передачу; см. [Протокол](02-protocol.md).
 

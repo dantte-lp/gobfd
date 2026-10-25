@@ -68,8 +68,8 @@ effort, and canceled dispatch has no restart/progress guarantee.
 | Metric | Type | Labels | Description |
 |---|---|---|---|
 | `gobfd_bfd_sessions` | Gauge | `peer_addr`, `local_addr`, `session_type` | Currently active BFD sessions |
-| `gobfd_bfd_packets_sent_total` | Counter | `peer_addr`, `local_addr` | BFD Control packets transmitted |
-| `gobfd_bfd_packets_received_total` | Counter | `peer_addr`, `local_addr` | BFD Control packets received |
+| `gobfd_bfd_packets_sent_total` | Counter | `peer_addr`, `local_addr` | BFD Control and Echo packets transmitted |
+| `gobfd_bfd_packets_received_total` | Counter | `peer_addr`, `local_addr` | BFD Control and Echo packets received |
 | `gobfd_bfd_packets_dropped_total` | Counter | `peer_addr`, `local_addr` | Packets dropped (validation/buffer) |
 | `gobfd_bfd_state_transitions_total` | Counter | `peer_addr`, `local_addr`, `from_state`, `to_state` | FSM state transitions |
 | `gobfd_bfd_auth_failures_total` | Counter | `peer_addr`, `local_addr` | Authentication failures (RFC 5880 Section 6.7) |

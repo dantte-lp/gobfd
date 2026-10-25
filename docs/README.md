@@ -19,3 +19,11 @@ Decisions / решения: [EN](en/adr/README.md), [RU](ru/adr/README.md).
 Dated status / датированный статус: [EN](en/roadmap.md), [RU](ru/roadmap.md).
 Normative source texts / нормативные тексты: [RFC](rfc/).
 The executable plan lives only in Beads / исполняемый план хранится только в Beads.
+
+Files under `superpowers/specs/` retain dated design inputs and their original
+implementation baselines. Current behavior belongs in the EN/RU guides and
+ADRs; a design's approval does not establish implementation or qualification.
+
+Файлы `superpowers/specs/` сохраняют датированные проектные решения и исходное
+состояние реализации. Текущее поведение описывают руководства EN/RU и ADR;
+одобрение проекта не подтверждает реализацию или квалификацию.

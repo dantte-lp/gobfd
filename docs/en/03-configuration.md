@@ -264,7 +264,7 @@ With `align_intervals: true`, creation rounds TX/RX up within the RFC 7419
 common set (3.3 ms, 10 ms, 20 ms, 50 ms, 100 ms, 1 s); values above 1 s remain
 unchanged. Alignment does not establish peer interoperability or timer accuracy.
 
-> **Note**: Per RFC 5880 Section 6.8.3, when the session is not in Up state, the TX interval is enforced to be at least 1 second regardless of the configured value.
+> **Note**: Per RFC 5880 Section 6.8.3, when the session is not in Up state, the advertised Desired Min TX and the unjittered TX interval have a one-second floor. Periodic transmissions still apply Section 6.8.7 jitter; a one-second interval can produce a transmission after 750 ms.
 
 #### `gobgp` -- GoBGP Integration
 

@@ -20,8 +20,12 @@ socket device scope for matching named IPv6 zones: the native combined packet
 loop retains 3 allocations before and after two recreations, replacing the
 historical rise to 51. This is local fixture evidence, not whole-daemon or
 reference-load acceptance. Unrelated unmerged work is outside this projection.
-Publication remains held; alpha readiness `gobfd-qj0.8.2.6.4`
-does not yet provide a prerelease path.
+The current documentation revalidation, `gobfd-qj0.8.2.8.7.2.16`, covers
+accepted source `713cef8f0eb1be05c6ddce38fa4c7bbe22b0c7ef`: English/source
+checks precede the Russian translation. This documentation gate is separate
+from release qualification; later accepted source changes require review of
+the affected pages. Publication remains held; alpha readiness
+`gobfd-qj0.8.2.6.4` does not yet provide a prerelease path.
 
 | Area | Current boundary | Beads authority |
 |---|---|---|
@@ -31,6 +35,7 @@ does not yet provide a prerelease path.
 | Pending qualification | Typed reason classes and active-address checks retain generation, claims and sockets; all-five periodic resource checks also cover missing monitor events; local process evidence remains separate from final release qualification | `gobfd-qj0.8.2.2.6.8`, `gobfd-qj0.8.2.2.6.8.1`, `gobfd-qj0.8.2.2.6.8.2` |
 | Echo ownership | Idempotent principal claims share a canonical wire with config and retain RX through config withdrawal; this is management policy, not returned-packet authentication | `gobfd-qj0.8.2.2.8` |
 | Smallstep | Existing-certificate renewal locally qualified against a real CA with an isolated dependency profile; enrollment, scheduling, reconnect and root rollover remain separate post-v1 lifecycle work | `gobfd-qj0.8.2.3.7`, `gobfd-qj0.8.2.3.7.4`, `gobfd-qj0.8.2.3.7.5` |
+| Containerlab | FRR migration to the shared recipe and an owned two-image lifecycle remains unfinished; the separate CLI upgrade and vendor NOS provenance/OS-policy decisions are not accepted runtime evidence | `gobfd-qj0.8.2.8.5.2.7.3`, `gobfd-qj0.8.2.8.5.2.7.3.2`, `gobfd-qj0.8.2.8.5.2.7.4` |
 | Echo preview | Declarative and API IPv4/IPv6 TX binding, UDP/3785 and lease cleanup pass local checks; API receive claims honor the requested interface; full RFC qualification remains open | `gobfd-qj0.8.2.1.19`, `gobfd-qj0.8.2.1.17` |
 | Legacy demos | HAProxy/Kubernetes CLI and pod-selector drift require source fixes and actual execution | `gobfd-qj0.8.2.8.7.1.4.1` |
 | Runtime | Bounded CPU, GC, scheduler and fixed-manifest churn fixtures exist; calibrated distributions, clock qualification and thread-pin A/B remain incomplete | `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7` |

@@ -209,7 +209,7 @@ Poll; локальная политика TTL не использует Poll. С
 
 ```mermaid
 sequenceDiagram
-    participant A as Initiатор
+    participant A as Инициатор
     participant B as Респондент
 
     Note over A: Изменение параметров ожидает
