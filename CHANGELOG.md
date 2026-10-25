@@ -16,6 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Retain fixed `interface_pending` and `address_pending` reason-class flags in
+  reconciliation receipts and structured logs. A class change emits a new
+  receipt at the same pending count; convergence clears the flags.
+
+- Recheck active listener and outer overlay local-address dependencies on Linux
+  while retaining session identities, claims, sockets and desired generation.
+  Missing usable addresses make sources pending and health not ready; recovery
+  retries automatically. The existing 2 s check covers all five sources even
+  without monitor events. Permanent and inventory failures still need explicit
+  reload. Add bounded real-daemon IPv4/IPv6 lifecycle evidence to Linux E2E;
+  final wire, reference load and 24h qualification remain separate.
+
 - Settle workload Down-journal delivery against the retained production FSM
   counter, with bounded closed-subscription drain and joined final validation.
   Gaps, omitted events, mismatched or invalid source counts fail completeness;

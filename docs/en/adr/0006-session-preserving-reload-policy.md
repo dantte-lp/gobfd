@@ -175,13 +175,20 @@ pre-generation overlay admission nor all-source atomicity.
 
 ## Consequences
 
-Generation receipts retain only the fixed presence of unavailable interface
-and address classes, not resource identities or raw error strings. A change
-between these classes is a status change even at the same pending count;
-an identical class set remains deduplicated. Convergence clears the classes.
-Permanent failures remain failed and timer-only waits remain separate.
-See [configuration receipts](../03-configuration.md) and
-`gobfd-qj0.8.2.2.6.8.1`; whole-daemon qualification is separate.
+Generation receipts retain fixed presence flags for unavailable interface and
+address classes, without resource identities or raw error strings. A class
+change is a status change at the same pending count; identical receipts remain
+deduplicated. Convergence clears the flags. Timer negotiation and permanent
+failures keep their separate accounting and retry policy.
+
+Linux availability checks cover active listener addresses and outer overlay
+endpoints as well as interface bindings. Address loss keeps the desired
+generation and existing claims, marks the source pending and health not ready;
+resource recovery retries that generation. The shared 2 s periodic check covers
+all five sources even without monitor events. Address-inventory errors fail
+the source and require explicit SIGHUP under the existing failed-source policy.
+See [configuration receipts](../03-configuration.md),
+`gobfd-qj0.8.2.2.6.8.1` and `gobfd-qj0.8.2.2.6.8.2`.
 
 Supported changes preserve local session identity and avoid an unnecessary
 restart. Peer behavior, timing, padding acceptance and forwarding continuity

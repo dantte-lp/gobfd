@@ -554,9 +554,10 @@ only request cleanup and do not publish a fabricated state transition.
 `echo.enabled: true` is required for declarative peers and API creation.
 Each Add, including an idempotent retry, also requires local receive-path
 readiness; otherwise it returns `FailedPrecondition`. List/Delete retain their
-management authorization rules. Changing enablement requires restart. See
+management authorization rules. A valid SIGHUP candidate updates the enablement
+opt-in; a rejected candidate preserves it. See
 [`EchoServer.AddEchoSession`](../../internal/server/echo.go) and
-[`listenerOwner`](../../cmd/gobfd/listeners.go).
+[`TestEchoPreviewReloadUpdatesAdmission`](../../cmd/gobfd/echo_admission_test.go).
 
 **Implementation**: [`internal/bfd/echo.go`](../../internal/bfd/echo.go), [`internal/netio/echo_receiver.go`](../../internal/netio/echo_receiver.go)
 

@@ -349,7 +349,13 @@ unsolicited listener. Configured per-address listeners remain available.
 | `echo.peers[].tx_interval` | duration | -- | Override `default_tx_interval` for this peer |
 | `echo.peers[].detect_mult` | uint32 | -- | Override `default_detect_multiplier` for this peer |
 
-Echo sessions detect forwarding-path failures without requiring the remote system to run BFD. The local system sends BFD Control packets to UDP port 3785 on the remote, which forwards them back via normal IP routing.
+RFC 9747 describes forwarding-path detection without requiring BFD on the
+adjacent system. Its packets have a local IP destination and traverse the
+adjacent device's normal forwarding path back to the originator. The current
+preview sends to the configured peer address on UDP port 3785; that path does
+not establish the RFC's forwarding behavior. See the
+[implementation boundaries](08-rfc-compliance.md#rfc-9747-implementation-notes)
+and [RFC 9747 Section 1](../rfc/rfc9747.txt).
 
 Echo peers are reconciled on SIGHUP reload. Session key: `(peer, local, interface)`.
 
@@ -933,23 +939,42 @@ On reload:
    service when all five do; runtime and listener components also apply
    (`07-monitoring.md`)
 
-Each source receipt also retains fixed `interface_pending` and `address_pending`
-presence flags. They distinguish unavailable resource classes, not claim counts
-or resource identities. A class change publishes a new receipt even if `pending`
-is unchanged; repeating the same receipt remains a no-op. Convergence clears the
-flags. Permanent failures and admitted timer-only waits do not acquire resource
-flags. Raw error text and resource IDs remain transient diagnostics.
+Each source receipt retains fixed `interface_pending` and `address_pending`
+presence flags. They identify unavailable resource classes, not claim counts or
+resource identities. A class change emits a new receipt even when `pending` is
+unchanged; identical receipts remain deduplicated. Convergence clears the flags.
+Permanent failures and admitted timer-only waits remain separate. Raw error text
+and resource IDs are not retained in the snapshot or used as metric labels.
 
 `log.level` applies immediately after the complete candidate passes validation.
 On Linux, an existing but down configured interface produces `pending` after
 whole-source availability preflight. Link events retry affected pending sources
 against the retained generation automatically; another SIGHUP is not required.
-Repeated events coalesce and do not replay converged sources. Netlink loss
-requests a full interface resync. Address events (`RTM_NEWADDR`/`RTM_DELADDR`,
-including IPv6 DAD completion) and resyncs retry every pending source; they
-carry no link state and never take sessions down. Receiving these rtnetlink
-groups needs no capability. The non-Linux stub provides no automatic retry, so
-there a later SIGHUP retries pending sources.
+Repeated events coalesce; healthy converged sources are inspected without
+reapplying their resources. Netlink loss requests a full resync. Address events
+(`RTM_NEWADDR`/`RTM_DELADDR`, including IPv6 DAD completion) and resyncs inspect
+all five sources and retry unavailable resources; they carry no link state and
+do not synthesize a session Down. Receiving these rtnetlink groups needs no
+capability. A 2 s periodic check also inspects all five sources and owned
+listeners when the monitor is disabled, stopped or loses events. This is a
+check interval, not a recovery-time guarantee. The non-Linux stub provides no
+automatic event retry; a later SIGHUP retries pending sources.
+
+**Active local-address loss:** an unavailable local address required by a
+configured listener or outer overlay makes its source `pending`, the generation stale and the affected
+service `NOT_SERVING`. Re-adding a usable address retries the same desired
+generation automatically. Existing session IDs, claims and UDP sockets remain;
+the last applied generation can still equal desired while `stale` is true.
+IPv6 tentative and DAD-failed addresses do not satisfy a dependency. A global
+source address may belong to another interface; link-local IPv6 scope must
+match. Wildcard listeners need no specific assigned address. Kernel-local
+routes remain compatible through an exclusive temporary bind probe when the
+address dump has no assignment; it sends no packets and closes its own socket.
+These checks run outside the packet path. Address-inventory errors are `failed`,
+not proof of an unavailable address; availability events and periodic checks do
+not retry failed sources. Correct the cause and send SIGHUP. Health does not
+prove peer reachability. See [`preflightSourceResources`](../../cmd/gobfd/source_availability.go)
+and [`checkBindings`](../../cmd/gobfd/readiness.go).
 
 Receive listeners are part of the generation. Before the base, Echo, or
 Micro-BFD source applies, it claims the UDP listeners its desired set needs

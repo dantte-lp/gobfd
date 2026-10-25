@@ -322,15 +322,16 @@ threshold applies normally, so INFO convergence events are filtered at WARN or
 ERROR. Fields include `desired_generation`, `applied_generation`, `stale`,
 aggregate `pending`/`failed`, and per-source `created`, `released`, `pending`,
 `failed`, fixed `interface_pending`/`address_pending` presence flags, and bounded
-error-code counts. The flags indicate classes, not counts or identities. Raw error text may appear only in that
+error-code counts. The flags describe resource classes, not counts or identities.
+Raw error text may appear only in that
 immediate event; it is not retained in the runtime snapshot or used as a label.
 
 Linux interface events update these same receipts without advancing the desired
 generation. Unavailable dependencies make readiness stale and sources pending;
-successful automatic retry can restore convergence. A transition from an
-unavailable interface to an unavailable address emits a new receipt even with
-the same pending count. Convergence clears the class flags; duplicate receipts
-do not emit another event. Netlink receive overflow logs a resync request; a full event
+successful automatic retry can restore convergence. A transition from an absent
+interface to an unavailable address emits a new receipt at the same pending
+count. Convergence clears the flags; identical receipts emit no extra event.
+Netlink receive overflow logs a resync request; a full event
 channel retains that request until it can be delivered. Queue size is fixed,
 independent of event volume. The same retry opens a listener whose interface
 appears. Address events and resyncs also retry sources pending on an
@@ -379,9 +380,9 @@ status is the AND of the components the service needs:
 | Service | Components |
 |---|---|
 | empty service | all components below |
-| `bfd.v1.BfdService` | base, VXLAN and Geneve reconciliation sources; runtime workers; control listener interfaces, including unsolicited ones |
-| `bfd.v1.EchoService` | Echo reconciliation source; runtime workers; Echo listener interfaces |
-| `bfd.v1.MicroBFDService` | Micro-BFD source (groups with their member sessions); runtime workers; member listener interfaces |
+| `bfd.v1.BfdService` | base, VXLAN and Geneve reconciliation sources; runtime workers; control listener interfaces and local addresses, including unsolicited and API claims |
+| `bfd.v1.EchoService` | Echo reconciliation source; runtime workers; Echo listener interfaces and local addresses |
+| `bfd.v1.MicroBFDService` | Micro-BFD source (groups with their member sessions); runtime workers; member listener interfaces and local addresses |
 | `grpc.health.v1.Health` | none; always `SERVING` as the liveness signal |
 
 - A reconciliation source is ready when the latest desired generation has no
@@ -396,15 +397,29 @@ status is the AND of the components the service needs:
   rebind, for example without `CAP_NET_RAW`, stays `NOT_SERVING` and is
   retried (`03-configuration.md`, Hot Reload (SIGHUP)). Listeners closed by a
   reload leave the binding set.
+- Required local addresses are checked for every owned listener, including
+  unbound and API-created listeners. Missing, IPv6-tentative or DAD-failed
+  addresses make the affected binding component `NOT_SERVING`. Wildcard
+  listeners do not depend on one assigned address. VXLAN and Geneve outer
+  local addresses are checked through their source receipts. An API-only
+  listener can clear binding readiness while configuration sources stay converged.
 - Runtime workers are the BFD dispatch loop and the control, Echo, Micro-BFD and
   overlay receivers. A worker that returns while the daemon runs, for example a
   receiver whose socket closed, sets every service `NOT_SERVING`, and the daemon
   drains sessions and exits with an error (fail-stop) for systemd
   `Restart=on-failure`. Shutdown also sets every service `NOT_SERVING`.
-- Interface events re-check listener interfaces at once, and a 2 s periodic
-  check covers a disabled or stopped interface monitor. A failed interface
-  inventory read keeps the previous state until the next check; at startup it
-  fails the start.
+- Link and address events re-check listener dependencies; a 2 s periodic check
+  also covers all five sources with a disabled or stopped monitor. An interface
+  inventory read error retains previous binding bits; an address inventory
+  error clears the affected binding bit and fails the affected source. Failed
+  sources need an explicit valid SIGHUP after the cause is corrected.
+
+Deleting an active IPv4 or IPv6 address marks the affected source pending and
+the same generation stale; re-adding a usable address restores convergence
+automatically. Applied may still equal desired during this loss; inspect
+`stale`, `pending`, `failed` and health together. See the
+[reload availability boundary](03-configuration.md#hot-reload-sighup).
+Neither health nor systemd readiness proves peer reachability.
 
 `gobfd.management` is `NOT_SERVING` while `grpc.unsafe_loopback_mutations`
 lets anonymous loopback clients mutate, `SERVING` otherwise. With
@@ -426,4 +441,4 @@ process/listener startup rather than configuration convergence.
 
 ---
 
-*Reviewed against `dev` source: 2026-10-25 (`706991db9433b13cec47e0bb8ea2549b01e948d9`).*
+*Reviewed against `dev` source: 2026-10-25 (`49d8954479a172b311a8a05adb5e0714528c4116`); known readiness and receipt gaps remain explicit.*

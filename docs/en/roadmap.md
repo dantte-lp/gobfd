@@ -25,10 +25,10 @@ does not yet provide a prerelease path.
 
 | Area | Current boundary | Beads authority |
 |---|---|---|
-| Documentation | The 31-pair source and Russian translation audit is accepted locally; the sender follow-up updates the affected paired pages | `gobfd-qj0.8.2.8.7.2.13` |
+| Documentation | The 31-pair source and Russian translation audit and ancillary publication closeout are accepted locally; affected pages follow the pending-source implementation | `gobfd-qj0.8.2.8.7.2.13`, `gobfd-qj0.8.2.8.7.2.14` |
 | Management/reload | Unsafe-loopback policy changes reject before candidate acceptance; complete pending activation remains open | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6` |
 | Sender recovery | Same-socket IPv4/IPv6 rebind and denied-privilege failure pass locally; matching named scope no longer increases packet-loop allocations after recreation | `gobfd-qj0.8.2.2.6.7` |
-| Pending qualification | Whole-daemon IPv4/IPv6 activation, repeated events, permanent failure and readiness still require isolated process evidence | `gobfd-qj0.8.2.2.6.8` |
+| Pending qualification | Typed reason classes and active-address checks retain generation, claims and sockets; all-five periodic resource checks also cover missing monitor events; local process evidence remains separate from final release qualification | `gobfd-qj0.8.2.2.6.8`, `gobfd-qj0.8.2.2.6.8.1`, `gobfd-qj0.8.2.2.6.8.2` |
 | Echo ownership | Idempotent principal claims share a canonical wire with config and retain RX through config withdrawal; this is management policy, not returned-packet authentication | `gobfd-qj0.8.2.2.8` |
 | Smallstep | Existing-certificate renewal implemented; actual CA and lifecycle qualification incomplete | `gobfd-qj0.8.2.3.7` |
 | Echo preview | Declarative and API IPv4/IPv6 TX binding, UDP/3785 and lease cleanup pass local checks; API receive claims honor the requested interface; full RFC qualification remains open | `gobfd-qj0.8.2.1.19`, `gobfd-qj0.8.2.1.17` |
@@ -40,6 +40,15 @@ does not yet provide a prerelease path.
 Oracle Linux 10 is outside v1 OCI/lifecycle scope; generic RPM generation and
 historical v0.6 evidence remain. These status rows neither close their owners
 nor create an executable plan. Use Beads for current priorities and acceptance.
+
+The publication closeout `gobfd-qj0.8.2.8.7.2.14` is accepted at
+`d57e9ef277d477c0626d99279c83c29f668a5897`: 33 Markdown files, 31 EN/RU pairs,
+1018 local links and zero link failures. English/source corrections precede
+Russian translation. The pending-source follow-up updates configuration,
+monitoring, ADR-0006 and both changelogs against its own source and process
+evidence in `reports/pending-daemon-20261025/`. Earlier false-readiness and
+counts-only reason receipts remain historical defect evidence. This local
+work does not qualify calibrated/reference load, 24h, final wire or release.
 
 ## Down-journal source accounting — 2026-10-25
 
