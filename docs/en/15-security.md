@@ -125,8 +125,9 @@ initial enrollment, CA operation and unattended scheduling are outside its
 scope. The command uses an explicit CA HTTPS origin, roots and existing
 certificate/key, validates the returned identity and atomically replaces only
 the certificate. This is a separate outbound mTLS client, not a daemon RPC or
-an API authorization grant. Qualification against an actual step-ca remains
-pending in `gobfd-qj0.8.2.3.7.4`. See the
+an API authorization grant. The [actual-provider profile](../../test/stepca/README.md)
+qualifies bounded renewal and negative cases with a disposable CA; it does not
+qualify production CA operation or its complete dependency graph for deployment. See the
 [CLI contract](04-cli.md#certificate-renewal) and
 [`internal/stepca`](../../internal/stepca/client.go).
 

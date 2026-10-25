@@ -460,10 +460,15 @@ client credentials when their transport is created; restart or recreate the
 client transport after renewal. A trusted CA can issue identities selected by
 API role rules; issuance alone does not authorize API access.
 
-Enrollment and scheduling are separate lifecycle work. Actual step-ca
-qualification remains pending in `gobfd-qj0.8.2.3.7.4`; local TLS fixtures do not
-establish it. See the [CLI reference](04-cli.md#certificate-renewal) for flags
-and unchanged-chain behavior.
+The [actual-provider Linux profile](../../test/stepca/README.md) qualifies a
+dependency-refreshed build of the full upstream CA command in a disposable
+network-none environment. It covers server/operator/monitor renewal, new
+management handshakes, preserved principal claims and rejection of disabled,
+revoked, expired or server-only credentials. This is bounded renewal evidence,
+not a production CA or other-provisioner qualification. Enrollment, scheduling,
+automatic client reconnect and trust-root rollover remain separate lifecycle
+work in `gobfd-qj0.8.2.3.7.5`. See the
+[CLI reference](04-cli.md#certificate-renewal) for flags and unchanged-chain behavior.
 
 ### Memory Tuning (`GOMEMLIMIT` and `GOGC`)
 

@@ -403,8 +403,9 @@ rollback is not promised. This also marks an output error after replacement.
 
 Initial enrollment and unattended scheduling are outside this command. A
 trusted CA can issue identities selected by API role rules; issuance alone
-does not authorize API access. Qualification with an actual step-ca remains
-pending in `gobfd-qj0.8.2.3.7.4`. See [deployment](06-deployment.md#management-certificate-renewal)
+does not authorize API access. A bounded Linux qualification uses the actual
+CA with an isolated dependency profile; see the [test contract](../../test/stepca/README.md).
+See [deployment](06-deployment.md#management-certificate-renewal)
 for connection reload boundaries and [ADR-0005](adr/0005-smallstep-management-certificates.md).
 
 ### Interactive Shell

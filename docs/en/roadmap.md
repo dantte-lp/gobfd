@@ -30,7 +30,7 @@ does not yet provide a prerelease path.
 | Sender recovery | Same-socket IPv4/IPv6 rebind and denied-privilege failure pass locally; matching named scope no longer increases packet-loop allocations after recreation | `gobfd-qj0.8.2.2.6.7` |
 | Pending qualification | Typed reason classes and active-address checks retain generation, claims and sockets; all-five periodic resource checks also cover missing monitor events; local process evidence remains separate from final release qualification | `gobfd-qj0.8.2.2.6.8`, `gobfd-qj0.8.2.2.6.8.1`, `gobfd-qj0.8.2.2.6.8.2` |
 | Echo ownership | Idempotent principal claims share a canonical wire with config and retain RX through config withdrawal; this is management policy, not returned-packet authentication | `gobfd-qj0.8.2.2.8` |
-| Smallstep | Existing-certificate renewal implemented; actual CA and lifecycle qualification incomplete | `gobfd-qj0.8.2.3.7` |
+| Smallstep | Existing-certificate renewal locally qualified against a real CA with an isolated dependency profile; enrollment, scheduling, reconnect and root rollover remain separate post-v1 lifecycle work | `gobfd-qj0.8.2.3.7`, `gobfd-qj0.8.2.3.7.4`, `gobfd-qj0.8.2.3.7.5` |
 | Echo preview | Declarative and API IPv4/IPv6 TX binding, UDP/3785 and lease cleanup pass local checks; API receive claims honor the requested interface; full RFC qualification remains open | `gobfd-qj0.8.2.1.19`, `gobfd-qj0.8.2.1.17` |
 | Legacy demos | HAProxy/Kubernetes CLI and pod-selector drift require source fixes and actual execution | `gobfd-qj0.8.2.8.7.1.4.1` |
 | Runtime | Bounded CPU, GC, scheduler and fixed-manifest churn fixtures exist; calibrated distributions, clock qualification and thread-pin A/B remain incomplete | `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7` |

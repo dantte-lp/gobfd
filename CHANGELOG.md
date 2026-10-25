@@ -91,8 +91,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added `gobfdctl certificate renew` for existing management identities through
   an explicit external CA and roots: native mTLS renewal atomically replaces
-  only the public certificate, preserving the key and SAN. Actual step-ca
-  qualification remains pending in `gobfd-qj0.8.2.3.7.4`.
+  only the public certificate, preserving the key and SAN. The existing
+  certificate must allow TLS client authentication to the CA; a management
+  server identity also needs server authentication usage. Enrollment and
+  unattended scheduling are outside the command.
 - Go-owned UDP peer workload components add an independent asynchronous
   Control state model, reproducible per-peer loss, timed blackholes and
   explicit write/receive accounting. Named profiles preserve qualification

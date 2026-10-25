@@ -86,9 +86,30 @@ Smallstep passive revocation prevents renewal; it does not revoke an
 established GoBFD connection. GoBFD does not check CRL or OCSP on new
 handshakes either. CA renewal policy is separate from immediate API access
 removal.
-Local TLS fixtures are not actual step-ca qualification. The plan and remaining
-acceptance criteria live in Beads `gobfd-qj0.8.2.3.7`; transport provenance is
-`gobfd-qj0.8.2.3.5`.
+Local TLS fixtures alone are not actual step-ca qualification. The plan and
+remaining lifecycle criteria live in Beads `gobfd-qj0.8.2.3.7`; transport
+provenance is `gobfd-qj0.8.2.3.5`.
+
+### Local actual-provider qualification — 2026-10-25
+
+The [Linux qualification profile](../../../test/stepca/README.md) uses the full
+v0.30.2 upstream command with an isolated dependency-only overlay and Go 1.27.3;
+upstream Go sources and GoBFD runtime manifests are unchanged. The disposable
+network-none fixture starts a real CA and race-enabled daemon with its own
+short-lived PKI. Existing server, operator and monitor identities renew with
+unchanged keys and advancing serial/expiry; a new handshake loads the server
+certificate and management roles and session ownership remain intact.
+Disabled renewal, passive revocation, expired current identity and server-only
+EKU reject without changing credential files. Both processes join with exit
+code zero; no existing CA is mutated.
+
+This closes the bounded actual-provider renewal slice
+`gobfd-qj0.8.2.3.7.4`, not production CA qualification. The test-provider scan
+has zero reachable or affected imported-package findings and three module-only
+advisories with a test-only disposition described in the profile. Enrollment,
+unattended scheduling, automatic reconnect and root rollover remain separate
+post-v1 lifecycle work in `gobfd-qj0.8.2.3.7.5`. GoBFD's final security gate
+retains its own runtime/tool manifests and advisory decisions.
 
 ## References
 
