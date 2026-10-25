@@ -298,7 +298,8 @@ Docker Buildx/Bake is not part of the repository's Podman runtime.
 
 #### Development Stack
 
-`deployments/compose/compose.dev.yml` -- development environment with hot reload:
+`deployments/compose/compose.dev.yml` provides a development environment with
+a bind-mounted source checkout. It does not run a daemon or file watcher:
 
 ```bash
 # Start development environment
@@ -381,10 +382,12 @@ Build the container image:
 ```bash
 # Standard build
 podman build -f deployments/docker/Containerfile -t gobfd .
-
-# Multi-arch build (via GoReleaser)
-goreleaser release --snapshot --clean
 ```
+
+Multi-architecture release images use the pinned GoReleaser, Syft and UPX
+setup in [release.yml](../../.github/workflows/release.yml), which the
+development image does not provide. Follow the [release guide](10-changelog.md)
+for the separate qualification and publication process.
 
 Release images contain the four GoBFD binaries and no development toolchain:
 `gobfd`, `gobfdctl`, `gobfd-haproxy-agent`, and

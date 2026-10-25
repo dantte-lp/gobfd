@@ -169,9 +169,9 @@ and activates no preview.
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `addr` | string | `""` | Optional TCP listen address; empty opens no TCP listener. Plaintext must be loopback; a non-loopback address needs `tls` |
-| `mutating_identities` | []string | `[]` | mTLS identities (URI SAN or `dns:<name>`) that may mutate; when set, other mTLS clients are read-only. Requires `tls` |
+| `mutating_identities` | []string | `[]` | mTLS identities (URI SAN or `dns:<name>`) that may mutate; when nonempty, other recognized identities are read-only. Requires `tls`; see the unsafe opt-in limitation below |
 | `flight_recorder` | bool | `false` | Serves the runtime trace dump at `/debug/flightrecorder` on the management server to callers with a principal |
-| `unsafe_loopback_mutations` | bool | `false` | Lets anonymous plaintext loopback TCP clients call mutating RPCs; `gobfd.management` health is `NOT_SERVING` while set |
+| `unsafe_loopback_mutations` | bool | `false` | Admits requests without a recognized principal, including some mTLS clients; keep disabled with remote TLS. `gobfd.management` health is `NOT_SERVING` while set |
 | `socket.path` | string | `"/run/gobfd/gobfd.sock"` | Absolute path of the management Unix socket; empty disables it |
 | `socket.mode` | string | `"0660"` | Octal permission mode of the socket file |
 | `socket.group` | string | `""` | Group that owns the socket file; empty keeps the daemon's group |
@@ -191,24 +191,33 @@ Access control is the socket mode and group, so use a dedicated admin group
 rather than the daemon group, which can read `/etc/gobfd`. `grpc.socket` is
 restart-only ([transport decision](../superpowers/specs/2026-10-15-management-transport-decision.md)).
 
-Anonymous callers are plain TCP clients without mTLS, which can bind only
-loopback. They may read (`List*`, `Get*`, `Watch*`) but receive
+Callers without a recognized principal may read (`List*`, `Get*`, `Watch*`) but receive
 `PermissionDenied` for `AddSession`, `DeleteSession`, `AddEchoSession`,
 `DeleteEchoSession`, `AddMicroBFDGroup` and `DeleteMicroBFDGroup` unless
-`unsafe_loopback_mutations` is set. Socket and mTLS callers carry a principal
-and may mutate; with `mutating_identities` set, only the listed mTLS
-identities may. A session created through the API belongs to the caller's
+`unsafe_loopback_mutations` is set. Plain TCP listeners can bind only loopback.
+Socket callers with successfully obtained peer credentials and mTLS clients
+with a URI/DNS SAN carry a principal and may mutate; with `mutating_identities`
+nonempty, only the listed mTLS identities may.
+A session created through the API belongs to the caller's
 principal: another principal gets `PermissionDenied` from `DeleteSession`
 (logged as a refused release), and two principals that add the same session
 share it until both release it. Anonymous callers under
 `unsafe_loopback_mutations` share the owner `local`.
 
+**Unsafe opt-in limitation:** the current implementation also admits a
+CA-verified mTLS client without a URI or DNS SAN, including a certificate
+with only an IP SAN, when `unsafe_loopback_mutations` is enabled. This applies
+to remote TLS listeners; `mutating_identities` does not reject these requests.
+Keep the option disabled with mTLS. The transport restriction is an open
+source correction in Beads `gobfd-qj0.8.2.3.8`; the default remains `false`.
+
 **Upgrading from a TCP-only configuration:** a non-loopback plaintext
 `grpc.addr` (for example `":50052"`) now fails startup; bind it to loopback
 or add `grpc.tls`. Move mutating clients to the socket (`gobfdctl --addr
 unix:///run/gobfd/gobfd.sock`, the new default) and add operators to group
-`gobfd-admin`, or set `unsafe_loopback_mutations: true` as a transitional,
-visibly unsafe mode. A configured `grpc.addr` keeps its TCP listener.
+`gobfd-admin`, or use `unsafe_loopback_mutations: true` only for an isolated
+plaintext loopback listener as a transitional, visibly unsafe mode.
+A configured `grpc.addr` keeps its TCP listener.
 
 #### `metrics` -- Prometheus Endpoint
 

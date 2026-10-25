@@ -422,7 +422,8 @@ automatically. Applied may still equal desired during this loss; inspect
 Neither health nor systemd readiness proves peer reachability.
 
 `gobfd.management` is `NOT_SERVING` while `grpc.unsafe_loopback_mutations`
-lets anonymous loopback clients mutate, `SERVING` otherwise. With
+is enabled, `SERVING` otherwise. The flag's current authorization limit is
+described in [Security](15-security.md#connectrpc-api). With
 `gobgp.enabled`, the named check `gobfd.gobgp` is `NOT_SERVING` until the
 GoBGP v4 preflight passes, and after a failed preflight or a failed
 `DisablePeer`/`EnablePeer` until the next success; a BFD Down for a
