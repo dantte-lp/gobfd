@@ -637,6 +637,13 @@
 
 ### Исправлено
 
+- Декларативные Echo senders учитывают `echo.peers[].interface` для IPv4 и
+  IPv6, сохраняя UDP destination port 3785, startup socket-buffer policy и
+  освобождение source-port lease. Несуществующее устройство отклоняется при
+  создании sender; неизменённая конфигурация сохраняет действующий sender.
+  Конфликты интерфейсов listener с одним local address по-прежнему
+  отклоняются при валидации конфигурации.
+
 - Изменение `grpc.unsafe_loopback_mutations` при reload отклоняется до принятия
   поколения и побочных эффектов; смена действующей policy в любом направлении
   требует restart.

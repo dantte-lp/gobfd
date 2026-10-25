@@ -565,6 +565,7 @@ RFC 9747 defines the unaffiliated BFD echo function for forwarding-path liveness
 | TTL 255 send, exact TTL 254 receive | `netio.ValidateExpectedTTL` on the Echo listener |
 | Declarative echo peers | `echo.peers[]` in config, reconciled on SIGHUP |
 | Sender with port 3785 destination | Declarative Echo uses `WithDstPort(PortEcho)`; API-created Echo still uses Control port 3784 (`gobfd-qj0.8.2.1.17`) |
+| Declarative TX interface | `singleHopSenderBinding` applies the optional `SO_BINDTODEVICE` and scopes an unzoned IPv6 link-local source; source-port lease and write-buffer policy remain shared |
 
 Key differences from BFD control sessions:
 - No three-way handshake (no Init state)

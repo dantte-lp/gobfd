@@ -340,7 +340,7 @@ unsolicited listener. Configured per-address listeners remain available.
 | `echo.default_detect_multiplier` | uint32 | -- | Default echo detection multiplier |
 | `echo.peers[].peer` | string | -- | Remote system IP (echo target) |
 | `echo.peers[].local` | string | -- | Local system IP |
-| `echo.peers[].interface` | string | -- | Optional receive-listener device binding; the current declarative TX sender does not bind to this device |
+| `echo.peers[].interface` | string | -- | Optional `SO_BINDTODEVICE` binding for both the receive listener and declarative TX sender; an empty value retains kernel route selection |
 | `echo.peers[].tx_interval` | duration | -- | Override `default_tx_interval` for this peer |
 | `echo.peers[].detect_mult` | uint32 | -- | Override `default_detect_multiplier` for this peer |
 

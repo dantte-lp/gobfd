@@ -624,6 +624,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Declarative Echo senders honor `echo.peers[].interface` for IPv4 and IPv6,
+  retaining UDP destination port 3785, startup socket-buffer policy and
+  source-port lease cleanup. Invalid devices fail sender creation; unchanged
+  desired state keeps the existing sender. Same-local-address listener
+  interface conflicts remain rejected during configuration validation.
+
 - Reject changes to `grpc.unsafe_loopback_mutations` on reload before accepting
   a generation or applying side effects; changing the running policy requires
   a restart, in either direction.

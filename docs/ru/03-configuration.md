@@ -344,7 +344,7 @@ unsolicited listener не открывается. Настроенные per-add
 | `echo.default_detect_multiplier` | uint32 | -- | Множитель обнаружения echo по умолчанию |
 | `echo.peers[].peer` | string | -- | IP удалённой системы (цель echo) |
 | `echo.peers[].local` | string | -- | IP локальной системы |
-| `echo.peers[].interface` | string | -- | Опциональная привязка receive listener к устройству; текущий declarative TX sender к нему не привязывается |
+| `echo.peers[].interface` | string | -- | Опциональная привязка receive listener и декларативного TX sender через `SO_BINDTODEVICE`; пустое значение сохраняет выбор маршрута ядром |
 | `echo.peers[].tx_interval` | duration | -- | Переопределение `default_tx_interval` для этого пира |
 | `echo.peers[].detect_mult` | uint32 | -- | Переопределение `default_detect_multiplier` для этого пира |
 

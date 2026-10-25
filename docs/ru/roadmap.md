@@ -23,7 +23,7 @@
 | Документация | Сначала сверка английского с исходниками, затем русский перевод и определения полей workload-отчёта; даты и область исторических записей сохранены | `gobfd-qj0.8.2.8.7.2.10` |
 | Management/reload | Unsafe-loopback policy changes отклоняются до candidate acceptance; полная pending activation открыта | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6` |
 | Smallstep | Renewal существующего сертификата реализован; actual CA и lifecycle qualification не завершены | `gobfd-qj0.8.2.3.7` |
-| Echo preview | Ограничения destination/interface API и TX interface декларативной конфигурации остаются описанными дефектами исходников | `gobfd-qj0.8.2.1.17`, `gobfd-qj0.8.2.1.19` |
+| Echo preview | Привязка декларативного TX для IPv4/IPv6, UDP/3785 и освобождение lease проходят локальные проверки; ограничения destination/interface API остаются открытыми | `gobfd-qj0.8.2.1.19`, `gobfd-qj0.8.2.1.17` |
 | Legacy demos | Расхождения CLI и pod selector в HAProxy/Kubernetes требуют исправления исходников и фактического запуска | `gobfd-qj0.8.2.8.7.1.4.1` |
 | Runtime | Ограниченные CPU, GC, scheduler и churn fixtures для фиксированного manifest реализованы; calibrated distributions, clock qualification и thread-pin A/B не завершены | `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7` |
 | Wire/integrations | Development slices не заменяют final exact-candidate qualification | `gobfd-qj0.8.2.2.7.5.5`, `gobfd-qj0.8.2.8.5.2` |

@@ -327,14 +327,18 @@ func applyEchoSessionCandidates(
 ) bfd.ReconcileResult {
 	desired := make([]bfd.EchoReconcileConfig, 0, len(candidates))
 	for _, candidate := range candidates {
+		local, opts := singleHopSenderBinding(
+			candidate.config.LocalAddr, candidate.config.Interface,
+			[]netio.SenderOption{netio.WithDstPort(netio.PortEcho)},
+		)
 		desired = append(desired, bfd.EchoReconcileConfig{
 			Key: candidate.key, EchoSessionConfig: candidate.config,
 			SenderLeaseFactory: declarativeSenderLeaseFactoryFor(
 				sf,
-				candidate.config.LocalAddr,
+				local,
 				false,
 				logger,
-				netio.WithDstPort(netio.PortEcho),
+				opts...,
 			),
 		})
 	}
