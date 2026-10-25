@@ -21,7 +21,8 @@ parsing, and PATH dependency.
 ## Decision
 
 GoBFD uses a native OVSDB client for the default OVS LAG backend.
-`ovs-vsctl` is retained only as an explicit fallback or diagnostics path.
+`OVSLAGBackend` retains `ovs-vsctl` as a directly constructed fallback or
+diagnostics type; daemon configuration does not select it.
 The owner-policy for OVS-managed devices must remain explicit until the
 backend can prove ownership through OVSDB or a higher-level network
 manager.

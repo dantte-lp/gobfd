@@ -9,8 +9,8 @@
 [![RFC 9468](https://img.shields.io/badge/RFC_9468-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9468)
 [![RFC 9747](https://img.shields.io/badge/RFC_9747-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9747)
 [![RFC 7130](https://img.shields.io/badge/RFC_7130-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7130)
-[![RFC 8971](https://img.shields.io/badge/RFC_8971-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
-[![RFC 9521](https://img.shields.io/badge/RFC_9521-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
+[![RFC 8971](https://img.shields.io/badge/RFC_8971-Incomplete_Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
+[![RFC 9521](https://img.shields.io/badge/RFC_9521-Incomplete_Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
 [![RFC 9764](https://img.shields.io/badge/RFC_9764-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9764)
 [![RFC 7880](https://img.shields.io/badge/RFC_7880-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7880)
 [![RFC 7881](https://img.shields.io/badge/RFC_7881-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7881)
@@ -53,8 +53,8 @@
 | [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Небезопасный preview** | Проверки connected subnet, лимита сессий и скорости приёма действуют; ответы с полученного локального кортежа; опциональный допуск по Meticulous Keyed SHA1 |
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Preview** | Echo session и port 3785 wiring существуют; полная RFC-квалификация не завершена |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD для LAG | **Preview; owner integration частичная** | Протокол и отдельные actuators существуют; production ownership ограничен |
-| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD для VXLAN туннелей | **Небезопасный preview** | Identity поддерживаемого профиля привязана точно; owner-specific dataplane integration не завершена |
-| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD для Geneve туннелей | **Небезопасный preview** | Явная IPv4 Format A VAP identity привязана; unsupported formats и неполная identity fail closed |
+| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD для VXLAN туннелей | **Неполная предварительная реализация** | Identity поддерживаемого профиля привязана точно; owner-specific dataplane integration не завершена |
+| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD для Geneve туннелей | **Неполная предварительная реализация** | Явная IPv4 Format A VAP identity привязана; unsupported formats и неполная identity fail closed |
 | [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Частично** | PDU-length authentication покрыта локально; padded TX квалифицирован с FRR/BIRD |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Планируется** | Stateless рефлектор + инициатор для проверки инфраструктуры |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD для IPv4/IPv6 | **Планируется** | Инкапсуляция на порт 7784 для S-BFD |
@@ -285,6 +285,9 @@ detection timer.
 
 #### Раздел 6.8.7: Джиттер
 
+Реализация: [`applyJitterWithRand` и `Session.applyJitter`](../../internal/bfd/session_packet.go);
+предварительная реализация Echo также использует `ApplyJitter`.
+
 - Нормальный (DetectMult > 1): 75-100% интервала
 - DetectMult == 1: 75-90% интервала
 - Session-local PRNG предпочитает cryptographic seed; при ошибке чтения
@@ -446,7 +449,20 @@ Tuple/receipt отслеживает MinTTL вместе с TX/RX, DetectMult и
 
 Реализация: [`internal/bfd/intervals.go`](../../internal/bfd/intervals.go)
 
-RFC 7419 определяет набор общих интервалов BFD для совместимости с аппаратными реализациями: 3.3мс, 10мс, 20мс, 50мс, 100мс, 1с. Опция `bfd.align_intervals: true` выравнивает интервалы вверх до ближайшего общего значения.
+[RFC 7419 Section 3](../rfc/rfc7419.txt) определяет набор общих интервалов BFD
+для совместимости реализаций:
+
+| Общий интервал | Значение на проводе (микросекунды) |
+|---|---|
+| 3,3 мс | 3300 |
+| 10 мс | 10000 |
+| 20 мс | 20000 |
+| 50 мс | 50000 |
+| 100 мс | 100000 |
+| 1 с | 1000000 |
+
+Это общие значения, а не универсальные минимальные таймеры для классов
+развёртывания. Опция `bfd.align_intervals: true` округляет интервалы вверх.
 
 | Функция | Реализация |
 |---|---|
@@ -523,11 +539,23 @@ retained Init с remote Up переходит в Up, retained Down с remote Up 
 
 ### Заметки по RFC 9747
 
-**Статус**: Preview
+**Статус**: Предварительная реализация; выключена по умолчанию
+
+`echo.enabled: true` требуется для пиров из конфигурации и создания через API.
+Каждый Add, включая идемпотентный повтор, также требует готового локального
+пути приёма; иначе возвращается `FailedPrecondition`. Для List/Delete сохраняются
+правила авторизации API управления. Изменение признака включения требует
+перезапуска. См. [`EchoServer.AddEchoSession`](../../internal/server/echo.go) и
+[`listenerOwner`](../../cmd/gobfd/listeners.go).
 
 Реализация: [`internal/bfd/echo.go`](../../internal/bfd/echo.go), [`internal/netio/echo_receiver.go`](../../internal/netio/echo_receiver.go)
 
-RFC 9747 определяет unaffiliated BFD echo для обнаружения отказов forwarding-path без необходимости запуска BFD на удалённой стороне. Локальная система отправляет BFD Control пакеты (echo-пакеты) на удалённую сторону, которая пересылает их обратно через обычную IP-маршрутизацию.
+RFC 9747 определяет независимый BFD Echo для проверки одношагового пути
+пересылки без реализации BFD на соседнем устройстве. IP-адрес назначения
+принадлежит локальной системе; пакет проходит через путь пересылки соседа
+обратно к отправителю ([раздел 1](../rfc/rfc9747.txt)). Текущая предварительная
+отправка на адрес пира не подтверждает такую пересылку; межузловая квалификация
+остаётся открытой.
 
 Таблица описывает текущий preview, а не перечень выполненных требований RFC.
 [RFC 9747 Section 2](../rfc/rfc9747.txt) требует FSM из RFC 5880 без AdminDown,
@@ -628,7 +656,7 @@ available bond port profile при явном `owner_policy: networkmanager-dbus
 
 ### Заметки по RFC 8971
 
-**Статус**: Небезопасный/неполный preview; owner-specific backends planned
+**Статус**: Неполная предварительная реализация; backend конкретных владельцев запланированы
 
 Реализация: [`internal/netio/vxlan.go`](../../internal/netio/vxlan.go), [`internal/netio/vxlan_conn.go`](../../internal/netio/vxlan_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
@@ -672,8 +700,8 @@ closed до появления owner-specific integration. Sender reconciliation
 использует runtime backend, который уже обслуживает receiver, и не bind-ит
 второй socket.
 Listeners группируются по local VTEP, а sender каждой сессии сохраняет exact
-tunnel scope. Userspace backend остаётся небезопасным там, где тем же UDP
-socket владеет другой dataplane.
+tunnel scope. Развёртывание с тем же UDP endpoint под управлением другой плоскости передачи
+остаётся вне квалифицированного профиля владения этого backend.
 
 Каждый VXLAN/Geneve listener владеет одним выделенным inner source-port lease;
 закрытие listener возвращает порт ровно один раз. Session senders используют
@@ -706,7 +734,7 @@ harness. Source unit tests не являются interoperability qualification.
 
 ### Заметки по RFC 9521
 
-**Статус**: Небезопасный preview; требуется явная Format A VAP identity
+**Статус**: Неполная предварительная реализация; требуется явная идентичность VAP Format A
 
 Реализация: [`internal/netio/geneve.go`](../../internal/netio/geneve.go), [`internal/netio/geneve_conn.go`](../../internal/netio/geneve_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
@@ -896,4 +924,4 @@ RFC 7881 определяет инкапсуляцию S-BFD для IPv4 и IPv6
 
 ---
 
-*Сверено с исходниками `dev`: 2026-10-24.*
+*Сверено с исходниками `dev`: 2026-10-25.*

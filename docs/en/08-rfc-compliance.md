@@ -9,8 +9,8 @@
 [![RFC 9468](https://img.shields.io/badge/RFC_9468-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9468)
 [![RFC 9747](https://img.shields.io/badge/RFC_9747-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9747)
 [![RFC 7130](https://img.shields.io/badge/RFC_7130-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7130)
-[![RFC 8971](https://img.shields.io/badge/RFC_8971-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
-[![RFC 9521](https://img.shields.io/badge/RFC_9521-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
+[![RFC 8971](https://img.shields.io/badge/RFC_8971-Incomplete_Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
+[![RFC 9521](https://img.shields.io/badge/RFC_9521-Incomplete_Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
 [![RFC 9764](https://img.shields.io/badge/RFC_9764-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9764)
 [![RFC 7880](https://img.shields.io/badge/RFC_7880-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7880)
 [![RFC 7881](https://img.shields.io/badge/RFC_7881-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7881)
@@ -53,8 +53,8 @@
 | [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Unsafe preview** | Connected-subnet, session-limit and rate admission enforced; replies from the receiving local tuple; optional Meticulous Keyed SHA1 admission |
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Preview** | Echo session and port 3785 wiring exist; full RFC qualification is pending |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Preview; owner integration partial** | Protocol and selected actuators exist; production ownership remains constrained |
-| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Unsafe preview** | Exact supported-profile identity is bound; owner-specific dataplane integration remains incomplete |
-| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD for Geneve Tunnels | **Unsafe preview** | Explicit IPv4 Format A VAP identity is bound; unsupported formats and missing identity fail closed |
+| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Incomplete preview** | Exact supported-profile identity is bound; owner-specific dataplane integration remains incomplete |
+| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD for Geneve Tunnels | **Incomplete preview** | Explicit IPv4 Format A VAP identity is bound; unsupported formats and missing identity fail closed |
 | [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Partial** | PDU-length authentication covered locally; padded TX qualified with FRR/BIRD |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Planned** | Stateless reflector + initiator for infrastructure liveness |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD for IPv4/IPv6 | **Planned** | Port 7784 encapsulations for S-BFD |
@@ -290,7 +290,7 @@ header and authentication validation.
 
 #### Section 6.8.7: Jitter
 
-**Implementation**: `bfd.ApplyJitter`
+**Implementation**: [`applyJitterWithRand` and `Session.applyJitter`](../../internal/bfd/session_packet.go); `ApplyJitter` is also used by the Echo preview.
 
 - Normal (DetectMult > 1): 75-100% of interval
 - DetectMult == 1: 75-90% of interval
@@ -452,14 +452,17 @@ sufficient TTL and matching discriminators.
 
 RFC 7419 defines a set of common BFD timer interval values to ensure interoperability between software-based and hardware-based implementations.
 
-| Common Interval | Use Case |
+| Common Interval | Wire value (microseconds) |
 |---|---|
-| 3.3 ms | MPLS-TP (GR-253-CORE) |
-| 10 ms | General consensus minimum |
-| 20 ms | Software-based minimum |
-| 50 ms | Widely deployed |
-| 100 ms | G.8013/Y.1731 reuse |
-| 1 s | RFC 5880 slow rate |
+| 3.3 ms | 3300 |
+| 10 ms | 10000 |
+| 20 ms | 20000 |
+| 50 ms | 50000 |
+| 100 ms | 100000 |
+| 1 s | 1000000 |
+
+These are the common values from [RFC 7419 Section 3](../rfc/rfc7419.txt),
+not universal minimum timers for a deployment class.
 
 Additionally, 10s is recommended for graceful restart (multiplier 255 = 42.5 min timeout).
 
@@ -546,11 +549,22 @@ only request cleanup and do not publish a fabricated state transition.
 
 ### RFC 9747 Implementation Notes
 
-**Status**: Preview
+**Status**: Preview; default-off
+
+`echo.enabled: true` is required for declarative peers and API creation.
+Each Add, including an idempotent retry, also requires local receive-path
+readiness; otherwise it returns `FailedPrecondition`. List/Delete retain their
+management authorization rules. Changing enablement requires restart. See
+[`EchoServer.AddEchoSession`](../../internal/server/echo.go) and
+[`listenerOwner`](../../cmd/gobfd/listeners.go).
 
 **Implementation**: [`internal/bfd/echo.go`](../../internal/bfd/echo.go), [`internal/netio/echo_receiver.go`](../../internal/netio/echo_receiver.go)
 
-RFC 9747 defines the unaffiliated BFD echo function for forwarding-path liveness detection without requiring the remote system to run BFD. The local system sends BFD Control packets (echo packets) to the remote, which forwards them back via normal IP routing.
+RFC 9747 defines unaffiliated BFD Echo for single-hop forwarding-path liveness
+without a BFD implementation on the adjacent device. Packets use a local IP
+destination and traverse that device's forwarding path back to the originator
+([Section 1](../rfc/rfc9747.txt)). The current preview's peer-address send path
+does not establish that forwarding behavior; interhost qualification remains open.
 
 The table describes the current preview, not a list of satisfied RFC
 requirements. [RFC 9747 Section 2](../rfc/rfc9747.txt) requires the RFC 5880
@@ -651,7 +665,7 @@ explicit.
 
 ### RFC 8971 Implementation Notes
 
-**Status**: Unsafe/incomplete preview; owner-specific backends planned
+**Status**: Incomplete preview; owner-specific backends planned
 
 **Implementation**: [`internal/netio/vxlan.go`](../../internal/netio/vxlan.go), [`internal/netio/vxlan_conn.go`](../../internal/netio/vxlan_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
@@ -694,8 +708,8 @@ same local address/namespace, GoBFD fails closed for reserved backend names
 until an owner-specific integration exists. Sender reconciliation reuses the
 runtime backend already serving the receiver and does not bind a second socket.
 Listeners are grouped by local VTEP and each session sender retains its exact
-tunnel scope. The userspace backend remains unsafe where another dataplane owns
-the same UDP socket.
+tunnel scope. A deployment that shares the UDP endpoint with another dataplane is outside
+this backend's qualified ownership profile.
 
 VXLAN and Geneve listeners each own one allocated inner source-port lease;
 closing the listener returns it exactly once. Session senders borrow the shared
@@ -727,7 +741,7 @@ results. It does not qualify owner-specific backends or vendor forwarding paths.
 
 ### RFC 9521 Implementation Notes
 
-**Status**: Unsafe preview; explicit Format A VAP identity required
+**Status**: Incomplete preview; explicit Format A VAP identity required
 
 **Implementation**: [`internal/netio/geneve.go`](../../internal/netio/geneve.go), [`internal/netio/geneve_conn.go`](../../internal/netio/geneve_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
@@ -917,4 +931,4 @@ Full RFC text files are available in the `docs/rfc/` directory:
 
 ---
 
-*Reviewed against `dev` source: 2026-10-24.*
+*Reviewed against `dev` source: 2026-10-25.*

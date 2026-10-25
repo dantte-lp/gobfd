@@ -15,7 +15,8 @@ GoBFD has four security surfaces:
 
 - BFD packet processing on UDP ports 3784, 3785, 4784, 6784, 4789, and 6081.
 - The ConnectRPC control API on the default Unix socket and optional `grpc.addr` TCP listener.
-- The optional GoBGP gRPC client integration.
+- The optional GoBGP gRPC client integration and explicit certificate-renewal
+  client for an external Smallstep CA.
 - Container, systemd, and Kubernetes privileges needed for raw sockets and
   interface-bound networking.
 
@@ -99,25 +100,35 @@ GoBFD can connect to GoBGP through `gobgp.addr`. Plaintext mode is acceptable
 only for loopback or trusted management networks. Enable `gobgp.tls.enabled`
 for remote or non-loopback GoBGP endpoints.
 
-The current GoBGP module has allowlisted advisory `GO-2026-4736`. Upstream
-fixed it in v4.4.0 (GHSA-4p9m-8gc4-rw2h) and the pinned v4.10.0 contains the
-fix, but the Go vulnerability database records no fixed v4 version. The
-advisory affects `github.com/osrg/gobgp/v4/pkg/server`; GoBFD imports only the
-`api` package, so govulncheck reports the finding at module level. The
-maintainer decision of 2026-10-21 for stable v1 (`gobfd-qj0.8.4.1`) permits
-this module-only entry while GHSA/OSV list a fixed version at or below the pin
-and the final candidate's govulncheck reports `GO-2026-4736` only at module
-level (no imported package or reachable symbol). The entry is removed when the
-database records a fixed v4 version; the audit fails on an entry that matches
-no scanner finding. Keep the GoBGP API on localhost or a trusted management
-network. The allowlist entry in `scripts/vuln-audit.go` names owner
-`@dantte-lp`, the expiry (review) date 2026-12-31, reason, and mitigation;
-expiry turns the vulnerability gate into a failure.
+[`scripts/vuln-audit.go`](../../scripts/vuln-audit.go) records the
+`GO-2026-4736` exception for the exact `github.com/osrg/gobgp/v4` module,
+with owner `@dantte-lp` and expiry (review) date 2026-12-31. The stable-v1
+decision of 2026-10-21 (`gobfd-qj0.8.4.1`) requires a fixed version at or below
+the pin in GHSA/OSV and a final-candidate govulncheck finding only at module
+level, with no imported affected package or reachable symbol. The repository
+imports the GoBGP `api` package; that source fact alone does not establish
+the result of a fresh scan. Expired, broadened or stale exceptions fail the
+audit. See the [dependency risk register](reference/dependency-risk.md) for
+the recorded rationale, other exceptions and removal triggers. This policy
+is not a statement of current advisory-database contents or final-candidate
+acceptance.
 
 CI scans the runtime and isolated tool module manifests separately. Raw
 runtime and tools vulnerability reports and their separate CycloneDX SBOMs are
 retained in the `dependency-security-reports` artifact so tool-only findings
 cannot be attributed to the shipped daemon.
+
+## Management Certificate Renewal
+
+`gobfdctl certificate renew` implements renewal of an existing identity;
+initial enrollment, CA operation and unattended scheduling are outside its
+scope. The command uses an explicit CA HTTPS origin, roots and existing
+certificate/key, validates the returned identity and atomically replaces only
+the certificate. This is a separate outbound mTLS client, not a daemon RPC or
+an API authorization grant. Qualification against an actual step-ca remains
+pending in `gobfd-qj0.8.2.3.7.4`. See the
+[CLI contract](04-cli.md#certificate-renewal) and
+[`internal/stepca`](../../internal/stepca/client.go).
 
 ## Secrets
 
@@ -154,3 +165,5 @@ make lint-commit MSG='docs(security): define production hardening policy'
 All commands must run through the project Podman targets. The vulnerability
 audit may report allowlisted findings, but any unallowlisted or expired finding
 is a release blocker.
+
+*Reviewed against `dev` source: 2026-10-25 (`706991db9433b13cec47e0bb8ea2549b01e948d9`).*

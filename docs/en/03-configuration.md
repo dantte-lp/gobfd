@@ -31,6 +31,11 @@ GoBFD loads configuration from three sources, applied in order (later sources ov
 2. **YAML file** -- specified via `-config /path/to/gobfd.yml`
 3. **Environment variables** -- prefixed with `GOBFD_`
 
+This merge runs only when `-config` names a file. Without `-config`, the
+daemon uses built-in defaults directly and does not load environment
+overrides. See [`loadConfig`](../../cmd/gobfd/handlers.go) and
+[`config.Load`](../../internal/config/config.go).
+
 ### Full Configuration Example
 
 ```yaml
@@ -976,9 +981,14 @@ An existing device-bound UDP sender also retains its socket and source port
 through interface recreation. A zero-byte write failure with `ENODEV` or
 `ENETUNREACH` revalidates the named device, updates a stale `SO_BINDTODEVICE`
 binding and retries the datagram once. A matching named IPv6 zone is cached as
-the current numeric ifindex; numeric or unrelated zones are preserved. The
-first-attempt successful write performs no new interface lookup or socket-option
-call. During recovery, missing devices, denied rebinding and canceled or closed owners remain errors;
+the current numeric ifindex; numeric or unrelated zones are preserved. A
+successful first write does not enter GoBFD's rebind helper, but the cached
+numeric zone still passes through Go's UDP address conversion and zone lookup.
+The native post-rebind allocation regression remains unresolved in P0
+`gobfd-qj0.8.2.2.6.7`; this recovery is not a lookup-free or allocation-free
+send guarantee. See [`SendPacket`](../../internal/netio/sender.go) and
+[`rebindDevice`](../../internal/netio/sender_rebind_linux.go).
+During recovery, missing devices, denied rebinding and canceled or closed owners remain errors;
 the sender never clears its device binding or falls back to another interface.
 This recovery requires the existing `CAP_NET_RAW` grant. It does not guarantee
 hitless delivery or prevent BFD timeout while the interface/address is absent.
@@ -1214,4 +1224,4 @@ the error contains no address or interface values.
 
 ---
 
-*Reviewed against `dev` source: 2026-10-24.*
+*Reviewed against `dev` source: 2026-10-25 (`706991db9433b13cec47e0bb8ea2549b01e948d9`).*

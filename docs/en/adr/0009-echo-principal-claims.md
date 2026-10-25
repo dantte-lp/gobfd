@@ -7,10 +7,11 @@
 
 ## Context
 
-Echo's exclusive API/config source flag cannot represent shared ownership.
-Repeated API creation allocates another discriminator and sender, while deletion
-by discriminator alone can remove another principal's session. Sharing the wire
-also requires preserving RX after its original declarative source is withdrawn.
+Before principal claims, Echo's exclusive API/config source flag could not
+represent shared ownership. Repeated API creation allocated another discriminator
+and sender, while deletion by discriminator alone could remove another
+principal's session. Sharing the wire also requires preserving RX after its
+original declarative source is withdrawn.
 
 ## Decision
 

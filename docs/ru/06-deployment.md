@@ -34,11 +34,17 @@ GoBFD не публикует и не поддерживает dataplane runtime
 
 ### Матрица release-артефактов
 
+Это контракт артефактов текущей конфигурации релиза `dev`
+([`.goreleaser.yml`](../../.goreleaser.yml)), а не список опубликованных или
+квалифицированных продуктов. `master` содержит принятое стабильное состояние;
+`release/v0.6` сохраняет собственные контракты и GoBGP v3.37.0. Публикация
+следующей линии заблокирована до финальной квалификации и разрешения.
+
 | Артефакт | Целевые системы | Архитектуры | Базовый образ / формат пакета |
 |---|---|---|---|
 | Статические бинарные файлы | Linux-дистрибутивы с glibc или musl user space | `amd64`, `arm64` | Архив `tar.gz` |
-| Debian-пакет | Debian 13 `trixie`, Ubuntu-compatible системы | `amd64`, `arm64` | `.deb`, systemd-юнит |
-| RPM-пакет | RHEL-compatible системы, Fedora-compatible системы | `amd64`, `arm64` | `.rpm`, systemd-юнит |
+| Debian-пакет | Lifecycle-профиль Debian 13 `trixie` | `amd64`, `arm64` | `.deb`, systemd-юнит |
+| RPM-пакет | Универсальная генерация RPM; квалификация целевой платформы отдельно | `amd64`, `arm64` | `.rpm`, systemd-юнит |
 | OCI-образ по умолчанию | Docker, Podman, Kubernetes CRI runtimes | `linux/amd64`, `linux/arm64` | `docker.io/library/debian:trixie-slim` |
 
 | Тег образа | База |
@@ -53,6 +59,9 @@ Oracle Linux 10 исключён из OCI и lifecycle-квалификации 
 платформы. Образы и теги v0.6 сохранены.
 
 ### Способы установки
+
+Выберите один пакет нужной версии и архитектуры хоста. Совместимость формата
+пакета сама по себе не подтверждает квалификацию операционной системы.
 
 #### Из deb/rpm-пакетов
 
@@ -79,6 +88,7 @@ sudo gobfdctl session list
 - Пример конфигурации `/etc/gobfd/gobfd.yml`
 - systemd-юнит `/usr/lib/systemd/system/gobfd.service`
 - Системного пользователя и группу `gobfd`
+- Группу management socket `gobfd-admin`; членство выдаётся только уполномоченным операторам
 
 Поведение lifecycle пакетов принадлежит package-internal executable
 `internal/cmd/gobfd-package-lifecycle`. Он преобразует только поддерживаемые
@@ -314,7 +324,12 @@ podman compose -f deployments/compose/compose.yml up -d
 #   Grafana:          http://localhost:3000 (admin/admin)
 ```
 
-Unix socket остаётся внутри GoBFD container: этот Compose file не монтирует
+Пример собирается из исходников и не является опубликованным продуктом релиза
+или новым результатом приёмки production. Сначала проверьте сформированную
+конфигурацию с выбранным provider; три сборки не используют interop-контроллер
+с лимитами. На общем хосте отдельно проверьте допуск ресурсов сборки и runtime.
+
+Unix socket остаётся внутри контейнера GoBFD: этот Compose-файл не монтирует
 `/run/gobfd`. Для management используйте `podman exec gobfd gobfdctl session list`
 либо отдельно настройте owned socket mount. Host networking не разделяет
 filesystem paths.
@@ -380,6 +395,27 @@ Release-образы содержат четыре бинарных файла G
 | **Код** | Нет `unsafe` в handwritten first-party code; generated protobuf runtime code исключён; ошибки сокетов обрабатываются |
 | **TTL** | Control TX TTL=255; single-hop RX требует 255, multihop RX использует настроенный порог `255 - multihop_max_hops` |
 | **Аутентификация** | Опциональная BFD-аутентификация (5 типов по RFC 5880 Section 6.7) |
+
+Management endpoint по умолчанию — `unix:///run/gobfd/gobfd.sock`, режим
+`0660`; пример и пакеты выбирают группу `gobfd-admin`. Метрики по умолчанию
+доступны без аутентификации по `127.0.0.1:9100`. TCP-listener управления вне
+loopback требует `grpc.tls.cert_file`, `key_file` и `client_ca_file`;
+анонимный доступ через loopback TCP по умолчанию разрешает только чтение.
+Сохраняйте Unix socket, если удалённое управление не требуется. Для отдельно
+настроенного mTLS-сервера:
+
+```bash
+gobfdctl --addr https://bfd.example:50052 \
+  --tls-ca /etc/gobfd/tls/server-ca.pem \
+  --tls-cert /etc/gobfd/tls/operator.pem \
+  --tls-key /etc/gobfd/tls/operator.key session list
+```
+
+Сертификат сервера должен содержать выбранное имя хоста. Правила ролей,
+например `grpc.mutating_identities`, управляют изменениями отдельно от доверия
+сертификату. Точные настройки по умолчанию и проверки находятся в
+[`internal/config/config.go`](../../internal/config/config.go), флаги клиента —
+в [`cmd/gobfdctl/commands/root.go`](../../cmd/gobfdctl/commands/root.go).
 
 ### Обновление сертификатов управления
 
@@ -477,4 +513,4 @@ GC и длительность пауз GC. RSS и `GOMEMLIMIT` измеряют
 
 ---
 
-*Сверено с исходниками `dev`: 2026-10-24.*
+*Сверено с исходниками `dev`: 2026-10-25; команды проверены по коду, но не выполнялись.*

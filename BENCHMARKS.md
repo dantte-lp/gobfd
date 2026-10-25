@@ -47,45 +47,47 @@ supported packet rates or claim immunity to GC pauses.
 
 ## Русский
 
-[Руководство по benchmarks](docs/ru/12-benchmarks.md) определяет команды,
+[Руководство по бенчмаркам](docs/ru/12-benchmarks.md) определяет команды,
 измеряемые операции и политику отчётности.
 [Анализ производительности](docs/ru/14-performance-analysis.md) задаёт отдельные
-границы UDP, owner commit, timer, workload и clock.
+границы UDP, фиксации пакета владельцем, таймеров, нагрузки и часов.
 
-### Сохранённые samples
+### Сохранённые измерения
 
 | Доказательство | Область | Ограничение |
 |---|---|---|
-| [Исходные Go samples v0.4.0](testdata/benchmarks/v0.4.0/benchmark.txt) и [metadata](testdata/benchmarks/v0.4.0/meta.json) | Исторические компонентные benchmarks Go 1.26, шесть запусков | Не текущая квалификация Go 1.27.3 |
-| `reports/collector-owner-20261022/` | Локальный Go 1.27.3 owner-commit benchmark с real collector | Synthetic timing, без UDP/codec/auth; точные результаты — локальные evidence |
-| [C-модели](bench/c/) | Собственные модели отдельных операций | Не измерения upstream FRR/BIRD daemon |
+| [Исходные измерения Go v0.4.0](testdata/benchmarks/v0.4.0/benchmark.txt) и [метаданные](testdata/benchmarks/v0.4.0/meta.json) | Исторические компонентные бенчмарки Go 1.26, шесть запусков | Не текущая квалификация Go 1.27.3 |
+| `reports/collector-owner-20261022/` | Локальный бенчмарк фиксации владельцем с реальным сборщиком метрик, Go 1.27.3 | Синтетическое время, без UDP, кодека и аутентификации; точные результаты сохранены локально |
+| [C-модели](bench/c/) | Собственные модели отдельных операций | Не измерения демонов из проектов FRR/BIRD |
 
-Owner benchmark 2026-10-22 содержит baseline 16 B/op и 2 allocs/op и следующие
-samples 0 B/op и 0 allocs/op после кеширования packet-counter handles активных
-peer/local pairs. Кеш ограничен lifetime регистрации; исторические CounterVec
-series сохраняют прежний lifetime. Это не квалификация lifetime cardinality
-метрик, поддерживаемого масштаба или распределения задержек.
+Бенчмарк владельца от 2026-10-22 содержит исходные 16 B/op и 2 allocs/op и
+последующие 0 B/op и 0 allocs/op после кеширования дескрипторов счётчиков пакетов
+для активных пар соседнего и локального адресов. Кеш ограничен сроком регистрации;
+исторические ряды CounterVec сохраняют прежний срок жизни. Это не квалификация
+числа рядов за весь срок работы, поддерживаемого масштаба или распределения задержек.
 
-### Интерпретация allocations
+### Интерпретация выделений памяти
 
-- Zero-allocation относится только к указанному телу benchmark.
-- Authenticated unmarshal создаёт `AuthSection`; parsed digest ссылается
-  на входной буфер. Это не копия digest и не независимый lifetime digest.
-- `BuildInnerPacketInto` пишет в caller-owned storage и используется
-  production overlay TX. `BuildInnerPacket` — allocating compatibility wrapper.
-- Runtime FSM lookup использует indexed array, созданный при initialization
-  из declarative map. Старые map-based timings остаются историческими.
-- Construction B/op не является retained RSS на сессию. Buffered enqueue —
-  не packet commit; arithmetic ns/op не задаёт точность таймера.
+- Нулевые выделения относятся только к указанному телу бенчмарка.
+- Разбор аутентификации создаёт `AuthSection`; дайджест ссылается на входной
+  буфер. Это не копия дайджеста и не независимый срок его жизни.
+- `BuildInnerPacketInto` пишет в память вызывающего кода и используется
+  рабочим путём передачи overlay. `BuildInnerPacket` — обёртка совместимости
+  с выделением памяти.
+- Поиск FSM использует индексированный массив, созданный при инициализации
+  из декларативной карты. Прежние измерения поиска по карте остаются историческими.
+- B/op создания не является удерживаемым RSS на сессию. Запись в буферизованную
+  очередь не является фиксацией пакета; ns/op вычислений не задаёт точность таймера.
 
 ```bash
 make up
-make benchmark       # BFD package, шесть non-race запусков с benchmem
-make benchmark-all   # все пакеты, шесть non-race запусков с benchmem
-make profile         # отдельные CPU и heap profiles
+make benchmark       # пакет BFD, шесть запусков без race detector с benchmem
+make benchmark-all   # все пакеты, шесть запусков без race detector с benchmem
+make profile         # отдельные профили CPU и памяти
 ```
 
-Текущий CI report предупреждает о performance regression; warning сам по себе
-не завершает job ошибкой. Calibrated blocking regression policy и полная runtime
-acceptance — отдельные задачи Beads. Не превращайте component timings в
-поддерживаемую packet rate и не заявляйте невосприимчивость к GC pauses.
+Текущий отчёт CI предупреждает о регрессии производительности; предупреждение
+само по себе не завершает задание ошибкой. Калиброванная блокирующая политика
+регрессий и полная приёмка работающей системы — отдельные задачи Beads.
+Не превращайте компонентные измерения в поддерживаемую скорость обработки
+пакетов и не заявляйте невосприимчивость к паузам GC.

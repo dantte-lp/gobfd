@@ -15,7 +15,14 @@
 > until their migration in Beads `gobfd-qj0.8.2.8.5.2.4` is accepted.
 > A vendor image name is not an Alpine-policy exception.
 
-Base consumer migration is locally accepted in Beads `.8.5.2.4.2.1`:
+This page describes the current `dev` harness and dated local results.
+Historical receipts qualify only their recorded source, images and scenarios;
+they are not a fresh run or stable-release acceptance. Publication remains on
+hold until the separately tracked final candidate and release gates pass.
+Use the pinned Compose provider from [Deployment](06-deployment.md#podman-compose)
+and render the selected tracked Compose inputs before starting a topology.
+
+The 2026-09-08 base consumer migration was locally accepted in Beads `.8.5.2.4.2.1`:
 `test/interop/compose.yml` and its testcontainers harness use the shared
 Debian FRR 10.7.1 recipe. Manual Compose and testcontainers gates passed on
 linux/amd64 on 2026-09-08; the latter completed in 247.71 seconds with owned
@@ -299,11 +306,18 @@ test-owned container, network, and image.
 make interop-testcontainers
 ```
 
-This is the explicit form of the default full-cycle target. It creates the static-IP network, GoBFD, FRR, BIRD3, Holo,
+This is the explicit form of the default full-cycle target. Its four-peer
+profiles create the static-IP network, GoBFD, FRR, BIRD3, Holo,
 Thoro/bfd, and tshark directly through the Podman testcontainers provider. It
 runs the same Go assertions, retains the packet capture under
 `reports/e2e/interop-testcontainers`, and verifies removal of every test-owned
 container, network, and image.
+
+The target also selects the meticulous SHA1 four-peer profile, the BIRD
+FlowSpec regression, the crafted peer and authenticated multihop TTL profiles.
+Their artifacts and acceptance scopes remain distinct; a four-peer result
+does not substitute for all selected profiles. See the exact selection in
+[`Makefile`](../../Makefile) and the harnesses under `test/interop/`.
 
 #### Step by Step
 
@@ -317,6 +331,10 @@ make interop-test
 # Step 3: Stop and cleanup
 make interop-down
 ```
+
+The manual `interop-test` target does not currently add `-race`; it is not
+equivalent to the full-cycle race-enabled gate. Prefer `make interop` for
+candidate qualification; retain this difference in any manual-run receipt.
 
 #### Inspect Captured Packets
 
@@ -625,7 +643,11 @@ graph LR
 | `frr-rfc-unsolicited` | 172.22.0.50 | FRR BFD peer with no pre-configured session on GoBFD |
 | `echo-reflector` | 172.22.0.60 | Independent UDP echo reflector for RFC 9747 |
 
-### Test Results
+### Recorded Test Results
+
+The results below summarize the dated local runs described under
+[Running RFC Interop Tests](#running-rfc-interop-tests). The current candidate
+must rerun the gate; these labels are not current execution results.
 
 | Test | RFC | Description | Result |
 |---|---|---|---|
@@ -680,7 +702,10 @@ make interop-rfc
 
 The star topology uses IPv4 /30 links and, where configured, IPv6 /127 on the
 same veth pair. RFC 3021 concerns /31 rather than these /30 links. Go-owned
-lifecycle code manages containers and veth links through Podman.
+lifecycle code starts the external GoBFD container through Podman, then invokes
+`containerlab deploy --runtime podman` with its generated topology. Cleanup
+uses the recorded topology and identities. Containerlab is an executed
+dependency, not only a topology reference.
 
 ```mermaid
 graph TD
@@ -726,8 +751,13 @@ graph TD
 
 ### Prerequisites
 
+These vendor commands describe the existing harness, not permission to run
+unqualified images. The legacy FRR image above is blocked by the container
+base policy; other vendor profiles need recorded image and privilege admission.
+An available tag alone does not qualify its base, security or interoperability.
+
 - **Podman** with socket API active (`/run/podman/podman.sock`)
-- **containerlab** 0.57+ (for topology reference; direct Podman management used)
+- **containerlab** exactly 0.79.0 (enforced by `test/internal/clabbootstrap/orchestration.go`)
 - Container capabilities: `NET_ADMIN`, `NET_RAW`
 - At least one vendor image available
 
@@ -757,7 +787,7 @@ go run ./test/cmd/clabbootstrap --dry-run
 ```
 
 The command handles:
-- **Preflight checks**: podman and the exact Go toolchain
+- **Preflight checks**: exact Containerlab version, Podman and Go availability
 - **Parallel image pulls**: Nokia SR Linux, SONiC-VS, VyOS, FRRouting (+ build dependencies)
 - **VyOS image preparation**: pulls `docker.io/muruu1/vyos:latest`, tags it as `vyos:latest`, and keeps ISO build as fallback
 - **Commercial image import**: Arista cEOS (`podman load`); Cisco XRd remains deferred until an operator-provided image is available
@@ -780,7 +810,7 @@ make interop-clab
 
 # Step by step
 make interop-clab-up     # Build + deploy topology
-make interop-clab-test   # Run Go tests (topology must be up)
+make interop-clab-bootstrap ARGS=--test-only  # Revalidate identities, then test
 make interop-clab-down   # Destroy owned containers, links, and the exact GoBFD image
 
 # Prepare only, then either consume or remove the staged owned image
@@ -803,6 +833,9 @@ serializes the fixed Containerlab lab namespace across repository worktrees.
 Before `--test-only` emits evidence, it revalidates every recorded live
 container ID and ownership label and rejects any unrecorded fixed-name
 container that the test suite could otherwise discover.
+
+The direct `make interop-clab-test` target bypasses that receipt validation
+and omits `-race`; it is not the guarded qualification path above.
 
 ### RFC Compliance Matrix
 

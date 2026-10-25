@@ -450,6 +450,17 @@ not cover every receive, authentication, management, lifecycle or notification
 path and does not exclude runtime pauses. Refer to the named benchmark body
 and exact toolchain receipt when claiming an allocation result.
 
+Sender recovery after interface recreation has a separate unresolved cost.
+At `706991db9433b13cec47e0bb8ea2549b01e948d9`, the IPv6 link-local native test
+records 3 allocations per packet before recreation and 51 afterward in its
+combined send/receive assertion loop. The cached numeric zone can trigger Go
+interface-table refresh on subsequent sends. These counts are fixture costs,
+not a standalone `SendPacket` benchmark or a latency distribution. The open P0
+`gobfd-qj0.8.2.2.6.7` requires both functional recovery and a bounded successful
+send path; packet delivery alone does not satisfy it. See the
+[sender recovery contract](03-configuration.md#hot-reload-sighup) and local evidence
+`reports/sender-rebind-20261025/red08-test.txt`.
+
 ## Deployment measurement
 
 Use the actual enabled paths, peer procedure and load. Retain source and

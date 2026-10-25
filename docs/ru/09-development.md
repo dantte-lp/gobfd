@@ -89,6 +89,11 @@ request.
 создаёт черновик релиза GitHub, полностью формирует и проверяет его описание и
 артефакты, а затем автоматически публикует релиз как последнее изменение.
 
+Текущая сверка документации выполняется только локально. Ни описание workflow,
+ни успешная локальная проверка не разрешают push, тег релиза, draft, продвижение
+OCI или публикацию. Приёмка финального кандидата и поддерживаемой линии
+остаётся отдельной от завершения задач `dev`.
+
 ### Make-цели
 
 Обычные цели сборки и тестирования запускают Go внутри Podman через
@@ -120,6 +125,7 @@ make test-run RUN=TestFSMTransition PKG=./internal/bfd
 | Цель | Описание |
 |---|---|
 | `make all` | Сборка + тесты + gopls-check + lint + lint-docs |
+| `make verify` | `make all` + proto lint + контролируемая проверка уязвимостей; обычная проверка перед commit |
 | `make build` | Компиляция всех бинарных файлов с информацией о версии |
 | `make test` | Все тесты с `-race -count=1` |
 | `make test-v` | Подробный вывод тестов |
@@ -146,7 +152,7 @@ make test-run RUN=TestFSMTransition PKG=./internal/bfd
 | `make interop-clab-bootstrap` | Подготовка вендорных образов и receipt-owned образа GoBFD (`ARGS=...`) |
 | `make interop-clab` | Полный цикл вендорных NOS-тестов (Nokia, FRR и др.) |
 | `make interop-clab-up` | Деплой вендорной NOS-топологии |
-| `make interop-clab-test` | Запуск вендорных interop Go-тестов |
+| `make interop-clab-test` | Прямой запуск Go-тестов вендора; проверка идентификаторов: `make interop-clab-bootstrap ARGS=--test-only` |
 | `make interop-clab-down` | Удаление записанных ресурсов NOS и точного owned-образа GoBFD |
 
 #### Примеры интеграций
@@ -167,6 +173,14 @@ Testcontainers-цели для core, BGP fast failover, HAProxy health и observ
 | `make int-observability` | Стек наблюдаемости Prometheus + Grafana |
 | `make int-exabgp-anycast` | Анонсирование anycast-сервиса ExaBGP |
 | `make int-k8s` | Kubernetes DaemonSet с GoBGP sidecar |
+
+Полные demo runner HAProxy и observability содержат проверки, ошибки которых
+дают только предупреждения; Kubernetes сохраняет известные дефекты selector
+и probes. Используйте отдельные testcontainers-проверки с утверждениями там,
+где они доступны. Текущие ограничения и задача исправления runner указаны в
+[Интеграциях](11-integrations.md). Прямые Compose-цели `-down` удаляют тома и
+контейнеры-сироты; до очистки проверьте владение и получите требуемое разрешение
+на удаление.
 
 #### Качество
 
@@ -211,9 +225,8 @@ runtime/tools CycloneDX SBOM в артефакте `dependency-security-reports`
 - **Table-driven** тесты для всех пакетов
 - **`t.Parallel()`** где безопасно (нет общего изменяемого состояния)
 - **Всегда** с `-race -count=1`
-- **`goleak.VerifyTestMain(m)`** в шести concurrency-heavy пакетах, которые
-  владеют жизненным циклом демона, протокола, сети, метрик, конфигурации и
-  интеграционных тестов
+- **`goleak.VerifyTestMain(m)`** в `internal/bfd`, `internal/config`,
+  `internal/metrics`, `internal/netio`, `internal/server` и `test/integration`
 
 #### Тесты FSM (`testing/synctest`)
 
@@ -293,7 +306,12 @@ checksums артефактов в Beads. Повторить шесть суще�
 make test-integration
 ```
 
-Используют `testcontainers-go` с бэкендом Podman для тестирования полного жизненного цикла демона.
+Тег `integration` запускает проверки Manager/ConnectRPC в одном процессе,
+форматирования клиентских ответов и BFD-обмена через мост в памяти в
+`test/integration/`. Эта цель не запускает testcontainers или бинарник демона.
+Для отдельной проверки жизненного цикла контейнера используйте
+`make e2e-core-testcontainers`; успешный внутрипроцессный набор не подтверждает
+приёмку UDP или жизненного цикла процесса.
 
 #### Тесты жизненного цикла пакетов
 
@@ -316,7 +334,7 @@ go run ./test/cmd/cictl package-lifecycle  # нужен сокет Podman API
 kernel-bond и удаление пакета. Контейнеры получают `SYS_ADMIN`, `SYS_PTRACE`,
 `unmask=ALL` и `label=disable`, чтобы systemd мог построить namespace юнита.
 Базовые образы закреплены по digest, но тест устанавливает `systemd`,
-`iproute2`/`iproute` и `procps` из зеркал дистрибутивов без закрепления версий.
+`iproute2` и `procps` из зеркал Debian без закрепления версий.
 Nightly-job E2E выполняет обе команды и выгружает
 `reports/e2e/package-lifecycle/`.
 
@@ -755,8 +773,8 @@ GoBFD использует Go 1.27, сохраняя нужные API безоп
 
 #### `testing/synctest` -- Детерминированные тесты таймеров
 
-Все тесты BFD-таймеров и таймаутов обнаружения используют `testing/synctest`
-с виртуальным временем. Соседние `time.Sleep` и `synctest.Wait` записываются
+Модульные BFD-тесты, например `TestSessionDetectionTimeout`, используют
+`testing/synctest` с виртуальным временем. Соседние `time.Sleep` и `synctest.Wait` записываются
 как `synctest.Sleep`; реальные ожидания E2E и interop остаются ограниченными
 контекстом wall-clock waits. См. [Тесты FSM](#тесты-fsm-testingsynctest) выше.
 
@@ -843,7 +861,7 @@ invalid UTF-8 в CLI, Podman, FRR и vulnerability audit без сравнени
 # Цикл разработки
 make up           # Запуск среды разработки
 # ... внесение изменений ...
-make all          # Сборка + тесты + gopls + lint + docs
+make verify       # Сборка + тесты + gopls + lint + docs + proto lint + проверка уязвимостей
 
 # Для изменений протокола:
 make interop      # Проверка совместимости с 4 пирами
@@ -861,4 +879,4 @@ make proto-lint   # Линтинг proto-определений
 
 ---
 
-*Сверено с исходниками `dev`: 2026-10-24.*
+*Сверено с исходниками `dev`: 2026-10-25; команды проверены по коду, но не выполнялись.*

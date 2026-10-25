@@ -63,6 +63,9 @@ local and release qualification against that commit. Remote writes remain
 subject to the current publication authorization; these instructions do not
 remove a delivery hold.
 
+The current documentation work is local-only: no push, release branch, tag,
+draft, OCI alias promotion or publication is authorized by this guide.
+
 The source workflow in [release.yml](../../.github/workflows/release.yml)
 uses Go-owned `cictl` preflight, notes, verification and publication steps:
 

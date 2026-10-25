@@ -34,11 +34,17 @@ or support a non-Linux dataplane runtime.
 
 ### Release Artifact Matrix
 
+This is the artifact contract of the current `dev` release configuration
+([`.goreleaser.yml`](../../.goreleaser.yml)), not a list of published or
+qualified products. `master` contains the accepted stable state;
+`release/v0.6` retains its own contracts and GoBGP v3.37.0. Publication of the
+next line remains on hold pending final qualification and authorization.
+
 | Artifact | Target systems | Architectures | Base image / package format |
 |---|---|---|---|
 | Static binaries | Linux distributions with glibc or musl user space | `amd64`, `arm64` | `tar.gz` archive |
-| Debian package | Debian 13 `trixie`, Ubuntu-compatible systems | `amd64`, `arm64` | `.deb`, systemd unit |
-| RPM package | RHEL-compatible systems, Fedora-compatible systems | `amd64`, `arm64` | `.rpm`, systemd unit |
+| Debian package | Debian 13 `trixie` lifecycle profile | `amd64`, `arm64` | `.deb`, systemd unit |
+| RPM package | Generic RPM generation; target-platform qualification separate | `amd64`, `arm64` | `.rpm`, systemd unit |
 | Default OCI image | Docker, Podman, Kubernetes CRI runtimes | `linux/amd64`, `linux/arm64` | `docker.io/library/debian:trixie-slim` |
 
 | Image tag | Base |
@@ -53,6 +59,9 @@ RPM generation remains enabled; an RPM file does not establish platform
 qualification. Existing v0.6 images and tags are preserved.
 
 ### Installation Methods
+
+Select one package for the intended version and host architecture. Package
+format compatibility alone does not establish a qualified operating system.
 
 #### From deb/rpm Packages
 
@@ -79,6 +88,7 @@ Packages are built by GoReleaser v2 and include:
 - `/etc/gobfd/gobfd.yml` example configuration
 - `/usr/lib/systemd/system/gobfd.service` systemd unit
 - `gobfd` system user and group
+- `gobfd-admin` management-socket group; grant membership only to authorized operators
 
 The repository owns package lifecycle behavior in the package-internal
 `internal/cmd/gobfd-package-lifecycle` executable. It maps only the supported
@@ -325,6 +335,11 @@ podman compose -f deployments/compose/compose.yml up -d
 #   Grafana:          http://localhost:3000 (admin/admin)
 ```
 
+This source-built example is not a published release product or a new
+production acceptance result. Render it with the selected provider first;
+its three builds do not use the capped interop controller. Admit build and
+runtime resources separately on a shared host.
+
 The Unix socket stays inside the GoBFD container because this Compose file
 does not bind-mount `/run/gobfd`. Use `podman exec gobfd gobfdctl session list`
 for management, or separately configure an owned socket mount. Host networking
@@ -394,6 +409,26 @@ GoBFD follows the principle of least privilege:
 | **Code** | No `unsafe` in handwritten first-party code; generated protobuf runtime code is excluded; all socket errors handled |
 | **TTL** | Control TX TTL=255; single-hop RX requires 255, multihop RX uses the configured `255 - multihop_max_hops` floor |
 | **Auth** | Optional BFD authentication (5 types per RFC 5880 Section 6.7) |
+
+The default management endpoint is `unix:///run/gobfd/gobfd.sock`, mode
+`0660`; the example and packages select group `gobfd-admin`. Metrics default
+to unauthenticated `127.0.0.1:9100`. A configured non-loopback management TCP
+listener requires `grpc.tls.cert_file`, `key_file` and `client_ca_file`;
+anonymous loopback TCP access is read-only by default. Keep the Unix socket
+unless remote management is required. For a separately configured mTLS server:
+
+```bash
+gobfdctl --addr https://bfd.example:50052 \
+  --tls-ca /etc/gobfd/tls/server-ca.pem \
+  --tls-cert /etc/gobfd/tls/operator.pem \
+  --tls-key /etc/gobfd/tls/operator.key session list
+```
+
+The server certificate must cover the selected hostname. Role rules such as
+`grpc.mutating_identities` control mutations separately from certificate trust.
+The exact defaults and checks are in
+[`internal/config/config.go`](../../internal/config/config.go); client flags
+are in [`cmd/gobfdctl/commands/root.go`](../../cmd/gobfdctl/commands/root.go).
 
 ### Management Certificate Renewal
 
@@ -488,4 +523,4 @@ smaller workload; the soft limit is not an OOM guarantee.
 
 ---
 
-*Reviewed against `dev` source: 2026-10-24.*
+*Reviewed against `dev` source: 2026-10-25; commands were inspected, not executed.*

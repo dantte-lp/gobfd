@@ -27,7 +27,11 @@
 
 ## Overview
 
-GoBFD integrates with routing, load balancing, monitoring, and orchestration systems to provide sub-second failure detection. Each integration example is a self-contained, runnable stack under `deployments/integrations/`.
+GoBFD integrates with routing, load balancing, monitoring and orchestration
+systems. Example topologies live under `deployments/integrations/`; their
+timers and workload determine detection time. Historical runs below establish
+only their recorded source and scenario, not a new run or current release
+acceptance. Publication remains on hold pending the final candidate gates.
 
 The four Compose examples use **podman compose** and include **tshark** capture
 containers. Kubernetes uses manifests and an existing k3s cluster; it has no
@@ -47,6 +51,13 @@ that use GoBGP build v4.10.0 from `test/interop/gobgp`; HAProxy and observabilit
 do not run GoBGP.
 The Kubernetes example builds `gobgp:local` from that recipe and imports it
 into k3s next to `gobfd:local`; it has not been run on a live k3s cluster.
+
+Bootstrap the pinned [Compose provider](06-deployment.md#podman-compose) and
+render selected Compose files before use. Manual examples use fixed container
+names; check that the names, subnets and published ports belong to this lab.
+HAProxy and observability `-up` targets use direct Compose builds without the
+capped interop controller. Their `-down` targets remove volumes and orphans;
+cleanup requires ownership inspection and the required deletion approval.
 
 At startup GoBFD probes the endpoint with the side-effect-free `GetBgp` RPC.
 An endpoint without the v4 API, such as a GoBGP v3 daemon, stops startup
@@ -172,6 +183,20 @@ Agent-check listeners have no authentication. They bind to `127.0.0.1` unless
 `agent-addr` on another host needs an explicit reachable address; the lab
 configuration sets `listen_addr: "0.0.0.0"`.
 
+Management defaults to `unix:///run/gobfd/gobfd.sock`. Sharing a network
+namespace does not share that socket path: the HAProxy lab explicitly uses
+read-only loopback TCP at `http://127.0.0.1:50052` in `haproxy-agent.yml`.
+For remote management, select `https://host:port` with `GOBFD_ADDR` (or the
+agent's `gobfd_addr`) and set all of `GOBFD_TLS_CA_FILE`,
+`GOBFD_TLS_CERT_FILE` and `GOBFD_TLS_KEY_FILE`. The ExaBGP bridge uses the
+same endpoint and TLS environment variables. These client settings do not
+configure the daemon's mTLS listener or role rules; see
+[Deployment](06-deployment.md#security-hardening) and
+[`internal/apiclient/endpoint.go`](../../internal/apiclient/endpoint.go).
+
+In the HAProxy agent, a nonempty configuration `gobfd_addr` overrides both
+`--gobfd-addr` and `GOBFD_ADDR`; update that field when adapting the lab.
+
 The agent reconnects Watch after errors and EOF with a cancellable 1–30 second
 backoff. Disconnects and `GAP` invalidate health immediately; a new snapshot
 becomes usable only after `SYNC_COMPLETE`. Unknown, deleted and ambiguous
@@ -287,6 +312,11 @@ make int-observability-up     # Start topology
 
 make int-observability-down   # Cleanup
 ```
+
+The full-demo runner displays metrics and alerts and treats several failures
+as warnings; it is not an assertion-based alert gate. Use
+`make int-observability-testcontainers` for that gate, or follow the bounded
+[alert drill](16-production-runbooks.md#prometheus-alert-validation).
 
 ---
 
@@ -494,6 +524,11 @@ Reference: [tshark.dev](https://tshark.dev/) — tshark documentation and tutori
 | **Interop: RFC** | 172.22.0.0/24 | gobfd-rfc, gobfd-rfc9384, gobgp-rfc, frr-rfc, frr-rfc-bgp, frr-rfc-unsolicited, tshark-rfc | — |
 | **Interop: Vendor** | 10.0.x.0/30 | gobfd, gobgp, nokia, arista, frr, sonic, vyos; cisco deferred | — |
 
+The RFC topology also includes the independent `echo-reflector`. Its subnet
+overlaps the BGP fast-failover example; do not start both networks concurrently
+on one Podman engine. Static addresses and fixed names require separate host
+admission even when Compose project names differ.
+
 ### New Binaries
 
 | Binary | Purpose | Dependencies |
@@ -513,4 +548,4 @@ Reference: [tshark.dev](https://tshark.dev/) — tshark documentation and tutori
 
 ---
 
-*Reviewed against `dev` source: 2026-10-24.*
+*Reviewed against `dev` source: 2026-10-25; commands were inspected, not executed.*

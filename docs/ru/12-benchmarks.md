@@ -1,38 +1,38 @@
-# Руководство по benchmarks
+# Руководство по бенчмаркам
 
-Micro-benchmarks измеряют указанные операции. Они не подтверждают UDP throughput,
-потери, точность таймеров, невосприимчивость к GC или поддерживаемый масштаб.
-[Анализ производительности](14-performance-analysis.md) описывает отдельные
-границы runtime-измерений и квалификации.
+Микробенчмарки измеряют указанные операции. Они не подтверждают пропускную
+способность UDP, потери, точность таймеров, невосприимчивость к GC или
+поддерживаемый масштаб. [Анализ производительности](14-performance-analysis.md)
+описывает отдельные границы измерений работающей системы и квалификации.
 
-## Запуск benchmarks
+## Запуск бенчмарков
 
-Перечисленные ниже benchmark-команды выполняются в закреплённом Podman
-development environment. Сначала выполните `make up`. Ограничения bootstrap
-на хосте и отдельной цели `benchmark-report` описаны в
+Перечисленные ниже команды выполняются в закреплённом окружении разработки
+Podman. Сначала выполните `make up`. Ограничения начальной подготовки на хосте
+и отдельной цели `benchmark-report` описаны в
 [Разработке](09-development.md) и разделе отчётов ниже.
 
 | Команда | Вход и выход |
 |---|---|
 | `make benchmark` | `internal/bfd`, шесть запусков с `-benchmem`; stdout и `benchmark.txt` |
 | `make benchmark-all` | Все пакеты, шесть запусков с `-benchmem`; stdout и `benchmark.txt` |
-| `make benchmark-save BENCH_VERSION=local-doc-audit` | Samples BFD/netio и metadata в `testdata/benchmarks/local-doc-audit/` |
+| `make benchmark-save BENCH_VERSION=local-doc-audit` | Измерения BFD/netio и метаданные в `testdata/benchmarks/local-doc-audit/` |
 | `make benchmark-compare OLD=v0.4.0 NEW=local-doc-audit` | Сравнение `benchstat` и HTML в `reports/benchmarks/` |
-| `make profile` | CPU/heap profiles BFD: `cpu.prof` и `mem.prof` |
+| `make profile` | Профили CPU и памяти BFD: `cpu.prof` и `mem.prof` |
 | `make benchmark-cross` | Go-операции и локальные C-модели последовательно; `bench-results/` |
 
-Используйте новый идентификатор snapshot, сохраняя предыдущие samples; он не
+Используйте новый идентификатор снимка, сохраняя предыдущие измерения; он не
 создаёт release tag. `benchmark-save` отдельно запускает BFD и netio с
 `-bench=. -benchmem -count=6 -run='^$' -timeout=120s`.
-`benchmark` и `benchmark-all` не включают race detector и не записывают CPU/
-heap profiles. Race qualification относится к test gate; profiling выполняется отдельно.
+`benchmark` и `benchmark-all` не включают race detector и не записывают профили
+CPU или памяти. Проверка гонок относится к тестам; профилирование выполняется отдельно.
 
-| Файл snapshot | Содержание |
+| Файл снимка | Содержание |
 |---|---|
-| `benchmark-bfd.txt` | Samples BFD benchmarks |
-| `benchmark-netio.txt` | Samples network codec и metadata benchmarks |
-| `benchmark.txt` | Объединённые samples |
-| `meta.json` | Идентификатор snapshot, commit, дата, версия Go, число запусков |
+| `benchmark-bfd.txt` | Измерения бенчмарков BFD |
+| `benchmark-netio.txt` | Измерения сетевых кодеков и обработки метаданных |
+| `benchmark.txt` | Объединённые измерения |
+| `meta.json` | Идентификатор снимка, commit, дата, версия Go, число запусков |
 
 ## Чтение вывода
 
@@ -42,70 +42,72 @@ BenchmarkControlPacketMarshal-8    195605820    5.869 ns/op    0 B/op    0 alloc
 
 | Поле | Значение |
 |---|---|
-| `-8` | Фактический `GOMAXPROCS` benchmark |
-| `195605820` | Адаптивное число iterations; сравнивайте time/op, а не только counts |
-| `ns/op` | Elapsed time одной операции |
-| `B/op`, `allocs/op` | Учтённые heap bytes и allocations одной операции |
+| `-8` | Фактический `GOMAXPROCS` бенчмарка |
+| `195605820` | Адаптивное число итераций; сравнивайте время операции, а не только их количество |
+| `ns/op` | Длительность одной операции |
+| `B/op`, `allocs/op` | Учтённые байты кучи и выделения памяти на одну операцию |
 
-Сохраняйте raw samples. Повторение само по себе не устраняет host contention,
-CPU throttling, влияние cache или timer noise. Сравнивайте одинаковые тела
-benchmarks, compiler, architecture, limits и environment; оцените статистическую
-неопределённость до объяснения результата изменением исходников. Race и non-race
-стоимости не являются одной нагрузкой.
+Сохраняйте исходные измерения. Повторение само по себе не устраняет конкуренцию
+за ресурсы хоста, ограничение CPU, влияние кеша или шум таймеров. Сравнивайте
+одинаковые тела бенчмарков, компилятор, архитектуру, лимиты и окружение; оцените
+статистическую неопределённость до объяснения результата изменением исходников.
+Запуски с race detector и без него не являются одинаковой нагрузкой.
 
 ## Границы операций
 
-| Семейство benchmark | Измеряемая работа | Исключение или ограничение |
+| Семейство бенчмарков | Измеряемая работа | Исключение или ограничение |
 |---|---|---|
-| Control marshal | Сериализация пакета в переданный буфер | With-auth marshal записывает готовую auth section, но не подписывает |
-| Control unmarshal | Парсинг и validation wire fields | With-auth parse создаёт `AuthSection`; digest ссылается на входной буфер |
-| FSM | Indexed transition lookup | Без owner loop, socket, timer и notification |
-| Jitter и interval arithmetic | Указанное вычисление | Без timer wake-up и scheduling delay |
-| `RecvDecodeLookupEnqueue` | Decode, discriminator lookup, попытка buffered enqueue | Enqueue не является обработкой пакета или owner commit |
-| `RecvDecodeFSM` | Decode и stateless FSM transition | Без live owner state и transport |
-| `ReceiveOwnerCollector` | Фактический owner commit с real collector | Synthetic timing; без UDP, wire decoding и authentication |
-| `TxMarshalJitter` | Marshal и расчёт jitter | Без socket send и peer arrival |
-| Create/reconcile | Жизненный цикл sessions | B/op не является полным retained RSS на сессию |
-| `BuildInnerPacketInto` | Сборка inner packet в caller-owned storage | Production overlay TX path |
-| `BuildInnerPacket` | Allocating compatibility wrapper | Отдельные стоимость и ownership |
-| Metadata/timer/metrics | Указанный parser или observer | Без полного packet pipeline и scale guarantee |
+| Control marshal | Сериализация пакета в переданный буфер | Вариант with-auth записывает готовую секцию аутентификации, но не вычисляет подпись |
+| Control unmarshal | Разбор и проверка полей пакета | Вариант with-auth создаёт `AuthSection`; дайджест ссылается на входной буфер |
+| FSM | Индексный поиск перехода | Без цикла владельца, сокета, таймера и уведомления |
+| Jitter и расчёт интервала | Указанное вычисление | Без пробуждения таймера и задержки планировщика |
+| `RecvDecodeLookupEnqueue` | Декодирование, поиск дискриминатора, попытка записи в буферизованную очередь | Запись в очередь не является обработкой пакета или фиксацией владельцем |
+| `RecvDecodeFSM` | Декодирование и переход FSM без состояния | Без состояния работающего владельца и транспорта |
+| `ReceiveOwnerCollector` | Фактическая фиксация владельцем с реальным сборщиком метрик | Синтетическое время; без UDP, разбора пакета и аутентификации |
+| `TxMarshalJitter` | Сериализация и расчёт jitter | Без отправки в сокет или доставки соседу |
+| Create/reconcile | Жизненный цикл сессий | B/op не является полным удерживаемым RSS на сессию |
+| `BuildInnerPacketInto` | Сборка внутреннего пакета в памяти вызывающего кода | Рабочий путь передачи overlay |
+| `BuildInnerPacket` | Обёртка совместимости с выделением памяти | Отдельные стоимость и владение |
+| Метаданные/таймер/метрики | Указанный разбор или наблюдение | Без полного пути обработки пакета или гарантии масштаба |
 
 Определения находятся в [`internal/bfd/`](../../internal/bfd/),
 [`internal/netio/`](../../internal/netio/) и
 [`internal/metrics/`](../../internal/metrics/). При изменении имени или границ
-проверяйте тело benchmark. Не фиксируйте число benchmarks в документации.
+проверяйте тело бенчмарка. Не фиксируйте число бенчмарков в документации.
 
-## Политика allocations
+## Политика выделений памяти
 
-Выбранные операции codec, FSM, timer, lookup и caller-buffer имеют цель
-zero allocations. Authenticated parsing создаёт `AuthSection`; digest там
-не копируется, поэтому retaining callers должны учитывать lifetime буфера.
-Compatibility inner-packet builder выделяет возвращаемый slice. Construction
-и reconciliation сессий выделяют lifecycle state. Нулевой результат одного
-тела не доказывает zero allocations всех hot paths и не ограничивает GC pauses.
+Выбранные операции кодека, FSM, таймеров, поиска и записи в переданный буфер
+имеют цель нулевых выделений памяти. Разбор аутентификации создаёт `AuthSection`;
+дайджест там не копируется, поэтому сохраняющий его код должен учитывать срок
+жизни буфера. Обёртка совместимости сборки внутреннего пакета выделяет
+возвращаемый срез. Создание и согласование сессий выделяют данные жизненного
+цикла. Нулевой результат одного тела не доказывает отсутствие выделений во
+всех горячих путях и не ограничивает паузы GC.
 
-Исторические Go 1.26 samples сохранены в
+Исторические измерения Go 1.26 сохранены в
 [`testdata/benchmarks/v0.4.0/`](../../testdata/benchmarks/v0.4.0/).
 Их ns/op не являются приёмкой Go 1.27.3; их нельзя отмечать как выполнение
-постороннего threshold. [BENCHMARKS.md](../../BENCHMARKS.md) ссылается на
-сохранённые samples и более новые ограниченные owner observations.
+постороннего порога. [BENCHMARKS.md](../../BENCHMARKS.md) ссылается на
+сохранённые измерения и более новые ограниченные наблюдения владельца.
 
 ## Политика CI и отчёты
 
-Текущий benchmark report выдаёт warning для классифицированных critical time/op
-regressions от 10% включительно; само предупреждение не завершает job ошибкой. Calibrated blocking
-regression policy остаётся в Beads `gobfd-qj0.8.2.1.6.4`. Сохраняйте отказы
-при malformed output и не называйте warning release performance gate.
+Текущий отчёт выдаёт предупреждение для регрессий времени операции от 10%
+включительно, классифицированных как critical; само предупреждение не завершает
+задание ошибкой. Калиброванная блокирующая политика регрессий остаётся в Beads
+`gobfd-qj0.8.2.1.6.4`. Сохраняйте отказы при некорректном выводе и не называйте
+предупреждение условием приёмки производительности релиза.
 
-`make test-report` запускает race suite и создаёт JUnit/HTML в
-`reports/tests/`; `make report-all` также сохраняет и сравнивает Go benchmarks.
-`benchmark-report` — старый Make target с прямым вызовом `go run`;
-запускайте генератор в закреплённом контейнере без host Go.
-Analysis UIs должны слушать loopback. Profiles могут содержать чувствительные данные.
+`make test-report` запускает тесты с race detector и создаёт JUnit/HTML в
+`reports/tests/`; `make report-all` также сохраняет и сравнивает бенчмарки Go.
+`benchmark-report` — старая цель Make с прямым вызовом `go run`;
+запускайте генератор в закреплённом контейнере без Go на хосте.
+Интерфейсы анализа должны слушать loopback. Профили могут содержать чувствительные данные.
 
 ## Связанные документы
 
-- [Разработка](09-development.md) — закреплённые инструменты и quality workflow.
-- [Сравнения](13-competitive-analysis.md) — ограничения C-моделей и deployment.
-- [Производительность](14-performance-analysis.md) — telemetry, workload и resources.
-- [ADR workload](adr/0007-workload-phase-accounting.md) — политика фаз и ledger.
+- [Разработка](09-development.md) — закреплённые инструменты и порядок проверок.
+- [Сравнения](13-competitive-analysis.md) — ограничения C-моделей и развёртывания.
+- [Производительность](14-performance-analysis.md) — телеметрия, нагрузка и ресурсы.
+- [ADR нагрузки](adr/0007-workload-phase-accounting.md) — политика фаз и учёта.

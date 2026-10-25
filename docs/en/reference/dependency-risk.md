@@ -2,7 +2,8 @@
 
 This document tracks external dependencies that carry non-trivial risk due to maintenance status, single-maintainer projects, or upstream changes. Each entry includes a risk assessment and mitigation strategy.
 
-Pins come from `go.mod`; advisory acceptance comes from `scripts/vuln-audit.go`
+Pins come from [`go.mod`](../../../go.mod); advisory acceptance comes from
+[`scripts/vuln-audit.go`](../../../scripts/vuln-audit.go)
 and its Beads owner. This register does not replace fresh scans of the final
 runtime/tool graphs or establish the current upstream maintainer count.
 
@@ -28,9 +29,10 @@ The `reeflective/console` library provides the interactive shell for `gobfdctl`.
 
 ### Mitigation
 
-1. **Pin version**: The dependency is pinned to `v0.5.0` in `go.mod`. The
-   `v0.1.25` to `v0.5.0` release-note range and CLI/race tests were reviewed
-   before adoption.
+1. **Pin version**: The dependency is pinned to `v0.5.0` in `go.mod`.
+   [The dependency-refresh design](../../superpowers/specs/2026-08-18-v0.6.2-dependency-refresh-design.md#go-module-closure)
+   records the `v0.1.25` to `v0.5.0` migration; that historical record does not
+   replace CLI/race qualification of the final candidate.
 2. **Vendoring**: If the project becomes unmaintained, vendor the source into `internal/console/`.
 3. **Runtime scope**: Non-interactive commands do not start the REPL. The CLI
    binary still depends on the module at build time; it is not an optional build dependency.
@@ -63,8 +65,9 @@ module-only govulncheck and OSV findings; a fresh final-candidate scan must
 confirm that boundary. This register does not establish current database contents.
 
 GoBGP v3 serves `/apipb.GobgpApi` and v4 serves `/api.GoBgpService`; the two
-are wire-incompatible. GoBFD on `dev` requires a GoBGP v4 daemon. GoBGP v3.37.0
-on `release/v0.6` has no fixed version.
+are wire-incompatible. GoBFD on `dev` requires a GoBGP v4 daemon. The v0.6
+acceptance below records the v3.37.0 exposure; it does not establish whether
+upstream has since published a fix.
 
 ### Mitigation
 
@@ -125,25 +128,29 @@ on `release/v0.6` has no fixed version.
 
 ### Description
 
-The `gopkg.in/yaml.v3` module was archived by its maintainer in April 2025.
-All GoBFD-owned imports now use its maintained, API-compatible successor,
-`go.yaml.in/yaml/v3`. The legacy path remains only in the transitive
-`reeflective/console`/Carapace graph.
+The [dependency-refresh design](../../superpowers/specs/2026-08-18-v0.6.2-dependency-refresh-design.md#go-module-closure)
+records archival of `gopkg.in/yaml.v3` as the reason for migration.
+GoBFD-owned imports use `go.yaml.in/yaml/v3`; the legacy path remains in the
+transitive graph. Recheck upstream maintenance and API compatibility before
+an upgrade; the migration record does not establish current upstream status.
 
 ### Risk Factors
 
-- **Archived repository**: No further bug fixes or security patches will be released for the `gopkg.in` path.
+- **Recorded archival**: The legacy path carries an external maintenance risk;
+  the migration record is not a promise about future upstream releases.
 - **Transitive migration pending**: GoBFD cannot remove the legacy module from
   the complete MVS graph until console/Carapace migrate their internal imports.
 
 ### Mitigation
 
 1. **First-party migration complete**: GoBFD code imports only
-   `go.yaml.in/yaml/v3`; `go mod why` identifies console/Carapace as the sole
-   remaining path to the archived module.
+   `go.yaml.in/yaml/v3`. Re-run `go mod why gopkg.in/yaml.v3` against the
+   final module graph before attributing the transitive path to an upstream.
 2. **Monitor upstream**: Remove the transitive legacy module when
    console/Carapace complete their migration and `go mod tidy` permits it.
 3. **Regression gate**: New first-party imports of `gopkg.in/yaml.v3` are not
    permitted.
 4. **Security review**: Scan both exact module graphs before qualification;
    archival status and the successor pin do not establish absence of advisories.
+
+*Reviewed against `dev` source: 2026-10-25 (`706991db9433b13cec47e0bb8ea2549b01e948d9`); upstream status and final-candidate scanner results require separate evidence.*

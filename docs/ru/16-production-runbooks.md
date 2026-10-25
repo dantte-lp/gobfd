@@ -7,6 +7,12 @@
 
 > Инструкции по развёртыванию и проверке GoBFD в Linux, Kubernetes, BGP и оверлейных сетях.
 
+Это операторские процедуры для текущих исходников `dev`, а не новые
+квитанции запуска или приёмка стабильного релиза. Выполняйте проверки только
+в допущенной лаборатории с подтверждённым владением ресурсами; сохраняйте
+точные идентификаторы исходников и образов и наблюдённые результаты. Текущая
+работа с документацией выполняется локально; публикация заблокирована.
+
 ---
 
 ## База проверки
@@ -21,10 +27,12 @@
   3784 и внутренний TTL/Hop Limit 255.
 - RFC 9521: Geneve BFD работает для туннелей Geneve типа точка-точка с внутренним
   TTL/Hop Limit 255 и требованиями к управлению частотой трафика.
-- Текущие пути приёма VXLAN/Geneve в пространстве пользователя являются
-  небезопасными неполными предварительными реализациями: валидация внутреннего
-  пакета и полная привязка идентичности туннельной сессии не прошли квалификацию
-  для рабочей эксплуатации.
+- Пути VXLAN/Geneve userspace IPv4 Format A имеют локальные проверки пакетов
+  и идентичности. Ограниченные результаты проверки на проводе не квалифицируют
+  интеграцию с владельцем dataplane, пересылку вендора или рабочее развёртывание.
+  Это неполные предварительные реализации с явным включением; см.
+  [Разработку](09-development.md#проверка-overlay-на-проводе) и
+  [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go).
 - Kubernetes pods в сетевом пространстве узла требуют `dnsPolicy: ClusterFirstWithHostNet`
   при `hostNetwork: true`.
 - Примеры для оборудования требуют публичной документации производителя.
@@ -82,6 +90,8 @@ kubectl -n gobfd logs -l app.kubernetes.io/name=gobfd -c gobfd --tail=100
   после обнаружения узлов и пиров.
 - Сохраняйте Unix-сокет по умолчанию. Удалённое управление через TCP требует
   mTLS; доверенная сеть не разрешает plaintext-listener вне loopback.
+- Поставляемый ConfigMap открывает метрики без аутентификации по `:9100` в
+  сети хоста. До использования примера ограничьте доступность на границе узла.
 
 Импорт образов Kubernetes и квалификация на работающем кластере не завершены.
 Эти манифесты и проверки являются примерами, а не принятым развёртыванием
@@ -94,7 +104,8 @@ kubectl -n gobfd logs -l app.kubernetes.io/name=gobfd -c gobfd --tail=100
 
 ```bash
 make int-bgp-failover-up
-make int-bgp-failover-logs
+# При необходимости смотрите логи в отдельном терминале.
+# make int-bgp-failover-logs
 ```
 
 Полная документация примера:
@@ -105,7 +116,8 @@ make int-bgp-failover-logs
 ```bash
 podman exec gobgp-bgp-failover gobgp neighbor
 podman exec gobgp-bgp-failover gobgp global rib
-podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd -c 5
+podman exec gobfd-bgp-failover gobfdctl session list
+podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd
 ```
 
 До имитации отказа подтвердите BFD Up и наличие маршрута `10.20.0.0/24`.
@@ -114,11 +126,18 @@ podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd -c 5
 
 Имитация отказа:
 
+Подтвердите, что фиксированные имена ниже принадлежат вашей Compose-топологии.
+Дочерняя оболочка снимает паузу при выходе, включая ошибку запроса RIB.
+Фиксированные ожидания показывают наблюдения и не проверяют границу времени.
+
 ```bash
-podman pause frr-bgp-failover
-sleep 2
-podman exec gobgp-bgp-failover gobgp global rib
-podman unpause frr-bgp-failover
+(
+  set -eu
+  trap 'podman unpause frr-bgp-failover' EXIT
+  podman pause frr-bgp-failover
+  sleep 2
+  podman exec gobgp-bgp-failover gobgp global rib
+)
 sleep 5
 podman exec gobgp-bgp-failover gobgp global rib
 ```
@@ -240,4 +259,4 @@ podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd \
 
 ---
 
-*Сверено с исходниками `dev`: 2026-10-24.*
+*Сверено с исходниками `dev`: 2026-10-25; команды проверены по коду, но не выполнялись.*

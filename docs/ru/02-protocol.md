@@ -37,7 +37,7 @@ RFC 5880 Section 4.1 определяет обязательный заголо�
 | 8-11 | 4 | Your Discriminator | Ноль, пока дискриминатор пира не известен |
 | 12-15 | 4 | Desired Min TX Interval | **Микросекунды** |
 | 16-19 | 4 | Required Min RX Interval | **Микросекунды** |
-| 20-23 | 4 | Required Min Echo RX Interval | **Микросекунды** (0 для affiliated Echo; RFC 9747 unaffiliated Echo реализован отдельно) |
+| 20-23 | 4 | Required Min Echo RX Interval | **Микросекунды** (0 в Control-сессиях GoBFD; связанный Echo не реализован) |
 | 24+ | var | Секция аутентификации | Опциональная, присутствует при установленном бите A |
 
 > **ВАЖНО**: Все поля интервалов -- в **микросекундах** на проводе. Конвертация в `time.Duration` происходит на границе:
@@ -119,7 +119,7 @@ Down timeout diagnostic соответствует принятой Held-erratum
 
 ### Переменные состояния
 
-Все обязательные переменные из RFC 5880 Section 6.1:
+Отдельные переменные состояния RFC 5880 Section 6.1 и границы их реализации:
 
 | Переменная RFC | Поле Go | Примечания |
 |---|---|---|
@@ -269,8 +269,9 @@ keys согласуйте с peer прерывающий restart или explicit
 
 ### Независимый Echo
 
-RFC 9747 unaffiliated Echo реализован отдельно от affiliated RFC 5880
-control-session Echo mode.
+Независимый Echo — предварительная реализация, выключенная по умолчанию и
+отделённая от Echo, связанного с контрольной сессией RFC 5880.
+Полного соответствия RFC 9747 нет.
 
 | Поле | Статус |
 |---|---|
@@ -281,12 +282,20 @@ control-session Echo mode.
 | Демультиплексирование | `MyDiscriminator` возвращённого пакета |
 | Диагностика при timeout | `DiagEchoFailed` |
 
+Текущий цикл переходит непосредственно между Down и Up, принимает пакеты по
+`MyDiscriminator` и не аутентифицирует возвращённые пакеты. RFC 9747 Section 2
+требует FSM из RFC 5880 без AdminDown, начальный выбор сессии и последующее
+демультиплексирование по `YourDiscriminator`. Медленная передача до Up и после
+Down также не реализована. Права владельцев в API управления не закрывают эти
+протокольные пробелы. См. [покрытие RFC](08-rfc-compliance.md#заметки-по-rfc-9747)
+и [ADR-0009](adr/0009-echo-principal-claims.md).
+
 ### Не реализовано
 
 - **Local Demand Mode** (Section 6.6): передаваемый D всегда 0. Remote D подавляет
   periodic TX, когда оба peers Up и local Poll не активен. Poll/Final и constrained
   reload handling остаются отдельными; general Demand operation не квалифицирована.
-- **Affiliated Echo Mode** (Section 6.4): `RequiredMinEchoRxInterval` остаётся 0 для standard BFD control sessions. RFC 9747 unaffiliated Echo реализован как отдельный forwarding-path echo mechanism.
+- **Связанный Echo** (Section 6.4): `RequiredMinEchoRxInterval` остаётся 0 в обычных контрольных сессиях BFD. Отдельная предварительная реализация независимого Echo имеет перечисленные выше ограничения.
 - **Point-to-Multipoint**: бит Multipoint (M) всегда 0. Пакеты с M=1 отклоняются.
 
 ### Связанные документы
@@ -297,4 +306,4 @@ control-session Echo mode.
 
 ---
 
-*Сверено с исходниками `dev`: 2026-10-24.*
+*Сверено с исходниками `dev`: 2026-10-25.*

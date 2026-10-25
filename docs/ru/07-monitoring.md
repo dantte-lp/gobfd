@@ -90,11 +90,22 @@ best effort; отмена dispatch не обещает restart/progress.
 | `gobfd_gobgp_pending_action` | Gauge | `peer_addr`, `action` | 1 для неприменённого желаемого действия (`up` или `down`); иначе 0 |
 | `gobfd_gobgp_pending_action_deadline_seconds` | Gauge | `peer_addr`, `action` | Unix timestamp следующего retry или suppression recheck; 0 при отсутствии действия |
 
+`gobfd_bfd_sessions` учитывает зарегистрированные Control-сессии, включая
+Micro-BFD, VXLAN и Geneve; отдельный реестр Echo в него не входит. Значение
+не означает, что сессии находятся в Up. При этом Echo увеличивает счётчики
+передачи, приёма, потерь и переходов в тех же семействах метрик. У счётчиков
+нет меток интерфейса, дискриминатора или типа сессии, поэтому одинаковые пары
+peer/local суммируются между физическими сессиями и режимами. Для отдельных
+сессий используйте статус API, а для различения стадий Control и Echo —
+фиксированный реестр доставки. См. [`Collector`](../../internal/metrics/collector.go),
+[`manager_echo.go`](../../internal/bfd/manager_echo.go) и
+[`echo.go`](../../internal/bfd/echo.go).
+
 Timing outcomes: `valid`, `unavailable`, `invalid`, `before_calibration`,
 `future`, `clock_step`. Отсутствие sample не означает нулевую задержку.
 Rejected и queued packets не являются owner commits. Overlay и legacy paths
 без kernel timing остаются unavailable; отзыв calibration сохраняется до
-пересоздания listener. См. [границу измерения](14-performance-analysis.md#граница-linux-receive-telemetry).
+пересоздания listener. См. [границу измерения](14-performance-analysis.md#граница-телеметрии-приёма-linux).
 
 Timer kinds: `control_tx`, `control_detection`, `echo_tx`, `echo_detection`.
 Фиксированные events: `dispatch`, `effect`, `no_effect`, `invalid_dispatch`,
@@ -115,7 +126,7 @@ Unavailable и invalid данные не доказывают отсутстви
 wrap, reset, ordering и final markers описаны в
 [границе socket-drop observations](14-performance-analysis.md#граница-измерений-потерь-сокета).
 
-Регистрация публикует четыре нулевых packet/auth counters и сохраняет их handles
+Регистрация Control-сессии публикует четыре нулевых packet/auth counters и сохраняет их handles
 для активных peer/local pairs. Общие регистрации удерживают handles до последнего
 unregister. Исторические counters сохраняются после удаления сессии; cache
 активных handles не удерживает завершённые пары. Reset или удаление vector series
@@ -195,8 +206,8 @@ deployments/compose/configs/grafana/dashboards/bfd.json
 | **Ошибки** | Ошибки auth, отброшенные пакеты |
 
 Для импорта:
-1. Запустите production-стек: `podman compose -f deployments/compose/compose.yml up -d`
-2. Откройте Grafana: `http://localhost:3000` (admin/admin)
+1. Запустите пример стека: `podman compose -f deployments/compose/compose.yml up -d`
+2. Откройте Grafana: `http://localhost:3000` и используйте учётные данные развёртывания
 3. Дашборд автоматически провизионируется из JSON-файла
 
 ### Правила алертинга
@@ -207,14 +218,14 @@ deployments/compose/configs/grafana/dashboards/bfd.json
 groups:
   - name: gobfd
     rules:
-      # Алерт, когда нет сконфигурированных или динамически активных сессий.
+      # Алерт, когда нет настроенных или динамически активных Control-сессий.
       - alert: BFDNoActiveSessions
         expr: (sum(gobfd_bfd_sessions) or vector(0)) == 0
         for: 10s
         labels:
           severity: warning
         annotations:
-          summary: "Нет активных BFD-сессий"
+          summary: "Нет активных BFD Control-сессий"
 
       # Алерт при переходе сессии в Down.
       - alert: BFDSessionDownTransition
@@ -254,6 +265,7 @@ groups:
 ```
 
 Этот агрегированный пример также учитывает свежий демон без session label series.
+Демон только с Echo также не имеет Control-сессий для этой метрики.
 Он не отличает пустой демон от недоступного exporter; проверяйте `up` отдельно.
 Правила для нескольких экземпляров требуют ограничения по job/instance.
 См. справочники Prometheus по
@@ -418,4 +430,4 @@ convergence конфигурации.
 
 ---
 
-*Сверено с исходниками `dev`: 2026-10-24.*
+*Сверено с исходниками `dev`: 2026-10-25 (`706991db9433b13cec47e0bb8ea2549b01e948d9`).*

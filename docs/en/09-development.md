@@ -86,6 +86,11 @@ also never moved, deleted, or reused. The tag-triggered GitHub Actions workflow
 creates a draft GitHub Release, completes and verifies its notes and assets,
 and automatically publishes it only as the final mutation.
 
+The current documentation reconciliation is local-only. Neither this workflow
+description nor a passing local check authorizes push, a release tag, draft,
+OCI promotion or publication. Final-candidate and supported-line acceptance
+remain separate from `dev` task completion.
+
 ### Make Targets
 
 Routine build and test targets run Go inside Podman via `podman compose exec`.
@@ -116,6 +121,7 @@ make test-run RUN=TestFSMTransition PKG=./internal/bfd
 | Target | Description |
 |---|---|
 | `make all` | Build + test + gopls-check + lint + lint-docs |
+| `make verify` | `make all` + proto lint + controlled vulnerability audit; routine pre-commit gate |
 | `make build` | Compile all binaries with version info |
 | `make test` | Run all tests with `-race -count=1` |
 | `make test-v` | Verbose test output |
@@ -142,7 +148,7 @@ make test-run RUN=TestFSMTransition PKG=./internal/bfd
 | `make interop-clab-bootstrap` | Prepare vendor images and a receipt-owned GoBFD image (`ARGS=...`) |
 | `make interop-clab` | Full cycle vendor NOS tests (Nokia, FRR, etc.) |
 | `make interop-clab-up` | Deploy vendor NOS topology |
-| `make interop-clab-test` | Run vendor interop Go tests |
+| `make interop-clab-test` | Direct vendor Go tests; identity-checked path: `make interop-clab-bootstrap ARGS=--test-only` |
 | `make interop-clab-down` | Destroy recorded vendor resources and the exact owned GoBFD image |
 
 #### Integration Examples
@@ -163,6 +169,13 @@ output to `go-test.json` and `go-test.log`, and preserves the test exit code.
 | `make int-observability` | Prometheus + Grafana observability stack |
 | `make int-exabgp-anycast` | ExaBGP anycast service announcement |
 | `make int-k8s` | Kubernetes DaemonSet with GoBGP sidecar |
+
+The HAProxy and observability full-demo runners include warning-only
+observations; Kubernetes retains known selector and probe defects. Use the
+separate assertion-based testcontainers gates where available. Current limits
+and the tracked runner follow-up are in [Integrations](11-integrations.md).
+Their raw Compose `-down` targets remove volumes and orphans; inspect ownership
+and obtain the required deletion approval before cleanup.
 
 #### Quality
 
@@ -208,9 +221,8 @@ separate runtime/tools CycloneDX SBOMs in the
 - **Table-driven** tests for all packages
 - **`t.Parallel()`** where safe (no shared mutable state)
 - **Always** run with `-race -count=1`
-- **`goleak.VerifyTestMain(m)`** in the six concurrency-heavy packages that
-  own the daemon, protocol, network, metrics, configuration, and integration
-  lifecycles
+- **`goleak.VerifyTestMain(m)`** in `internal/bfd`, `internal/config`,
+  `internal/metrics`, `internal/netio`, `internal/server` and `test/integration`
 
 #### FSM Tests (`testing/synctest`)
 
@@ -289,7 +301,11 @@ unqualified.
 make test-integration
 ```
 
-Uses `testcontainers-go` with Podman backend for testing the full daemon lifecycle.
+The `integration` tag runs in-process Manager/ConnectRPC server tests,
+client-formatting checks and an in-memory BFD packet bridge under
+`test/integration/`. This target does not launch testcontainers or the daemon
+binary. Use `make e2e-core-testcontainers` for the separate container lifecycle
+gate; a passing in-process suite is not UDP or process-lifecycle acceptance.
 
 #### Package Lifecycle Tests
 
@@ -312,7 +328,7 @@ journal, `systemd-analyze verify` with the kernel-bond drop-in, and package
 removal. The containers receive `SYS_ADMIN`, `SYS_PTRACE`, `unmask=ALL` and
 `label=disable` so that systemd can build the unit namespaces.
 The base images stay digest-pinned, but the test installs `systemd`,
-`iproute2`/`iproute` and `procps` from the distribution mirrors without
+`iproute2` and `procps` from the Debian mirrors without
 version pins. The nightly E2E job runs both commands and uploads
 `reports/e2e/package-lifecycle/`.
 
@@ -732,8 +748,8 @@ and debugging APIs.
 
 #### `testing/synctest` -- Deterministic Timer Tests
 
-All BFD timer and detection timeout tests use `testing/synctest` for
-virtual-time execution. An adjacent `time.Sleep` plus `synctest.Wait` is written
+BFD unit tests such as `TestSessionDetectionTimeout` use `testing/synctest`
+for virtual-time execution. An adjacent `time.Sleep` plus `synctest.Wait` is written
 as `synctest.Sleep`; real E2E and interoperability waits remain context-bounded
 wall-clock waits. See [FSM Tests](#fsm-tests-testingsynctest) above.
 
@@ -820,7 +836,7 @@ exact error strings.
 # Development loop
 make up           # Start dev environment
 # ... make changes ...
-make all          # Build + test + gopls + lint + docs
+make verify       # Build + test + gopls + lint + docs + proto lint + vulnerability audit
 
 # For protocol changes:
 make interop      # Verify interop with 4 peers
@@ -838,4 +854,4 @@ make proto-lint   # Lint proto definitions
 
 ---
 
-*Reviewed against `dev` source: 2026-10-24.*
+*Reviewed against `dev` source: 2026-10-25; commands were inspected, not executed.*

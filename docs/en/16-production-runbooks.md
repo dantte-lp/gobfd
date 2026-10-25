@@ -7,6 +7,11 @@
 
 > Runbooks for deploying and validating GoBFD in Linux, Kubernetes, BGP, and overlay-network environments.
 
+These are operator procedures for the current `dev` source, not fresh execution
+receipts or stable-release acceptance. Run drills only against an admitted,
+owned lab and retain the exact source/image identities and observed results.
+The current documentation work is local-only; publication remains on hold.
+
 ---
 
 ## Evidence Baseline
@@ -20,9 +25,11 @@
   inner TTL/Hop Limit 255.
 - RFC 9521 Geneve BFD: Geneve BFD for point-to-point Geneve tunnels with inner
   TTL/Hop Limit 255 and traffic-managed rate assumptions.
-- The current VXLAN/Geneve userspace receive paths are unsafe/incomplete
-  previews: inner-packet validation and complete tunnel-session identity
-  binding are not production-qualified.
+- The VXLAN/Geneve userspace IPv4 Format A paths have local packet-validation
+  and identity checks. Bounded wire evidence does not qualify owner-specific
+  dataplane integration, vendor forwarding or production deployment. These
+  remain opt-in incomplete previews; see [Development](09-development.md#overlay-wire-qualification)
+  and [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go).
 - Kubernetes host-network pods require `dnsPolicy: ClusterFirstWithHostNet`
   when `hostNetwork: true` is set.
 - Vendor examples remain optional and must cite public vendor documentation.
@@ -80,6 +87,8 @@ Operational notes:
   after node or peer discovery.
 - Keep the default Unix socket. Remote TCP management requires mTLS; a trusted
   network does not permit a non-loopback plaintext listener.
+- The shipped ConfigMap exposes unauthenticated metrics on `:9100` in the host
+  network. Restrict reachability at the node boundary before using the example.
 
 The Kubernetes image import and live-cluster qualification remain incomplete.
 These manifests and probes are examples, not an accepted cluster deployment.
@@ -91,7 +100,8 @@ Run the generic FRR/GoBGP integration:
 
 ```bash
 make int-bgp-failover-up
-make int-bgp-failover-logs
+# Optional: follow logs in a separate terminal.
+# make int-bgp-failover-logs
 ```
 
 Full example documentation:
@@ -102,7 +112,8 @@ Baseline checks:
 ```bash
 podman exec gobgp-bgp-failover gobgp neighbor
 podman exec gobgp-bgp-failover gobgp global rib
-podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd -c 5
+podman exec gobfd-bgp-failover gobfdctl session list
+podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd
 ```
 
 Confirm BFD Up and route `10.20.0.0/24` present before the failure drill.
@@ -111,11 +122,18 @@ separate assertion-based withdrawal/restoration gate.
 
 Failure drill:
 
+Confirm that the fixed container names below are the owned Compose topology.
+The subshell restores the paused peer on exit, including a failed RIB query.
+These fixed waits display observations; they do not assert a timing bound.
+
 ```bash
-podman pause frr-bgp-failover
-sleep 2
-podman exec gobgp-bgp-failover gobgp global rib
-podman unpause frr-bgp-failover
+(
+  set -eu
+  trap 'podman unpause frr-bgp-failover' EXIT
+  podman pause frr-bgp-failover
+  sleep 2
+  podman exec gobgp-bgp-failover gobgp global rib
+)
 sleep 5
 podman exec gobgp-bgp-failover gobgp global rib
 ```
@@ -236,4 +254,4 @@ member enforcement or forwarding continuity in GoBFD.
 
 ---
 
-*Reviewed against `dev` source: 2026-10-24.*
+*Reviewed against `dev` source: 2026-10-25; commands were inspected, not executed.*

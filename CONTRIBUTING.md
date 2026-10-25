@@ -12,7 +12,8 @@
 
 ## Getting Started
 
-1. Fork the repository and clone it locally
+1. Fork the repository and clone its `dev` branch for next-line development.
+   For a supported-line fix, select the branch in [Branch Selection](#branch-selection).
 2. Select the pinned Compose provider using
    [Deployment](docs/en/06-deployment.md#podman-compose), then start the environment:
    ```bash
@@ -39,7 +40,8 @@
 
 Build, test and lint commands below run inside Podman containers. Some host
 bootstrap, integration and report targets still invoke `go run` directly;
-those targets require the pinned Go toolchain or an explicit container invocation.
+run those entrypoints explicitly inside the pinned container. The full target
+and exception inventory is in [Development](docs/en/09-development.md).
 
 ```bash
 make up            # Start dev container

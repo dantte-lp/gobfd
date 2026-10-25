@@ -37,7 +37,7 @@ RFC 5880 Section 4.1 defines a 24-byte mandatory header:
 | 8-11 | 4 | Your Discriminator | Zero until peer discriminator is known |
 | 12-15 | 4 | Desired Min TX Interval | **Microseconds** |
 | 16-19 | 4 | Required Min RX Interval | **Microseconds** |
-| 20-23 | 4 | Required Min Echo RX Interval | **Microseconds** (0 for affiliated Echo; RFC 9747 unaffiliated Echo is implemented separately) |
+| 20-23 | 4 | Required Min Echo RX Interval | **Microseconds** (0 in GoBFD Control sessions; affiliated Echo is not implemented) |
 | 24+ | var | Authentication Section | Optional, present when A bit is set |
 
 > **IMPORTANT**: All interval fields are in **microseconds** on the wire. Conversion to `time.Duration` happens at the boundary:
@@ -106,7 +106,7 @@ handling follows the accepted Held-erratum policy described in
 
 ### State Variables
 
-All mandatory state variables from RFC 5880 Section 6.1:
+Selected RFC 5880 Section 6.1 state variables and their implementation boundaries:
 
 | RFC Variable | Go Field | Notes |
 |---|---|---|
@@ -260,8 +260,8 @@ or explicit release/recreation with the peer when changing deployed keys.
 
 ### Unaffiliated Echo
 
-RFC 9747 unaffiliated Echo is implemented outside the affiliated RFC 5880
-control-session Echo mode.
+Unaffiliated Echo is a default-off preview, separate from affiliated RFC 5880
+control-session Echo. It is not a complete RFC 9747 implementation.
 
 | Field | Status |
 |---|---|
@@ -271,6 +271,14 @@ control-session Echo mode.
 | Timer model | Locally provisioned; no remote negotiation |
 | Demultiplexing | Returned packet `MyDiscriminator` |
 | Diagnostic on timeout | `DiagEchoFailed` |
+
+The current loop moves directly between Down and Up, receives by
+`MyDiscriminator`, and does not authenticate returned packets. RFC 9747
+Section 2 requires the RFC 5880 FSM without AdminDown and bootstrap followed
+by `YourDiscriminator` demultiplexing. Slow pacing before Up and after Down
+also remains unimplemented. Management principal claims do not close these
+protocol gaps; see [RFC coverage](08-rfc-compliance.md#rfc-9747-implementation-notes)
+and [ADR-0009](adr/0009-echo-principal-claims.md).
 
 ### Not Implemented
 
@@ -287,8 +295,8 @@ Not implemented for control sessions. `RequiredMinEchoRxInterval` remains zero
 for standard BFD control sessions.
 
 **Rationale**: Affiliated Echo Mode requires control-session coordination and
-remote echo loopback support. RFC 9747 unaffiliated Echo is implemented as the
-standalone forwarding-path echo mechanism.
+remote echo loopback support. A separate unaffiliated Echo preview exists with
+the limitations above.
 
 #### Point-to-Multipoint
 
@@ -302,4 +310,4 @@ The Multipoint (M) bit is always zero. Received packets with M=1 are rejected pe
 
 ---
 
-*Reviewed against `dev` source: 2026-10-24.*
+*Reviewed against `dev` source: 2026-10-25.*

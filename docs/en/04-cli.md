@@ -294,13 +294,13 @@ gobfdctl monitor --current
 |---|---|---|
 | `--current` | `false` | Include current session states before streaming |
 
-The monitor uses gRPC server-side streaming. Each event includes:
-- Timestamp
-- Session identifier (peer address, local discriminator)
-- Old state and new state
-- Diagnostic code
-- Event trigger
-- Revision (`rev=`), increasing within one daemon process
+The monitor uses server-side streaming. The table prints timestamp, event
+type, peer address, current and previous state, local discriminator and
+revision (`rev=`), increasing within one daemon process. JSON/YAML also
+exposes the session's diagnostic and cause through the CLI session view.
+It is a projection of the RPC message: Control/Watch packet counters and
+`ListSessions.delivery_counters` are not rendered. Use the API or Prometheus
+for those counters. See [`formatEvent`](../../cmd/gobfdctl/commands/format.go).
 
 A snapshot (`--current`) is a run of `SessionAdded` events closed by
 `SyncComplete`, which carries the revision the snapshot covers. If the
@@ -312,7 +312,7 @@ session. Removal cancels its pending GoBGP Down and Up actions; it does not
 enable a peer GoBFD previously disabled.
 
 New Control and Echo sessions emit `SessionAdded` even if they remain Down.
-Additions, changes and removals carry full API status sampled at publication;
+The RPC additions, changes and removals carry full API status sampled at publication;
 List samples telemetry independently. `ObservationVersion` covers the causal
 tuple, not each packet or counter change. Clients replace the entire row,
 including zero/false values and absent timestamps. Initial, GAP and reconnect
@@ -328,6 +328,10 @@ event stream. Private cleanup and legacy subscribers retain their separate
 delivery boundaries.
 
 Press `Ctrl+C` to stop monitoring.
+
+The CLI opens one stream and exits on a stream error; it does not reconnect
+automatically. The shared client library's reconnect behavior is not a CLI
+monitor guarantee.
 
 ### Version Command
 
@@ -375,9 +379,10 @@ uses native mTLS `POST /renew`, a 10-second HTTP timeout and caller cancellation
 (including SIGINT/SIGTERM). It bypasses daemon RPC initialization; `--addr` and
 the management `--tls-*` flags do not configure CA access.
 
-Use regular, single-link input files without symlinks in trusted parent
-directories that are not group- or world-writable. Directories and inputs must
-belong to root or the caller. The private key requires mode `0400` or `0600`.
+Use three distinct regular, single-link input files without final-component
+symlinks in trusted parent directories. The inputs and their immediate parent
+directories must not be group- or world-writable and must belong to root or the
+caller. The private key requires mode `0400` or `0600`.
 The JSON response must preserve the
 public key, subject, exact SAN and key-usage/EKU profile. A changed certificate
 must advance expiry; a verified identical chain is a no-op.
@@ -484,4 +489,4 @@ fi
 
 ---
 
-*Reviewed against `dev` source: 2026-10-24.*
+*Reviewed against `dev` source: 2026-10-25 (`706991db9433b13cec47e0bb8ea2549b01e948d9`).*

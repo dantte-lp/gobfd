@@ -88,6 +88,17 @@ effort, and canceled dispatch has no restart/progress guarantee.
 | `gobfd_gobgp_pending_action` | Gauge | `peer_addr`, `action` | 1 for the unapplied desired action (`up` or `down`); 0 otherwise |
 | `gobfd_gobgp_pending_action_deadline_seconds` | Gauge | `peer_addr`, `action` | Unix timestamp of its next retry or suppression recheck; 0 when none |
 
+`gobfd_bfd_sessions` counts registered Control sessions, including Micro-BFD,
+VXLAN and Geneve; it excludes the separate Echo registry and does not mean
+sessions are Up. Echo nevertheless contributes TX/RX/drop and transition
+increments to the same metric families. These counters have no interface,
+discriminator or session-type label, so equal peer/local pairs aggregate
+across wires and modes. Use API status for individual wires and the fixed
+delivery ledger to distinguish Control and Echo stages. See
+[`Collector`](../../internal/metrics/collector.go),
+[`manager_echo.go`](../../internal/bfd/manager_echo.go) and
+[`echo.go`](../../internal/bfd/echo.go).
+
 Timing outcomes cover `valid`, `unavailable`, `invalid`, `before_calibration`,
 `future` and `clock_step`. A missing sample is not zero latency. Rejected or
 queued packets are not owner commits. Overlay and legacy paths without kernel
@@ -114,7 +125,7 @@ timeouts supply no sample. Unavailable or invalid data never proves zero
 loss. See the [socket-drop boundary](14-performance-analysis.md#socket-drop-observation-boundary)
 for wrap, reset, ordering and final-marker limits.
 
-Registration initializes the four packet/auth counters at zero and caches their
+Control-session registration initializes the four packet/auth counters at zero and caches their
 handles for active peer/local pairs. Shared registrations retain the handles
 until the last unregister. Historical counter series survive session removal;
 the active-handle cache does not retain retired pairs. Resetting or deleting
@@ -193,8 +204,8 @@ The dashboard provides:
 | **Error Rates** | Auth failures, dropped packets |
 
 To import:
-1. Start the production stack: `podman compose -f deployments/compose/compose.yml up -d`
-2. Open Grafana at `http://localhost:3000` (default: admin/admin)
+1. Start the example stack: `podman compose -f deployments/compose/compose.yml up -d`
+2. Open Grafana at `http://localhost:3000` and use the deployment's configured credentials
 3. The dashboard auto-provisions from the JSON file
 
 ### Alerting Rules
@@ -205,14 +216,14 @@ Recommended Prometheus alerting rules for BFD:
 groups:
   - name: gobfd
     rules:
-      # Alert when no sessions are configured or dynamically active.
+      # Alert when no Control sessions are configured or dynamically active.
       - alert: BFDNoActiveSessions
         expr: (sum(gobfd_bfd_sessions) or vector(0)) == 0
         for: 10s
         labels:
           severity: warning
         annotations:
-          summary: "No active BFD sessions"
+          summary: "No active BFD Control sessions"
 
       # Alert on BFD session going Down.
       - alert: BFDSessionDownTransition
@@ -252,6 +263,7 @@ groups:
 ```
 
 This aggregate example also handles a fresh daemon with no session label series.
+An Echo-only daemon also has no Control sessions for this gauge.
 It cannot distinguish an empty daemon from an unavailable exporter; monitor
 `up` separately. Fleet rules need job/instance scoping. See the Prometheus
 [operator](https://prometheus.io/docs/prometheus/latest/querying/operators/)
@@ -411,4 +423,4 @@ process/listener startup rather than configuration convergence.
 
 ---
 
-*Reviewed against `dev` source: 2026-10-24.*
+*Reviewed against `dev` source: 2026-10-25 (`706991db9433b13cec47e0bb8ea2549b01e948d9`).*

@@ -27,7 +27,8 @@
 
 ### System Overview
 
-GoBFD is a production-oriented BFD (Bidirectional Forwarding Detection) protocol daemon. It consists of four binaries:
+GoBFD is a BFD (Bidirectional Forwarding Detection) protocol daemon with
+[explicit partial and preview RFC boundaries](08-rfc-compliance.md). It consists of four binaries:
 
 - **gobfd** -- the daemon that manages BFD sessions, sends/receives BFD Control packets, and integrates with GoBGP
 - **gobfdctl** -- the CLI client that communicates with gobfd via ConnectRPC
@@ -676,18 +677,23 @@ exchange. Echo removal publishes its Watch tombstone without changing protocol s
 |---|---|---|---|---|
 | 3784 | BFD Single-Hop | RFC 5881 | TX + RX | Active |
 | 4784 | BFD Multi-Hop | RFC 5883 | TX + RX | Active |
-| 3785 | BFD Echo | RFC 9747 | TX + RX | Active |
-| 6784 | Micro-BFD (LAG) | RFC 7130 | TX + RX | Active |
-| 4789 | VXLAN BFD (outer) | RFC 8971 | TX + RX | Active |
-| 6081 | Geneve BFD (outer) | RFC 9521 | TX + RX | Active |
+| 3785 | BFD Echo | RFC 9747 | TX + RX | Preview; default-off |
+| 6784 | Micro-BFD (LAG) | RFC 7130 | TX + RX | Preview; default-off |
+| 4789 | VXLAN BFD (outer) | RFC 8971 | TX + RX | Incomplete preview; default-off |
+| 6081 | Geneve BFD (outer) | RFC 9521 | TX + RX | Incomplete preview; default-off |
 | 7784 | S-BFD Reflector | RFC 7881 | RX (reflector) + TX (initiator) | Planned |
+
+Ports describe configured transport paths, not unconditional listeners or RFC
+qualification. Preview enablement and receive-path readiness are separate;
+see [`DefaultConfig`](../../internal/config/config.go),
+[`listeners.go`](../../cmd/gobfd/listeners.go) and the [RFC matrix](08-rfc-compliance.md).
 
 ### TCP/HTTP Port Map
 
 | Port | Protocol | Purpose | Status |
 |---|---|---|---|
 | `/run/gobfd/gobfd.sock` | ConnectRPC (gRPC) over a Unix socket | Session management API; optional TCP via `grpc.addr` | Active |
-| 9100 | HTTP | Prometheus metrics (`/metrics`) | Active |
+| 127.0.0.1:9100 | HTTP | Default Prometheus metrics listener (`/metrics`) | Active |
 
 ### Related Documents
 
@@ -698,4 +704,4 @@ exchange. Echo removal publishes its Watch tombstone without changing protocol s
 
 ---
 
-*Reviewed against `dev` source: 2026-10-24.*
+*Reviewed against `dev` source: 2026-10-25.*
