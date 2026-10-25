@@ -940,8 +940,8 @@ func runVendorTests(ctx context.Context, options Options, runner Runner) error {
 		Executable: executablePodman,
 		Arguments: []string{
 			"compose", "-p", project, "-f", filepath.Join(options.ProjectRoot, "deployments", "compose", "compose.dev.yml"),
-			podmanExec, "-T", "dev", "env", "GOBFD_INTEROP_CLAB_TEST_IN_CONTAINER=1",
-			"go", "test", "-tags", "interop_clab", "-v", "-count=1", "-timeout", "600s", "./test/interop-clab/",
+			podmanExec, "-T", "dev", "env", "CGO_ENABLED=1", "GOBFD_INTEROP_CLAB_TEST_IN_CONTAINER=1",
+			"go", "test", "-race", "-tags", "interop_clab", "-v", "-count=1", "-timeout", "600s", "./test/interop-clab/",
 		},
 		Directory: options.ProjectRoot,
 		DryRun:    options.DryRun,

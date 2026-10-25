@@ -882,6 +882,7 @@ Topology cleanup also rejects unrecorded containers in that fixed lab namespace
 before any destroy or image removal and retains the receipt for recovery.
 Image-only staged cleanup does not select or destroy a topology.
 
+The guarded bootstrap test path forces `CGO_ENABLED=1` and `go test -race`.
 The direct `make interop-clab-test` target bypasses that receipt validation
 and omits `-race`; it is not the guarded qualification path above.
 

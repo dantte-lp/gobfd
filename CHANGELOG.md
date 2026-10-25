@@ -356,6 +356,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   network ownership and partial-deployment cleanup; retain discovery containers
   after failed destroy so cleanup can be retried. Legacy receipts remain
   cleanup-only inputs; native FRR and vendor qualification remain separate.
+  The guarded vendor test command explicitly enables CGO and race detection.
 
 - Require Containerlab 0.82.0 for vendor bootstrap and publish verified amd64
   and arm64 archive checksums. This includes upstream destroy/cleanup fixes;
