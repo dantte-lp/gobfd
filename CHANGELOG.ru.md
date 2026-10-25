@@ -359,6 +359,10 @@
 
 ### Изменено
 
+- Для вендорного bootstrap требуется Containerlab 0.82.0; опубликованы проверенные
+  контрольные суммы архивов amd64 и arm64. Обновление включает upstream-исправления
+  destroy/cleanup; runtime-квалификация вендоров остаётся отдельной проверкой.
+
 - Готовность gRPC health выводится из компонентов (H-30, `gobfd-qj0.8.2.3.1`).
   Пустой service есть AND пяти sources reconciliation, runtime workers и
   интерфейсов listeners с привязкой к устройству. `bfd.v1.BfdService` следует за
