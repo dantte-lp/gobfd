@@ -189,7 +189,7 @@ gobfdctl echo add \
 | Flag | Required | Default | Description |
 |---|---|---|---|
 | `--peer` | Yes | -- | Echo target IP address |
-| `--local` | No | -- | Local IP address (fallback to default route) |
+| `--local` | No | -- | Local IP; specify it explicitly to qualify receive binding |
 | `--interface` | No | -- | Stored in session metadata; the current API sender does not apply `SO_BINDTODEVICE` |
 | `--tx-interval` | No | `1s` | Echo transmit interval (RFC 9747 Section 3.3) |
 | `--detect-mult` | No | `3` | Detection multiplier; `DetectionTime = mult * TxInterval` |

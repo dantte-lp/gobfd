@@ -7,20 +7,20 @@ record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 ## Publication boundary — 2026-10-25
 
 This projection describes local `dev` implementation, not published stable
-delivery. English source verification and Russian parity are locally accepted
-at `5c3ef14bfcf2194e26f951d6125eab3f2fe2ebd6` under
-`gobfd-qj0.8.2.8.7.2.3`, with follow-up corrections at
-`852c034ea75ab930f801f9785c90af4d3f861f11`. The full 30-pair source and
-translation audit is accepted at `f88872cc44c0422844cc52d61eb8e616d26335fe`
-under `gobfd-qj0.8.2.8.7.2.9`. The current follow-up reconciles unchanged
-documents and source inputs with that audit and checks the subsequent churn
-and Down-journal changes against `dev@ea7915a5e8dcdcb9aae6bb35481f795f79a1ab54`
-under `gobfd-qj0.8.2.8.7.2.10`. Publication remains held; alpha readiness
-`gobfd-qj0.8.2.6.4` does not yet provide a prerelease path.
+delivery. The full 30-pair source and translation audit is accepted at
+`f88872cc44c0422844cc52d61eb8e616d26335fe` under
+`gobfd-qj0.8.2.8.7.2.9`; workload report corrections follow at
+`308ce357f2c553fe71210f7888cf422c30f44f7b` under
+`gobfd-qj0.8.2.8.7.2.10`. The current documentation baseline is
+`dev@1f1fd79dea62c55fea4471cce8fb781cdd995aaa`, including declarative Echo TX
+binding. Source reconciliation and Russian prose corrections belong to
+`gobfd-qj0.8.2.8.7.2.11`. Unmerged work is outside this baseline. Publication
+remains held; alpha readiness `gobfd-qj0.8.2.6.4` does not yet provide a
+prerelease path.
 
 | Area | Current boundary | Beads authority |
 |---|---|---|
-| Documentation | English-first source verification, matching Russian translation and workload report-field definitions; historical records keep their dates and scope | `gobfd-qj0.8.2.8.7.2.10` |
+| Documentation | English-first source verification, matching Russian translation and workload report-field definitions; historical records keep their dates and scope | `gobfd-qj0.8.2.8.7.2.11` |
 | Management/reload | Unsafe-loopback policy changes reject before candidate acceptance; complete pending activation remains open | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6` |
 | Smallstep | Existing-certificate renewal implemented; actual CA and lifecycle qualification incomplete | `gobfd-qj0.8.2.3.7` |
 | Echo preview | Declarative IPv4/IPv6 TX binding, UDP/3785 and lease cleanup pass local checks; API destination/interface limitations remain open | `gobfd-qj0.8.2.1.19`, `gobfd-qj0.8.2.1.17` |

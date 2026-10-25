@@ -43,7 +43,7 @@ Control и Echo owners GoBFD работают в отдельных goroutines; 
 не изолирует scheduling и не задаёт поддерживаемый масштаб. Reference runtime
 qualification пока не завершена.
 
-## Hardware и cloud profiles
+## Аппаратные и облачные профили
 
 Hardware offload, минимальные таймеры, ёмкость по сессиям, address families,
 Echo и control-plane fate sharing определяются точной моделью оборудования,

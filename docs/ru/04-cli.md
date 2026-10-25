@@ -189,7 +189,7 @@ gobfdctl echo add \
 | Флаг | Обязательный | По умолчанию | Описание |
 |---|---|---|---|
 | `--peer` | Да | -- | IP-адрес echo target |
-| `--local` | Нет | -- | Локальный IP (fallback на default route) |
+| `--local` | Нет | -- | Локальный IP; задайте явно для проверки привязки приёма |
 | `--interface` | Нет | -- | Сохраняется в метаданных сессии; текущий API sender не применяет `SO_BINDTODEVICE` |
 | `--tx-interval` | Нет | `1s` | Интервал отправки echo (RFC 9747 Section 3.3) |
 | `--detect-mult` | Нет | `3` | Detection multiplier; `DetectionTime = mult * TxInterval` |

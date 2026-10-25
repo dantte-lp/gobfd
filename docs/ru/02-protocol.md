@@ -20,7 +20,7 @@
 - [Джиттер](#джиттер)
 - [Poll-последовательность](#poll-последовательность)
 - [Аутентификация](#аутентификация)
-- [Unaffiliated Echo](#unaffiliated-echo)
+- [Независимый Echo](#независимый-echo)
 - [Не реализовано](#не-реализовано)
 
 ### Формат BFD Control пакета
@@ -267,7 +267,7 @@ keys согласуйте с peer прерывающий restart или explicit
 | Keyed SHA1 | Type(1) + Len(1) + KeyID(1) + Reserved(1) + SeqNum(4) + Hash(20) | 28 |
 | Meticulous SHA1 | Аналогично Keyed SHA1 | 28 |
 
-### Unaffiliated Echo
+### Независимый Echo
 
 RFC 9747 unaffiliated Echo реализован отдельно от affiliated RFC 5880
 control-session Echo mode.

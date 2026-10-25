@@ -36,7 +36,7 @@
 - [Заметки по RFC 9521](#заметки-по-rfc-9521)
 - [Заметки по RFC 9764](#заметки-по-rfc-9764)
 - [RFC 7880/7881 (Планируется)](#rfc-78807881-планируется)
-- [Stub-интерфейсы](#stub-интерфейсы)
+- [Интерфейсы-заглушки](#интерфейсы-заглушки)
 - [Справочные RFC](#справочные-rfc)
 - [Исходные файлы RFC](#исходные-файлы-rfc)
 
@@ -91,7 +91,7 @@ RFC 5880 Section 6.8.16 допускает AdminDown с PathDown, поэтому
 erratum остаётся Held for Document Update; его применение — явный выбор
 проекта, а не утверждение о требовании исходного текста RFC. См. `gobfd-9ro`.
 
-#### Section 4.1: Формат пакета
+#### Раздел 4.1: Формат пакета
 
 Реализация: [`internal/bfd/packet.go`](../../internal/bfd/packet.go).
 Обязательный 24-byte header использует `encoding/binary.BigEndian` и caller-owned
@@ -101,27 +101,27 @@ authenticated parse создаёт `AuthSection` и заимствует digest/
 
 См. [02-protocol.md](./02-protocol.md) для полной таблицы формата пакета.
 
-#### Section 6.1: Переменные состояния
+#### Раздел 6.1: Переменные состояния
 
 Реализация: [`internal/bfd/session.go`](../../internal/bfd/session.go).
 Local state и diagnostic используют одну packed atomic pair. `Observation`
 возвращает coherent committed local/remote facts под `Session.mu`; remote getters
 не читают отдельные atomics. Local Demand не реализован.
 
-#### Section 6.2: FSM
+#### Раздел 6.2: FSM
 
 Реализация: [`internal/bfd/fsm.go`](../../internal/bfd/fsm.go). Чистый indexed
 lookup использует array, построенный из declarative `map[stateEvent]transition`
 при initialization. Session выполняет actions. Down timeout diagnostic следует
 явной Held-erratum policy выше.
 
-#### Section 6.3: Демультиплексирование
+#### Раздел 6.3: Демультиплексирование
 
 Реализация: [`internal/bfd/manager_session.go`](../../internal/bfd/manager_session.go). Двухуровневое демультиплексирование:
 - Уровень 1: O(1) поиск по Your Discriminator (быстрый путь)
 - Уровень 2: Составной ключ (SrcIP, DstIP, Interface, transport scope) для установления или повторного установления сессии
 
-#### Section 6.5: Poll-последовательности
+#### Раздел 6.5: Poll-последовательности
 
 Входящий пакет с Poll планирует немедленный ответ с Final. Ответ сохраняется
 при ошибках подписи, кодирования и отправки до успешной отправки; повторные
@@ -186,7 +186,7 @@ FRR 10.7.1 не может объявить нулевой RX (`receive-interval
 zero-RX с FRR неприменимы по исходному коду (решение мейнтейнера 2026-10-21,
 `gobfd-qj0.8.2.1.1.2`). `TestCraftedPeerTestcontainers` подтверждает поведение
 на wire с репозиторным Go peer
-([Interop Testing](05-interop.md#crafted-go-peer), `gobfd-qj0.8.2.1.1.2.3`):
+([Тестирование совместимости](05-interop.md#программируемый-go-пир), `gobfd-qj0.8.2.1.1.2.3`):
 при нулевом remote RX GoBFD передаёт только Final, по одному на Poll пира
 (Sections 6.5 и 6.8.7); после одного Detection Time без пакетов переходит в
 Down с diag 1, сбрасывает remote receive interval, сразу передаёт Down с Your
@@ -216,7 +216,7 @@ Session receive path отклоняет зарезервированный ну�
 обновления состояния пира и таймеров, включая пакеты через `RecvPacket`.
 Это предотвращает цикл нулевого detection timer при нулевом локальном RX-интервале.
 
-#### Section 6.7: Аутентификация
+#### Раздел 6.7: Аутентификация
 
 Реализация: [`internal/bfd/auth.go`](../../internal/bfd/auth.go). Реализованы все пять типов:
 
@@ -271,7 +271,7 @@ detection timer.
 Если Down прерывает ожидающее уменьшение RX, новый Detection Time отсчитывается
 от последнего корректного приёма.
 
-#### Section 6.8.6: Приём пакетов
+#### Раздел 6.8.6: Приём пакетов
 
 Приём проходит три уровня. Номера групп в комментариях кода служат сокращением
 для реализации; RFC также требует выбирать сессию между проверками заголовка
@@ -283,14 +283,14 @@ detection timer.
 | Manager | Выбор сессии, допуск по transport scope, интерфейсу и TTL | [`manager_session.go`](../../internal/bfd/manager_session.go) |
 | Сессия | Нулевой Desired Min TX, наличие и проверка auth, переменные, FSM и таймеры | [`session_packet.go`](../../internal/bfd/session_packet.go) |
 
-#### Section 6.8.7: Джиттер
+#### Раздел 6.8.7: Джиттер
 
 - Нормальный (DetectMult > 1): 75-100% интервала
 - DetectMult == 1: 75-90% интервала
 - Session-local PRNG предпочитает cryptographic seed; при ошибке чтения
   используется time-based seed. Jitter не является security boundary
 
-#### Section 6.8.12: Reload Detect Multiplier
+#### Раздел 6.8.12: Изменение Detect Multiplier при reload
 
 Base sessions с единственным config-owner и стабильной wire identity принимают
 `detect_mult` через существующие TX/RX timer tuple и generation/revision
@@ -312,7 +312,7 @@ Micro-BFD, overlay и authentication changes остаются за предел�
 ограниченный minimum-TTL/padding reload описан ниже. [ADR-0006](adr/0006-session-preserving-reload-policy.md)
 принимает policy без общей Poll/Demand или RFC graduation.
 
-#### Section 6.8.16: Административное управление
+#### Раздел 6.8.16: Административное управление
 
 Graceful shutdown использует общий deadline десять секунд для owner commit,
 первой успешной записи AdminDown/7 и окна уведомления, рекомендованного здесь и
@@ -811,7 +811,7 @@ transport buffers и не подтверждают поддержку соотв
 остаётся отдельной задачей; стабильное соответствие
 RFC 9764 остаётся частичным.
 
-### RFC 7880/7881 (Планируется)
+### RFC 7880/7881 (планируется)
 
 **Статус**: Планируется
 
@@ -831,7 +831,7 @@ RFC 7881 определяет инкапсуляцию S-BFD для IPv4 и IPv6
 В текущем коде нет `SBFDReflector`, `SBFDInitiator` или listener порта 7784;
 описанные выше имена являются ролями плана, а не существующими API.
 
-### Stub-интерфейсы
+### Интерфейсы-заглушки
 
 | RFC | Зависимость | Статус |
 |---|---|---|

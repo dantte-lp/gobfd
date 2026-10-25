@@ -1,45 +1,45 @@
 # ADR-0002: Нативный OVSDB-клиент для OVS LAG backend
 
-| Field | Value |
+| Поле | Значение |
 |---|---|
-| Status | Accepted |
-| Date | 2026-05-01 |
+| Статус | Accepted |
+| Дата | 2026-05-01 |
 
-## Context
+## Контекст
 
-Enforcement RFC 7130 Micro-BFD на bonded-портах Open vSwitch требует
-добавления и удаления member-интерфейсов из bond. Первая реализация
-GoBFD вызывала `ovs-vsctl` из демона. `ovs-vsctl` -- это schema-aware
-CLI-клиент, который соединяется с OVSDB-сервером и меняет
+Применение состояния Micro-BFD по RFC 7130 к объединённым портам Open vSwitch
+требует добавления и удаления интерфейсов-участников bond. Первая реализация
+GoBFD вызывала `ovs-vsctl` из демона. `ovs-vsctl` — CLI-клиент с поддержкой
+схемы, который соединяется с OVSDB-сервером и меняет
 конфигурационную базу `ovs-vswitchd`. Это не примитивный API.
 
 Open vSwitch предоставляет OVSDB -- управляющий JSON-RPC протокол,
 описанный в RFC 7047 и реализованный в `ovsdb-server`. Нативный
-OVSDB-клиент устраняет порождение процессов, исключения review для
-shell-injection, парсинг stdout/stderr и зависимость от PATH.
+OVSDB-клиент устраняет порождение процессов, исключения при проверке инъекций
+в оболочку, разбор stdout/stderr и зависимость от PATH.
 
-## Decision
+## Решение
 
-GoBFD использует нативный OVSDB-клиент для дефолтного OVS LAG backend.
-`ovs-vsctl` оставлен как явный fallback или путь диагностики.
-Owner-policy для OVS-managed устройств остаётся явной до тех пор, пока
-backend не сможет подтвердить ownership через OVSDB или через сетевой
+GoBFD использует нативный OVSDB-клиент как OVS LAG backend по умолчанию.
+`ovs-vsctl` оставлен как явно выбираемый резервный вариант или путь диагностики.
+Политика владельца устройств под управлением OVS остаётся явной до тех пор, пока
+backend не сможет подтвердить владение через OVSDB или через сетевой
 менеджер более высокого уровня.
 
-Production-адаптер использует `github.com/ovn-kubernetes/libovsdb` `v0.8.1`.
+Рабочий адаптер использует `github.com/ovn-kubernetes/libovsdb` `v0.8.1`.
 Прежний репозиторий `ovn-org` архивирован; активный владелец сохранил
-используемый transaction API и исправил deadlock при leader change и inactivity
-probe. Ядро GoBFD
+используемый API транзакций и исправил взаимные блокировки при смене лидера
+и проверке неактивности. Ядро GoBFD
 зависит от узкого локального интерфейса, чтобы тесты не требовали
-работающий OVSDB-сервер.
+работающего OVSDB-сервера.
 
-## Consequences
+## Последствия
 
 ### Требуемые операции OVSDB
 
-CLI-backend отображал переходы RFC 7130 в эти операции:
+CLI-backend сопоставлял переходам RFC 7130 следующие операции:
 
-| Micro-BFD transition | CLI operation | OVSDB intent |
+| Переход Micro-BFD | Операция CLI | Изменение OVSDB |
 |---|---|---|
 | `Up -> non-Up` | `ovs-vsctl --if-exists del-bond-iface <bond> <iface>` | Удаление UUID Interface из `Port.interfaces` |
 | `non-Up -> Up` | `ovs-vsctl --may-exist add-bond-iface <bond> <iface>` | Вставка UUID Interface в `Port.interfaces`; создание Interface при необходимости |
@@ -69,28 +69,28 @@ type BondLAGClient interface {
 Backend переиспользует валидацию и политику RFC 7130, уже применяемые
 в kernel-bond и в CLI-backed OVS пути.
 
-### Конфигурация и ownership
+### Конфигурация и владение
 
-- Дефолтный endpoint OVSDB -- `unix:/var/run/openvswitch/db.sock`.
-- Distro-специфичные пути задаются через
+- Endpoint OVSDB по умолчанию — `unix:/var/run/openvswitch/db.sock`.
+- Пути для конкретного дистрибутива задаются через
   `micro_bfd.actuator.ovsdb_endpoint`.
 - Устройства, управляемые NetworkManager, используют отдельный D-Bus
-  backend, потому что NetworkManager владеет connection-профилями и
+  backend, потому что NetworkManager владеет профилями соединений и
   выставляет состояние устройств через D-Bus. Эти два backend нельзя
   смешивать.
 
 ### Риски
 
 - Подключение `libovsdb` увеличивает поверхность зависимостей и должно
-  пройти `make verify`, vulnerability audit и ревью модуля до релиза,
-  где `libovsdb` становится дефолтом.
-- `ovs-vsctl` остаётся в кодовой базе как fallback-тип, а не как
-  дефолтный backend, выбираемый конфигурацией.
+  пройти `make verify`, аудит уязвимостей и ревью модуля до релиза,
+  где `libovsdb` становится вариантом по умолчанию.
+- `ovs-vsctl` остаётся в кодовой базе как резервный тип, а не как
+  backend по умолчанию, выбираемый конфигурацией.
 
-## References
+## Источники
 
-- [Выбор backend и owner policy](../../../internal/netio/lag_backend.go)
-- [Нативный OVSDB adapter](../../../internal/netio/lag_ovsdb.go)
+- [Выбор backend и политики владельца](../../../internal/netio/lag_backend.go)
+- [Нативный адаптер OVSDB](../../../internal/netio/lag_ovsdb.go)
 - [Выбранная версия модуля](../../../go.mod)
 - RFC 7047: <https://datatracker.ietf.org/doc/html/rfc7047>
 - Open vSwitch `ovsdb(7)`:

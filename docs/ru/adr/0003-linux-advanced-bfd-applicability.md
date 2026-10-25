@@ -1,59 +1,59 @@
 # ADR-0003: Применимость Micro-BFD, VXLAN BFD и Geneve BFD в Linux
 
-| Field | Value |
+| Поле | Значение |
 |---|---|
-| Status | Accepted |
-| Date | 2026-05-01 |
+| Статус | Accepted |
+| Дата | 2026-05-01 |
 
-## Context
+## Контекст
 
-GoBFD поставляет userspace-пути Micro-BFD и неполные preview-пути RFC 8971
-BFD для VXLAN и RFC 9521 BFD для Geneve. У каждого режима свои
-ownership-ограничения в Linux: kernel bonding, OVS, OVN,
+GoBFD поставляет пути Micro-BFD в пространстве пользователя и неполные
+предварительные реализации BFD для VXLAN по RFC 8971 и Geneve по RFC 9521.
+У каждого режима свои ограничения владения в Linux: kernel bonding, OVS, OVN,
 NetworkManager, Cilium, Calico и NSX могут уже владеть
 соответствующим устройством или сокетом. Единое декларативное описание
-применимости и требуемого ownership предотвращает misconfiguration и
-неверные production-заявления.
+применимости и требуемого владения предотвращает ошибки настройки и
+неверные заявления о готовности к рабочей эксплуатации.
 
-## Decision
+## Решение
 
-GoBFD -- это userspace BFD-движок. Он определяет состояние BFD и
-выполняет явно сконфигурированные enforcement-backend. Это не
-универсальный Linux dataplane controller. У каждого продвинутого
+GoBFD — BFD-движок в пространстве пользователя. Он определяет состояние BFD и
+применяет его через явно настроенные backend. Это не универсальный контроллер
+плоскости передачи Linux. У каждого расширенного
 режима фиксированная применимость и фиксированный набор
-production-ограничений, перечисленных в этой записи.
+эксплуатационных ограничений, перечисленных в этой записи.
 
-## Consequences
+## Последствия
 
 ### Матрица состояния
 
-| Mode | Linux fit | Текущее состояние GoBFD | Production gap |
+| Режим | Применимость в Linux | Текущее состояние GoBFD | Ограничение рабочей эксплуатации |
 |---|---:|---:|---|
-| Micro-BFD | High | Per-member sessions, aggregate state, API/CLI preview и enforcement backend paths | Dedicated multicast MAC/member-wire qualification и owner/backend interoperability |
-| VXLAN BFD | Только lab или изолированный endpoint | Exact IPv4 Format A `userspace-udp` preview | Owner-specific интеграции kernel/OVS/OVN/Cilium/Calico/NSX |
-| Geneve BFD | Только lab или изолированный endpoint | Exact IPv4 Format A `userspace-udp` preview | Owner-specific dataplane-интеграции и rate-policy |
+| Micro-BFD | Высокая | Сессии участников, агрегатное состояние, предварительные API/CLI и backend применения состояния | Квалификация выделенного multicast MAC и пакетов на участниках, совместимость владельца с backend |
+| VXLAN BFD | Только лаборатория или изолированный endpoint | Предварительный `userspace-udp` с точным IPv4 Format A | Интеграции с владельцами kernel/OVS/OVN/Cilium/Calico/NSX |
+| Geneve BFD | Только лаборатория или изолированный endpoint | Предварительный `userspace-udp` с точным IPv4 Format A | Интеграции с владельцами плоскости передачи и политика частоты пакетов |
 
 ### Micro-BFD в Linux
 
-RFC 7130 определяет одну независимую BFD-сессию на каждый member-линк
+RFC 7130 определяет одну независимую BFD-сессию на каждый линк-участник
 LAG. GoBFD реализует:
 
-- одну сессию на каждый сконфигурированный member-линк;
-- UDP destination port 6784;
-- `SO_BINDTODEVICE` на member-интерфейсе;
+- одну сессию на каждый настроенный линк-участник;
+- UDP-порт назначения 6784;
+- `SO_BINDTODEVICE` на интерфейсе-участнике;
 - агрегатный учёт состояния через `MicroBFDGroup`;
-- snapshots сессий для API/CLI/мониторинга;
-- guarded actuator policy с режимами `disabled`, `dry-run` и `enforce`;
+- снимки сессий для API/CLI/мониторинга;
+- ограниченную проверками политику actuator с режимами `disabled`, `dry-run` и `enforce`;
 - backend kernel-bond через sysfs;
-- нативный OVSDB bonded-port backend;
-- NetworkManager D-Bus backend для NM-owned bond-профилей;
-- OVS CLI fallback-тип для диагностики.
+- нативный OVSDB backend объединённого порта;
+- NetworkManager D-Bus backend для bond-профилей под управлением NM;
+- резервный тип OVS CLI для диагностики.
 
-Production-ограничения:
+Эксплуатационные ограничения:
 
-1. Enforcement требует явного backend и `owner_policy`.
-2. Модели ownership kernel bonding, OVS и NetworkManager различаются.
-3. Ручные изменения оператора требуют reconciliation при рестарте
+1. Применение состояния требует явного backend и `owner_policy`.
+2. Модели владения kernel bonding, OVS и NetworkManager различаются.
+3. Ручные изменения оператора требуют согласования состояния при перезапуске
    демона.
 4. Teamd и дополнительные switching-стеки остаются будущими
    интеграциями.
@@ -63,65 +63,65 @@ Production-ограничения:
 RFC 8971 определяет BFD поверх VXLAN с Management VNI для проверок
 доступности VTEP/NVE. GoBFD реализует:
 
-- внешний UDP port 4789;
+- внешний UDP-порт 4789;
 - валидацию VXLAN-заголовка и сравнение Management VNI;
 - сборку внутренних Ethernet/IPv4/UDP/BFD пакетов;
-- локальный demux через `OverlayReceiver`;
+- локальное демультиплексирование через `OverlayReceiver`;
 - явный `vxlan.backend: userspace-udp`.
 
-Production-ограничения:
+Эксплуатационные ограничения:
 
 1. `userspace-udp` владеет локальным сокетом UDP 4789.
-2. Kernel VXLAN, OVS, OVN, Cilium, Calico или другой dataplane может
-   уже владеть UDP 4789 в целевом network namespace.
-3. Зарезервированные имена owner-backend должны fail closed до
-   появления реализации и interop-evidence.
-4. Стартовая диагностика должна сообщать о конфликтах ownership
-   сокета с actionable-ошибками.
-5. Identity поддерживаемого IPv4 Format A проверяется точно; путь остаётся
-   unqualified из-за незавершённой owner-specific dataplane integration.
+2. Kernel VXLAN, OVS, OVN, Cilium, Calico или другая плоскость передачи может
+   уже владеть UDP 4789 в целевом сетевом пространстве имён.
+3. Зарезервированные имена backend владельца должны отклоняться до
+   появления реализации и подтверждённой совместимости.
+4. Стартовая диагностика должна сообщать о конфликтах владения сокетом
+   ошибками, позволяющими выбрать действие.
+5. Идентичность поддерживаемого IPv4 Format A проверяется точно; путь остаётся
+   неквалифицированным из-за незавершённой интеграции с владельцем плоскости передачи.
 
 ### Geneve BFD в Linux
 
-RFC 9521 определяет BFD для point-to-point Geneve-туннелей. GoBFD
+RFC 9521 определяет BFD для Geneve-туннелей типа точка-точка. GoBFD
 реализует:
 
-- внешний UDP port 6081;
+- внешний UDP-порт 6081;
 - бит `O` установлен, бит `C` сброшен;
 - Protocol Type `0x6558`;
 - валидацию VNI;
 - сборку внутренних Ethernet/IPv4/UDP/BFD пакетов;
 - явный `geneve.backend: userspace-udp`.
 
-Production-ограничения:
+Эксплуатационные ограничения:
 
 1. `userspace-udp` владеет локальным сокетом UDP 6081.
-2. OVS, OVN, NSX или другой Geneve-dataplane может уже владеть тем же
+2. OVS, OVN, NSX или другая плоскость передачи Geneve может уже владеть тем же
    сокетом.
-3. RFC 9521 требует контролируемых traffic-условий или provisioned
-   BFD-rate, чтобы избежать ложных отказов из-за congestion.
-4. Owner-специфичные backend требуют отдельной реализации и
-   interop-тестов.
-5. Требуется явная IPv4 Format A VAP identity с exact match; unsupported
-   formats fail closed, owner-specific integration не завершена.
+3. RFC 9521 требует контролируемых условий трафика или заранее обеспеченной
+   частоты BFD, чтобы избежать ложных отказов из-за перегрузки.
+4. Backend конкретных владельцев требуют отдельной реализации и
+   тестов совместимости.
+5. Требуется явная идентичность VAP IPv4 Format A с точным совпадением;
+   неподдерживаемые форматы отклоняются, интеграция с владельцем не завершена.
 
 ### Матрица применимости
 
-| Сценарий | Fit | Требуемый ownership |
+| Сценарий | Применимость | Требуемое владение |
 |---|---:|---|
-| Linux router либо NFV-appliance с LACP-uplinks | High | Backend kernel bonding, OVS либо NetworkManager выбран явно |
-| Bare-metal Kubernetes node | Medium | `hostNetwork` и host-interface ownership policy |
-| EVPN/VXLAN validation endpoint | Только lab | Изолированный Management VNI endpoint до появления owner-specific dataplane integration |
-| OVN/NSX/Geneve gateway | Только lab | Явная Format A VAP identity и изолированный socket ownership |
-| Interop-лаборатория против EOS/FRR/Linux | High | Явный namespace, socket и interface ownership |
-| Generic application-host без LAG/overlay ownership | Low | Предпочтителен внешний routing-демон либо BFD сетевого устройства |
+| Linux-маршрутизатор или NFV-устройство с LACP uplink | Высокая | Backend kernel bonding, OVS или NetworkManager выбран явно |
+| Узел Kubernetes на физическом сервере | Средняя | `hostNetwork` и политика владения интерфейсами хоста |
+| Endpoint проверки EVPN/VXLAN | Только лаборатория | Изолированный endpoint Management VNI до появления интеграции с владельцем плоскости передачи |
+| Шлюз OVN/NSX/Geneve | Только лаборатория | Явная идентичность VAP Format A и изолированное владение сокетом |
+| Лаборатория совместимости с EOS/FRR/Linux | Высокая | Явное владение пространством имён, сокетом и интерфейсом |
+| Прикладной хост общего назначения без владения LAG/overlay | Низкая | Предпочтителен внешний демон маршрутизации или BFD сетевого устройства |
 
-## References
+## Источники
 
-- [Конфигурация Micro-BFD и подключение member sessions](../../../cmd/gobfd/micro_bfd.go)
-- [Проверки ownership actuator backend](../../../internal/netio/lag_backend.go)
-- [Допуск overlay backend](../../../internal/netio/overlay_backend.go)
-- [Точный поддерживаемый профиль inner packet](../../../internal/netio/overlay_inner.go)
+- [Конфигурация Micro-BFD и подключение сессий участников](../../../cmd/gobfd/micro_bfd.go)
+- [Проверки владения backend actuator](../../../internal/netio/lag_backend.go)
+- [Допуск оверлейного backend](../../../internal/netio/overlay_backend.go)
+- [Точный поддерживаемый профиль внутреннего пакета](../../../internal/netio/overlay_inner.go)
 - RFC 7130: <https://datatracker.ietf.org/doc/html/rfc7130>
 - RFC 8971: <https://datatracker.ietf.org/doc/html/rfc8971>
 - RFC 9521: <https://datatracker.ietf.org/doc/html/rfc9521>
@@ -130,7 +130,7 @@ Production-ограничения:
   <https://man7.org/linux/man-pages/man7/rtnetlink.7.html>
 - Документация bonding ядра Linux:
   <https://docs.kernel.org/networking/bonding.html>
-- Open vSwitch OVSDB reference:
+- Справочник OVSDB Open vSwitch:
   <https://docs.openvswitch.org/en/stable/ref/ovsdb.7/>
 - NetworkManager D-Bus API:
   <https://networkmanager.dev/docs/api/latest/spec.html>

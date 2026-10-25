@@ -1,24 +1,24 @@
-# Architecture Decision Records
+# Архитектурные решения (ADR)
 
-Живые decision-записи для GoBFD. Каждая запись фиксирует контекст,
-решение и последствия. Поле `Date` устанавливается при переходе в
+Действующие записи решений GoBFD. Каждая запись фиксирует контекст,
+решение и последствия. Поле даты (`Date` в английском оригинале) устанавливается при переходе в
 статус `Accepted` и далее не меняется. Заменённые записи остаются на
 месте с прямой ссылкой на замену.
 
 ## Формат
 
 ```markdown
-# ADR-NNNN: Title
+# ADR-NNNN: Название
 
-| Field | Value |
+| Поле | Значение |
 |---|---|
-| Status | One of: Proposed, Accepted, Superseded by ADR-NNNN, Deprecated |
-| Date | YYYY-MM-DD |
+| Статус | Одно из: Proposed, Accepted, Superseded by ADR-NNNN, Deprecated |
+| Дата | YYYY-MM-DD |
 
-## Context
-## Decision
-## Consequences
-## References
+## Контекст
+## Решение
+## Последствия
+## Источники
 ```
 
 ## Индекс
@@ -30,6 +30,6 @@
 | [0003](./0003-linux-advanced-bfd-applicability.md) | Применимость Micro-BFD, VXLAN BFD и Geneve BFD в Linux | Accepted |
 | [0004](./0004-overlay-backend-vocabulary.md) | Единый словарь overlay backend | Accepted |
 | [0005](./0005-smallstep-management-certificates.md) | Внешний Smallstep CA для management-сертификатов | Accepted |
-| [0006](./0006-session-preserving-reload-policy.md) | Политика reload с сохранением сессии | Accepted policy; qualification отдельно |
-| [0007](./0007-workload-phase-accounting.md) | Фазы нагрузки и конечный учёт пакетов | Accepted policy; qualification отдельно |
+| [0006](./0006-session-preserving-reload-policy.md) | Политика reload с сохранением сессии | Accepted policy; квалификация отдельно |
+| [0007](./0007-workload-phase-accounting.md) | Фазы нагрузки и конечный учёт пакетов | Accepted policy; квалификация отдельно |
 | [0008](./0008-experimental-prerelease-boundary.md) | Граница экспериментального prerelease | Proposed; публикация не разрешена |
