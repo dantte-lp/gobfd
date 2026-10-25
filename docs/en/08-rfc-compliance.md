@@ -14,7 +14,7 @@
 [![RFC 9764](https://img.shields.io/badge/RFC_9764-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9764)
 [![RFC 7880](https://img.shields.io/badge/RFC_7880-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7880)
 [![RFC 7881](https://img.shields.io/badge/RFC_7881-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7881)
-[![RFC 5884](https://img.shields.io/badge/RFC_5884-Stub-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5884)
+[![RFC 5884](https://img.shields.io/badge/RFC_5884-Not_implemented-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5884)
 
 > RFC compliance matrix, per-section implementation notes, design rationale, and links to RFC source texts.
 
@@ -36,7 +36,7 @@
 - [RFC 9521 Implementation Notes](#rfc-9521-implementation-notes)
 - [RFC 9764 Implementation Notes](#rfc-9764-implementation-notes)
 - [RFC 7880/7881 (Planned)](#rfc-78807881-planned)
-- [Stub Interfaces](#stub-interfaces)
+- [Unimplemented MPLS and VCCV](#unimplemented-mpls-and-vccv)
 - [Reference RFCs](#reference-rfcs)
 - [RFC Source Files](#rfc-source-files)
 
@@ -58,8 +58,8 @@
 | [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Partial** | PDU-length authentication covered locally; padded TX qualified with FRR/BIRD |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Planned** | Stateless reflector + initiator for infrastructure liveness |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD for IPv4/IPv6 | **Planned** | Port 7784 encapsulations for S-BFD |
-| [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD for MPLS LSPs | **Stub** | Interfaces defined, pending LSP Ping (RFC 4379) |
-| [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD for PW VCCV | **Stub** | Interfaces defined, pending VCCV/LDP |
+| [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD for MPLS LSPs | **Not implemented** | No MPLS session implementation or stub API |
+| [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD for PW VCCV | **Not implemented** | No VCCV session implementation or stub API |
 
 `gobfdctl capabilities` and `CapabilityService.ListCapabilities` report the five
 preview profiles separately from this normative matrix. Maturity, validated
@@ -883,14 +883,15 @@ RFC 7881 defines S-BFD encapsulation for IPv4 and IPv6 using destination port 77
 No `SBFDReflector`, `SBFDInitiator`, or port-7784 listener exists in the
 current codebase; the names above describe planned roles, not APIs.
 
-### Stub Interfaces
+### Unimplemented MPLS and VCCV
 
-The following RFCs have stub interfaces defined for future implementation:
+These transport families have no session implementation or stub interfaces in
+the current codebase. Retained RFC texts are references, not implementation.
 
 | RFC | Dependency | Status |
 |---|---|---|
-| RFC 5884 (BFD for MPLS) | LSP Ping (RFC 4379) | Interfaces defined in `internal/bfd` |
-| RFC 5885 (BFD for VCCV) | VCCV (RFC 5085), LDP (RFC 4447) | Interfaces defined |
+| RFC 5884 (BFD for MPLS) | LSP Ping (RFC 4379) | Not implemented |
+| RFC 5885 (BFD for VCCV) | VCCV (RFC 5085), LDP (RFC 4447) | Not implemented |
 
 ### Reference RFCs
 

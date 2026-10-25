@@ -14,7 +14,7 @@
 [![RFC 9764](https://img.shields.io/badge/RFC_9764-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9764)
 [![RFC 7880](https://img.shields.io/badge/RFC_7880-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7880)
 [![RFC 7881](https://img.shields.io/badge/RFC_7881-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7881)
-[![RFC 5884](https://img.shields.io/badge/RFC_5884-Stub-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5884)
+[![RFC 5884](https://img.shields.io/badge/RFC_5884-Not_implemented-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5884)
 
 > Матрица соответствия RFC, постраничные заметки по реализации, обоснование дизайна и ссылки на исходные тексты RFC.
 
@@ -36,7 +36,7 @@
 - [Заметки по RFC 9521](#заметки-по-rfc-9521)
 - [Заметки по RFC 9764](#заметки-по-rfc-9764)
 - [RFC 7880/7881 (Планируется)](#rfc-78807881-планируется)
-- [Интерфейсы-заглушки](#интерфейсы-заглушки)
+- [Нереализованные MPLS и VCCV](#нереализованные-mpls-и-vccv)
 - [Справочные RFC](#справочные-rfc)
 - [Исходные файлы RFC](#исходные-файлы-rfc)
 
@@ -58,8 +58,8 @@
 | [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Частично** | Аутентификация по длине PDU покрыта локально; дополненный TX квалифицирован с FRR/BIRD |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Планируется** | Рефлектор без состояния + инициатор для проверки инфраструктуры |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD для IPv4/IPv6 | **Планируется** | Инкапсуляция на порт 7784 для S-BFD |
-| [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD для MPLS LSP | **Заглушка** | Интерфейсы определены, ожидает LSP Ping |
-| [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD для PW VCCV | **Заглушка** | Интерфейсы определены, ожидает VCCV/LDP |
+| [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD для MPLS LSP | **Не реализован** | Нет реализации MPLS-сессий или API-заглушек |
+| [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD для PW VCCV | **Не реализован** | Нет реализации VCCV-сессий или API-заглушек |
 
 `gobfdctl capabilities` и `CapabilityService.ListCapabilities` показывают пять
 предварительных профилей отдельно от нормативной матрицы. Зрелость, включение
@@ -877,12 +877,16 @@ RFC 7881 определяет инкапсуляцию S-BFD для IPv4 и IPv6
 В текущем коде нет `SBFDReflector`, `SBFDInitiator` или listener порта 7784;
 описанные выше имена являются ролями плана, а не существующими API.
 
-### Интерфейсы-заглушки
+### Нереализованные MPLS и VCCV
+
+Для этих транспортов в текущем коде нет реализации сессий или
+интерфейсов-заглушек. Сохранённые тексты RFC служат справочным материалом,
+а не подтверждением реализации.
 
 | RFC | Зависимость | Статус |
 |---|---|---|
-| RFC 5884 (BFD для MPLS) | LSP Ping (RFC 4379) | Интерфейсы определены в `internal/bfd` |
-| RFC 5885 (BFD для VCCV) | VCCV (RFC 5085), LDP (RFC 4447) | Интерфейсы определены |
+| RFC 5884 (BFD для MPLS) | LSP Ping (RFC 4379) | Не реализован |
+| RFC 5885 (BFD для VCCV) | VCCV (RFC 5085), LDP (RFC 4447) | Не реализован |
 
 ### Справочные RFC
 

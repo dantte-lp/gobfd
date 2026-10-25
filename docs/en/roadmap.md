@@ -23,8 +23,14 @@ reference-load acceptance. Unrelated unmerged work is outside this projection.
 The documentation revalidation `gobfd-qj0.8.2.8.7.2.16` is accepted locally at
 `bb244a6d42a35f6c968ecd9fedf4354b86a95754`. The next source change,
 `abad22b2d9bd72042d337cdbee104f45946375c5`, replaces the Containerlab receipt
-writer atomically; its affected documentation is reviewed under
-`gobfd-qj0.8.2.8.7.2.17`. English/source checks precede the Russian translation.
+writer atomically; its documentation review is accepted at
+`b944151bec08c44bdf0514e5945f257f0404c0dd` under
+`gobfd-qj0.8.2.8.7.2.17`. The subsequent transport authorization fix is
+accepted at `f43c9b5d87247cfdcee7aa5ac8414fb4515bf90f` under
+`gobfd-qj0.8.2.3.8`; `gobfd-qj0.8.2.8.7.2.18` reviews the current
+English/source contract before the Russian translation. The review corrects
+MPLS/VCCV support claims, configuration and health semantics, HAProxy timing
+and the disclosed Containerlab/compiler and Kubernetes listener boundaries.
 These documentation gates are separate from release qualification; later
 accepted source changes require review of the affected pages. Publication
 remains held; alpha readiness
@@ -32,7 +38,7 @@ remains held; alpha readiness
 
 | Area | Current boundary | Beads authority |
 |---|---|---|
-| Documentation | The 31-pair source and Russian translation audit and ancillary publication closeout are accepted locally; the subsequent receipt-writer change has a separate current-source review | `gobfd-qj0.8.2.8.7.2.16`, `gobfd-qj0.8.2.8.7.2.17` |
+| Documentation | The 31-pair source and Russian translation audit and receipt-writer follow-up are accepted locally; the transport-fix baseline has a separate current-source review | `gobfd-qj0.8.2.8.7.2.16`, `gobfd-qj0.8.2.8.7.2.17`, `gobfd-qj0.8.2.8.7.2.18` |
 | Management/reload | Unsafe-loopback policy changes reject before candidate acceptance; core pending activation is accepted locally; the parent retains separate P2 interface-validation and P3 runtime-VNI work | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6`, `gobfd-qj0.8.2.2.6.5`, `gobfd-qj0.8.2.2.6.6` |
 | Sender recovery | Same-socket IPv4/IPv6 rebind and denied-privilege failure pass locally; matching named scope no longer increases packet-loop allocations after recreation | `gobfd-qj0.8.2.2.6.7` |
 | Pending qualification | Typed reason classes and active-address checks retain generation, claims and sockets; all-five periodic resource checks also cover missing monitor events; local process evidence remains separate from final release qualification | `gobfd-qj0.8.2.2.6.8`, `gobfd-qj0.8.2.2.6.8.1`, `gobfd-qj0.8.2.2.6.8.2` |
@@ -41,6 +47,7 @@ remains held; alpha readiness
 | Containerlab | The unmerged FRR lifecycle and vendor-policy candidate has local source checks; compiler/runtime isolation, native FRR qualification and integration into `dev` remain open; five NOS profiles remain unavailable in that candidate | `gobfd-qj0.8.2.8.5.2.7.3`, `gobfd-qj0.8.2.8.5.2.7.3.4`, `gobfd-qj0.8.2.8.5.2.7.4` |
 | Echo preview | Declarative and API IPv4/IPv6 TX binding, UDP/3785 and lease cleanup pass local checks; API receive claims honor the requested interface; full RFC qualification remains open | `gobfd-qj0.8.2.1.19`, `gobfd-qj0.8.2.1.17` |
 | Legacy demos | HAProxy/Kubernetes CLI and pod-selector drift require source fixes and actual execution | `gobfd-qj0.8.2.8.7.1.4.1` |
+| Kubernetes API exposure | The host-network example exposes plaintext GoBGP API TCP/50051; listener restriction and compatible probes require a separate source fix and live qualification before acceptance | `gobfd-qj0.8.2.8.7.1.4.1.1` |
 | Runtime | Bounded CPU, GC, scheduler and fixed-manifest churn fixtures exist; calibrated distributions, clock qualification and thread-pin A/B remain incomplete | `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7` |
 | Wire/integrations | Retained development slices do not replace final exact-candidate qualification | `gobfd-qj0.8.2.2.7.5.5`, `gobfd-qj0.8.2.8.5.2` |
 | Security | The unsafe mutation opt-in is restricted to verified plaintext loopback TCP; TLS clients without a recognized principal cannot mutate. Local guard/CA regressions remain separate from final candidate security evidence | `gobfd-qj0.8.4.1`, `gobfd-qj0.8.2.3.8` |

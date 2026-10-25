@@ -766,6 +766,14 @@ An available tag alone does not qualify its base, security or interoperability.
 
 ### Lab Preparation (Go Bootstrap)
 
+The five `interop-clab*` Make launchers still depend on host Go or the
+development service. Even the identity-checked `--test-only` path compiles
+tests in the development container with the engine socket mounted and omits
+`-race`. It is not an accepted compiler/runtime isolation boundary.
+`gobfd-qj0.8.2.8.5.2.7.3.4` owns the replacement; the isolated candidate is
+not integrated into this checkout. The commands below describe the current
+implementation and remain subject to the image admission restrictions above.
+
 The Go 1.27 bootstrap command owns preflight, bounded parallel pulls, build,
 inventory, native VyOS ISO/rootfs preparation, and operator-supplied
 Arista/Cisco archive imports. No repository Python or shell helper participates

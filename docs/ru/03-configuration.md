@@ -256,7 +256,7 @@ loopback или добавьте `grpc.tls`. Переведите изменяю
 | `default_desired_min_tx` | duration | `"1s"` | Desired Min TX Interval по умолчанию |
 | `default_required_min_rx` | duration | `"1s"` | Required Min RX Interval по умолчанию; ноль запрашивает остановку периодических пакетов Control |
 | `default_detect_multiplier` | uint32 | `3` | Множитель обнаружения (1–255) |
-| `align_intervals` | bool | `false` | RFC 7419: выравнивание таймеров до ближайшего общего интервала |
+| `align_intervals` | bool | `false` | RFC 7419: округление таймеров вверх в общем наборе интервалов; значения выше 1 с сохраняются |
 | `default_padded_pdu_size` | uint16 | `0` | RFC 9764: дополнение BFD-пакетов до этого размера с битом DF (0 = отключено; размеры v1: 24-9000 без аутентификации, 26-9000 с аутентификацией; фактический PDU не усекается) |
 
 Эти значения по умолчанию подставляются в пропущенные поля декларативных YAML-сессий.
@@ -748,7 +748,7 @@ base, участников Micro-BFD, VXLAN и Geneve передают пуст�
 | `padded_pdu_size` | uint16 | Нет | RFC 9764: дополнение BFD-пакетов до этого размера; ненулевое значение переопределяет `bfd.default_padded_pdu_size`; v1 отклоняет размеры аутентифицированных пакетов 24/25 и сохраняет более длинный фактический PDU |
 | `multihop_max_hops` | uint32 | Нет | Только `multi_hop`: политика числа переходов 1-254, по умолчанию 1; принимается TTL/Hop Limit >= 255 - N (1/2/5 -> 254/253/250). Явный `0` и поле на `single_hop` отклоняются (`ErrInvalidSessionMultihopMaxHops`). Только YAML: API-сессии используют значение по умолчанию |
 | `auth.type` | string | Нет | Тип аутентификации RFC 5880: `simple_password`, `keyed_md5`, `meticulous_keyed_md5`, `keyed_sha1`, `meticulous_keyed_sha1` |
-| `auth.key_id` | uint32 | Если аутентификация включена | Auth Key ID, допустимый диапазон 0-255 |
+| `auth.key_id` | uint32 | Нет | Auth Key ID, допустимый диапазон 0-255; при пропуске выбирается 0, в том числе с включённой аутентификацией |
 | `auth.secret` | string | Если аутентификация включена | Секрет: 1-16 байт для Simple Password/MD5, 1-20 байт для SHA1 |
 
 Публичный API `AddSessionRequest.padded_pdu_size` и CLI `--padded-pdu-size`

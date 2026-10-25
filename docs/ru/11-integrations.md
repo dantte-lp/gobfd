@@ -145,7 +145,10 @@ make int-bgp-failover-down   # Очистка
 
 **Директория:** `deployments/integrations/haproxy-health/`
 
-Обнаружение сбоя бэкенда за доли секунды через BFD, интегрированное с протоколом agent-check HAProxy.
+Состояние BFD управляет протоколом agent-check HAProxy. Пример использует
+номинальные интервалы BFD 300 мс, Detect Mult 3 и опрос агента раз в 1 с.
+Задержка исключения бэкенда измеряется отдельно; эти настройки не гарантируют
+исключение менее чем за секунду.
 
 ### Архитектура
 
@@ -437,6 +440,15 @@ graph TD
 - **DaemonSet** — один экземпляр GoBFD на каждый узел для полного покрытия BFD
 - **Динамические сессии** — BFD-сессии добавляются через `gobfdctl` после обнаружения IP узлов
 
+Поставляемый сайдкар запускает `gobgpd` без `--api-hosts` и `--tls`.
+[Значения по умолчанию закреплённого upstream](https://github.com/osrg/gobgp/blob/da824d99912e02124b53741245ee4186c381adcc/cmd/gobgpd/main.go#L58-L76)
+открывают незашифрованный API GoBGP TCP/50051 на интерфейсах узла, наряду
+с метриками TCP/9100 и BGP TCP/179. Ограничьте доступ к узлу до применения
+этого примера с hostNetwork. TCP probes GoBGP также обращаются к 50051;
+при привязке API к loopback нужна совместимая замена probes, а не только
+аргумента слушателя. Исправление исходников и квалификация на работающем
+кластере ведутся в `gobfd-qj0.8.2.8.7.1.4.1.1`.
+
 ### Быстрый старт
 
 ```bash
@@ -520,7 +532,7 @@ podman exec <tshark-контейнер> tshark -r /captures/bfd.pcapng -Y bfd \
 | Мониторинг HAProxy | 172.23.0.0/24 | gobfd-monitor, haproxy-agent, haproxy, backend1/2, backend1/2-bfd, tshark | 8080 |
 | Наблюдаемость | 172.25.0.0/24 | gobfd, frr, prometheus, grafana, tshark | 9090, 3000 |
 | Anycast ExaBGP | 172.24.0.0/24 | gobgp, gobfd-receiver, gobfd, exabgp, tshark | — |
-| Kubernetes | Сеть хоста | DaemonSet (gobfd + gobgp sidecar) | — |
+| Kubernetes | Сеть хоста | DaemonSet (gobfd + gobgp sidecar) | TCP 179, 50051, 9100; UDP 3784, 4784 по конфигурации |
 | **Interop: Базовый** | 172.20.0.0/24 | gobfd, frr, bird3, holo, holo-config, thoro, tshark | — |
 | **Interop: BGP+BFD** | 172.21.0.0/24 | gobfd, gobgp, frr, bird3, exabgp, gobfd-sidecar | — |
 | **Interop: RFC** | 172.22.0.0/24 | gobfd-rfc, gobfd-rfc9384, gobgp-rfc, frr-rfc, frr-rfc-bgp, frr-rfc-unsolicited, tshark-rfc | — |

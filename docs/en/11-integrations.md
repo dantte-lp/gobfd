@@ -143,7 +143,10 @@ make int-bgp-failover-down   # Cleanup
 
 **Directory:** `deployments/integrations/haproxy-health/`
 
-Sub-second backend failure detection via BFD, integrated with HAProxy's agent-check protocol.
+BFD state drives HAProxy's agent-check protocol. The example uses nominal
+300 ms BFD intervals, Detect Mult 3 and a 1 s agent polling interval. Measure
+backend removal latency separately; these settings do not guarantee removal
+in less than one second.
 
 ### Architecture
 
@@ -435,6 +438,15 @@ graph TD
 - **DaemonSet** — one GoBFD instance per node for consistent BFD coverage
 - **Dynamic sessions** — BFD sessions added via `gobfdctl` after discovering node IPs
 
+The shipped sidecar starts `gobgpd` without `--api-hosts` or `--tls`. Its pinned
+[upstream defaults](https://github.com/osrg/gobgp/blob/da824d99912e02124b53741245ee4186c381adcc/cmd/gobgpd/main.go#L58-L76)
+expose plaintext GoBGP API TCP/50051 on the node interfaces, alongside metrics
+TCP/9100 and BGP TCP/179. Restrict node reachability before applying this
+host-network example. GoBGP's TCP probes also target 50051; changing the API
+to loopback requires compatible probe changes, not only a listener argument.
+The source correction and live qualification are tracked in
+`gobfd-qj0.8.2.8.7.1.4.1.1`.
+
 ### Quick Start
 
 ```bash
@@ -518,7 +530,7 @@ Reference: [tshark.dev](https://tshark.dev/) — tshark documentation and tutori
 | HAProxy Health | 172.23.0.0/24 | gobfd-monitor, haproxy-agent, haproxy, backend1/2, backend1/2-bfd, tshark | 8080 |
 | Observability | 172.25.0.0/24 | gobfd, frr, prometheus, grafana, tshark | 9090, 3000 |
 | ExaBGP Anycast | 172.24.0.0/24 | gobgp, gobfd-receiver, gobfd, exabgp, tshark | — |
-| Kubernetes | Host network | DaemonSet (gobfd + gobgp sidecar) | — |
+| Kubernetes | Host network | DaemonSet (gobfd + gobgp sidecar) | TCP 179, 50051, 9100; UDP 3784, 4784 as configured |
 | **Interop: Base** | 172.20.0.0/24 | gobfd, frr, bird3, holo, holo-config, thoro, tshark | — |
 | **Interop: BGP+BFD** | 172.21.0.0/24 | gobfd, gobgp, frr, bird3, exabgp, gobfd-sidecar | — |
 | **Interop: RFC** | 172.22.0.0/24 | gobfd-rfc, gobfd-rfc9384, gobgp-rfc, frr-rfc, frr-rfc-bgp, frr-rfc-unsolicited, tshark-rfc | — |

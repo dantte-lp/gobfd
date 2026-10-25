@@ -252,7 +252,7 @@ Changing the format requires a restart.
 | `default_desired_min_tx` | duration | `"1s"` | Default Desired Min TX Interval |
 | `default_required_min_rx` | duration | `"1s"` | Default Required Min RX Interval; zero requests no periodic Control packets |
 | `default_detect_multiplier` | uint32 | `3` | Default Detection Multiplier (1–255) |
-| `align_intervals` | bool | `false` | RFC 7419: align timers to nearest common interval |
+| `align_intervals` | bool | `false` | RFC 7419: round timers up within the common interval set; preserve values above 1 s |
 | `default_padded_pdu_size` | uint16 | `0` | RFC 9764: pad BFD packets to this size with DF bit (0 = disabled; v1 targets: 24-9000 without auth, 26-9000 with auth; never truncate the actual PDU) |
 
 These defaults supply omitted values for declarative YAML sessions. The gRPC
@@ -738,7 +738,7 @@ The YAML uniqueness key is the tuple: `(peer, local, interface)`.
 | `padded_pdu_size` | uint16 | No | RFC 9764: pad BFD packets to this size; nonzero overrides `bfd.default_padded_pdu_size`; v1 rejects authenticated targets 24/25 and retains larger actual PDUs |
 | `multihop_max_hops` | uint32 | No | `multi_hop` only: hop policy 1-254, default 1; accepts received TTL/Hop Limit >= 255 - N (1/2/5 -> 254/253/250). Explicit `0` and the key on `single_hop` are rejected (`ErrInvalidSessionMultihopMaxHops`). YAML only: API sessions use the default |
 | `auth.type` | string | No | RFC 5880 auth type: `simple_password`, `keyed_md5`, `meticulous_keyed_md5`, `keyed_sha1`, `meticulous_keyed_sha1` |
-| `auth.key_id` | uint32 | If auth enabled | Auth Key ID, valid range 0-255 |
+| `auth.key_id` | uint32 | No | Auth Key ID, valid range 0-255; omission selects 0, including when auth is enabled |
 | `auth.secret` | string | If auth enabled | Secret: 1-16 bytes for Simple Password/MD5, 1-20 bytes for SHA1 |
 
 Public API `AddSessionRequest.padded_pdu_size` and CLI `--padded-pdu-size`
