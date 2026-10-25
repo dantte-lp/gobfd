@@ -638,6 +638,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve benchmark, `benchstat`, `tee` and Go-version lookup failures in Make
+  targets. Stop subsequent metadata and HTML writes while retaining raw output
+  already written for diagnosis.
+
 - Reject truncated Podman multiplexed output headers instead of treating them
   as successful EOF. Preserve completed binary stdout/stderr and wrapped read
   errors; exec consumers fail on incomplete output.

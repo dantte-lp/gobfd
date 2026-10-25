@@ -446,6 +446,10 @@ int-k8s-down:
 
 # === Benchmarks & Profiling ===
 
+# Preserve producer and tee failures before publishing benchmark reports.
+benchmark benchmark-all benchmark-save benchmark-compare: SHELL := bash
+benchmark benchmark-all benchmark-save benchmark-compare: .SHELLFLAGS := -e -o pipefail -c
+
 benchmark:
 	$(EXEC) go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$$' ./internal/bfd/ | tee benchmark.txt
 
@@ -479,9 +483,10 @@ benchmark-save:
 	@cat $(BENCH_DIR)/$(BENCH_VERSION)/benchmark-bfd.txt \
 		$(BENCH_DIR)/$(BENCH_VERSION)/benchmark-netio.txt \
 		> $(BENCH_DIR)/$(BENCH_VERSION)/benchmark.txt
-	@printf '{"version":"%s","commit":"%s","date":"%s","go":"%s","count":6}\n' \
+	@go_version="$$($(EXEC) go env GOVERSION)"; \
+	printf '{"version":"%s","commit":"%s","date":"%s","go":"%s","count":6}\n' \
 		"$(BENCH_VERSION)" "$(GIT_COMMIT)" "$(BUILD_DATE)" \
-		"$$($(EXEC) go env GOVERSION)" \
+		"$$go_version" \
 		> $(BENCH_DIR)/$(BENCH_VERSION)/meta.json
 	@echo "=== Benchmarks saved to $(BENCH_DIR)/$(BENCH_VERSION)/ ==="
 
