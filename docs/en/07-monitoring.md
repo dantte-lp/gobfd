@@ -324,6 +324,12 @@ aggregate `pending`/`failed`, and per-source `created`, `released`, `pending`,
 `failed`, and bounded error-code counts. Raw error text may appear only in that
 immediate event; it is not retained in the runtime snapshot or used as a label.
 
+Current receipts retain counts and error codes without a durable resource-kind
+distinction. A transition from a missing interface to an unassigned address can
+therefore compare equal when the counts stay unchanged and emit no new event.
+The reason-class correction remains in `gobfd-qj0.8.2.2.6.8.1`; fields from its
+unmerged implementation are not part of this checkout's log contract.
+
 Linux interface events update these same receipts without advancing the desired
 generation. Unavailable dependencies make readiness stale and sources pending;
 successful automatic retry can restore convergence. Duplicate receipts do not
@@ -403,6 +409,13 @@ status is the AND of the components the service needs:
   inventory read keeps the previous state until the next check; at startup it
   fails the start.
 
+These checks do not inventory assigned local addresses after convergence.
+Deleting an active IPv4 or IPv6 address can leave the source converged and
+health `SERVING`; address events retry already-pending sources only. This
+known readiness defect remains in `gobfd-qj0.8.2.2.6.8.2`. See the
+[reload availability boundary](03-configuration.md#hot-reload-sighup).
+Neither health nor systemd readiness proves peer reachability.
+
 `gobfd.management` is `NOT_SERVING` while `grpc.unsafe_loopback_mutations`
 lets anonymous loopback clients mutate, `SERVING` otherwise. With
 `gobgp.enabled`, the named check `gobfd.gobgp` is `NOT_SERVING` until the
@@ -423,4 +436,4 @@ process/listener startup rather than configuration convergence.
 
 ---
 
-*Reviewed against `dev` source: 2026-10-25 (`706991db9433b13cec47e0bb8ea2549b01e948d9`).*
+*Reviewed against `dev` source: 2026-10-25 (`49d8954479a172b311a8a05adb5e0714528c4116`); known readiness and receipt gaps remain explicit.*

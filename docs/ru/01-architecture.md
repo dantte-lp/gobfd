@@ -149,11 +149,11 @@ flowchart TD
 
 | Уровень | Исходник | Ответственность |
 |---|---|---|
-| **Кодек** | [`packet.go`](../../internal/bfd/packet.go) | Версия, длины, detect mult, multipoint, ненулевой My Discriminator и ограничение state при нулевом Your Discriminator |
-| **Manager** | [`manager_session.go`](../../internal/bfd/manager_session.go) | Выбор сессии, допуск по transport scope, интерфейсу и TTL |
-| **Сессия** | [`session_packet.go`](../../internal/bfd/session_packet.go) | Отклонение нулевого Desired Min TX, проверка auth, событие FSM, обновление таймеров и переменных |
+| **Кодек** | [`packet.go`](../../internal/bfd/packet.go) | Версия, длины, множитель обнаружения, multipoint, ненулевой My Discriminator и ограничение состояния при нулевом Your Discriminator |
+| **Manager** | [`manager_session.go`](../../internal/bfd/manager_session.go) | Выбор сессии, допуск по транспортной области, интерфейсу и TTL |
+| **Сессия** | [`session_packet.go`](../../internal/bfd/session_packet.go) | Отклонение нулевого Desired Min TX, проверка аутентификации, событие FSM, обновление таймеров и переменных |
 
-Кодек отклоняет malformed packets до выбора сессии или захвата её блокировки.
+Кодек отклоняет некорректные пакеты до выбора сессии или захвата её блокировки.
 
 ### Путь отправки пакета (TX)
 
@@ -164,17 +164,18 @@ flowchart TD
     REBUILD --> SEND["PacketSender.SendPacket<br/>raw UDP socket"]
 ```
 
-**Переиспользуемый packet buffer:** `sendControl` вызывает `rebuildCachedPacket`
-перед каждой отправкой, включая сериализацию header и authentication. Рост
-padding готовит один waiting buffer при control admission; owner меняет его до
-commit полей. Packet loop использует готовую capacity без growth allocation.
+**Переиспользуемый буфер пакета:** `sendControl` вызывает `rebuildCachedPacket`
+перед каждой отправкой, включая сериализацию заголовка и аутентификацию.
+Увеличение дополнения готовит один ожидающий буфер при допуске управляющего
+изменения; владелец меняет его до фиксации полей. Цикл пакетов использует готовую
+ёмкость без выделения памяти для роста.
 
 ### Демультиплексирование
 
 Двухуровневый поиск по RFC 5880 Section 6.8.6:
 
 1. **Уровень 1** -- Your Discriminator ненулевой: O(1) поиск по дискриминатору. Быстрый путь для установленных сессий.
-2. **Уровень 2** -- Your Discriminator нулевой И состояние Down/AdminDown: поиск по составному ключу (SrcIP, DstIP, Interface, transport scope). Используется при установлении или повторном установлении после потери discriminator пиром.
+2. **Уровень 2** -- Your Discriminator нулевой И состояние Down/AdminDown: поиск по составному ключу (SrcIP, DstIP, Interface, transport scope). Используется при установлении или повторном установлении после потери дискриминатора пиром.
 
 ### Идентичность и ownership сессий
 
@@ -616,77 +617,82 @@ graph TB
 
 При SIGTERM/SIGINT (RFC 5880 Section 6.8.16):
 
-1. `Manager.DrainAllSessions(ctx)` -- снимок конкретных сессий, освобождение
-   Manager locks и параллельное ожидание owner commit, успешной записи AdminDown/7
-   и negotiated notification window. Все стадии используют общий новый deadline
-   десять секунд, независимый от отменённого signal context. `DrainIncompleteError`
-   сохраняет стадию, причину suppression и исходную ошибку.
-2. Передача Control в течение окна с retry через существующий TX timer и
-   сохранением RFC transmission suppression
-3. `Manager.Close()` -- переход в Closing, отделение sessions, отмена и
-   ожидание зарегистрированных Manager goroutines, закрытие notification
-   channels и освобождение sender resources
-4. Закрытие сокетов слушателей
-5. Остановка HTTP-серверов (gRPC, метрики)
+1. `Manager.DrainAllSessions(ctx)` снимает конкретные сессии, освобождает
+   блокировки Manager и параллельно ждёт фиксации владельца, успешной записи
+   AdminDown/7 и согласованного окна уведомления каждой сессии. Все стадии
+   используют общий новый десятисекундный срок, независимый от отменённого
+   сигнального контекста. `DrainIncompleteError` сохраняет стадию, причину
+   подавления передачи и исходную ошибку.
+2. Передача Control продолжается в течение окна с повторами через существующий
+   TX-таймер и сохранением ограничений передачи RFC.
+3. `Manager.Close()` переходит в Closing, отсоединяет сессии, отменяет и ожидает
+   зарегистрированные горутины Manager, закрывает каналы уведомлений и
+   освобождает ресурсы отправителей.
+4. Закрываются сокеты слушателей.
+5. Останавливаются HTTP-серверы gRPC и метрик.
 
-`Session.SetAdminDown(ctx)` использует существующий control channel, в том числе
-до `Run`. Заполненная очередь ожидает capacity, отмену контекста или выход owner;
-вызывающая сторона не изменяет состояние сессии. Receipt подтверждает state,
-cached state и diagnostic владельца до немедленной попытки передачи. Timeout
-оставляет принятый запрос в очереди; выход owner возвращает `ErrSessionStopped`.
-Повторный запрос подтверждает commit без нового перехода или немедленного TX burst.
-`Run` допускает одного owner за время жизни сессии и обрабатывает стартовые
-команды до передачи по таймеру, сохраняя ограничения Passive role.
+`Session.SetAdminDown(ctx)` ставит команду в существующий управляющий канал,
+включая период до `Run`. Полная очередь ждёт ёмкости, отмены или выхода владельца;
+вызывающий не меняет состояние сессии напрямую. Квитанция подтверждает состояние
+владельца, сохранённое состояние пакета и диагностику до немедленной попытки
+передачи. Таймаут оставляет допущенную команду ожидающей; выход владельца
+возвращает `ErrSessionStopped`. Повторы подтверждают зафиксированное состояние
+без нового перехода или немедленного всплеска TX. `Run` допускает одного
+владельца за время жизни сессии и обрабатывает стартовые команды до передачи
+по таймеру, сохраняя ограничения пассивной роли.
 
-Окно начинается с первой успешной записи AdminDown и равно максимуму local RX
-Detection Time и peer-facing границы
-`localDetectMult * max(advertisedAdminDownTX, remoteMinRX)`. Non-Up TX floor
-даёт три секунды для стандартных параметров. Увеличение negotiation продлевает
-deadline; неизменные или меньшие значения не перезапускают и не сокращают окно.
-Конкурентные drain используют общий progress; выход owner до конца окна не
-превращается в успех после ожидания. Успех подтверждает локальные kernel writes
-и длительность уведомления, без подтверждения получения пиром.
+Окно начинается с первой успешной записи AdminDown и равно максимуму локального
+RX Detection Time и границы для пира
+`localDetectMult * max(advertisedAdminDownTX, remoteMinRX)`. Нижний порог TX вне
+Up даёт стандартное окно три секунды. Только увеличение согласованных значений
+продлевает срок; неизменные или меньшие значения не перезапускают и не сокращают
+его. Конкурентные drain используют общий прогресс; выход владельца до завершения
+не превращается в последующий успех. Успех подтверждает локальные записи в ядро
+и время уведомления, а не получение пиром.
 
-Owning UDP sender lease прерывает pending write при отмене сессии и ожидает
-callback до owner completion и освобождения source port. Non-owning shared
-overlay sender не прерывается сессионным lease. `Manager.Close()` не гарантирует
-границу для произвольного внешнего `PacketSender` или release callback.
+Владеющие аренды UDP-отправителей прерывают ожидающие записи при отмене сессии
+и завершают callback до завершения владельца или освобождения порта источника.
+Невладеющие общие отправители оверлея не прерываются сессионной арендой.
+`Manager.Close()` не гарантирует временной границы произвольного внешнего
+`PacketSender` или callback освобождения.
 
-Освобождение последнего Control-session claim отсоединяет сохранённую identity,
-затем использует тот же drain до cancel/join и освобождения sender/discriminator.
-Общий путь охватывает API, base configuration, Micro-BFD members, VXLAN, Geneve
-и rollback принятой новой сессии. Нефинальный claim не
-изменяет wire session. Внутренний предел десять секунд действует и для
-Background; более ранняя отмена caller возвращает `DrainIncompleteError`, после
-чего cleanup освобождает ресурсы. Reconciliation выполняет drain отсоединённых
-сессий параллельно в одном бюджете. Ожидание не удерживает Manager locks;
-замена с тем же ключом не наследует drain прежней сессии. `Manager.Close()`
-выполняет только cancel/join/release: daemon shutdown уже выполнил общий drain.
-Rekey публикует подготовленную replacement до actual AdminDown/drain прежней
-captured session вне Manager и lifecycle mutation locks. Прежние lease и
-discriminator удерживаются до завершения drain или typed incomplete failure,
-затем cleanup освобождает их один раз. Отмена до публикации replacement
-сохраняет прежнюю identity и освобождает подготовленные ресурсы; после
-peer-visible cutover бесшовный rollback не обещается.
-Failure cleanup unsolicited Down-сессии выполняет cancel без AdminDown drain:
-RFC 9468 Section 2 требует прекратить Control-передачу пассивной стороны.
-Standalone Echo и удаление только Micro-BFD group не имеют Control-session
-AdminDown exchange. Echo removal публикует Watch tombstone без изменения protocol state.
+Освобождение последнего права на Control-сессию отсоединяет сохранённую
+идентичность, затем использует тот же drain до отмены, ожидания завершения и
+освобождения отправителя/дискриминатора. Общий путь охватывает API, базовую
+конфигурацию, участников Micro-BFD, VXLAN, Geneve и откат принятого создания.
+Снятие не последнего права не меняет протокольную сессию. Частный предел десять
+секунд действует и для Background; более ранняя отмена вызывающего возвращает
+`DrainIncompleteError`, а очистка всё равно освобождает ресурсы. Согласование
+выполняет drain отсоединённых сессий параллельно в одном бюджете. Ожидание не
+удерживает блокировки Manager; замена с тем же ключом не наследует drain
+прежней сессии. `Manager.Close()` только отменяет, ждёт и освобождает: остановка
+демона уже выполнила drain захваченных сессий.
+Смена ключа идентичности публикует подготовленную замену до фактического
+AdminDown/drain прежней захваченной сессии вне блокировок изменений Manager и
+жизненного цикла. Старые аренда/дискриминатор удерживаются до завершения drain
+или типизированной ошибки неполного завершения, затем освобождаются один раз.
+Отмена до публикации сохраняет старую идентичность и отбрасывает подготовленные
+ресурсы; после видимого пиру переключения бесшовный откат не обещается.
+Очистка отказа unsolicited Down-сессии отменяет её без AdminDown: RFC 9468
+Section 2 требует прекратить передачу Control пассивной стороной. Отдельный
+Echo и удаление только группы Micro-BFD не владеют обменом AdminDown
+Control-сессии. Удаление Echo публикует маркер удаления Watch без изменения
+протокольного состояния.
 
 ### Структура проекта
 
 | Путь | Ответственность |
 |---|---|
-| `api/bfd/v1/`, `pkg/bfdpb/` | API schema и generated public bindings |
-| `cmd/` | Daemon, CLI, HAProxy agent и ExaBGP bridge |
-| `internal/bfd/` | Session owners, FSM, authentication, reconciliation |
-| `internal/netio/`, `internal/overlay/` | Linux sockets и общий overlay vocabulary |
-| `internal/config/`, `internal/server/`, `internal/apiclient/` | Конфигурация и management boundary |
-| `internal/gobgp/`, `internal/metrics/`, `internal/sdnotify/` | Routing coupling и operational signals |
-| `internal/stepca/`, `internal/version/` | Certificate renewal и build identity |
-| `test/`, `bench/` | Qualification harnesses и component benchmarks |
+| `api/bfd/v1/`, `pkg/bfdpb/` | Схема API и сгенерированные публичные привязки |
+| `cmd/` | Демон, CLI, агент HAProxy и мост ExaBGP |
+| `internal/bfd/` | Владельцы сессий, FSM, аутентификация, согласование |
+| `internal/netio/`, `internal/overlay/` | Сокеты Linux и общий словарь оверлеев |
+| `internal/config/`, `internal/server/`, `internal/apiclient/` | Конфигурация и граница управления |
+| `internal/gobgp/`, `internal/metrics/`, `internal/sdnotify/` | Связь с маршрутизацией и эксплуатационные сигналы |
+| `internal/stepca/`, `internal/version/` | Обновление сертификатов и идентичность сборки |
+| `test/`, `bench/` | Стенды квалификации и компонентные бенчмарки |
 | `configs/`, `deployments/` | Примеры конфигурации и развёртывания |
-| `tools/` | Изолированный developer-tool module |
+| `tools/` | Изолированный модуль инструментов разработки |
 | `docs/` | Английский исходник, русский перевод, ADR и тексты RFC |
 
 ### Технологический стек
@@ -698,14 +704,14 @@ AdminDown exchange. Echo removal публикует Watch tombstone без из�
 | RPC-сервер | ConnectRPC | gRPC + Connect + gRPC-Web из одного обработчика |
 | RPC-клиент | `google.golang.org/grpc` | Интеграция с GoBGP (gRPC-клиент) |
 | CLI | Cobra + reeflective/console | Неинтерактивный + интерактивная оболочка |
-| Конфигурация | koanf/v2 | YAML + env vars + flags, горячая перезагрузка |
+| Конфигурация | koanf/v2 | YAML, переменные окружения, флаги, горячая перезагрузка |
 | Метрики | Prometheus `client_golang` | Счётчики, gauge, гистограммы |
-| Логирование | `log/slog` (stdlib) | Структурированное JSON/text логирование |
+| Логирование | `log/slog` (stdlib) | Структурированное журналирование JSON/text |
 | Protobuf | buf CLI | Линтинг, проверка совместимости, генерация кода |
 | Линтинг | golangci-lint v2.14.0 | 92 значимых линтера, проверка схемы и матрицы build tags |
 | Релизы | GoReleaser v2 | Бинарники + deb/rpm + контейнерные образы |
 | Контейнеры | Podman + Podman Compose | Разработка и тестирование |
-| systemd | Type=notify, watchdog | Жизненный цикл production-демона |
+| systemd | Type=notify, watchdog | Жизненный цикл рабочего демона |
 
 ### Карта UDP-портов
 

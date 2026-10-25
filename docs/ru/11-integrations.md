@@ -36,7 +36,7 @@ GoBFD интегрируется с системами маршрутизаци�
 
 Четыре Compose-примера используют **podman compose** и контейнеры захвата
 **tshark**. Kubernetes использует манифесты и существующий кластер k3s;
-sidecar tshark отсутствует. Примеры требуют отдельной квалификации целевого окружения.
+сайдкар tshark отсутствует. Примеры требуют отдельной квалификации целевого окружения.
 
 | # | Интеграция | Компоненты | Подсеть | Новый код |
 |---|-----------|-----------|---------|-----------|
@@ -44,29 +44,29 @@ sidecar tshark отсутствует. Примеры требуют отдел�
 | 2 | Мониторинг бэкендов HAProxy | GoBFD + HAProxy + nginx | 172.23.0.0/24 | `gobfd-haproxy-agent` |
 | 3 | Наблюдаемость | GoBFD + Prometheus + Grafana | 172.25.0.0/24 | Правила алертинга |
 | 4 | Anycast через ExaBGP | GoBFD + ExaBGP + GoBGP | 172.24.0.0/24 | `gobfd-exabgp-bridge` |
-| 5 | DaemonSet в Kubernetes | GoBFD + GoBGP + k3s | Host network | K8s-манифесты |
+| 5 | DaemonSet в Kubernetes | GoBFD + GoBGP + k3s | Сеть хоста | K8s-манифесты |
 
 GoBFD в `dev` использует API GoBGP v4 и требует демон GoBGP v4: GoBGP v3
-`/apipb.GobgpApi` и v4 `/api.GoBgpService` несовместимы по wire. Примеры
-с GoBGP собирают v4.10.0 из `test/interop/gobgp`; HAProxy и observability
+`/apipb.GobgpApi` и v4 `/api.GoBgpService` несовместимы на уровне протокола. Примеры
+с GoBGP собирают v4.10.0 из `test/interop/gobgp`; HAProxy и наблюдаемость
 не запускают GoBGP.
 Пример Kubernetes собирает `gobgp:local` из этого рецепта и импортирует его в
 k3s вместе с `gobfd:local`; на живом кластере k3s он не запускался.
 
-Подготовьте закреплённый [Compose provider](06-deployment.md#podman-compose)
+Подготовьте закреплённый [провайдер Compose](06-deployment.md#podman-compose)
 и проверьте сформированную конфигурацию выбранных файлов до запуска. Ручные
 примеры используют фиксированные имена контейнеров; проверьте принадлежность
 имён, подсетей и опубликованных портов этой лаборатории. Цели `-up` HAProxy и
-observability собирают образы напрямую через Compose без interop-контроллера
+наблюдаемости собирают образы напрямую через Compose без interop-контроллера
 с лимитами. Их цели `-down` удаляют тома и контейнеры-сироты; до очистки нужны
 проверка владения и требуемое разрешение на удаление.
 
-При старте GoBFD проверяет endpoint вызовом `GetBgp` без побочных эффектов.
-Endpoint без API v4, например демон GoBGP v3, прерывает старт с сообщением
-«requires GoBGP v4». Недоступный endpoint даёт предупреждение и повторно
+При старте GoBFD проверяет конечную точку вызовом `GetBgp` без побочных эффектов.
+Конечная точка без API v4, например демон GoBGP v3, прерывает старт с сообщением
+«requires GoBGP v4». Недоступная конечная точка даёт предупреждение и повторно
 проверяется в фоне с задержкой от 1 до 30 с до определённого результата;
-несовместимый демон, поднявшийся позже, фиксируется в журнале с уровнем error.
-Тот же preflight получает соседей GoBGP через `ListPeer` и отклоняет нативный
+несовместимый демон, поднявшийся позже, фиксируется в журнале с уровнем ошибки.
+Та же предварительная проверка получает соседей GoBGP через `ListPeer` и отклоняет нативный
 BFD GoBGP v4 (`[neighbors.bfd.config] enabled = true`) для любого пира
 сконфигурированной сессии GoBFD: у пира должен быть один владелец BFD. Для
 других соседей нативный BFD допускается. Сессии, добавленные позже через API,
@@ -78,24 +78,24 @@ BFD GoBGP v4 (`[neighbors.bfd.config] enabled = true`) для любого пи�
 
 **Директория:** `deployments/integrations/bgp-fast-failover/`
 
-BFD Down инициирует отключение BGP-пира и отзыв маршрутов до истечения обычного BGP hold timer.
+BFD Down инициирует отключение BGP-пира и отзыв маршрутов до истечения обычного таймера удержания BGP.
 
-Подробный runbook: [`deployments/integrations/bgp-fast-failover/README.md`](../../deployments/integrations/bgp-fast-failover/README.md)
+Подробная эксплуатационная инструкция: [`deployments/integrations/bgp-fast-failover/README.md`](../../deployments/integrations/bgp-fast-failover/README.md)
 
-Compose и Go testcontainers gate переиспользуют общие рецепты FRR 10.7.1 и
-GoBGP v4.10.0 на Debian trixie. Лимиты сборок — 2 CPU / 2 GiB, runtime —
-1 CPU / 256 MiB / 128 PIDs. Автоматический gate сохраняет проверку отзыва
-и восстановления точного маршрута, packet evidence и удаление своих ресурсов.
-2026-10-13 на commit `f85ca09` на linux/amd64 gate
+Compose и проверка testcontainers на Go переиспользуют общие рецепты FRR 10.7.1 и
+GoBGP v4.10.0 на Debian trixie. Лимиты сборок — 2 CPU / 2 GiB, контейнеров при выполнении —
+1 CPU / 256 MiB / 128 PIDs. Автоматическая проверка сохраняет проверку отзыва
+и восстановления точного маршрута, доказательства по пакетам и удаление своих ресурсов.
+2026-10-13 на commit `f85ca09` на linux/amd64 проверка
 (`e2ectl bgp-fast-failover`,
 `TestBGPFastFailoverTestcontainers/BFD-driven_route_withdrawal_and_restoration`)
 пройден с GoBGP v4.10.0 за 105.39 секунды. Ручной путь Compose на GoBGP v4
 не перезапускался.
 
-Лабораторный пример использует RFC 5881 single-hop BFD пакеты на UDP
-destination port 3784 с TTL 255. Таймеры примера: transmit 300 ms, receive
-300 ms и detect multiplier 3, что даёт ожидаемую цель обнаружения около
-900 ms без учёта локального scheduling и задержки BGP control plane.
+Лабораторный пример использует одношаговые BFD-пакеты RFC 5881 на UDP-порт
+назначения 3784 с TTL 255. Таймеры примера: передача 300 ms, приём
+300 ms и множитель обнаружения 3, что даёт ожидаемую цель обнаружения около
+900 ms без учёта локального планирования и задержки плоскости управления BGP.
 
 ### Топология
 
@@ -180,7 +180,7 @@ graph TD
 - BFD Up → отвечает `"up ready\n"` → HAProxy помечает сервер как рабочий
 - BFD Down → отвечает `"down\n"` → HAProxy убирает сервер из ротации
 
-Listener agent-check не имеют аутентификации. Они слушают `127.0.0.1`, если
+Слушатели agent-check не имеют аутентификации. Они слушают `127.0.0.1`, если
 `listen_addr` в конфигурации агента не задаёт другой адрес. Для `agent-addr`
 HAProxy на другом хосте нужен явный достижимый адрес; конфигурация стенда
 задаёт `listen_addr: "0.0.0.0"`.
@@ -191,8 +191,8 @@ HAProxy на другом хосте нужен явный достижимый 
 `http://127.0.0.1:50052` в `haproxy-agent.yml`. Для удалённого управления
 выберите `https://host:port` через `GOBFD_ADDR` (либо `gobfd_addr` агента) и
 задайте все три переменные: `GOBFD_TLS_CA_FILE`, `GOBFD_TLS_CERT_FILE` и
-`GOBFD_TLS_KEY_FILE`. Мост ExaBGP использует те же переменные endpoint и TLS.
-Эти настройки клиента не настраивают mTLS-listener демона или правила ролей;
+`GOBFD_TLS_KEY_FILE`. Мост ExaBGP использует те же переменные конечной точки и TLS.
+Эти настройки клиента не настраивают mTLS-слушатель демона или правила ролей;
 см. [Развёртывание](06-deployment.md#укрепление-безопасности) и
 [`internal/apiclient/endpoint.go`](../../internal/apiclient/endpoint.go).
 
@@ -200,19 +200,19 @@ HAProxy на другом хосте нужен явный достижимый 
 `--gobfd-addr`, и `GOBFD_ADDR`; при адаптации лаборатории измените это поле.
 
 Агент переподключает Watch после ошибки или EOF с прерываемой задержкой
-1–30 секунд. Обрыв и `GAP` сразу сбрасывают health; снимок применяется только
-после `SYNC_COMPLETE`. Неизвестная, удалённая и неоднозначная сессия дают
-`down`. Потеря public Control/Echo raw notification также вызывает GAP/resnapshot
-без reconnect. Общий Watch client отклоняет старую queued observation после
-authoritative snapshot. Backend может добавить к обязательному `peer` поля `local`,
+1–30 секунд. Обрыв и `GAP` сразу сбрасывают состояние исправности; снимок применяется только
+после `SYNC_COMPLETE`. Неизвестные, удалённые и неоднозначные сессии дают
+`down`. Потеря исходного публичного уведомления Control/Echo также вызывает GAP и повторный снимок
+без переподключения. Общий клиент Watch отклоняет старое наблюдение из очереди после
+авторитетного снимка. Backend может добавить к обязательному `peer` поля `local`,
 `interface`, `type` (`single_hop`, `multi_hop`, `micro_bfd`, `vxlan`, `geneve`).
-Конфигурация только с peer работает при единственном совпадении. При нескольких
-сессиях одного peer добавьте selectors; если публичный API не различает их
-transport scope, даже явный tuple даёт отказ. Agent ports должны различаться
+Конфигурация только с пиром работает при единственном совпадении. При нескольких
+сессиях одного пира добавьте селекторы; если публичный API не различает их
+транспортную область, даже явный кортеж даёт отказ. Порты агента должны различаться
 и находиться в диапазоне 1–65535.
 
-Watch включает Echo-сессии. Control и Echo одного peer делают peer-only selector
-неоднозначным даже при совпадении local address и interface. Укажите явный
+Watch включает Echo-сессии. Control и Echo одного пира делают селектор только по пиру
+неоднозначным даже при совпадении локального адреса и интерфейса. Укажите явный
 Control `type: single_hop` или `type: multi_hop` для этого backend.
 
 ### Быстрый старт
@@ -224,11 +224,11 @@ curl http://localhost:8080    # Проверка балансировки
 make int-haproxy-down         # Очистка
 ```
 
-`make int-haproxy` использует legacy demo runner: часть наблюдений даёт только
-warning, а запрос сессий всё ещё использует неподдерживаемую команду `sessions`.
-Отдельный gate с assertions — `make int-haproxy-testcontainers`; завершённое
-демо не подтверждает приёмку failover.
-Исправление legacy runner отслеживается в `gobfd-qj0.8.2.8.7.1.4.1`.
+`make int-haproxy` использует устаревший демонстрационный исполнитель: часть наблюдений даёт только
+предупреждение, а запрос сессий всё ещё использует неподдерживаемую команду `sessions`.
+Отдельная проверка с обязательными утверждениями — `make int-haproxy-testcontainers`; завершённое
+демо не подтверждает приёмку переключения при отказе.
+Исправление устаревшего исполнителя отслеживается в `gobfd-qj0.8.2.8.7.1.4.1`.
 
 ---
 
@@ -236,12 +236,11 @@ warning, а запрос сессий всё ещё использует неп�
 
 **Директория:** `deployments/integrations/observability/`
 
-Изолированный лабораторный пример с правилами Prometheus и настроенным Grafana dashboard.
-Compose публикует порты 9090 и 3000 на интерфейсах хоста и использует Grafana
-credentials `admin/admin`. URL localhost ниже не ограничивают эту публикацию.
-До запуска изолируйте хост или переопределите bindings и credentials.
-Отдельный [deployment stack](06-deployment.md#podman-compose) привязывает
-опубликованные monitoring ports к loopback.
+Изолированный лабораторный пример с правилами Prometheus и заранее настроенной панелью Grafana.
+Compose публикует порты 9090 и 3000 на интерфейсах хоста и использует учётные данные Grafana `admin/admin`. URL localhost ниже не ограничивают эту публикацию.
+До запуска изолируйте хост или переопределите привязки и учётные данные.
+Отдельный [стек развёртывания](06-deployment.md#podman-compose) привязывает
+опубликованные порты мониторинга к loopback.
 
 ### Топология
 
@@ -266,10 +265,10 @@ graph LR
 
 ### Метрики
 
-Packet-drop и authentication-failure accounting подключён. Per-peer counters
-и fixed delivery outcomes имеют разные stage denominators; не все pre-session
-parser/demux refusals входят в peer packet drops. Перед интерпретацией нулевых
-counters и alerts см. [Мониторинг](07-monitoring.md).
+Учёт потерь пакетов и ошибок аутентификации подключён. Счётчики по пирам
+и фиксированные исходы доставки имеют разные знаменатели стадий; не все отказы
+парсера и demux до создания сессии входят в потери пакетов пиров. Перед интерпретацией
+нулевых счётчиков и оповещений см. [Мониторинг](07-monitoring.md).
 
 | Метрика | Тип | Описание |
 |---------|-----|----------|
@@ -290,15 +289,15 @@ counters и alerts см. [Мониторинг](07-monitoring.md).
 | BFDAuthFailures | `rate(gobfd_bfd_auth_failures_total[5m]) > 0` за 30с | Warning |
 | BFDPacketDrops | `rate(gobfd_bfd_packets_dropped_total[5m]) > 0` за 1м | Warning |
 
-Поставляемое правило `BFDNoActiveSessions` требует существующий session series
-и не срабатывает для свежего пустого exporter. При адаптации примера используйте
-обработку отсутствующих series из [Мониторинга](07-monitoring.md#правила-алертинга);
+Поставляемое правило `BFDNoActiveSessions` требует существующий ряд метрик сессии
+и не срабатывает для свежего пустого экспортёра. При адаптации примера используйте
+обработку отсутствующих рядов из [Мониторинга](07-monitoring.md#правила-алертинга);
 исправление общего правила отслеживается в `gobfd-qj0.8.2.8.7.2.8`.
 
 Prometheus v3.15.0, Grafana 13.2.4 и FRR 10.7.1 собираются из закреплённых
-по checksum upstream-артефактов на Debian trixie (`test/interop/prometheus`,
-`test/interop/grafana`, `test/interop/frr`). 2026-10-13 testcontainers gate
-пройден за 172.77 секунды: метрики BFD, алерт, provisioning Grafana, отказ и
+контрольными суммами артефактов upstream на Debian trixie (`test/interop/prometheus`,
+`test/interop/grafana`, `test/interop/frr`). 2026-10-13 набор проверок testcontainers
+пройден за 172.77 секунды: метрики BFD, алерт, подготовка Grafana, отказ и
 восстановление FRR; тестовых контейнеров и образов не осталось.
 
 ### Быстрый старт
@@ -314,7 +313,7 @@ make int-observability-up     # Запуск топологии
 make int-observability-down   # Очистка
 ```
 
-Полный demo runner показывает метрики и оповещения, но часть ошибок считает
+Полный демонстрационный исполнитель показывает метрики и оповещения, но часть ошибок считает
 предупреждениями; это не проверка оповещений с обязательными утверждениями.
 Для неё используйте `make int-observability-testcontainers` либо ограниченный
 [проверочный сценарий](16-production-runbooks.md#проверка-оповещений-prometheus).
@@ -325,7 +324,7 @@ make int-observability-down   # Очистка
 
 **Директория:** `deployments/integrations/exabgp-anycast/`
 
-Объявление anycast-IP, управляемое состоянием BFD-линка через process API ExaBGP.
+Объявление anycast-IP, управляемое состоянием BFD-линка через API процессов ExaBGP.
 
 ### Архитектура
 
@@ -358,25 +357,25 @@ graph LR
 - **BFD Up** → пишет `announce route 198.51.100.1/32 next-hop self` в STDOUT
 - **BFD Down** → пишет `withdraw route 198.51.100.1/32 next-hop self` в STDOUT
 - Логирование в STDERR (соглашение ExaBGP)
-- Переподключение к GoBFD с экспоненциальным backoff
+- Переподключение к GoBFD с экспоненциальным увеличением задержки
 
 `GOBFD_PEER` и `ANYCAST_PREFIX` обязательны. Опциональные `GOBFD_LOCAL`, `GOBFD_INTERFACE` и
-`GOBFD_SESSION_TYPE` выбирают сессию по тем же правилам, что HAProxy agent.
-`ANYCAST_PREFIX` должен содержать корректный IP prefix. При старте bridge
-отзывает маршрут предыдущего процесса. Announcement допускается только после
-завершённого снимка или live event с единственной выбранной сессией Up.
+`GOBFD_SESSION_TYPE` выбирают сессию по тем же правилам, что агент HAProxy.
+`ANYCAST_PREFIX` должен содержать корректный IP-префикс. При старте мост
+отзывает маршрут предыдущего процесса. Анонс допускается только после
+завершённого снимка или текущего события с единственной выбранной сессией Up.
 Любое другое состояние, удаление, обрыв, `GAP` или неоднозначность отзывают
-маршрут. Applied-state сохраняется между Watch streams; EOF также вызывает
-reconnect. Ошибка или неполная запись stdout завершает bridge без подтверждения
+маршрут. Применённое состояние сохраняется между потоками Watch; EOF также вызывает
+переподключение. Ошибка или неполная запись stdout завершает мост без подтверждения
 изменения маршрута.
 
-Потеря public Control/Echo raw notification инвалидирует тот же live stream и
-создаёт resnapshot без следующего BFD edge. Observation floor общего Watch client
-не позволяет старому queued Up восстановить отозванный маршрут.
+Потеря исходного публичного уведомления Control/Echo делает тот же текущий поток недостоверным и
+создаёт повторный снимок без следующего перехода BFD. Нижняя граница наблюдений общего клиента Watch
+не позволяет старому Up из очереди восстановить отозванный маршрут.
 
-Echo rows участвуют в той же проверке неоднозначности. Задайте
+Строки Echo участвуют в той же проверке неоднозначности. Задайте
 `GOBFD_SESSION_TYPE=single_hop` или `multi_hop`, если Control и Echo используют
-один peer.
+одного пира.
 
 ### Быстрый старт
 
@@ -390,7 +389,7 @@ GoBGP v4.10.0 и ExaBGP 5.0.13 используют общие рецепты De
 anycast добавляет `gobfd-exabgp-bridge` к той же закреплённой среде ExaBGP.
 Каждый контейнер ограничен 1 CPU, 256 MiB и 128 PID; сборки выполняются
 последовательно с 2 CPU и 2 GiB через контроллер проекта с проверкой
-владения. Gate завершается ошибкой, если маршрут не анонсирован, не отозван
+владения. Проверка завершается ошибкой, если маршрут не анонсирован, не отозван
 после паузы GoBFD на стороне приёмника или не восстановлен после её снятия.
 2026-10-13 локальный прогон на amd64 прошёл за 106 секунд; контейнеров,
 сетей и томов проекта не осталось, контроллер сохраняет собранные образы.
@@ -401,7 +400,7 @@ anycast добавляет `gobfd-exabgp-bridge` к той же закреплё
 
 **Директория:** `deployments/integrations/kubernetes/`
 
-Развёртывание GoBFD как DaemonSet в кластере k3s с sidecar-контейнером GoBGP и host-сетью.
+Развёртывание GoBFD как DaemonSet в кластере k3s с сайдкаром GoBGP и сетью хоста.
 
 ### Архитектура
 
@@ -427,14 +426,14 @@ graph TD
 
 - Root или sudo-доступ
 - `podman`, `kubectl` и существующий кластер k3s
-- `/etc/rancher/k3s/k3s.yaml` доступен runner-у
+- `/etc/rancher/k3s/k3s.yaml` доступен исполнителю
 
 ### Ключевые решения
 
 - **hostNetwork: true** — BFD использует raw-сокеты, требуется прямой доступ к сети хоста
 - **CAP_NET_RAW + CAP_NET_ADMIN** — необходимы для работы с BFD-пакетами
-- **Linux node selector** — пример опирается на Linux socket и capability semantics
-- **Probes** — exec `gobfdctl` через Unix socket для readiness; metrics TCP для liveness; session convergence они не доказывают
+- **Выбор узлов Linux** — пример опирается на семантику сокетов и привилегий Linux
+- **Проверки состояния** — запуск `gobfdctl` через Unix-сокет для готовности; TCP-порт метрик для работоспособности; сходимость сессий они не доказывают
 - **DaemonSet** — один экземпляр GoBFD на каждый узел для полного покрытия BFD
 - **Динамические сессии** — BFD-сессии добавляются через `gobfdctl` после обнаружения IP узлов
 
@@ -452,12 +451,12 @@ kubectl -n gobfd rollout status daemonset/gobfd
 sudo make int-k8s-down
 ```
 
-Runner импортирует оба образа только в локальное image store k3s. На остальных
-узлах те же образы нужны до scheduling, поскольку задано `imagePullPolicy: Never`.
-Полное демо сейчас выбирает `app=gobfd`, что не совпадает с labels manifest,
-и сохраняет устаревшие CLI/tool probes. Успешный импорт или rollout не завершает
-демо и не квалифицирует convergence BFD/BGP.
-Исправление runner и live verification отслеживаются в
+Исполнитель импортирует оба образа только в локальное хранилище образов k3s. На остальных
+узлах те же образы нужны до размещения, поскольку задано `imagePullPolicy: Never`.
+Полное демо сейчас выбирает `app=gobfd`, что не совпадает с метками манифеста,
+и сохраняет устаревшие проверки CLI и инструментов. Успешный импорт или rollout не завершает
+демо и не квалифицирует сходимость BFD/BGP.
+Исправление исполнителя и проверка работающего кластера отслеживаются в
 `gobfd-qj0.8.2.8.7.1.4.1`.
 
 ### Манифесты
@@ -467,19 +466,19 @@ Runner импортирует оба образа только в локальн
 | `namespace.yml` | Namespace | Пространство имён `gobfd` |
 | `configmap-gobfd.yml` | ConfigMap | Конфигурация GoBFD-демона |
 | `configmap-gobgp.yml` | ConfigMap | Конфигурация GoBGP |
-| `daemonset.yml` | DaemonSet | GoBFD + GoBGP sidecar (hostNetwork) |
+| `daemonset.yml` | DaemonSet | GoBFD + сайдкар GoBGP (hostNetwork) |
 | `service.yml` | Service | Headless-сервис для DNS-обнаружения |
 
 ---
 
 ## Верификация пакетов через tshark
 
-Четыре Compose-примера включают **tshark** capture container. Kubernetes
-manifests его не содержат; capture требует отдельно разрешённого namespace tool.
+Четыре Compose-примера включают контейнер захвата **tshark**. Манифесты
+Kubernetes его не содержат; захват требует отдельно разрешённого инструмента в пространстве имён.
 
 ### Настройка захвата
 
-Контейнер tshark захватывает Control и Echo UDP ports в общем сетевом пространстве имён:
+Контейнер tshark захватывает Control и Echo на UDP-портах в общем сетевом пространстве имён:
 
 - **Фильтр:** `udp port 3784 or udp port 3785 or udp port 4784`
 - **Формат:** pcapng, записывается в `/captures/bfd.pcapng`
@@ -515,21 +514,21 @@ podman exec <tshark-контейнер> tshark -r /captures/bfd.pcapng -Y bfd \
 
 ## Архитектура интеграций
 
-| Стек | Подсеть | Сервисы | Host-порты |
+| Стек | Подсеть | Сервисы | Порты хоста |
 |------|---------|---------|------------|
 | Быстрое переключение BGP | 172.22.0.0/24 | gobfd, gobgp, frr, tshark | — |
 | Мониторинг HAProxy | 172.23.0.0/24 | gobfd-monitor, haproxy-agent, haproxy, backend1/2, backend1/2-bfd, tshark | 8080 |
 | Наблюдаемость | 172.25.0.0/24 | gobfd, frr, prometheus, grafana, tshark | 9090, 3000 |
 | Anycast ExaBGP | 172.24.0.0/24 | gobgp, gobfd-receiver, gobfd, exabgp, tshark | — |
-| Kubernetes | Host network | DaemonSet (gobfd + gobgp sidecar) | — |
+| Kubernetes | Сеть хоста | DaemonSet (gobfd + gobgp sidecar) | — |
 | **Interop: Базовый** | 172.20.0.0/24 | gobfd, frr, bird3, holo, holo-config, thoro, tshark | — |
 | **Interop: BGP+BFD** | 172.21.0.0/24 | gobfd, gobgp, frr, bird3, exabgp, gobfd-sidecar | — |
 | **Interop: RFC** | 172.22.0.0/24 | gobfd-rfc, gobfd-rfc9384, gobgp-rfc, frr-rfc, frr-rfc-bgp, frr-rfc-unsolicited, tshark-rfc | — |
-| **Interop: Вендоры** | 10.0.x.0/30 | gobfd, gobgp, nokia, arista, frr, sonic, vyos; cisco deferred | — |
+| **Interop: Вендоры** | 10.0.x.0/30 | gobfd, gobgp, nokia, arista, frr, sonic, vyos; cisco отложен | — |
 
 RFC-топология также содержит независимый `echo-reflector`. Её подсеть
 пересекается с примером быстрого переключения BGP; не запускайте обе сети
-одновременно в одном Podman engine. Статические адреса и фиксированные имена
+одновременно в одном движке Podman. Статические адреса и фиксированные имена
 требуют отдельного допуска хоста даже при разных именах Compose-проектов.
 
 ### Новые бинарники
@@ -537,7 +536,7 @@ RFC-топология также содержит независимый `echo-
 | Бинарник | Назначение | Зависимости |
 |----------|-----------|-------------|
 | `gobfd-haproxy-agent` | Мост agent-check для HAProxy | connectrpc, bfdv1connect |
-| `gobfd-exabgp-bridge` | Мост process API для ExaBGP | connectrpc, bfdv1connect |
+| `gobfd-exabgp-bridge` | Мост API процессов для ExaBGP | connectrpc, bfdv1connect |
 
 ---
 
@@ -547,7 +546,7 @@ RFC-топология также содержит независимый `echo-
 - [05-interop.md](./05-interop.md) — Тестирование совместимости (FRR, BIRD3, вендорные NOS)
 - [06-deployment.md](./06-deployment.md) — Контейнерный образ, Podman Compose, systemd
 - [07-monitoring.md](./07-monitoring.md) — Метрики Prometheus и дашборд Grafana
-- [16-production-runbooks.md](./16-production-runbooks.md) — Production drills и validation checklist
+- [16-production-runbooks.md](./16-production-runbooks.md) — Проверки рабочей эксплуатации и контрольный список
 
 ---
 

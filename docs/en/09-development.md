@@ -34,6 +34,8 @@
 > Host bootstrap, `lint-ci` and some integration/report targets still invoke
 > `go run` directly; they require the pinned Go toolchain or an explicit
 > container invocation. `semgrep*` targets call the selected host executable.
+> The five E2E aggregate launchers remain a container-boundary gap in
+> `gobfd-qj0.8.2.8.7.1.4.2`; containerized payload tests do not close it.
 > Complete the [Compose-provider bootstrap](06-deployment.md#podman-compose)
 > before `make up`. The setup below assumes that its exported environment
 > variables remain set in the same shell.

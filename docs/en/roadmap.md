@@ -28,7 +28,7 @@ does not yet provide a prerelease path.
 | Documentation | The 31-pair source and Russian translation audit is accepted locally; the sender follow-up updates the affected paired pages | `gobfd-qj0.8.2.8.7.2.13` |
 | Management/reload | Unsafe-loopback policy changes reject before candidate acceptance; complete pending activation remains open | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6` |
 | Sender recovery | Same-socket IPv4/IPv6 rebind and denied-privilege failure pass locally; matching named scope no longer increases packet-loop allocations after recreation | `gobfd-qj0.8.2.2.6.7` |
-| Pending qualification | Whole-daemon IPv4/IPv6 activation, repeated events, permanent failure and readiness still require isolated process evidence | `gobfd-qj0.8.2.2.6.8` |
+| Pending qualification | Isolated IPv4/IPv6 address deletion reproduces false `SERVING` after convergence; reason-class receipts and complete lifecycle qualification remain unfinished | `gobfd-qj0.8.2.2.6.8`, `gobfd-qj0.8.2.2.6.8.1`, `gobfd-qj0.8.2.2.6.8.2` |
 | Echo ownership | Idempotent principal claims share a canonical wire with config and retain RX through config withdrawal; this is management policy, not returned-packet authentication | `gobfd-qj0.8.2.2.8` |
 | Smallstep | Existing-certificate renewal implemented; actual CA and lifecycle qualification incomplete | `gobfd-qj0.8.2.3.7` |
 | Echo preview | Declarative and API IPv4/IPv6 TX binding, UDP/3785 and lease cleanup pass local checks; API receive claims honor the requested interface; full RFC qualification remains open | `gobfd-qj0.8.2.1.19`, `gobfd-qj0.8.2.1.17` |
@@ -40,6 +40,12 @@ does not yet provide a prerelease path.
 Oracle Linux 10 is outside v1 OCI/lifecycle scope; generic RPM generation and
 historical v0.6 evidence remain. These status rows neither close their owners
 nor create an executable plan. Use Beads for current priorities and acceptance.
+
+The publication closeout `gobfd-qj0.8.2.8.7.2.14` checks the accepted
+`49d8954479a172b311a8a05adb5e0714528c4116` source delta, ancillary operational
+entrypoints and remaining Russian prose against English. The separate pending
+worktree is not part of the accepted implementation. Its fail-first process
+test provides defect evidence, not qualification or release acceptance.
 
 ## Down-journal source accounting — 2026-10-25
 

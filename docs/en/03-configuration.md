@@ -349,7 +349,13 @@ unsolicited listener. Configured per-address listeners remain available.
 | `echo.peers[].tx_interval` | duration | -- | Override `default_tx_interval` for this peer |
 | `echo.peers[].detect_mult` | uint32 | -- | Override `default_detect_multiplier` for this peer |
 
-Echo sessions detect forwarding-path failures without requiring the remote system to run BFD. The local system sends BFD Control packets to UDP port 3785 on the remote, which forwards them back via normal IP routing.
+RFC 9747 describes forwarding-path detection without requiring BFD on the
+adjacent system. Its packets have a local IP destination and traverse the
+adjacent device's normal forwarding path back to the originator. The current
+preview sends to the configured peer address on UDP port 3785; that path does
+not establish the RFC's forwarding behavior. See the
+[implementation boundaries](08-rfc-compliance.md#rfc-9747-implementation-notes)
+and [RFC 9747 Section 1](../rfc/rfc9747.txt).
 
 Echo peers are reconciled on SIGHUP reload. Session key: `(peer, local, interface)`.
 
@@ -943,6 +949,17 @@ including IPv6 DAD completion) and resyncs retry every pending source; they
 carry no link state and never take sessions down. Receiving these rtnetlink
 groups needs no capability. The non-Linux stub provides no automatic retry, so
 there a later SIGHUP retries pending sources.
+
+**Active local-address loss:** the current implementation retries a bind that
+initially returned `EADDRNOTAVAIL`, but does not revalidate assigned addresses
+for an already converged source. Listener readiness checks interface name,
+ifindex and up/running flags. Removing an active IPv4 or IPv6 local address
+can therefore leave the source converged and health `SERVING` even though the
+address is absent. Health does not prove local-address availability or peer
+reachability. The fail-closed correction and real-process qualification remain
+in `gobfd-qj0.8.2.2.6.8.2`; see
+[`checkBindings`](../../cmd/gobfd/readiness.go) and
+[`consumeInterfaceEvents`](../../cmd/gobfd/interface_events.go).
 
 Receive listeners are part of the generation. Before the base, Echo, or
 Micro-BFD source applies, it claims the UDP listeners its desired set needs

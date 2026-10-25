@@ -45,11 +45,11 @@ RFC 5880 Section 4.1 определяет обязательный заголо�
 > interval := time.Duration(pkt.DesiredMinTxInterval) * time.Microsecond
 > ```
 
-**Allocations и lifetime codec**: marshal пишет в переданный буфер;
-unauthenticated unmarshal заполняет caller-owned packet без allocation.
-Authenticated unmarshal создаёт `AuthSection`, digest/password которого
-заимствуют входной буфер. Retaining callers должны скопировать эти поля до
-возврата буфера в pool.
+**Выделение памяти и время жизни данных кодека**: сериализация пишет в
+переданный буфер; разбор без аутентификации заполняет принадлежащий вызывающему
+пакет без выделения памяти. Разбор с аутентификацией создаёт `AuthSection`,
+а его поля дайджеста/пароля заимствуют входной буфер. Для сохранения этих полей
+вызывающий должен скопировать их до возврата буфера в пул.
 
 ### Конечный автомат (FSM)
 
@@ -79,9 +79,9 @@ stateDiagram-v2
     AdminDown --> Down : Admin Up
 ```
 
-FSM — чистый indexed lookup по массиву `[state][event]`, который строится
-из декларативной `map[stateEvent]transition` при initialization. Вызывающая
-сторона (Session) выполняет возвращённые actions.
+FSM выполняет чистый индексный поиск по массиву `[state][event]`, построенному
+из декларативной `map[stateEvent]transition` при инициализации. Вызывающая
+сторона (Session) выполняет возвращённые действия.
 
 ### Таблица переходов состояний
 
@@ -95,25 +95,25 @@ FSM — чистый indexed lookup по массиву `[state][event]`, кот
 | Down | AdminDown | AdminDown | SetDiagAdminDown |
 | Down | TimerExpired | Down | SetDiagTimeExpired |
 | Init | RecvAdminDown | Down | SetDiagNeighborDown, NotifyDown |
-| Init | RecvDown | Init | (self-loop) |
+| Init | RecvDown | Init | (переход в то же состояние) |
 | Init | RecvInit | Up | SendControl, NotifyUp |
 | Init | RecvUp | Up | SendControl, NotifyUp |
 | Init | TimerExpired | Down | SetDiagTimeExpired, NotifyDown |
 | Init | AdminDown | AdminDown | SetDiagAdminDown |
 | Up | RecvAdminDown | Down | SetDiagNeighborDown, NotifyDown |
 | Up | RecvDown | Down | SetDiagNeighborDown, NotifyDown |
-| Up | RecvInit | Up | (self-loop) |
-| Up | RecvUp | Up | (self-loop) |
+| Up | RecvInit | Up | (переход в то же состояние) |
+| Up | RecvUp | Up | (переход в то же состояние) |
 | Up | TimerExpired | Down | SetDiagTimeExpired, NotifyDown |
 | Up | AdminDown | AdminDown | SetDiagAdminDown |
 
-Down timeout diagnostic соответствует принятой Held-erratum policy в
+Down timeout diagnostic соответствует принятой политике Held erratum в
 [соответствии RFC](08-rfc-compliance.md). Неуказанные пары state/event игнорируются.
 
 Ключевые переходы:
 
 - **Down + RecvDown --> Init**: начало установления сессии (первый шаг рукопожатия)
-- **Down + RecvInit --> Up**: локальный peer в Down получает Init от удалённого peer
+- **Down + RecvInit --> Up**: локальный пир в Down получает Init от удалённого пира
 - **Up + RecvDown --> Down**: пир упал (Diag = NeighborDown)
 - **Up + TimerExpired --> Down**: таймаут обнаружения (Diag = ControlTimeExpired)
 
@@ -123,26 +123,27 @@ Down timeout diagnostic соответствует принятой Held-erratum
 
 | Переменная RFC | Поле Go | Примечания |
 |---|---|---|
-| bfd.SessionState | `session.localPair` | Packed atomic state/diagnostic; доступен coherent `Observation` |
-| bfd.RemoteSessionState | `session.observation` | Committed remote facts читаются под session mutex |
+| bfd.SessionState | `session.localPair` | Упакованная атомарная пара состояния/диагностики; доступен согласованный `Observation` |
+| bfd.RemoteSessionState | `session.observation` | Зафиксированные сведения о пире читаются под блокировкой сессии |
 | bfd.LocalDiscr | `session.localDiscr` | Неизменяем после создания |
 | bfd.RemoteDiscr | `session.remoteDiscr` | Устанавливается из полученных пакетов |
-| bfd.LocalDiag | `session.localPair` | Публикуется вместе с local state |
+| bfd.LocalDiag | `session.localPair` | Публикуется вместе с локальным состоянием |
 | bfd.DesiredMinTxInterval | `session.desiredMinTxInterval` | Настраиваемый |
 | bfd.RequiredMinRxInterval | `session.requiredMinRxInterval` | Настраиваемый |
 | bfd.RemoteMinRxInterval | `session.remoteMinRxInterval` | Из полученных пакетов |
 | bfd.DemandMode | Не реализован | См. [Не реализовано](#не-реализовано) |
-| bfd.RemoteDemandMode | `session.remoteDemandMode` | Подавляет periodic TX при обоих peers Up и отсутствии local Poll |
+| bfd.RemoteDemandMode | `session.remoteDemandMode` | Подавляет периодическую передачу при обоих концах Up без локального Poll |
 | bfd.DetectMult | `session.detectMult` | Настраиваемый |
 | bfd.AuthType | `session.auth` (interface) | Через интерфейс `Authenticator` |
 | bfd.RcvAuthSeq | `session.authState` | `AuthState` отслеживает |
 | bfd.XmitAuthSeq | `session.authState` | `AuthState` отслеживает |
 | bfd.AuthSeqKnown | `session.authState` | `AuthState` отслеживает |
 
-**Потокобезопасность**: scalar getters локальных state/diagnostic используют
-packed atomic pair. `Observation` читает coherent committed snapshot под
-`Session.mu`; remote state не является отдельным atomic snapshot. Owner processing
-и поддерживаемые configuration updates сериализуют изменения mutable fields.
+**Потокобезопасность**: скалярные методы чтения локального состояния и диагностики
+используют упакованную атомарную пару. `Observation` читает согласованный
+зафиксированный снимок под `Session.mu`; состояние пира не является отдельным
+атомарным снимком. Обработка владельцем и поддерживаемые обновления конфигурации
+сериализуют изменения полей.
 
 **Инициализация** по RFC 5880 Section 6.8.1:
 
@@ -150,8 +151,8 @@ packed atomic pair. `Observation` читает coherent committed snapshot по�
 - `bfd.RemoteSessionState` = Down
 - `bfd.LocalDiag` = 0 (None)
 - `bfd.RemoteDiscr` = 0
-- `bfd.RemoteMinRxInterval` = 1 (microsecond)
-- `bfd.XmitAuthSeq` = random 32-bit value (через `crypto/rand`)
+- `bfd.RemoteMinRxInterval` = 1 (микросекунда)
+- `bfd.XmitAuthSeq` = случайное 32-битное значение (через `crypto/rand`)
 
 ### Согласование таймеров
 
@@ -163,10 +164,10 @@ RFC 5880 Section 6.8.1-6.8.4.
 ActualTxInterval = max(bfd.DesiredMinTxInterval, bfd.RemoteMinRxInterval)
 ```
 
-Вне Up объявляемый Desired Min TX и TX-интервал до jitter имеют нижнюю границу
-одна секунда (1 000 000 микросекунд) по RFC 5880 Section 6.8.3. Jitter Section
+Вне Up объявляемый Desired Min TX и TX-интервал до джиттера имеют нижнюю границу
+одна секунда (1 000 000 микросекунд) по RFC 5880 Section 6.8.3. Джиттер Section
 6.8.7 сохраняется: интервал в одну секунду допускает периодическую передачу
-через 750 ms.
+через 750 мс.
 
 **Время обнаружения**:
 
@@ -176,7 +177,7 @@ DetectionTime = bfd.RemoteDetectMult * max(bfd.RequiredMinRxInterval, bfd.Remote
 
 Если за Detection Time не принят корректный пакет, Init и Up переходят в Down
 с Diagnostic Control Detection Time Expired (1). Уже находящаяся в Down сессия
-обновляет диагностику по выбранной Held-erratum policy; AdminDown сохраняет
+обновляет диагностику по выбранной политике Held erratum; AdminDown сохраняет
 административное состояние и диагностику. См.
 [`handleDetectTimer`](../../internal/bfd/session_loop.go).
 
@@ -191,18 +192,20 @@ RFC 5880 Section 6.8.7. Случайный джиттер предотвраща
 
 Реализация: [`applyJitterWithRand` и `Session.applyJitter`](../../internal/bfd/session_packet.go).
 
-Session-local PRNG предпочитает cryptographic seed; при ошибке чтения
-используется time-based seed. Jitter не является security boundary;
-локальное состояние сессии устраняет contention на глобальном RNG этого пути.
+Локальный генератор псевдослучайных чисел сессии предпочитает криптографическое
+начальное значение; при ошибке чтения используется значение на основе времени.
+Джиттер не является границей безопасности; локальное состояние сессии устраняет
+конкуренцию за глобальный генератор на этом пути.
 
 ### Poll-последовательность
 
-RFC 5880 Sections 6.5 и 6.8.3 задают timer negotiation. В Up защищённые
-TX increases и RX decreases ждут Final; обратные направления сохраняют
-немедленный локальный эффект при активации proposal. В non-Up эффекты
-promoted proposal применяются до Final; unresolved Poll и separation сохраняют
-сериализацию promotion. Detect-only Async change не требует Poll; локальная
-TTL policy не использует Poll. См. [reload policy](adr/0006-session-preserving-reload-policy.md).
+RFC 5880 Sections 6.5 и 6.8.3 задают согласование таймеров. В Up защищённые
+увеличения TX и уменьшения RX ждут Final; обратные направления сохраняют
+немедленный локальный эффект при активации предложения. Вне Up активированное
+предложение применяется до Final; незавершённый Poll и интервал разделения
+по-прежнему сериализуют активацию. Изменение только множителя в Async не требует
+Poll; локальная политика TTL не использует Poll. См.
+[политику перезагрузки](adr/0006-session-preserving-reload-policy.md).
 
 ```mermaid
 sequenceDiagram
@@ -218,19 +221,21 @@ sequenceDiagram
 
 Ключевые правила:
 
-1. Одновременно активна только одна Poll-последовательность; config-owned
-   обновления сохраняют активное и последнее ожидающее предложение, включая явный RX zero.
+1. Одновременно активна только одна Poll-последовательность; обновления владельца
+   конфигурации сохраняют активное и последнее ожидающее предложение, включая
+   явно заданный нулевой RX.
 2. Final завершает локальный Poll только после успешной отправки Poll;
-   crossed Final-only ответ не подтверждает локальную последовательность.
+   ответ только с Final при встречном Poll не подтверждает локальную последовательность.
 3. В Up увеличение TX и уменьшение RX откладывают локальный эффект до Final;
    уменьшение TX и увеличение RX действуют при активации предложения.
 
 После Final следующая транзакция ждёт измеренную длительность обмена.
-Таймаут завершает receipt ошибкой без отката объявленных значений.
+Таймаут завершает квитанцию ошибкой без отката объявленных значений.
 [Контракт транзакций](../superpowers/specs/2026-09-08-gobfd-timer-update-transactions-design.md)
-определяет recovery и семантику поколений. Ограниченные FRR/BIRD wire slices
-сохранены в [Interop](05-interop.md); финальная объединённая квалификация
-кандидата открыта. Эти slices не устанавливают полное соответствие Section 6.5.
+определяет восстановление и семантику поколений. Ограниченные проверки пакетов
+FRR/BIRD сохранены в [тестировании совместимости](05-interop.md); финальная
+объединённая квалификация кандидата открыта. Эти проверки не устанавливают полное
+соответствие Section 6.5.
 
 ### Аутентификация
 
@@ -239,21 +244,23 @@ RFC 5880 Section 6.7. Поддерживаются пять типов:
 | ID | Имя | RFC Section | Поведение последовательности |
 |---|---|---|---|
 | 1 | Simple Password | 4.2 | Нет номера последовательности |
-| 2 | Keyed MD5 | 4.3 | Инкремент при каждом вызове signing в GoBFD |
+| 2 | Keyed MD5 | 4.3 | Инкремент при каждом вызове подписания в GoBFD |
 | 3 | Meticulous Keyed MD5 | 4.3 | Инкремент на каждый пакет |
-| 4 | Keyed SHA1 | 4.4 | Инкремент при каждом вызове signing в GoBFD |
+| 4 | Keyed SHA1 | 4.4 | Инкремент при каждом вызове подписания в GoBFD |
 | 5 | Meticulous Keyed SHA1 | 4.4 | Инкремент на каждый пакет |
 
-**Последовательность**: GoBFD увеличивает `bfd.XmitAuthSeq` при каждом signing
-для keyed и meticulous variants. RFC 5880 допускает более частый non-meticulous
-increment, чем только state changes. Включительное receive window равно
-`[last, last + 3 * received DetectMult]` для non-meticulous и
-`[last + 1, last + 3 * received DetectMult]` для meticulous; используется serial arithmetic.
+**Последовательность**: GoBFD увеличивает `bfd.XmitAuthSeq` при каждом подписании
+для обычных keyed- и meticulous-вариантов. RFC 5880 допускает увеличение обычного
+keyed-счётчика чаще, чем только при изменениях состояния. Включительное окно
+приёма равно `[last, last + 3 * received DetectMult]` для non-meticulous и
+`[last + 1, last + 3 * received DetectMult]` для meticulous; используется
+арифметика серийных номеров.
 
-**Ротация ключей**: несколько ключей в `AuthKeyStore` не создают live rotation
-protocol. Изменение authentication той же identity отклоняется при reload;
-coordinated hitless rotation остаётся отдельной работой. При смене deployed
-keys согласуйте с peer прерывающий restart или explicit release/recreation.
+**Ротация ключей**: несколько ключей в `AuthKeyStore` не задают протокол ротации
+во время работы. Изменение аутентификации той же идентичности отклоняется при
+перезагрузке конфигурации; согласованная ротация без прерывания остаётся отдельной
+работой. При смене развёрнутых ключей согласуйте с пиром прерывающий перезапуск
+или явное освобождение и повторное создание.
 
 > **ПРЕДУПРЕЖДЕНИЕ**: MD5 и SHA1 сохранены несмотря на криптографическую слабость, поскольку RFC 5880 определяет их как единственные хэш-основанные типы аутентификации BFD. Если совместимость позволяет, предпочитайте SHA1 вместо MD5; если важна более строгая replay-защита, используйте meticulous-режимы.
 
@@ -278,9 +285,9 @@ keys согласуйте с peer прерывающий restart или explicit
 | Тип сессии | `SessionTypeEcho` |
 | UDP порт | 3785 |
 | Формат пакета | BFD Control packet |
-| Модель таймеров | Локальная настройка; без remote negotiation |
+| Модель таймеров | Локальная настройка; без согласования с пиром |
 | Демультиплексирование | `MyDiscriminator` возвращённого пакета |
-| Диагностика при timeout | `DiagEchoFailed` |
+| Диагностика при таймауте | `DiagEchoFailed` |
 
 Текущий цикл переходит непосредственно между Down и Up, принимает пакеты по
 `MyDiscriminator` и не аутентифицирует возвращённые пакеты. RFC 9747 Section 2
@@ -292,9 +299,10 @@ Down также не реализована. Права владельцев в 
 
 ### Не реализовано
 
-- **Local Demand Mode** (Section 6.6): передаваемый D всегда 0. Remote D подавляет
-  periodic TX, когда оба peers Up и local Poll не активен. Poll/Final и constrained
-  reload handling остаются отдельными; general Demand operation не квалифицирована.
+- **Локальный Demand** (Section 6.6): передаваемый D всегда 0. D пира подавляет
+  периодическую передачу, когда оба конца Up и локальный Poll не активен.
+  Poll/Final и ограниченная обработка перезагрузки остаются отдельными;
+  общая работа Demand не квалифицирована.
 - **Связанный Echo** (Section 6.4): `RequiredMinEchoRxInterval` остаётся 0 в обычных контрольных сессиях BFD. Отдельная предварительная реализация независимого Echo имеет перечисленные выше ограничения.
 - **Point-to-Multipoint**: бит Multipoint (M) всегда 0. Пакеты с M=1 отклоняются.
 
