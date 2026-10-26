@@ -423,13 +423,12 @@ func (c dbusNetworkManager) DeviceByIPInterface(
 	ctx context.Context,
 	iface string,
 ) (dbus.ObjectPath, error) {
-	var device dbus.ObjectPath
-	err := c.managerObject().CallWithContext(
+	device, err := networkManagerObjectPathReply(c.managerObject().CallWithContext(
 		ctx,
 		networkManagerInterface+".GetDeviceByIpIface",
 		0,
 		iface,
-	).Store(&device)
+	))
 	if err != nil {
 		return "", fmt.Errorf("call NetworkManager GetDeviceByIpIface for %q: %w", iface, err)
 	}
@@ -441,10 +440,9 @@ func (c dbusNetworkManager) DeviceActiveConnection(
 	ctx context.Context,
 	device dbus.ObjectPath,
 ) (dbus.ObjectPath, error) {
-	var active dbus.ObjectPath
-	err := c.object(device).CallWithContext(
+	active, err := networkManagerPropertyPathReply(c.object(device).CallWithContext(
 		ctx, dbusPropertiesGetMethod, 0, networkManagerDeviceInterface, "ActiveConnection",
-	).Store(&active)
+	))
 	if err != nil {
 		return "", fmt.Errorf("read NetworkManager device %q active connection: %w", device, err)
 	}
@@ -456,12 +454,16 @@ func (c dbusNetworkManager) DeviceAvailableConnections(
 	ctx context.Context,
 	device dbus.ObjectPath,
 ) ([]dbus.ObjectPath, error) {
-	var connections []dbus.ObjectPath
-	err := c.object(device).CallWithContext(
+	connections, err := networkManagerPropertyReply[[]dbus.ObjectPath](c.object(device).CallWithContext(
 		ctx, dbusPropertiesGetMethod, 0, networkManagerDeviceInterface, "AvailableConnections",
-	).Store(&connections)
+	))
 	if err != nil {
 		return nil, fmt.Errorf("read NetworkManager device %q available connections: %w", device, err)
+	}
+	for _, connection := range connections {
+		if !connection.IsValid() || isNoObjectPath(connection) {
+			return nil, fmt.Errorf("read NetworkManager available profile path: %w", ErrNetworkManagerSettingsInvalid)
+		}
 	}
 
 	return connections, nil
@@ -471,10 +473,9 @@ func (c dbusNetworkManager) ActiveConnectionConnection(
 	ctx context.Context,
 	active dbus.ObjectPath,
 ) (dbus.ObjectPath, error) {
-	var connection dbus.ObjectPath
-	err := c.object(active).CallWithContext(
+	connection, err := networkManagerPropertyPathReply(c.object(active).CallWithContext(
 		ctx, dbusPropertiesGetMethod, 0, networkManagerActiveInterface, "Connection",
-	).Store(&connection)
+	))
 	if err != nil {
 		return "", fmt.Errorf("read NetworkManager active connection %q settings path: %w", active, err)
 	}
@@ -486,13 +487,17 @@ func (c dbusNetworkManager) DeactivateConnection(
 	ctx context.Context,
 	active dbus.ObjectPath,
 ) error {
-	if err := c.managerObject().CallWithContext(
+	call := c.managerObject().CallWithContext(
 		ctx,
 		networkManagerInterface+".DeactivateConnection",
 		0,
 		active,
-	).Err; err != nil {
-		return fmt.Errorf("call NetworkManager DeactivateConnection for %q: %w", active, err)
+	)
+	if call.Err != nil {
+		return fmt.Errorf("call NetworkManager DeactivateConnection for %q: %w", active, call.Err)
+	}
+	if len(call.Body) != 0 {
+		return fmt.Errorf("read NetworkManager DeactivateConnection reply: %w", ErrNetworkManagerSettingsInvalid)
 	}
 
 	return nil
@@ -503,15 +508,14 @@ func (c dbusNetworkManager) ActivateConnection(
 	connection dbus.ObjectPath,
 	device dbus.ObjectPath,
 ) (dbus.ObjectPath, error) {
-	var active dbus.ObjectPath
-	err := c.managerObject().CallWithContext(
+	active, err := networkManagerObjectPathReply(c.managerObject().CallWithContext(
 		ctx,
 		networkManagerInterface+".ActivateConnection",
 		0,
 		connection,
 		device,
 		dbusNoObjectPath,
-	).Store(&active)
+	))
 	if err != nil {
 		return "", fmt.Errorf("call NetworkManager ActivateConnection for %q: %w", connection, err)
 	}
@@ -523,12 +527,11 @@ func (c dbusNetworkManager) ConnectionSettings(
 	ctx context.Context,
 	connection dbus.ObjectPath,
 ) (networkManagerConnectionSettings, error) {
-	settings := networkManagerConnectionSettings{}
-	err := c.object(connection).CallWithContext(
+	settings, err := networkManagerReply[map[string]map[string]dbus.Variant](c.object(connection).CallWithContext(
 		ctx,
 		networkManagerSettingsInterface+".GetSettings",
 		0,
-	).Store(&settings)
+	))
 	if err != nil {
 		return nil, fmt.Errorf("call NetworkManager GetSettings for %q: %w", connection, err)
 	}
@@ -539,21 +542,64 @@ func (c dbusNetworkManager) ConnectionSettings(
 }
 
 func (c dbusNetworkManager) ConnectionByUUID(ctx context.Context, uuid string) (dbus.ObjectPath, error) {
-	call := c.object(networkManagerObjectPath+"/Settings").CallWithContext(
+	connection, err := networkManagerObjectPathReply(c.object(networkManagerObjectPath+"/Settings").CallWithContext(
 		ctx, networkManagerInterface+".Settings.GetConnectionByUuid", 0, uuid,
-	)
-	if call.Err != nil {
-		return "", fmt.Errorf("call NetworkManager GetConnectionByUuid: %w", call.Err)
-	}
-	if len(call.Body) != 1 {
-		return "", fmt.Errorf("read NetworkManager controller path: %w", ErrNetworkManagerSettingsInvalid)
-	}
-	// Store permits numeric/string coercion; this method requires an object-path reply.
-	connection, valid := call.Body[0].(dbus.ObjectPath)
-	if !valid || !connection.IsValid() || isNoObjectPath(connection) {
-		return "", fmt.Errorf("read NetworkManager controller path: %w", ErrNetworkManagerSettingsInvalid)
+	))
+	if err != nil {
+		return "", fmt.Errorf("call NetworkManager GetConnectionByUuid: %w", err)
 	}
 	return connection, nil
+}
+
+// Store permits numeric/string coercion; RPC replies must retain their declared types.
+func networkManagerReply[T any](call *dbus.Call) (T, error) {
+	var zero T
+	if call.Err != nil {
+		return zero, call.Err
+	}
+	if len(call.Body) != 1 {
+		return zero, ErrNetworkManagerSettingsInvalid
+	}
+	value, valid := call.Body[0].(T)
+	if !valid {
+		return zero, ErrNetworkManagerSettingsInvalid
+	}
+	return value, nil
+}
+
+func networkManagerPropertyReply[T any](call *dbus.Call) (T, error) {
+	var zero T
+	variant, err := networkManagerReply[dbus.Variant](call)
+	if err != nil {
+		return zero, err
+	}
+	value, valid := variant.Value().(T)
+	if !valid {
+		return zero, ErrNetworkManagerSettingsInvalid
+	}
+	return value, nil
+}
+
+func networkManagerObjectPathReply(call *dbus.Call) (dbus.ObjectPath, error) {
+	path, err := networkManagerReply[dbus.ObjectPath](call)
+	if err != nil {
+		return "", err
+	}
+	if !path.IsValid() || isNoObjectPath(path) {
+		return "", ErrNetworkManagerSettingsInvalid
+	}
+	return path, nil
+}
+
+func networkManagerPropertyPathReply(call *dbus.Call) (dbus.ObjectPath, error) {
+	path, err := networkManagerPropertyReply[dbus.ObjectPath](call)
+	if err != nil {
+		return "", err
+	}
+	if !path.IsValid() {
+		return "", ErrNetworkManagerSettingsInvalid
+	}
+	return path, nil
 }
 
 func (c dbusNetworkManager) Close() error {

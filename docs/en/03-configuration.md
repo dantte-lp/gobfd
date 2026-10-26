@@ -472,6 +472,15 @@ Repeated remove/add calls avoid further mutations once NetworkManager reports
 the corresponding inactive/active state. These checks use a fresh snapshot;
 concurrent administrative profile edits require external coordination.
 
+Replies retain the declared D-Bus types and arity. Object-path methods require
+one nonroot object path; property reads require a Variant containing the exact
+property type. The inactive `ActiveConnection` root sentinel and an empty
+`AvailableConnections` array remain valid. Available profile paths must be
+nonroot, `GetSettings` retains its nested Variant dictionary, and
+`DeactivateConnection` returns no values. Malformed replies return
+`ErrNetworkManagerSettingsInvalid`; remote errors and context cancellation are
+preserved. Reply validation cannot undo a request already processed by the peer.
+
 On Linux, NetworkManager network setup and property reply waits honor the
 actuator's context. Manager sets a 5 s context for each action, including DNS,
 socket dialing, D-Bus authentication and Hello. Each action owns a private

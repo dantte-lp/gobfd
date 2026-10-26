@@ -638,6 +638,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Decode NetworkManager replies with exact D-Bus types and arity across path,
+  property, settings and deactivation RPCs. Reject coercible strings, arrays,
+  missing Variant envelopes and malformed profile paths; preserve inactive
+  property sentinels, empty available lists, remote errors and cancellation.
+
 - Revalidate active and cached NetworkManager bond-port ownership before
   deactivation, active no-op or activation. Support UUID controllers and
   modern/legacy bindings; reject foreign, malformed and deleted profiles

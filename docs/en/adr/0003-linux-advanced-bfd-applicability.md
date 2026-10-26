@@ -75,8 +75,14 @@ Production constraints:
    controller requires an actual active-profile binding on the requested bond
    device. The new UUID reply decoder requires one nonroot object path and
    preserves remote/context errors; `Store` permits numeric/string coercion.
-   Strict reply qualification of older adapters is tracked separately in
-   `gobfd-qj0.8.2.2.11`. Checks and mutations use separate D-Bus calls;
+   Reply qualification is tracked separately in `gobfd-qj0.8.2.2.11`: all used
+   RPC adapters share exact type/arity decoding, property reads retain their
+   Variant envelope, available profile paths reject root, and the inactive
+   property sentinel and empty available list remain valid. Deactivation
+   requires an empty reply. Typed remote/context errors are preserved;
+   malformed values return `ErrNetworkManagerSettingsInvalid`. Validating a
+   reply does not undo a mutation already processed by the peer.
+   Checks and mutations use separate D-Bus calls;
    concurrent administrator edits require external coordination. Local fixtures
    do not qualify actual NetworkManager ownership or member-wire enforcement.
 

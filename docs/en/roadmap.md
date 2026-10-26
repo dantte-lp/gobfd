@@ -7,11 +7,11 @@ record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 ## Publication boundary — 2026-10-26
 
 This projection covers local
-`dev@611dc9f0ef0035a36290f903b76644e5c9d8c3d4` and the NetworkManager profile
-ownership correction under qualification in `gobfd-qj0.8.2.2.9`. Property reads
-and Linux connection setup are accepted under `gobfd-qj0.8.2.2.10` and
-`gobfd-qj0.8.6.2.1`. Strict reply qualification of older adapters is tracked in
-`gobfd-qj0.8.2.2.11`; the new UUID lookup rejects coercible response types.
+`dev@e6bd2654168dec5820e050b05bc859c5dd704a25` and strict NetworkManager reply
+qualification under `gobfd-qj0.8.2.2.11`. Profile ownership checks are accepted
+under `gobfd-qj0.8.2.2.9`; property reads and Linux connection setup are accepted
+under `gobfd-qj0.8.2.2.10` and `gobfd-qj0.8.6.2.1`. The shared reply decoder
+rejects coercible types and wrong arity while retaining property sentinels.
 The 31-pair publication review is accepted under
 `gobfd-qj0.8.2.8.7.2.20`. API loopback fixtures and benchmark failure propagation
 are accepted locally under `gobfd-qj0.8.2.3.9` and
@@ -38,7 +38,7 @@ prerelease path. Beads, rather than this dated projection, owns their status.
 | Echo ownership | Idempotent principal claims share a canonical wire with config and retain RX through config withdrawal; this is management policy, not returned-packet authentication | `gobfd-qj0.8.2.2.8` |
 | Smallstep | Existing-certificate renewal locally qualified against a real CA with an isolated dependency profile; enrollment, scheduling, reconnect and root rollover remain separate post-v1 lifecycle work | `gobfd-qj0.8.2.3.7`, `gobfd-qj0.8.2.3.7.4`, `gobfd-qj0.8.2.3.7.5` |
 | Containerlab | Isolated compiler/runtime, CLI/API engine binding, mandatory verdicts and checkpoint recovery are accepted in the frozen candidate; native FRR and integration into `dev` remain open; five NOS profiles remain unavailable | `gobfd-qj0.8.2.8.5.2.7.3.4`, `gobfd-qj0.8.2.8.5.2.7.3`, `gobfd-qj0.8.2.8.5.2.7.4` |
-| NetworkManager | Property reads and Linux connection setup are accepted locally on godbus v5.2.4; active/cached profile ownership, UUID controller binding and idempotent operations are under source qualification; strict older replies, live ownership and member-wire acceptance remain open | `gobfd-qj0.8.2.2.10`, `gobfd-qj0.8.2.2.9`, `gobfd-qj0.8.6.2.1`, `gobfd-qj0.8.2.2.11` |
+| NetworkManager | Context-bound setup and active/cached ownership with UUID bindings are accepted locally; exact reply types/arity are under affected-source qualification; live ownership and member-wire acceptance remain open | `gobfd-qj0.8.2.2.10`, `gobfd-qj0.8.2.2.9`, `gobfd-qj0.8.6.2.1`, `gobfd-qj0.8.2.2.11` |
 | Echo preview | Declarative and API IPv4/IPv6 TX binding, UDP/3785 and lease cleanup pass local checks; API receive claims honor the requested interface; full RFC qualification remains open | `gobfd-qj0.8.2.1.19`, `gobfd-qj0.8.2.1.17` |
 | Legacy demos | HAProxy/Kubernetes CLI and pod-selector drift require source fixes and actual execution | `gobfd-qj0.8.2.8.7.1.4.1` |
 | Kubernetes API exposure | Source binds GoBGP API to loopback and uses bounded exec API probes; live-cluster probe and resource qualification remains open | `gobfd-qj0.8.2.8.7.1.4.1.1` |
