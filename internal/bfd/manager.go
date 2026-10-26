@@ -693,6 +693,8 @@ func (m *Manager) invalidateStateChanges() {
 // last buffer slot of a subscriber is reserved for a gap marker, so a slow
 // subscriber learns about lost events even when no further event follows.
 // subMu serializes dispatch and synchronous registration/removal.
+//
+//nolint:contextcheck,nolintlint // Background matches Warn; contextcheck consumes this directive before nolintlint.
 func (m *Manager) broadcastStateChange(sc StateChange) fanoutDelivery {
 	m.subMu.Lock()
 	defer m.subMu.Unlock()
@@ -715,7 +717,8 @@ func (m *Manager) broadcastStateChange(sc StateChange) fanoutDelivery {
 		if !sub.overflowed {
 			sub.overflowed = true
 			ch <- StateChange{Gap: true, Revision: sc.Revision, Timestamp: sc.Timestamp}
-			m.logger.Warn("state change subscriber is behind, queued a gap marker",
+			m.logger.LogAttrs(context.Background(), slog.LevelWarn,
+				"state change subscriber is behind, queued a gap marker",
 				slog.Uint64("revision", sc.Revision),
 			)
 		}
@@ -726,7 +729,8 @@ func (m *Manager) broadcastStateChange(sc StateChange) fanoutDelivery {
 			counts.legacy = DeliveryQueued
 		default:
 			counts.legacy = DeliveryQueueFull
-			m.logger.Warn("public notification channel full, dropping state change",
+			m.logger.LogAttrs(context.Background(), slog.LevelWarn,
+				"public notification channel full, dropping state change",
 				slog.Uint64("local_discr", uint64(sc.LocalDiscr)),
 				slog.String("new_state", sc.NewState.String()),
 			)

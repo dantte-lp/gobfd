@@ -7,8 +7,9 @@ record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 ## Publication boundary — 2026-10-26
 
 This projection covers local
-`dev@972946c59bbe8d9bc36fbe51edb9f6c82f3bfc33` and inline authentication payload
-qualification under `gobfd-qj0.8.2.8.6.3.2.2`. Value metadata and immutable-wire
+`dev@ef4b197e9ed4fdfa3a2d7f1bca6143b486f6d508` and Micro-BFD dispatch logging
+qualification under `gobfd-qj0.8.2.8.6.3.2.3.1`. Inline authentication payload
+is accepted under `gobfd-qj0.8.2.8.6.3.2.2`. Value metadata and immutable-wire
 verification are accepted under `gobfd-qj0.8.2.1.18` and `gobfd-qj0.8.2.1.18.1`;
 fixed digest results are accepted under `gobfd-qj0.8.2.8.6.3.2.1`.
 UDP source corrections are accepted under `gobfd-qj0.8.2.1.16.1`.
@@ -53,6 +54,7 @@ prerelease path. Beads, rather than this dated projection, owns their status.
 | NetworkManager | Context-bound setup, active/cached ownership with UUID bindings and exact reply types/arity are accepted locally; live ownership and member-wire acceptance remain open | `gobfd-qj0.8.2.2.10`, `gobfd-qj0.8.2.2.9`, `gobfd-qj0.8.6.2.1`, `gobfd-qj0.8.2.2.11` |
 | UDP transport | Constructor source-port validation and native-endian ancillary decoding are accepted locally; native architecture evidence remains separate | `gobfd-qj0.8.2.1.16.1`, `gobfd-qj0.8.2.1.16.2` |
 | Authentication | Inline payload preserves independent packet copies; built-in Sign/Verify and the authenticated owner fixture report zero allocations; Micro-BFD dispatch and final runtime acceptance remain separate | `gobfd-qj0.8.2.8.6.3.2.2`, `gobfd-qj0.8.2.8.6.3.2.3`, `gobfd-qj0.8.2.8.6.3.2` |
+| Micro-BFD dispatch | Typed logging samples report zero allocations without an actuator, including enabled JSON; noop actuator retains four allocations for its bounded context; the complete allocation target remains open | `gobfd-qj0.8.2.8.6.3.2.3.1`, `gobfd-qj0.8.2.8.6.3.2.3` |
 | Echo preview | Declarative and API IPv4/IPv6 TX binding, UDP/3785 and lease cleanup pass local checks; API receive claims honor the requested interface; full RFC qualification remains open | `gobfd-qj0.8.2.1.19`, `gobfd-qj0.8.2.1.17` |
 | Legacy demos | HAProxy/Kubernetes CLI and pod-selector drift require source fixes and actual execution | `gobfd-qj0.8.2.8.7.1.4.1` |
 | Kubernetes API exposure | Source binds GoBGP API to loopback and uses bounded exec API probes; live-cluster probe and resource qualification remains open | `gobfd-qj0.8.2.8.7.1.4.1.1` |

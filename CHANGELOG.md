@@ -351,6 +351,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Remove boxed log-attribute allocations from Micro-BFD member, aggregate and
+  state fan-out logging while retaining fields, levels and delivery behavior.
+  Local dispatch samples fall from 11 to 0 allocs/op without an actuator and
+  from 15 to 4 with a noop actuator; per-call deadline and cancellation remain.
+
 - gRPC health readiness derives from components (H-30, `gobfd-qj0.8.2.3.1`).
   The empty service is the AND of the five reconciliation sources, the runtime
   workers and the device-bound listener interfaces. `bfd.v1.BfdService`

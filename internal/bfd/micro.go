@@ -16,6 +16,7 @@ package bfd
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -429,6 +430,8 @@ func (g *MicroBFDGroup) RemoveMember(ifName string) (bool, error) {
 //
 // This method is called by the Manager when a per-member BFD session
 // transitions state (via StateChange notifications).
+//
+//nolint:contextcheck,nolintlint // Background matches Info/Warn; contextcheck consumes the directive before nolintlint.
 func (g *MicroBFDGroup) UpdateMemberState(ifName string, newState State, localDiscr uint32) (bool, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -454,7 +457,7 @@ func (g *MicroBFDGroup) UpdateMemberState(ifName string, newState State, localDi
 		g.upCount++
 	}
 
-	g.logger.Info("member link state changed",
+	g.logger.LogAttrs(context.Background(), slog.LevelInfo, "member link state changed",
 		slog.String("member", ifName),
 		slog.String("old_state", oldState.String()),
 		slog.String("new_state", newState.String()),
@@ -468,11 +471,11 @@ func (g *MicroBFDGroup) UpdateMemberState(ifName string, newState State, localDi
 
 	if oldAggUp != g.aggregateUp {
 		if g.aggregateUp {
-			g.logger.Info("LAG aggregate state: Up",
+			g.logger.LogAttrs(context.Background(), slog.LevelInfo, "LAG aggregate state: Up",
 				slog.Int("up_count", g.upCount),
 			)
 		} else {
-			g.logger.Warn("LAG aggregate state: Down",
+			g.logger.LogAttrs(context.Background(), slog.LevelWarn, "LAG aggregate state: Down",
 				slog.Int("up_count", g.upCount),
 				slog.Int("min_active", g.minActive),
 			)

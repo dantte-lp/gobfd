@@ -30,6 +30,10 @@ qualify lifetime metric cardinality, supported scale or a latency distribution.
   real metrics report 0 B/op and 0 allocs/op, three runs of 200000 iterations.
   [Inline samples](docs/en/12-benchmarks.md#inline-payload--2026-10-26) exclude
   socket receive and retained-wire allocation; clock input is synthetic.
+- Micro-BFD dispatch logging reports 0 allocs/op without an actuator, including
+  enabled JSON encoding. The noop actuator retains 4 allocs/op for its bounded
+  context; the full allocation target remains open. See
+  [dispatch samples](docs/en/12-benchmarks.md#micro-bfd-dispatch-logging--2026-10-26).
 - `BuildInnerPacketInto` writes into caller-owned storage and is used by
   production overlay TX. `BuildInnerPacket` is the allocating compatibility wrapper.
 - Runtime FSM lookup uses an indexed array built from the declarative map
@@ -80,6 +84,10 @@ supported packet rates or claim immunity to GC pauses.
   с реальными метриками дают 0 B/op и 0 allocs/op: три серии по 200000 итераций.
   [Измерения inline](docs/ru/12-benchmarks.md#встроенный-payload--2026-10-26)
   не включают приём сокетом и выделение сохраняемого wire; вход часов синтетический.
+- Логирование Micro-BFD dispatch даёт 0 allocs/op без actuator, включая
+  включённое JSON-кодирование. Noop-actuator сохраняет 4 allocs/op для
+  ограниченного контекста; полная цель выделений остаётся открытой. См.
+  [измерения dispatch](docs/ru/12-benchmarks.md#логирование-micro-bfd-dispatch--2026-10-26).
 - `BuildInnerPacketInto` пишет в память вызывающего кода и используется
   рабочим путём передачи overlay. `BuildInnerPacket` — обёртка совместимости
   с выделением памяти.

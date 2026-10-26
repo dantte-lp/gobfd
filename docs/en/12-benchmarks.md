@@ -138,10 +138,23 @@ change the daemon from 31445503 to 31434427 bytes; the other three binaries are
 unchanged. These are validation binary sizes, not release asset or retained RSS
 measurements. The plain in-memory RX fixture remains 128 B/op and 1 alloc/op.
 
-The broader matrix also records Micro-BFD state-dispatch allocations:
-11 allocs/op with no actuator and 15 with a noop actuator, both before and after
-inline storage. They remain owned by `gobfd-qj0.8.2.8.6.3.2.3`; successful
-benchmark execution does not make the overall allocation gate pass.
+### Micro-BFD dispatch logging — 2026-10-26
+
+The pre-change matrix records 11 allocs/op with no actuator and 15 with a
+noop actuator, both before and after inline authentication storage. Typed
+`LogAttrs` calls remove boxed log attributes without changing levels, fields
+or state delivery. Local linux/amd64 samples, three runs of 200000 iterations,
+report 0 B/op and 0 allocs/op without an actuator, including enabled JSON
+encoding after the legacy notification queue fills. The fixture retains 64
+groups and alternates member Up/Down transitions.
+
+The noop actuator path reports 272 B/op and 4 allocs/op. Allocation profiles
+attribute the remaining four allocations to the fresh bounded context and
+timer; the five-second deadline, cancellation and ordered dispatch remain
+unchanged. The logging change is tracked by `gobfd-qj0.8.2.8.6.3.2.3.1`;
+the full zero-allocation target remains open in `gobfd-qj0.8.2.8.6.3.2.3`.
+These samples do not qualify actuator backend I/O, supported scale or latency
+distributions and do not close the overall allocation gate.
 
 Historical Go 1.26 samples remain in
 [`testdata/benchmarks/v0.4.0/`](../../testdata/benchmarks/v0.4.0/).

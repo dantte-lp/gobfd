@@ -300,6 +300,8 @@ func (m *Manager) LookupMicroBFDGroup(lagInterface string) (*MicroBFDGroup, bool
 // owns the member link and address family, and returns the actuator event.
 // The caller holds Manager.mu for reading and runs the actuator after it
 // releases the lock.
+//
+//nolint:contextcheck,nolintlint // Background matches Info/Warn; contextcheck consumes the directive before nolintlint.
 func (m *Manager) dispatchMicroBFD(sc StateChange) (MicroBFDMemberEvent, bool) {
 	group, ok := m.microMembers[microMemberKeyOf(sc.Interface, sc.PeerAddr)]
 	if !ok {
@@ -307,7 +309,7 @@ func (m *Manager) dispatchMicroBFD(sc StateChange) (MicroBFDMemberEvent, bool) {
 	}
 	changed, err := group.UpdateMemberState(sc.Interface, sc.NewState, sc.LocalDiscr)
 	if err != nil {
-		m.logger.Warn("micro-BFD dispatch error",
+		m.logger.LogAttrs(context.Background(), slog.LevelWarn, "micro-BFD dispatch error",
 			slog.String("lag", group.LAGInterface()),
 			slog.String("member", sc.Interface),
 			slog.String("error", err.Error()),
@@ -317,7 +319,7 @@ func (m *Manager) dispatchMicroBFD(sc StateChange) (MicroBFDMemberEvent, bool) {
 
 	aggregateUp := group.IsUp()
 	if changed {
-		m.logger.Info("micro-BFD aggregate state changed",
+		m.logger.LogAttrs(context.Background(), slog.LevelInfo, "micro-BFD aggregate state changed",
 			slog.String("lag", group.LAGInterface()),
 			slog.Bool("aggregate_up", aggregateUp),
 			slog.Int("up_count", group.UpCount()),
@@ -339,7 +341,8 @@ func (m *Manager) handleMicroBFDActuator(ctx context.Context, ev MicroBFDMemberE
 	ctx, cancel := context.WithTimeout(ctx, microBFDActuatorTimeout)
 	defer cancel()
 	if err := m.microActuator.HandleMicroBFDMemberEvent(ctx, ev); err != nil {
-		m.logger.Warn("micro-BFD actuator failed",
+		//nolint:contextcheck // Failure logging retains Warn's background context after the actuator context is canceled.
+		m.logger.LogAttrs(context.Background(), slog.LevelWarn, "micro-BFD actuator failed",
 			slog.String("lag", ev.LAGInterface),
 			slog.String("member", ev.MemberInterface),
 			slog.String("new_state", ev.NewState.String()),
