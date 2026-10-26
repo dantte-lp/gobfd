@@ -23,7 +23,7 @@ func TestUDPSenderPaddingPreparation(t *testing.T) {
 			if prepared {
 				opts = append(opts, WithDFBit())
 			}
-			s, err := NewUDPSender(netip.MustParseAddr("127.0.0.1"), 0, false,
+			s, err := NewUDPSender(netip.MustParseAddr("127.0.0.1"), 49152, false,
 				slog.New(slog.DiscardHandler), opts...)
 			if err != nil {
 				t.Fatal(err)
@@ -89,7 +89,7 @@ func TestNewUDPSenderLoopbackLifecycle(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 	s, err := NewUDPSender(
 		netip.MustParseAddr("127.0.0.1"),
-		0,
+		49152,
 		false,
 		logger,
 		WithDFBit(),

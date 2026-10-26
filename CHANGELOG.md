@@ -638,6 +638,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reject UDP sender source ports outside 49152-65535 before applying options
+  or opening a socket; zero no longer requests automatic allocation. Preserve
+  production allocator behavior, including the existing Echo source-port policy.
+  Decode Linux TTL/Hop Limit and packet-info indices in native byte order;
+  reject malformed or out-of-range TTL/Hop Limit integers. Native architecture
+  qualification remains separate from source checks.
+
 - Decode NetworkManager replies with exact D-Bus types and arity across path,
   property, settings and deactivation RPCs. Reject coercible strings, arrays,
   missing Variant envelopes and malformed profile paths; preserve inactive

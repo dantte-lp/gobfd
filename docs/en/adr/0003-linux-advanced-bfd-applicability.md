@@ -21,6 +21,14 @@ explicitly configured enforcement backends. It is not a universal Linux
 dataplane controller. Each advanced mode has a fixed applicability and a
 fixed set of production constraints listed in this record.
 
+The shared Linux UDP sender requires a fixed source port in 49152-65535,
+including Micro-BFD and Echo callers; the Echo restriction is product policy,
+not an additional RFC requirement. TTL/Hop Limit and packet-info interface
+indices use the native Linux ancillary byte order, while destination addresses
+retain network order. Intended `linux/amd64` and `linux/arm64` support requires
+native kernel evidence for each architecture (`gobfd-qj0.8.2.1.16.2`), separate
+from source correction (`gobfd-qj0.8.2.1.16.1`) and cross-compilation.
+
 ## Consequences
 
 ### Status matrix

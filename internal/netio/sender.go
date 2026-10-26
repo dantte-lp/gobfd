@@ -80,6 +80,8 @@ func WithWriteBuffer(bytes int) SenderOption {
 
 // NewUDPSender creates a sender for BFD packets from localAddr:srcPort.
 // Supports both IPv4 and IPv6 addresses; the address family is auto-detected.
+// srcPort must be in 49152-65535; zero never requests automatic allocation.
+// This is also the sender's Echo policy, whose source port RFC 5881 leaves unspecified.
 //
 // The socket is configured with:
 //   - IPv4: IP_TTL = 255 (RFC 5881 Section 5 / RFC 5082 GTSM)
@@ -96,6 +98,10 @@ func NewUDPSender(
 	logger *slog.Logger,
 	opts ...SenderOption,
 ) (*UDPSender, error) {
+	if srcPort < sourcePortMin {
+		return nil, fmt.Errorf("UDP source port %d: %w", srcPort, ErrSourcePortInvalid)
+	}
+
 	dstPort := PortSingleHop
 	if multiHop {
 		dstPort = PortMultiHop

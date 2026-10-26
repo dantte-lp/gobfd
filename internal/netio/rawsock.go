@@ -140,6 +140,9 @@ var (
 	// RFC 5881 Section 4 range (49152-65535).
 	ErrPortExhausted = errors.New("no source ports available in range 49152-65535")
 
+	// ErrSourcePortInvalid indicates a sender port outside the fixed session range.
+	ErrSourcePortInvalid = errors.New("UDP source port is outside 49152-65535")
+
 	// ErrSocketClosed indicates an operation on a closed socket.
 	ErrSocketClosed = errors.New("socket closed")
 

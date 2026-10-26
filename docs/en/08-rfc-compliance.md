@@ -381,7 +381,7 @@ retained without OOM. Evidence: `reports/h12-wire-20261016/`; PCAP SHA256
 | Requirement | Implementation |
 |---|---|
 | Destination port 3784 | `netio.PortSingleHop = 3784` |
-| Source port 49152-65535 | `SourcePortAllocator` |
+| Source port 49152-65535 | `SourcePortAllocator`; `NewUDPSender` rejects out-of-range values, including zero, before options or socket creation |
 | TTL=255 outgoing | `IP_TTL` / `IPV6_UNICAST_HOPS` set with `unix.SetsockoptInt` |
 | TTL=255 incoming check | `IP_RECVTTL` / `IPV6_RECVHOPLIMIT` + listener pre-filter; the demultiplexed session also requires a single-hop transport class (Section 5) |
 | Transport class | A packet from the 4784 multihop listener never reaches a single-hop session, by Your Discriminator or by peer key (`scope_mismatch`) |
@@ -390,6 +390,19 @@ retained without OOM. Evidence: `reports/h12-wire-20261016/`; PCAP SHA256
 | IPv6 link-local demux | Zones are not part of the demux key; without `interface`, the link-local zone selects the session interface, listener device and sender device; a zone that contradicts `interface` is rejected (`ErrInvalidSessionZone`) |
 | TTL in the session (Section 5) | The demultiplexed single-hop session also requires TTL/Hop Limit 255 (`demux`/`ttl_rejected`) |
 | Separate IPv4/IPv6 listeners | Separate `udp4` / `udp6` sockets |
+
+The shared UDP sender retains the same source-port range for Echo as a product
+policy; RFC 5881 Section 4 leaves the Echo source port unspecified. Destination
+overrides do not relax this constructor contract. Production factories already
+allocate in range, so session source-port selection is unchanged.
+
+Linux TTL/Hop Limit ancillary values are decoded as four-byte native-endian
+integers and accepted only in 0-255. Packet-info interface indices use native
+byte order; destination addresses retain network byte order. The intended
+platforms remain `linux/amd64` and `linux/arm64`. Native kernel qualification
+for both platforms is tracked in `gobfd-qj0.8.2.1.16.2`; cross-compilation alone
+does not close that gate. Source corrections are tracked in
+`gobfd-qj0.8.2.1.16.1`.
 
 The implemented boundary is the numbered-multiaccess single-hop profile: each
 session is bound to one receive interface, explicit or derived from its local
