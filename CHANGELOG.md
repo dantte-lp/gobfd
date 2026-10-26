@@ -351,6 +351,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Engineering workload blackholes repeat every 10 minutes, placing full
+  one-second windows at minutes 10 and 20 inside the 30-minute measurement.
+  The 5,000-session scale, 300 ms interval, loss and CPU inputs remain fixed;
+  reference retains its 30-minute period. Drain-only omissions do not qualify
+  measured failures or recovery.
+
 - Remove boxed log-attribute allocations from Micro-BFD member, aggregate and
   state fan-out logging while retaining fields, levels and delivery behavior.
   Local dispatch samples fall from 11 to 0 allocs/op without an actuator and

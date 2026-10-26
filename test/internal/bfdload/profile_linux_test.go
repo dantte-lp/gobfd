@@ -23,6 +23,7 @@ func TestProfileRejectsReducedQualification(t *testing.T) {
 			}
 			if kind == "engineering" {
 				profile.Sessions, profile.Interval, profile.Duration = 5000, 300*time.Millisecond, 30*time.Minute
+				profile.BlackholeEvery = 10 * time.Minute
 			}
 			if err := profile.Validate(); err != nil {
 				t.Fatal(err)

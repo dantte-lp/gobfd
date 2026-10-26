@@ -9,11 +9,12 @@ import (
 )
 
 const (
-	fixtureProfile      = "fixture"
-	referenceDuration   = 24 * time.Hour
-	engineeringInterval = 300 * time.Millisecond
-	engineeringDuration = 30 * time.Minute
-	blackholePeriod     = 30 * time.Minute
+	fixtureProfile             = "fixture"
+	referenceDuration          = 24 * time.Hour
+	engineeringInterval        = 300 * time.Millisecond
+	engineeringDuration        = 30 * time.Minute
+	blackholePeriod            = 30 * time.Minute
+	engineeringBlackholePeriod = 10 * time.Minute
 )
 
 // ErrProfile means the requested workload is invalid or reduces a named qualification profile.
@@ -54,6 +55,9 @@ func DefaultProfile(kind string) (Profile, error) {
 	}
 	profile.LossPermille, profile.CPULoadPercent = 1, 80
 	profile.BlackholeEvery, profile.BlackholeFor = blackholePeriod, time.Second
+	if kind == "engineering" {
+		profile.BlackholeEvery = engineeringBlackholePeriod
+	}
 	return profile, nil
 }
 

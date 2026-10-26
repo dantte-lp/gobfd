@@ -145,6 +145,22 @@ sampled setup history: missed startup flaps conservatively fail this contract.
 Reuse production metrics; add no hot-path fence or counter. Journal completeness
 does not classify Down as intentional or qualify commit timestamps or clocks.
 
+### Measured blackholes (2026-10-26)
+
+The first blackhole starts one period after the measurement epoch. A 30-minute
+period therefore provides no blackhole in the engineering profile's measured
+`[0,30 min)` interval. Activity at the cutoff belongs to drain and cannot
+establish measured failure or recovery.
+
+Require a 10-minute period and one-second width for engineering: full windows
+start at minutes 10 and 20, with recovery time before the cutoff. Retain 5,000
+sessions, 300 ms intervals, 30 minutes, random loss and CPU pressure. Reference
+retains its 30-minute period and one-second width over 24 hours. Named-profile
+validation and reports must identify these different inputs explicitly; older
+engineering runs with a 30-minute period do not prove the corrected workload.
+Actual omissions, Down/recovery and causal classification remain separate
+acceptance requirements in Beads `gobfd-qj0.8.2.1.6.3.4.3.6.3` and its parent.
+
 ## Consequences
 
 Commands without a control directory retain independent timers and explicit
