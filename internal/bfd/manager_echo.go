@@ -317,6 +317,10 @@ func (m *Manager) ReconcileEchoSessionsDetailed(
 	}
 	defer op.finish()
 
+	if contextErr := ctx.Err(); contextErr != nil {
+		return failedReconcileResult(ReconcileErrorLifecycle, contextErr)
+	}
+
 	m.ownershipMu.Lock()
 	desiredByKey, desiredOrder, err := compileEchoReconcileConfigs(desired, true)
 	if err != nil {
@@ -331,6 +335,12 @@ func (m *Manager) ReconcileEchoSessionsDetailed(
 	result, retired, unusedLease := m.createDesiredDeclarativeEchoSessions(
 		ctx, desiredByKey, desiredOrder, current,
 	)
+	if result.Err() == nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			addReconcileError(&result, ReconcileErrorLifecycle,
+				fmt.Errorf("release stale Echo claims: %w", contextErr))
+		}
+	}
 	if result.Err() == nil {
 		released, staleRetired := m.detachStaleDeclarativeEchoSessions(desiredByKey, current)
 		result.Released = released.Released

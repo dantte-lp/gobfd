@@ -45,6 +45,11 @@ rolls back only claims acquired by that pass, preserves previous config claims
 and never removes surviving API claims. Claim counts and physical-wire counts
 remain distinct.
 
+An already canceled reconciliation returns a lifecycle error without changing
+claims. Cancellation observed before stale-claim release preserves old claims;
+new claims already published by that pass remain installed. A live retry reuses
+those wires and converges without reallocating their sender leases.
+
 ## Consequences
 
 - Repeated identical Echo Add is idempotent; List/Watch describe one wire even

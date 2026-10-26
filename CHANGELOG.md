@@ -654,6 +654,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve declarative Echo claims when reconciliation is canceled before
+  stale-claim release. Return a lifecycle error and let a live retry reuse
+  already published wires without reallocating sender leases.
+
 - Preserve an optional owner-monotonic Down commit witness through the bounded
   workload journal, including transitions whose notification arrives after
   cutoff. Keep unknown clock components explicit and separate causal and
