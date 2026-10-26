@@ -87,7 +87,7 @@ func run() int {
 	// 6. Create BFD session manager with metrics and unsolicited BFD (RFC 9468).
 	// One UDP sender factory owns the RFC 5881 source-port allocator for
 	// configured, API and unsolicited sessions.
-	sf := newUDPSenderFactory(cfg.Socket.WriteBufferSize)
+	sf := newUDPSenderFactory(cfg.Socket)
 	mgr, err := newManager(cfg, collector, sf, logger)
 	if err != nil {
 		logger.Error("failed to create BFD manager",

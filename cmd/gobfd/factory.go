@@ -16,11 +16,11 @@ import (
 
 const maxBFDWireUint8 = math.MaxUint8
 
-func newUDPSenderFactory(writeBufferSize int) *udpSenderFactory {
+func newUDPSenderFactory(socket config.SocketConfig) *udpSenderFactory {
 	return &udpSenderFactory{
-		portAlloc:       netio.NewSourcePortAllocator(),
-		writeBufferSize: writeBufferSize,
-		senders:         make(map[uint16]*netio.UDPSender),
+		portAlloc: netio.NewSourcePortAllocator(),
+		socket:    socket,
+		senders:   make(map[uint16]*netio.UDPSender),
 	}
 }
 
@@ -80,10 +80,14 @@ func (f *udpSenderFactory) createSenderForSession(
 		return nil, 0, fmt.Errorf("allocate source port: %w", err)
 	}
 
-	// Copy caller options before appending the immutable startup buffer policy.
-	opts := make([]netio.SenderOption, 0, len(senderOpts)+1)
+	// Apply the immutable startup policy after caller-specific transport options.
+	opts := make([]netio.SenderOption, 0, len(senderOpts)+2)
 	opts = append(opts, senderOpts...)
-	opts = append(opts, netio.WithWriteBuffer(f.writeBufferSize))
+	opts = append(opts, netio.WithWriteBuffer(f.socket.WriteBufferSize), netio.WithSocketQoS(netio.SocketQoS{
+		IPv4DSCP: f.socket.IPv4DSCP, IPv6TrafficClass: f.socket.IPv6TrafficClass,
+		Priority: f.socket.Priority, Mark: f.socket.Mark,
+		PriorityRequired: f.socket.PriorityRequired, MarkRequired: f.socket.MarkRequired,
+	}))
 	sender, err := netio.NewUDPSender(localAddr, srcPort, multiHop, logger, opts...)
 	if err != nil {
 		f.portAlloc.Release(srcPort)

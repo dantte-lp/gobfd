@@ -20,6 +20,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
+	"github.com/dantte-lp/gobfd/internal/config"
 	"github.com/dantte-lp/gobfd/internal/server"
 	"github.com/dantte-lp/gobfd/internal/testutil"
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
@@ -85,7 +86,7 @@ func TestAPISenderDestinationPort(t *testing.T) {
 				}
 
 				logger := slog.New(slog.DiscardHandler)
-				sf := newUDPSenderFactory(0)
+				sf := newUDPSenderFactory(config.SocketConfig{})
 				t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 				coordinator, _ := newConvergedReadinessCoordinator(t)
 				coordinator.readiness.setEchoEnabled(true)
@@ -175,7 +176,7 @@ func TestAPISenderRejectsUnsupportedKinds(t *testing.T) {
 			t.Run(fmt.Sprintf("%d/wrapper=%t", kind, wrapped), func(t *testing.T) {
 				t.Parallel()
 				logger := slog.New(slog.DiscardHandler)
-				raw := newUDPSenderFactory(0)
+				raw := newUDPSenderFactory(config.SocketConfig{})
 				t.Cleanup(func() { cleanupCandidateTestSenders(t, raw) })
 				allocator, port := exhaustedOverlayAllocator(t)
 				allocator.Release(port)
@@ -215,7 +216,7 @@ func TestAPIEchoSenderFailureReleasesClaimAndPort(t *testing.T) {
 		t.Run(local, func(t *testing.T) {
 			t.Parallel()
 			logger := slog.New(slog.DiscardHandler)
-			senders := newUDPSenderFactory(8192)
+			senders := newUDPSenderFactory(config.SocketConfig{WriteBufferSize: 8192})
 			t.Cleanup(func() { cleanupCandidateTestSenders(t, senders) })
 			allocator, port := exhaustedOverlayAllocator(t)
 			allocator.Release(port)

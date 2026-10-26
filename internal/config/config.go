@@ -44,9 +44,8 @@ type Config struct {
 	Sessions    []SessionConfig   `koanf:"sessions"`
 }
 
-// SocketConfig holds UDP socket buffer tuning parameters.
-// These control the kernel-level buffer sizes for BFD UDP sockets,
-// helping to prevent packet loss under high session counts.
+// SocketConfig holds startup-owned UDP buffers and ordinary BFD sender QoS.
+// QoS does not configure the outer sockets of overlay transports.
 type SocketConfig struct {
 	// ReadBufferSize is the SO_RCVBUF size for UDP listeners in bytes.
 	// Default: 4 MiB. Set to 0 to use the OS default.
@@ -55,6 +54,19 @@ type SocketConfig struct {
 	// WriteBufferSize is the SO_SNDBUF size for UDP senders in bytes.
 	// Default: 4 MiB. Set to 0 to use the OS default.
 	WriteBufferSize int `koanf:"write_buffer_size"`
+
+	// IPv4DSCP is the six-bit DSCP, excluding ECN; zero selects best effort.
+	IPv4DSCP int `koanf:"ipv4_dscp"`
+	// IPv6TrafficClass is the complete Traffic Class octet; zero selects best effort.
+	IPv6TrafficClass int `koanf:"ipv6_traffic_class"`
+	// Priority is the Linux SO_PRIORITY value, independent of the IP marking.
+	Priority int `koanf:"priority"`
+	// Mark is the Linux SO_MARK value; zero leaves the socket unmarked.
+	Mark uint32 `koanf:"mark"`
+	// PriorityRequired makes an SO_PRIORITY failure reject the sender.
+	PriorityRequired bool `koanf:"priority_required"`
+	// MarkRequired makes a requested nonzero SO_MARK failure reject the sender.
+	MarkRequired bool `koanf:"mark_required"`
 }
 
 // GRPCConfig holds the ConnectRPC server configuration.
@@ -849,8 +861,11 @@ func DefaultConfig() *Config {
 			AlignIntervals:          false,
 		},
 		Socket: SocketConfig{
-			ReadBufferSize:  4 * 1024 * 1024, // 4 MiB
-			WriteBufferSize: 4 * 1024 * 1024, // 4 MiB
+			ReadBufferSize:   4 * 1024 * 1024, // 4 MiB
+			WriteBufferSize:  4 * 1024 * 1024, // 4 MiB
+			IPv4DSCP:         48,              // Operational CS6 policy, not an RFC 5881 requirement.
+			IPv6TrafficClass: 192,
+			PriorityRequired: true, MarkRequired: true,
 		},
 		MicroBFD: MicroBFDConfig{
 			Actuator: MicroBFDActuatorConfig{
@@ -967,6 +982,9 @@ func loadOpenedConfig(path string, file io.Reader) (*Config, error) {
 
 	if err := validateSocketBufferInput(k); err != nil {
 		return nil, fmt.Errorf("validate socket buffer input from %s: %w", path, err)
+	}
+	if err := validateSocketQoSInput(k); err != nil {
+		return nil, fmt.Errorf("validate socket QoS input from %s: %w", path, err)
 	}
 	if err := validatePaddingInput(k); err != nil {
 		return nil, fmt.Errorf("validate padding input from %s: %w", path, err)
@@ -1181,25 +1199,31 @@ func applyRequiredMinRxPresence(k *koanf.Koanf, cfg *Config, defaultRx time.Dura
 // unknown or ambiguous GOBFD_ names.
 func envKeyMapper(s string) string {
 	supported := map[string]string{
-		"GOBFD_GRPC_ADDR":                "grpc.addr",
-		"GOBFD_METRICS_ADDR":             "metrics.addr",
-		"GOBFD_METRICS_PATH":             "metrics.path",
-		"GOBFD_LOG_LEVEL":                "log.level",
-		"GOBFD_LOG_FORMAT":               "log.format",
-		"GOBFD_UNSOLICITED_ENABLED":      "unsolicited.enabled",
-		"GOBFD_ECHO_ENABLED":             "echo.enabled",
-		"GOBFD_MICRO_BFD_ENABLED":        "micro_bfd.enabled",
-		"GOBFD_VXLAN_ENABLED":            "vxlan.enabled",
-		"GOBFD_VXLAN_BACKEND":            "vxlan.backend",
-		"GOBFD_GENEVE_ENABLED":           "geneve.enabled",
-		"GOBFD_GENEVE_BACKEND":           "geneve.backend",
-		"GOBFD_GOBGP_ENABLED":            "gobgp.enabled",
-		"GOBFD_GOBGP_ADDR":               "gobgp.addr",
-		"GOBFD_GOBGP_STRATEGY":           "gobgp.strategy",
-		"GOBFD_GOBGP_TLS_ENABLED":        "gobgp.tls.enabled",
-		"GOBFD_GOBGP_DAMPENING_ENABLED":  "gobgp.dampening.enabled",
-		"GOBFD_SOCKET_READ_BUFFER_SIZE":  "socket.read_buffer_size",
-		"GOBFD_SOCKET_WRITE_BUFFER_SIZE": "socket.write_buffer_size",
+		"GOBFD_GRPC_ADDR":                 "grpc.addr",
+		"GOBFD_METRICS_ADDR":              "metrics.addr",
+		"GOBFD_METRICS_PATH":              "metrics.path",
+		"GOBFD_LOG_LEVEL":                 "log.level",
+		"GOBFD_LOG_FORMAT":                "log.format",
+		"GOBFD_UNSOLICITED_ENABLED":       "unsolicited.enabled",
+		"GOBFD_ECHO_ENABLED":              "echo.enabled",
+		"GOBFD_MICRO_BFD_ENABLED":         "micro_bfd.enabled",
+		"GOBFD_VXLAN_ENABLED":             "vxlan.enabled",
+		"GOBFD_VXLAN_BACKEND":             "vxlan.backend",
+		"GOBFD_GENEVE_ENABLED":            "geneve.enabled",
+		"GOBFD_GENEVE_BACKEND":            "geneve.backend",
+		"GOBFD_GOBGP_ENABLED":             "gobgp.enabled",
+		"GOBFD_GOBGP_ADDR":                "gobgp.addr",
+		"GOBFD_GOBGP_STRATEGY":            "gobgp.strategy",
+		"GOBFD_GOBGP_TLS_ENABLED":         "gobgp.tls.enabled",
+		"GOBFD_GOBGP_DAMPENING_ENABLED":   "gobgp.dampening.enabled",
+		"GOBFD_SOCKET_READ_BUFFER_SIZE":   "socket.read_buffer_size",
+		"GOBFD_SOCKET_WRITE_BUFFER_SIZE":  "socket.write_buffer_size",
+		"GOBFD_SOCKET_IPV4_DSCP":          "socket.ipv4_dscp",
+		"GOBFD_SOCKET_IPV6_TRAFFIC_CLASS": "socket.ipv6_traffic_class",
+		"GOBFD_SOCKET_PRIORITY":           "socket.priority",
+		"GOBFD_SOCKET_MARK":               "socket.mark",
+		"GOBFD_SOCKET_PRIORITY_REQUIRED":  "socket.priority_required",
+		"GOBFD_SOCKET_MARK_REQUIRED":      "socket.mark_required",
 	}
 
 	return supported[s]
@@ -1217,6 +1241,12 @@ func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 		"log.format":                         defaults.Log.Format,
 		"socket.read_buffer_size":            defaults.Socket.ReadBufferSize,
 		"socket.write_buffer_size":           defaults.Socket.WriteBufferSize,
+		"socket.ipv4_dscp":                   defaults.Socket.IPv4DSCP,
+		"socket.ipv6_traffic_class":          defaults.Socket.IPv6TrafficClass,
+		"socket.priority":                    defaults.Socket.Priority,
+		"socket.mark":                        defaults.Socket.Mark,
+		"socket.priority_required":           defaults.Socket.PriorityRequired,
+		"socket.mark_required":               defaults.Socket.MarkRequired,
 		"bfd.default_desired_min_tx":         defaults.BFD.DefaultDesiredMinTx.String(),
 		"bfd.default_required_min_rx":        defaults.BFD.DefaultRequiredMinRx.String(),
 		"bfd.default_detect_multiplier":      defaults.BFD.DefaultDetectMultiplier,
@@ -1524,6 +1554,24 @@ var ErrInvalidSocketReadBufferSize = errors.New("socket.read_buffer_size must be
 
 // ErrInvalidSocketWriteBufferSize rejects invalid nonnegative integer send buffer requests.
 var ErrInvalidSocketWriteBufferSize = errors.New("socket.write_buffer_size must be a nonnegative integer fitting int")
+
+// ErrInvalidSocketIPv4DSCP rejects values outside the six-bit DSCP range.
+var ErrInvalidSocketIPv4DSCP = errors.New("socket.ipv4_dscp must be an integer in 0-63")
+
+// ErrInvalidSocketIPv6TrafficClass rejects values outside a Traffic Class octet.
+var ErrInvalidSocketIPv6TrafficClass = errors.New("socket.ipv6_traffic_class must be an integer in 0-255")
+
+// ErrInvalidSocketPriority rejects values outside Linux's nonnegative int32 range.
+var ErrInvalidSocketPriority = errors.New("socket.priority must be an integer in 0-2147483647")
+
+// ErrInvalidSocketMark rejects values outside Linux's uint32 mark range.
+var ErrInvalidSocketMark = errors.New("socket.mark must be an integer in 0-4294967295")
+
+// ErrInvalidSocketPriorityRequired rejects malformed priority failure policy.
+var ErrInvalidSocketPriorityRequired = errors.New("socket.priority_required must be a boolean")
+
+// ErrInvalidSocketMarkRequired rejects malformed mark failure policy.
+var ErrInvalidSocketMarkRequired = errors.New("socket.mark_required must be a boolean")
 
 var validMicroBFDActuatorModes = map[string]bool{
 	MicroBFDActuatorModeDisabled: true,

@@ -51,6 +51,13 @@ func WithWriteBuffer(_ int) SenderOption {
 	}
 }
 
+// WithSocketQoS preserves the Linux sender option API on non-Linux builds.
+func WithSocketQoS(_ SocketQoS) SenderOption {
+	return func(*UDPSender) {
+		// No-op: non-Linux transports cannot configure a sender socket.
+	}
+}
+
 // NewUDPSender rejects the Linux-specific BFD sender on non-Linux platforms.
 func NewUDPSender(
 	localAddr netip.Addr,

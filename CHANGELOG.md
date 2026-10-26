@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Configure ordinary BFD sender IPv4 DSCP and IPv6 Traffic Class with CS6
+  defaults, independent Linux SO_PRIORITY, and optional SO_MARK disabled by
+  default. Required option failures reject creation; explicitly optional
+  priority/mark failures warn and continue. QoS changes require restart;
+  overlay outer policy and per-session source-port allocation remain separate.
+
 - Bind workload Down witnesses to fixed manifest slots and session generations.
   Retain only active physical references; gaps and inconsistent lifecycle history
   remain unknown. Report identity completeness separately from count settlement;
