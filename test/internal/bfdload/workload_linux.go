@@ -81,6 +81,7 @@ type OwnerWorkloadObservation struct {
 	SchedulerWindow    Histogram                    `json:"scheduler_window"`
 	GCPauseWindow      Histogram                    `json:"gc_pause_window"`
 	DownEvents         []OwnerDownEvent             `json:"down_events"`
+	DownWitnesses      []OwnerDownWitness           `json:"down_witnesses"`
 	DownEventsOmitted  uint64                       `json:"down_events_omitted"`
 	NotificationGaps   uint64                       `json:"notification_gaps"`
 	DownJournal        DownJournalObservation       `json:"down_journal"`

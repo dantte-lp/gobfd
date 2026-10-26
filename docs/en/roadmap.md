@@ -7,8 +7,10 @@ record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 ## Publication boundary — 2026-10-26
 
 This projection covers local
-`dev@917656a8f48cfd0b59deab8b19f1da356259654d` and actual peer blackhole
-journal qualification under `gobfd-qj0.8.2.1.6.3.4.3.6.1`. Paired benchmark
+`dev@d8c0ccd2426ec2ee21ba2fc204ed74711723af7d` and owner-monotonic Down
+witness qualification under `gobfd-qj0.8.2.1.6.3.4.3.6.2.1`.
+Actual peer blackhole journaling is accepted under
+`gobfd-qj0.8.2.1.6.3.4.3.6.1`; causal correlation remains separate. Paired benchmark
 collection is accepted under `gobfd-qj0.8.2.8.8.1`; it does not qualify native
 performance. Intentional/false-Down correlation remains open under
 `gobfd-qj0.8.2.1.6.3.4.3.6`. Vulnerability-audit diagnostic

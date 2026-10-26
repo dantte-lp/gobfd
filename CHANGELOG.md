@@ -643,6 +643,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve an optional owner-monotonic Down commit witness through the bounded
+  workload journal, including transitions whose notification arrives after
+  cutoff. Keep unknown clock components explicit and separate causal and
+  reference qualification.
+
 - Retain bounded per-peer blackhole omission windows with actual directional
   counts and decision times. Fail on journal overflow; keep causal Down
   classification and reference workload acceptance separate.

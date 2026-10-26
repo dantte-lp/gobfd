@@ -190,6 +190,7 @@ type StateChange struct {
 	Cause              Cause
 	ObservationVersion uint64
 	Ref                SessionRef
+	TransitionTiming   TransitionTiming
 
 	// Timestamp is when the transition occurred.
 	Timestamp time.Time
@@ -347,6 +348,7 @@ type Session struct {
 	// remote facts separately until its final local pair can commit with them.
 	observation      Observation
 	observationClock *atomic.Uint64
+	transitionTiming TransitionTiming
 	stagedRemote     Observation
 	remoteStaged     bool
 

@@ -345,6 +345,31 @@ measurement-window Down events. See the
 [journal implementation](../../test/internal/bfdload/down_journal_linux.go)
 and [timestamp classification](../../test/internal/bfdload/workload_linux.go).
 
+### Owner commit witnesses
+
+The optional `StateChange.TransitionTiming` carries a value copy of the last
+validated owner receive, the actual detection deadline when dispatched,
+negotiated Detection Time and a bracket around the local observation commit.
+Its version must match the published `ObservationVersion`. Logging and
+notification delays cannot move that bracket. `LastPacketReceived` remains
+wall-clock telemetry; the validated receive is not a kernel arrival timestamp.
+
+The bounded `down_witnesses` array retains all delivered source transitions,
+including setup and drain. Unlike `down_events`, it is not filtered by the
+notification timestamp. A notification after cutoff can therefore retain a
+commit from inside the measurement window. Legacy cutoff counters keep their
+existing notification-time semantics and source-completeness requirements.
+
+Offsets are computed before UTC conversion or serialization. `commit_known`,
+`validated_known` and `detection_known` distinguish measured phase-zero values
+from unavailable data. Version mismatches, missing monotonic readings and
+reversed commit intervals remain unknown, with an explicit diagnostic.
+Virtual `synctest` timestamps do not establish native monotonic validity.
+
+[ADR-0012](adr/0012-owner-down-transition-witness.md) defines this evidence.
+Neither a commit witness nor `ObservationVersion` alone proves the session
+incarnation or the cause of Down; those remain required classifier inputs.
+
 ### Actual peer blackhole omissions
 
 Each peer retains `blackhole_windows` for actual generator omissions, separately

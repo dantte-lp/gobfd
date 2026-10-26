@@ -32,9 +32,11 @@ type DownJournalObservation struct {
 }
 
 type downTransition struct {
-	at    time.Time
-	discr uint32
-	diag  bfd.Diag
+	at      time.Time
+	discr   uint32
+	diag    bfd.Diag
+	witness OwnerDownWitness
+	timing  bfd.TransitionTiming
 }
 
 type downJournalResult struct {
@@ -78,7 +80,7 @@ func collectDownJournal(ctx context.Context, changes <-chan bfd.StateChange) dow
 				if len(result.events) == maxDownEvents {
 					result.omitted++
 				} else {
-					result.events = append(result.events, downTransition{change.Timestamp, change.LocalDiscr, change.Diag})
+					result.events = append(result.events, captureDownTransition(change))
 				}
 			}
 		}
@@ -118,11 +120,16 @@ func (r *OwnerWorkloadObservation) joinDownJournal(
 	r.DownJournal.Closed = result.closed
 	r.NotificationGaps += result.gaps
 	r.DownEventsOmitted += result.omitted
-	for _, event := range result.events {
+	r.DownWitnesses = make([]OwnerDownWitness, len(result.events))
+	for index, event := range result.events {
 		r.observeChange(bfd.StateChange{
 			OldState: bfd.StateUp, NewState: bfd.StateDown,
 			Timestamp: event.at, LocalDiscr: event.discr, Diag: event.diag,
 		}, started)
+		witness := event.witness
+		witness.ElapsedNS = int64(event.at.Sub(started))
+		witness.Timing = projectDownTiming(event.timing, witness.ObservationVersion, started)
+		r.DownWitnesses[index] = witness
 	}
 	if err != nil {
 		return r.failDownJournal(err)

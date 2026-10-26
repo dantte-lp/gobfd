@@ -36,3 +36,4 @@ forward link to the replacement.
 | [0009](./0009-echo-principal-claims.md) | Principal claims on a shared Echo wire | Accepted policy; local qualification separate |
 | [0010](./0010-bfd-auth-value-ownership.md) | Value ownership of BFD authentication metadata | Superseded by ADR-0011 |
 | [0011](./0011-bfd-auth-inline-payload.md) | Inline BFD authentication payload ownership | Accepted policy; source and runtime qualification separate |
+| [0012](./0012-owner-down-transition-witness.md) | Owner-monotonic Down transition evidence | Accepted policy; causal classification and release qualification separate |
