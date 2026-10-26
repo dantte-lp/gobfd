@@ -7,7 +7,7 @@ record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 ## Publication boundary — 2026-10-26
 
 This projection covers local
-`dev@dc8a6e65ffe4071924190175a1fa71b70afd6ca7`. Owner-monotonic Down
+`dev@1c535f9ac1de7a12f7d85054a9d0fe81216f02c0`. Owner-monotonic Down
 commit witnesses are accepted under `gobfd-qj0.8.2.1.6.3.4.3.6.2.1` and
 [ADR-0012](adr/0012-owner-down-transition-witness.md). The engineering schedule
 places full blackhole windows lasting one second at minutes 10 and 20 inside
@@ -16,9 +16,14 @@ its 30 minutes of measurement; source acceptance is recorded under
 Source checks, bounded UDP fixtures and samples with zero allocations do not
 qualify engineering with 5,000 sessions or reference with 1,000 sessions for
 24 hours.
-Incarnation binding remains the next required causal input under
+Scalar incarnation binding is accepted under
 `gobfd-qj0.8.2.1.6.3.4.3.6.2.2`; independent causal classification remains open
 under `gobfd-qj0.8.2.1.6.3.4.3.6.2`.
+The [release retrospective](audits/2026-10-26-release-retrospective.md)
+compares the previous audit with current code and Beads. Its engineering
+estimate is 40–65 active hours plus the required 24-hour reference run;
+the planning window is 30 October–1 November, subject to the stated native
+qualification risks and external waiting. Execution remains in Beads.
 Actual peer blackhole journaling is accepted under
 `gobfd-qj0.8.2.1.6.3.4.3.6.1`; causal correlation remains separate. Paired benchmark
 collection is accepted under `gobfd-qj0.8.2.8.8.1`; it does not qualify native
