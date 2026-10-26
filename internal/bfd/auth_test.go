@@ -130,7 +130,7 @@ func verifySimplePasswordFields(t *testing.T, pkt *bfd.ControlPacket, password s
 		t.Errorf("Auth.Len: got %d, want %d", pkt.Auth.Len, wantLen)
 	}
 
-	if string(pkt.Auth.Data) != password {
+	if string(pkt.Auth.Data[:pkt.Auth.DataLen]) != password {
 		t.Errorf("Auth.Data: got %q, want %q", pkt.Auth.Data, password)
 	}
 }
@@ -692,14 +692,14 @@ func verifyHashAuthFields(
 		t.Errorf("Auth.Len: got %d, want %d", pkt.Auth.Len, expectedLen)
 	}
 
-	if len(pkt.Auth.Data) != digestSize {
+	if int(pkt.Auth.DataLen) != digestSize {
 		t.Errorf("Auth.Data length: got %d, want %d",
-			len(pkt.Auth.Data), digestSize)
+			int(pkt.Auth.DataLen), digestSize)
 	}
 
 	// Verify digest is not all zeros (hash should produce non-zero).
 	allZero := true
-	for _, b := range pkt.Auth.Data {
+	for _, b := range pkt.Auth.Data[:pkt.Auth.DataLen] {
 		if b != 0 {
 			allZero = false
 

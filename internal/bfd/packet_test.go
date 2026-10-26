@@ -110,10 +110,10 @@ func TestMarshalUnmarshalRoundTrip(t *testing.T) {
 				DesiredMinTxInterval:  1000000,
 				RequiredMinRxInterval: 1000000,
 				Auth: bfd.AuthSection{
-					Type:  bfd.AuthTypeSimplePassword,
-					Len:   7,
-					KeyID: 1,
-					Data:  []byte("test"),
+					Type:    bfd.AuthTypeSimplePassword,
+					Len:     7,
+					KeyID:   1,
+					DataLen: 4, Data: [20]byte{0x74, 0x65, 0x73, 0x74},
 				},
 			},
 		},
@@ -134,7 +134,7 @@ func TestMarshalUnmarshalRoundTrip(t *testing.T) {
 					Len:            24,
 					KeyID:          5,
 					SequenceNumber: 42,
-					Data:           make([]byte, 16),
+					DataLen:        16,
 				},
 			},
 		},
@@ -155,7 +155,7 @@ func TestMarshalUnmarshalRoundTrip(t *testing.T) {
 					Len:            28,
 					KeyID:          3,
 					SequenceNumber: 0xDEAD,
-					Data:           make([]byte, 20),
+					DataLen:        20,
 				},
 			},
 		},
@@ -245,7 +245,7 @@ func TestMarshalUnmarshalRoundTrip(t *testing.T) {
 					t.Errorf("Auth.KeyID: got %d, want %d", got.Auth.KeyID, tt.pkt.Auth.KeyID)
 				}
 				if tt.pkt.Auth.Type == bfd.AuthTypeSimplePassword {
-					if string(got.Auth.Data) != string(tt.pkt.Auth.Data) {
+					if string(got.Auth.Data[:got.Auth.DataLen]) != string(tt.pkt.Auth.Data[:tt.pkt.Auth.DataLen]) {
 						t.Errorf("Auth.Data: got %q, want %q",
 							got.Auth.Data, tt.pkt.Auth.Data)
 					}
@@ -783,10 +783,10 @@ func TestAuthSectionMarshal(t *testing.T) {
 				DesiredMinTxInterval:  1000000,
 				RequiredMinRxInterval: 1000000,
 				Auth: bfd.AuthSection{
-					Type:  bfd.AuthTypeSimplePassword,
-					Len:   7, // 3 + len("test")
-					KeyID: 1,
-					Data:  []byte("test"),
+					Type:    bfd.AuthTypeSimplePassword,
+					Len:     7, // 3 + len("test")
+					KeyID:   1,
+					DataLen: 4, Data: [20]byte{0x74, 0x65, 0x73, 0x74},
 				},
 			},
 			checkBuf: func(t *testing.T, buf []byte, n int) {
@@ -826,7 +826,7 @@ func TestAuthSectionMarshal(t *testing.T) {
 					Len:            24,
 					KeyID:          5,
 					SequenceNumber: 0x12345678,
-					Data: []byte{
+					DataLen:        16, Data: [20]byte{
 						0x01,
 						0x02,
 						0x03,
@@ -893,7 +893,7 @@ func TestAuthSectionMarshal(t *testing.T) {
 					Len:            28,
 					KeyID:          3,
 					SequenceNumber: 0xDEADBEEF,
-					Data:           make([]byte, 20),
+					DataLen:        20,
 				},
 			},
 			checkBuf: func(t *testing.T, buf []byte, n int) {
@@ -942,7 +942,7 @@ func TestAuthSectionMarshal(t *testing.T) {
 					Len:            28,
 					KeyID:          7,
 					SequenceNumber: 1,
-					Data:           make([]byte, 20),
+					DataLen:        20,
 				},
 			},
 			checkBuf: func(t *testing.T, buf []byte, n int) {
@@ -977,7 +977,7 @@ func TestAuthSectionMarshal(t *testing.T) {
 					Len:            24,
 					KeyID:          9,
 					SequenceNumber: 100,
-					Data:           make([]byte, 16),
+					DataLen:        16,
 				},
 			},
 			checkBuf: func(t *testing.T, buf []byte, n int) {
@@ -1082,7 +1082,7 @@ func TestMarshalAuthBufferTooSmall(t *testing.T) {
 			Len:            28,
 			KeyID:          1,
 			SequenceNumber: 1,
-			Data:           make([]byte, 20),
+			DataLen:        20,
 		},
 	}
 
@@ -1558,10 +1558,10 @@ func TestLengthFieldAutoSet(t *testing.T) {
 				DesiredMinTxInterval:  1000000,
 				RequiredMinRxInterval: 1000000,
 				Auth: bfd.AuthSection{
-					Type:  bfd.AuthTypeSimplePassword,
-					Len:   7, // 3 + 4
-					KeyID: 1,
-					Data:  []byte("abcd"),
+					Type:    bfd.AuthTypeSimplePassword,
+					Len:     7, // 3 + 4
+					KeyID:   1,
+					DataLen: 4, Data: [20]byte{0x61, 0x62, 0x63, 0x64},
 				},
 			},
 			wantLen: 31, // 24 + 7
@@ -1581,7 +1581,7 @@ func TestLengthFieldAutoSet(t *testing.T) {
 					Len:            24,
 					KeyID:          1,
 					SequenceNumber: 1,
-					Data:           make([]byte, 16),
+					DataLen:        16,
 				},
 			},
 			wantLen: 48, // 24 + 24
@@ -1601,7 +1601,7 @@ func TestLengthFieldAutoSet(t *testing.T) {
 					Len:            28,
 					KeyID:          1,
 					SequenceNumber: 1,
-					Data:           make([]byte, 20),
+					DataLen:        20,
 				},
 			},
 			wantLen: 52, // 24 + 28

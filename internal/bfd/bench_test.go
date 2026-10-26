@@ -69,7 +69,7 @@ func BenchmarkControlPacketMarshalWithAuth(b *testing.B) {
 			Len:            28,
 			KeyID:          1,
 			SequenceNumber: 42,
-			Data:           make([]byte, 20),
+			DataLen:        20,
 		},
 	}
 	buf := make([]byte, bfd.MaxPacketSize)
@@ -96,10 +96,10 @@ func BenchmarkSimplePasswordAuthVerifyStaticStore(b *testing.B) {
 	pkt := &bfd.ControlPacket{
 		AuthPresent: true,
 		Auth: bfd.AuthSection{
-			Type:  bfd.AuthTypeSimplePassword,
-			Len:   11,
-			KeyID: 1,
-			Data:  []byte("password"),
+			Type:    bfd.AuthTypeSimplePassword,
+			Len:     11,
+			KeyID:   1,
+			DataLen: 8, Data: [20]byte{0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64},
 		},
 	}
 
@@ -236,7 +236,7 @@ func BenchmarkControlPacketUnmarshalWithAuth(b *testing.B) {
 			Len:            28,
 			KeyID:          1,
 			SequenceNumber: 42,
-			Data:           make([]byte, 20),
+			DataLen:        20,
 		},
 	}
 	buf := make([]byte, bfd.MaxPacketSize)

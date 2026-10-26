@@ -61,7 +61,7 @@ func TestControlReceiverAuthenticatedReparseCountsOnce(t *testing.T) {
 	pkt := &bfd.ControlPacket{
 		Version: bfd.Version, State: bfd.StateDown, DetectMult: 3, MyDiscriminator: 1,
 		DesiredMinTxInterval: 100000, RequiredMinRxInterval: 100000, AuthPresent: true,
-		Auth: bfd.AuthSection{Type: bfd.AuthTypeSimplePassword, Len: 6, KeyID: 1, Data: []byte("key")},
+		Auth: bfd.AuthSection{Type: bfd.AuthTypeSimplePassword, Len: 6, KeyID: 1, DataLen: 3, Data: [20]byte{'k', 'e', 'y'}},
 	}
 	n, err := bfd.MarshalControlPacket(pkt, payload)
 	if err != nil {

@@ -82,6 +82,192 @@ func TestAuthenticationVerifyAllocations(t *testing.T) {
 	}
 }
 
+func TestAuthenticationSignAllocations(t *testing.T) {
+	for typ := bfd.AuthTypeSimplePassword; typ <= bfd.AuthTypeMeticulousKeyedSHA1; typ++ {
+		t.Run(typ.String(), func(t *testing.T) {
+			auth, err := bfd.NewAuthenticator(typ)
+			if err != nil {
+				t.Fatal(err)
+			}
+			keys, err := bfd.NewStaticAuthKeyStore(bfd.AuthKey{
+				ID: 1, Type: typ, Secret: []byte("benchmark-secret"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			pkt := newTestPacket()
+			var state bfd.AuthState
+			buf := make([]byte, bfd.MaxPacketSize)
+			allocs := testing.AllocsPerRun(200000, func() {
+				if signErr := auth.Sign(&state, keys, pkt, buf, len(buf)); signErr != nil {
+					panic(signErr)
+				}
+			})
+			if allocs != 0 {
+				t.Fatalf("successful authentication sign allocations = %g, want 0", allocs)
+			}
+		})
+	}
+}
+
+func TestAuthenticatedDecodeOwnsPayload(t *testing.T) {
+	t.Parallel()
+	for typ := byte(1); typ <= 5; typ++ {
+		t.Run(strconv.Itoa(int(typ)), func(t *testing.T) {
+			t.Parallel()
+			wire := storageTestWire(typ)
+			before := bytes.Clone(wire)
+			var pkt bfd.ControlPacket
+			if err := bfd.UnmarshalControlPacket(wire, &pkt); err != nil {
+				t.Fatal(err)
+			}
+			retained := pkt
+			clear(wire)
+			buf := make([]byte, bfd.MaxPacketSize)
+			n, err := bfd.MarshalControlPacket(&retained, buf)
+			if err != nil || !bytes.Equal(buf[:n], before) {
+				t.Fatalf("input reuse changed decoded copy: n=%d error=%v", n, err)
+			}
+		})
+	}
+}
+
+func TestAuthenticationSignCopyOwnsPayload(t *testing.T) {
+	t.Parallel()
+	for typ := bfd.AuthTypeSimplePassword; typ <= bfd.AuthTypeMeticulousKeyedSHA1; typ++ {
+		t.Run(typ.String(), func(t *testing.T) {
+			t.Parallel()
+			auth, err := bfd.NewAuthenticator(typ)
+			if err != nil {
+				t.Fatal(err)
+			}
+			keys, err := bfd.NewStaticAuthKeyStore(bfd.AuthKey{
+				ID: 1, Type: typ, Secret: []byte("benchmark-secret"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			pkt := newTestPacket()
+			var state bfd.AuthState
+			buf := make([]byte, bfd.MaxPacketSize)
+			if signErr := auth.Sign(&state, keys, pkt, buf, len(buf)); signErr != nil {
+				t.Fatal(signErr)
+			}
+			n, err := bfd.MarshalControlPacket(pkt, buf)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, retained := bytes.Clone(buf[:n]), *pkt
+			pkt.Auth.Data[0] ^= 0xff
+			if signErr := auth.Sign(&state, keys, pkt, buf, len(buf)); signErr != nil {
+				t.Fatal(signErr)
+			}
+			clear(buf)
+			n, err = bfd.MarshalControlPacket(&retained, buf)
+			if err != nil || !bytes.Equal(buf[:n], before) {
+				t.Fatalf("mutable copy or re-sign changed retained packet: n=%d error=%v", n, err)
+			}
+			if verifyErr := auth.Verify(&bfd.AuthState{}, keys, retained, before, n); verifyErr != nil {
+				t.Fatal(verifyErr)
+			}
+			if !bytes.Equal(keys.CurrentKey().Secret, []byte("benchmark-secret")) {
+				t.Fatal("packet mutation changed private key storage")
+			}
+		})
+	}
+}
+
+func TestAuthLogicalPayloadLength(t *testing.T) {
+	t.Parallel()
+	for _, vector := range paddedAuthVectors() {
+		t.Run(vector.name, func(t *testing.T) {
+			t.Parallel()
+			wire := authVectorWire(t, vector.wire, 128)
+			before := bytes.Clone(wire)
+			var original bfd.ControlPacket
+			if err := bfd.UnmarshalControlPacket(wire, &original); err != nil {
+				t.Fatal(err)
+			}
+			auth, err := bfd.NewAuthenticator(vector.typ)
+			if err != nil {
+				t.Fatal(err)
+			}
+			keys, err := bfd.NewStaticAuthKeyStore(bfd.AuthKey{ID: 1, Type: vector.typ, Secret: []byte("vector-key")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, length := range []uint8{0, 15, 16, 17, 19, 20, 21, 255, original.Auth.DataLen} {
+				t.Run(strconv.Itoa(int(length)), func(t *testing.T) {
+					pkt := original
+					pkt.Auth.DataLen = length
+					invalid := length != original.Auth.DataLen
+					buf := bytes.Repeat([]byte{0xaa}, bfd.MaxPacketSize)
+					n, marshalErr := bfd.MarshalControlPacket(&pkt, buf)
+					if invalid {
+						if !errors.Is(marshalErr, bfd.ErrAuthLenMismatch) || n != 0 ||
+							!bytes.Equal(buf, bytes.Repeat([]byte{0xaa}, len(buf))) {
+							t.Fatalf("invalid payload length wrote wire: n=%d error=%v", n, marshalErr)
+						}
+					} else if marshalErr != nil {
+						t.Fatal(marshalErr)
+					}
+					var state bfd.AuthState
+					var wantErr error
+					if invalid {
+						wantErr = bfd.ErrAuthDigestMismatch
+						if vector.typ == bfd.AuthTypeSimplePassword {
+							wantErr = bfd.ErrAuthPasswordMismatch
+						}
+					}
+					if verifyErr := auth.Verify(&state, keys, pkt, wire, len(wire)); !errors.Is(verifyErr, wantErr) {
+						t.Fatalf("Verify error=%v, want %v", verifyErr, wantErr)
+					}
+					if invalid && state != (bfd.AuthState{}) || !bytes.Equal(wire, before) {
+						t.Fatal("failed verification changed state or immutable wire")
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestAuthenticationSignClearsUnusedTail(t *testing.T) {
+	t.Parallel()
+	pkt := newTestPacket()
+	var state bfd.AuthState
+	buf := make([]byte, bfd.MaxPacketSize)
+	for _, key := range []bfd.AuthKey{
+		{ID: 1, Type: bfd.AuthTypeKeyedSHA1, Secret: []byte("01234567890123456789")},
+		{ID: 1, Type: bfd.AuthTypeSimplePassword, Secret: []byte("0123456789012345")},
+		{ID: 1, Type: bfd.AuthTypeSimplePassword, Secret: []byte("k")},
+		{ID: 1, Type: bfd.AuthTypeKeyedMD5, Secret: []byte("k")},
+	} {
+		auth, err := bfd.NewAuthenticator(key.Type)
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys, err := bfd.NewStaticAuthKeyStore(key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if signErr := auth.Sign(&state, keys, pkt, buf, len(buf)); signErr != nil {
+			t.Fatal(signErr)
+		}
+		for _, unused := range pkt.Auth.Data[pkt.Auth.DataLen:] {
+			if unused != 0 {
+				t.Fatal("re-sign retained previous payload in unused storage")
+			}
+		}
+		n, err := bfd.MarshalControlPacket(pkt, buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if verifyErr := auth.Verify(&bfd.AuthState{}, keys, *pkt, buf, n); verifyErr != nil {
+			t.Fatal(verifyErr)
+		}
+	}
+}
+
 func TestAuthenticatedDecodeCopySurvivesRedecode(t *testing.T) {
 	t.Parallel()
 	for authType := byte(1); authType <= 5; authType++ {

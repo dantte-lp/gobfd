@@ -68,13 +68,14 @@ costs as the same workload.
 | Benchmark family | Measured work | Important exclusion or limit |
 |---|---|---|
 | Control marshal | Serialize the packet into a supplied buffer | With-auth marshal serializes an already prepared auth section; it does not sign |
-| Control unmarshal | Parse and validate wire fields | Authentication metadata is held by value; the payload borrows immutable input |
+| Control unmarshal | Parse and validate wire fields | Authentication metadata and its bounded payload are owned by value |
 | `BenchmarkAuthentication` | Built-in `Sign` and `VerifyKnownSequence` with an immutable static key store | Verify uses decoded signed wire and resets the prior sequence; excludes sockets, retained-wire copies and owner commit |
 | FSM | Indexed transition lookup | No owner loop, socket, timer or notification |
 | Jitter and interval arithmetic | The named calculation | No timer wake-up or scheduling delay |
 | `RecvDecodeLookupEnqueue` | Decode, discriminator lookup, attempted buffered enqueue | Enqueue is not packet processing or owner commit |
 | `RecvDecodeFSM` | Decode and stateless FSM transition | No live owner state or transport |
 | `ReceiveOwnerCollector` | Actual owner commit with the real collector | Synthetic timing; excludes UDP, wire decoding and authentication |
+| `ReceiveOwnerCollectorAuthentication` | Sign, marshal, decode, demux, Verify and owner commit with real metrics | Reuses wire only after commit; steady Up handshake precedes timing; excludes sockets and kernel RX |
 | `TxMarshalJitter` | Marshal and jitter calculation | No socket send or peer arrival |
 | Create/reconcile | Session lifecycle | B/op is not total retained RSS per session |
 | `BuildInnerPacketInto` | Inner assembly into caller-owned storage | Production overlay TX path |
@@ -90,16 +91,17 @@ name or boundary changes. Avoid fixed benchmark counts in documentation.
 
 Selected codec, FSM, timer, lookup and caller-buffer operations target
 zero allocations, including authenticated decode with value-owned auth metadata.
-The payload is not copied there, so retained packets require immutable backing
-storage. [ADR-0010](adr/0010-bfd-auth-value-ownership.md) records the scoped
-measurements and packet/queue layout tradeoff.
+The bounded payload is copied into the packet; hash verification separately
+requires retained immutable wire. [ADR-0011](adr/0011-bfd-auth-inline-payload.md)
+records packet and wire ownership.
 The compatibility inner-packet builder allocates its returned slice. Session
 construction and reconciliation allocate lifecycle state. A zero result for
 one body neither proves all hot paths allocate zero nor bounds runtime GC pauses.
 
 ### Authentication methods — 2026-10-26
 
-Local linux/amd64 samples use the pinned compiler, three runs of 200000
+The digest-result change at `972946c59bbe8d9bc36fbe51edb9f6c82f3bfc33`
+recorded these historical linux/amd64 samples: the pinned compiler, three runs of 200000
 iterations, and a 16-byte key. Returning the shared digest as a fixed array
 removes one digest allocation without changing wire or payload ownership.
 
@@ -110,9 +112,36 @@ removes one digest allocation without changing wire or payload ownership.
 | Keyed SHA1, Meticulous Keyed SHA1 | 72 / 3 | 48 / 2 | 24 / 1 | 0 / 0 |
 
 These are successful method allocation samples, not a statistical latency
-comparison. Signing still allocates caller-owned payloads; the full authenticated
-owner/event-loop gate remains open in `gobfd-qj0.8.2.8.6.3.2`. The narrower digest
-change is tracked by `gobfd-qj0.8.2.8.6.3.2.1`.
+comparison. Signing still allocated caller-owned payloads in that revision.
+The digest change is accepted under `gobfd-qj0.8.2.8.6.3.2.1`.
+
+### Inline payload — 2026-10-26
+
+The ADR-0011 candidate under `gobfd-qj0.8.2.8.6.3.2.2` uses a 20-byte inline
+payload and an independent logical length. Local linux/amd64 samples report
+0 B/op and 0 allocs/op for all five built-in Sign and Verify methods, three
+runs of 200000 iterations with a 16-byte key.
+
+`ReceiveOwnerCollectorAuthentication` also reports 0 B/op and 0 allocs/op in
+the same sample matrix. It signs, marshals, decodes, queues and verifies each
+packet, then waits for owner commit with the real collector. The fixture reaches
+Up before timing and checks exact receive/commit counts; wire is reused only
+after commit. Its clock input is synthetic. Socket receive, retained-wire
+allocation, kernel timestamps, loss, supported scale and latency distributions
+remain separate; the full comparison `gobfd-qj0.8.2.8.6.3.2` is not closed by
+these allocation samples.
+
+The local layout changes from 64/32 to 60/28 bytes for packet/auth section.
+Receive queue elements remain 160 bytes due to alignment. Like-for-like
+linux/amd64 validation builds with CGO disabled, trimpath and no release ldflags
+change the daemon from 31445503 to 31434427 bytes; the other three binaries are
+unchanged. These are validation binary sizes, not release asset or retained RSS
+measurements. The plain in-memory RX fixture remains 128 B/op and 1 alloc/op.
+
+The broader matrix also records Micro-BFD state-dispatch allocations:
+11 allocs/op with no actuator and 15 with a noop actuator, both before and after
+inline storage. They remain owned by `gobfd-qj0.8.2.8.6.3.2.3`; successful
+benchmark execution does not make the overall allocation gate pass.
 
 Historical Go 1.26 samples remain in
 [`testdata/benchmarks/v0.4.0/`](../../testdata/benchmarks/v0.4.0/).

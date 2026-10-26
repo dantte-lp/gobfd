@@ -638,6 +638,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Store the bounded BFD authentication payload inline with an independent
+  logical length. Built-in signing and the measured authenticated owner loop
+  no longer allocate payload objects; packet copies own their bytes. Preserve
+  immutable verification wire and key-store isolation, and remove redundant
+  receive reparsing. ADR-0011 supersedes the slice-storage decision.
+
 - Return hash digest results by value to remove a per-packet allocation from
   built-in MD5/SHA1 verification and signing. Keep exact digest lengths,
   constant-time verification, immutable received wire and caller-owned signing

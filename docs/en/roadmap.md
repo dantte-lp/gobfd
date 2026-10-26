@@ -7,8 +7,10 @@ record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 ## Publication boundary — 2026-10-26
 
 This projection covers local
-`dev@fce4e874ddd83540eb4b26e4282a5f6862245087` and authentication value/lifetime
-qualification under `gobfd-qj0.8.2.1.18` and `gobfd-qj0.8.2.1.18.1`.
+`dev@972946c59bbe8d9bc36fbe51edb9f6c82f3bfc33` and inline authentication payload
+qualification under `gobfd-qj0.8.2.8.6.3.2.2`. Value metadata and immutable-wire
+verification are accepted under `gobfd-qj0.8.2.1.18` and `gobfd-qj0.8.2.1.18.1`;
+fixed digest results are accepted under `gobfd-qj0.8.2.8.6.3.2.1`.
 UDP source corrections are accepted under `gobfd-qj0.8.2.1.16.1`.
 Strict NetworkManager replies and
 profile ownership checks are accepted under `gobfd-qj0.8.2.2.11` and
@@ -19,9 +21,9 @@ The UDP constructor rejects invalid source ports before options or socket
 creation; Linux TTL/Hop Limit and packet-info indices use native byte order.
 Native `linux/amd64` and `linux/arm64` qualification remains separate in
 `gobfd-qj0.8.2.1.16.2`; intended architecture support is unchanged.
-Authentication metadata is held by value with one borrowed payload; hash
-verification preserves decoded wire. [ADR-0010](adr/0010-bfd-auth-value-ownership.md)
-records the measured allocation/layout tradeoff and separate release boundary.
+Authentication metadata and its bounded payload are held by value; hash
+verification preserves decoded wire. [ADR-0011](adr/0011-bfd-auth-inline-payload.md)
+records inline ownership and the separate qualification boundary.
 The 31-pair publication review is accepted under
 `gobfd-qj0.8.2.8.7.2.20`. API loopback fixtures and benchmark failure propagation
 are accepted locally under `gobfd-qj0.8.2.3.9` and
@@ -50,7 +52,7 @@ prerelease path. Beads, rather than this dated projection, owns their status.
 | Containerlab | Isolated compiler/runtime, CLI/API engine binding, mandatory verdicts and checkpoint recovery are accepted in the frozen candidate; native FRR and integration into `dev` remain open; five NOS profiles remain unavailable | `gobfd-qj0.8.2.8.5.2.7.3.4`, `gobfd-qj0.8.2.8.5.2.7.3`, `gobfd-qj0.8.2.8.5.2.7.4` |
 | NetworkManager | Context-bound setup, active/cached ownership with UUID bindings and exact reply types/arity are accepted locally; live ownership and member-wire acceptance remain open | `gobfd-qj0.8.2.2.10`, `gobfd-qj0.8.2.2.9`, `gobfd-qj0.8.6.2.1`, `gobfd-qj0.8.2.2.11` |
 | UDP transport | Constructor source-port validation and native-endian ancillary decoding are accepted locally; native architecture evidence remains separate | `gobfd-qj0.8.2.1.16.1`, `gobfd-qj0.8.2.1.16.2` |
-| Authentication | Value metadata removes decoder allocations; preserved wire supports independent admission/owner verification; final source qualification remains separate from runtime acceptance | `gobfd-qj0.8.2.1.18`, `gobfd-qj0.8.2.1.18.1` |
+| Authentication | Inline payload preserves independent packet copies; built-in Sign/Verify and the authenticated owner fixture report zero allocations; Micro-BFD dispatch and final runtime acceptance remain separate | `gobfd-qj0.8.2.8.6.3.2.2`, `gobfd-qj0.8.2.8.6.3.2.3`, `gobfd-qj0.8.2.8.6.3.2` |
 | Echo preview | Declarative and API IPv4/IPv6 TX binding, UDP/3785 and lease cleanup pass local checks; API receive claims honor the requested interface; full RFC qualification remains open | `gobfd-qj0.8.2.1.19`, `gobfd-qj0.8.2.1.17` |
 | Legacy demos | HAProxy/Kubernetes CLI and pod-selector drift require source fixes and actual execution | `gobfd-qj0.8.2.8.7.1.4.1` |
 | Kubernetes API exposure | Source binds GoBGP API to loopback and uses bounded exec API probes; live-cluster probe and resource qualification remains open | `gobfd-qj0.8.2.8.7.1.4.1.1` |

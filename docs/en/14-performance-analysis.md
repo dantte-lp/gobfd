@@ -424,11 +424,11 @@ a host Go toolchain. Raw historical Go samples remain in
 
 Remove no workload stage from the denominator when comparing results. A
 buffered enqueue, stateless FSM lookup and committed owner receive are three
-different operations. Authentication parsing fills value-owned metadata
-without an auth-object allocation; its payload still borrows immutable input.
-The local 200000-iteration measurements and packet/queue size tradeoff are
-recorded in [ADR-0010](adr/0010-bfd-auth-value-ownership.md). Signing, retained
-wire and session processing keep their own lifetime and cost. Production VXLAN/Geneve TX uses caller-buffer
+different operations. Authentication parsing fills value-owned metadata and a
+bounded inline payload without an auth-object allocation. Packet and retained-wire
+ownership are recorded in [ADR-0011](adr/0011-bfd-auth-inline-payload.md).
+Signing, retained wire and session processing keep their own measured boundaries.
+Production VXLAN/Geneve TX uses caller-buffer
 `BuildInnerPacketInto`; the allocating compatibility wrapper is a separate path.
 
 ## Runtime architecture and resource limits

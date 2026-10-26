@@ -386,9 +386,7 @@ func (a SimplePasswordAuth) Sign(
 	_ []byte,
 	_ int,
 ) error {
-	// Simple password Data becomes caller-visible packet state, so use the
-	// public caller-owned copy instead of exposing StaticAuthKeyStore backing.
-	key := keys.CurrentKey()
+	key := currentAuthKey(keys)
 	if err := validateAuthKeyForType(key, AuthTypeSimplePassword); err != nil {
 		return fmt.Errorf("simple password current key: %w", err)
 	}
@@ -397,9 +395,10 @@ func (a SimplePasswordAuth) Sign(
 		Len: uint8( // #nosec G115 -- validateAuthKey above limits the password to 16 bytes.
 			authSimpleHeaderSize + len(key.Secret),
 		),
-		KeyID: key.ID,
-		Data:  key.Secret,
+		KeyID:   key.ID,
+		DataLen: uint8(len(key.Secret)), // #nosec G115 -- validated password length is 1-16.
 	}
+	copy(pkt.Auth.Data[:], key.Secret)
 	pkt.AuthPresent = true
 
 	return nil
@@ -444,7 +443,7 @@ func verifyPassword(key AuthKey, auth *AuthSection) error {
 			auth.Len, expectedLen, ErrAuthLenMismatch)
 	}
 
-	if subtle.ConstantTimeCompare(auth.Data, key.Secret) != 1 {
+	if int(auth.DataLen) != len(key.Secret) || subtle.ConstantTimeCompare(auth.Data[:len(key.Secret)], key.Secret) != 1 {
 		return fmt.Errorf("simple password: %w", ErrAuthPasswordMismatch)
 	}
 
@@ -661,9 +660,9 @@ func signHash(
 		return fmt.Errorf("sign hash: marshal: %w", err)
 	}
 
-	// Compute hash and write digest into buf and pkt.Auth.Data.
-	computeAndPlaceDigest(buf, n, p)
-	pkt.Auth.Data = copyDigest(buf, p)
+	pkt.Auth.Data = computeDigest(buf[:n], p)
+	digestOffset := HeaderSize + 8
+	copy(buf[digestOffset:digestOffset+p.digestSize], pkt.Auth.Data[:p.digestSize])
 
 	return nil
 }
@@ -673,35 +672,15 @@ func signHash(
 func buildAuthSection(key AuthKey, state *AuthState, p hashParams) AuthSection {
 	// RFC 5880 Section 6.7.3/6.7.4: "the Auth Key/Hash field is set to
 	// the value of the Authentication Key."
-	digest := make([]byte, p.digestSize)
-	copy(digest, key.Secret)
-
-	return AuthSection{
+	auth := AuthSection{
 		Type:           p.authType,
 		Len:            p.authLen,
 		KeyID:          key.ID,
 		SequenceNumber: state.XmitAuthSeq,
-		Data:           digest,
+		DataLen:        uint8(p.digestSize), // #nosec G115 -- private constructors use 16 or 20.
 	}
-}
-
-// computeAndPlaceDigest computes the hash over buf[0:n] and writes
-// the result into the digest slot at the correct offset.
-func computeAndPlaceDigest(buf []byte, n int, p hashParams) {
-	// Auth section digest starts at: HeaderSize + 8 (type+len+keyid+reserved+seq).
-	digestOffset := HeaderSize + 8
-	digest := computeDigest(buf[:n], p)
-	copy(buf[digestOffset:], digest[:p.digestSize])
-}
-
-// copyDigest extracts a copy of the digest from buf after it has been
-// written by computeAndPlaceDigest.
-func copyDigest(buf []byte, p hashParams) []byte {
-	digestOffset := HeaderSize + 8
-	result := make([]byte, p.digestSize)
-	copy(result, buf[digestOffset:digestOffset+p.digestSize])
-
-	return result
+	copy(auth.Data[:], key.Secret)
+	return auth
 }
 
 // computeDigest computes MD5 or SHA1 hash over the given data.
@@ -846,7 +825,8 @@ func verifyAndUpdateSeq(
 	// Compute hash over the modified packet.
 	computed := computeDigest(pdu, p)
 
-	if subtle.ConstantTimeCompare(pkt.Auth.Data, computed[:p.digestSize]) != 1 {
+	if int(pkt.Auth.DataLen) != p.digestSize ||
+		subtle.ConstantTimeCompare(pkt.Auth.Data[:p.digestSize], computed[:p.digestSize]) != 1 {
 		return fmt.Errorf("hash auth: %w", ErrAuthDigestMismatch)
 	}
 

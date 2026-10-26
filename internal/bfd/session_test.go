@@ -1158,8 +1158,8 @@ func TestSessionCachedPacketIncludesAuthSection(t *testing.T) {
 		if pkt.Auth.KeyID != 7 {
 			t.Fatalf("Auth.KeyID = %d, want 7", pkt.Auth.KeyID)
 		}
-		if string(pkt.Auth.Data) != "s10-core-auth" {
-			t.Fatalf("Data = %q, want s10-core-auth", string(pkt.Auth.Data))
+		if string(pkt.Auth.Data[:pkt.Auth.DataLen]) != "s10-core-auth" {
+			t.Fatalf("Data = %q, want s10-core-auth", string(pkt.Auth.Data[:pkt.Auth.DataLen]))
 		}
 	})
 }

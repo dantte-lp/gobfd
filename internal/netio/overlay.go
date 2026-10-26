@@ -475,15 +475,11 @@ func (r *OverlayReceiver) recvOne(ctx context.Context) error {
 		TransportScope: ometa.TransportScope,
 	}
 
-	// Step 4: Copy raw wire bytes only when auth verification needs stable
-	// backing storage for authentication slices.
+	// Step 4: Retain complete wire for authentication after pooled input release.
 	var wire []byte
 	if !pkt.Auth.IsZero() {
 		wire = make([]byte, len(bfdPayload))
 		copy(wire, bfdPayload)
-		if err := bfd.UnmarshalControlPacket(wire, &pkt); err != nil {
-			return fmt.Errorf("overlay reparse auth packet: %w", err)
-		}
 	}
 
 	// Step 5: Route to session via manager.

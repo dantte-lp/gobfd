@@ -132,15 +132,11 @@ func (r *Receiver) recvOne(ctx context.Context, ln *Listener) error {
 	}
 	r.demuxer.RecordDelivery(bfd.DeliveryWireParse, bfd.DeliveryAccepted)
 
-	// Auth fields are zero-copy slices into raw. If auth is present, copy and
-	// re-parse from stable wire bytes before returning raw to PacketPool.
+	// Retain complete wire for authentication after returning raw to PacketPool.
 	var wire []byte
 	if !pkt.Auth.IsZero() {
 		wire = make([]byte, len(raw))
 		copy(wire, raw)
-		if err := bfd.UnmarshalControlPacket(wire, &pkt); err != nil {
-			return fmt.Errorf("reparse auth packet from wire copy: %w", err)
-		}
 	}
 
 	if outcome, err := r.demuxer.DemuxWithWire(pkt, bfdMeta, wire); err != nil {

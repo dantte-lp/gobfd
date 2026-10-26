@@ -102,7 +102,7 @@ func TestPaddedAuthenticatedReceiveOwnsCompleteWire(t *testing.T) {
 	pkt := &bfd.ControlPacket{
 		Version: bfd.Version, State: bfd.StateDown, DetectMult: 3, MyDiscriminator: 1,
 		DesiredMinTxInterval: 100000, RequiredMinRxInterval: 100000, AuthPresent: true,
-		Auth: bfd.AuthSection{Type: bfd.AuthTypeSimplePassword, Len: 6, KeyID: 1, Data: []byte("key")},
+		Auth: bfd.AuthSection{Type: bfd.AuthTypeSimplePassword, Len: 6, KeyID: 1, DataLen: 3, Data: [20]byte{'k', 'e', 'y'}},
 	}
 	if _, err := bfd.MarshalControlPacket(pkt, payload); err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestPaddedAuthenticatedReceiveOwnsCompleteWire(t *testing.T) {
 	if &dmux.wire[0] == &conn.borrowed[0] {
 		t.Fatal("authenticated wire aliases borrowed packet buffer")
 	}
-	if dmux.auth.IsZero() || string(dmux.auth.Data) != "key" {
+	if dmux.auth.IsZero() || string(dmux.auth.Data[:dmux.auth.DataLen]) != "key" {
 		t.Fatal("owned authentication fields lost")
 	}
 }

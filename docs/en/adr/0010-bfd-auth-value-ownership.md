@@ -2,8 +2,11 @@
 
 | Field | Value |
 |---|---|
-| Status | Accepted |
+| Status | Superseded by ADR-0011 |
 | Date | 2026-10-26 |
+
+Historical decision. [ADR-0011](0011-bfd-auth-inline-payload.md) replaces payload
+storage and retains value transfer and immutable hash verification.
 
 ## Context
 

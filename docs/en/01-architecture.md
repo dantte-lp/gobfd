@@ -142,12 +142,13 @@ selection between the header and authentication checks.
 
 The codec rejects malformed packets before session lookup or locking.
 
-Packets own authentication metadata by value and borrow its payload from
-immutable wire. The default and overlay receivers copy authenticated wire
+Packets own authentication metadata and a bounded inline payload by value.
+`DataLen` records its logical length independently of the wire authentication
+length. The default and overlay receivers retain complete authenticated wire
 before releasing pooled input. Demux and verification pass packet values;
-hash verification changes only a bounded local PDU copy. Scalar metadata
-survives packet copies and re-decode; backing bytes still require the retained
-wire lifetime described in [ADR-0010](adr/0010-bfd-auth-value-ownership.md).
+hash verification changes only a bounded local PDU copy. Packet copies retain
+independent payload bytes. See [ADR-0011](adr/0011-bfd-auth-inline-payload.md)
+for packet and retained-wire ownership.
 
 ### Packet TX Flow
 
