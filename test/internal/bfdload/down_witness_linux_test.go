@@ -15,7 +15,14 @@ type downWitnessJSON struct {
 	LocalDiscriminator uint32    `json:"local_discriminator"`
 	ObservationVersion uint64    `json:"observation_version"`
 	Cause              bfd.Cause `json:"cause"`
-	Timing             struct {
+	Incarnation        struct {
+		Known      bool          `json:"known"`
+		Slot       int           `json:"slot"`
+		Generation uint64        `json:"generation"`
+		Endpoint   OwnerEndpoint `json:"endpoint"`
+		Error      string        `json:"error,omitempty"`
+	} `json:"incarnation"`
+	Timing struct {
 		CommitKnown    bool   `json:"commit_known"`
 		CommitStartNS  int64  `json:"commit_start_ns"`
 		CommitEndNS    int64  `json:"commit_end_ns"`
@@ -55,7 +62,7 @@ func projectedDownWitness(
 	changes <- change
 	close(changes)
 	report := OwnerWorkloadObservation{Config: PeerConfig{Profile: Profile{Duration: time.Second}}}
-	if err := report.joinDownJournal(t.Context(), started, startDownJournal(t.Context(), changes)); err != nil {
+	if err := report.joinDownJournal(t.Context(), started, startDownJournal(t.Context(), changes, nil)); err != nil {
 		t.Fatal(err)
 	}
 	//nolint:musttag // Workload JSON intentionally retains core Observation field names.

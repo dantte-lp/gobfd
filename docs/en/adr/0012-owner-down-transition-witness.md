@@ -51,7 +51,27 @@ eligible commit witness before causal window classification.
 Keep the frozen cause, remote observation, endpoint, discriminator and
 observation version. Do not retain `SessionRef` pointers in the lifetime
 event array: doing so would keep retired sessions alive during churn.
-Lifetime-safe incarnation correlation remains required separately.
+
+Bind each row's `incarnation` to a fixed workload `slot`, `generation` and
+full manifest `endpoint`, with explicit `known` and `error` fields. Seed the
+active table from the owner's existing inventory after subscription and before
+churn starts. Match frozen notification/status references, versions, tuple,
+type, interface and discriminator. A delayed notification uses its captured
+physical identity, not a later mutable observation version.
+
+Only matching `Deleted` followed by `Added` advances the slot generation.
+Repeated `Added` for the same active physical identity is idempotent. Missing
+seed, gaps, inconsistent or unmatched lifecycle notifications and generation
+overflow invalidate identity history; later snapshots cannot repair it.
+Clear active references on deletion, invalidation and collector termination.
+The fixed manifest and active table are bounded by session count; lifetime
+rows retain scalar identity only, without a new core ID or per-packet observer.
+
+`down_journal.incarnations_complete` requires a seeded, uninterrupted identity
+history and normal subscription closure. `incarnation_error` records failure
+independently of the existing `complete` source-count settlement. Classification
+must require both and known identity for each eligible row. Neither flag alone
+proves causality or acceptance.
 
 ## Consequences
 
@@ -71,4 +91,5 @@ native wire or 24-hour release gates.
 
 - [RFC 5880 Section 6.8.4](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.4).
 - [Go time semantics at the pinned toolchain](https://github.com/golang/go/blob/go1.27.3/src/time/time.go).
-- Beads `gobfd-qj0.8.2.1.6.3.4.3.6.2` and `gobfd-qj0.8.2.1.6.3.4.3.6.2.1`.
+- Beads `gobfd-qj0.8.2.1.6.3.4.3.6.2`, `gobfd-qj0.8.2.1.6.3.4.3.6.2.1`
+  and `gobfd-qj0.8.2.1.6.3.4.3.6.2.2`.

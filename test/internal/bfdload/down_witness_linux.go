@@ -26,21 +26,22 @@ type OwnerDownTiming struct {
 // OwnerDownWitness retains all delivered Up-to-Down source witnesses, including setup/drain.
 // Incarnation correlation and causal classification remain separate requirements.
 type OwnerDownWitness struct {
-	AtUTC               time.Time       `json:"at_utc"`
-	ElapsedNS           int64           `json:"elapsed_ns"`
-	LocalDiscriminator  uint32          `json:"local_discriminator"`
-	RemoteDiscriminator uint32          `json:"remote_discriminator"`
-	LocalAddr           netip.Addr      `json:"local_addr"`
-	PeerAddr            netip.Addr      `json:"peer_addr"`
-	Interface           string          `json:"interface"`
-	Type                bfd.SessionType `json:"type"`
-	ObservationVersion  uint64          `json:"observation_version"`
-	Cause               bfd.Cause       `json:"cause"`
-	LocalDiag           bfd.Diag        `json:"local_diag"`
-	RemoteKnown         bool            `json:"remote_known"`
-	RemoteState         bfd.State       `json:"remote_state"`
-	RemoteDiag          bfd.Diag        `json:"remote_diag"`
-	Timing              OwnerDownTiming `json:"timing"`
+	AtUTC               time.Time            `json:"at_utc"`
+	ElapsedNS           int64                `json:"elapsed_ns"`
+	LocalDiscriminator  uint32               `json:"local_discriminator"`
+	RemoteDiscriminator uint32               `json:"remote_discriminator"`
+	LocalAddr           netip.Addr           `json:"local_addr"`
+	PeerAddr            netip.Addr           `json:"peer_addr"`
+	Interface           string               `json:"interface"`
+	Type                bfd.SessionType      `json:"type"`
+	ObservationVersion  uint64               `json:"observation_version"`
+	Cause               bfd.Cause            `json:"cause"`
+	LocalDiag           bfd.Diag             `json:"local_diag"`
+	RemoteKnown         bool                 `json:"remote_known"`
+	RemoteState         bfd.State            `json:"remote_state"`
+	RemoteDiag          bfd.Diag             `json:"remote_diag"`
+	Timing              OwnerDownTiming      `json:"timing"`
+	Incarnation         OwnerDownIncarnation `json:"incarnation"`
 }
 
 func captureDownTransition(change bfd.StateChange) downTransition {

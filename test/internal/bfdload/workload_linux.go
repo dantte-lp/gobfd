@@ -139,7 +139,7 @@ func RunOwner(ctx context.Context, cfg PeerConfig, logger *slog.Logger) (OwnerWo
 	if subscribeErr != nil {
 		return result.finish(ctx, owner, guard, time.Now(), nil, subscribeErr)
 	}
-	journal := startDownJournal(journalCtx, changes)
+	journal := startDownJournal(journalCtx, changes, owner)
 	started, err := result.runWindow(ctx, owner)
 	return result.finish(ctx, owner, guard, started, journal, err)
 }

@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Bind workload Down witnesses to fixed manifest slots and session generations.
+  Retain only active physical references; gaps and inconsistent lifecycle history
+  remain unknown. Report identity completeness separately from count settlement;
+  independent causal classification and native qualification remain required.
+
 - Retain fixed `interface_pending` and `address_pending` reason-class flags in
   reconciliation receipts and structured logs. A class change emits a new
   receipt at the same pending count; convergence clears the flags.

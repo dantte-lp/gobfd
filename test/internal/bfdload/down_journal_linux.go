@@ -28,6 +28,8 @@ type DownJournalObservation struct {
 	Closed                 bool      `json:"closed"`
 	Settled                bool      `json:"settled"`
 	Complete               bool      `json:"complete"`
+	IncarnationsComplete   bool      `json:"incarnations_complete"`
+	IncarnationError       string    `json:"incarnation_error,omitempty"`
 	Error                  string    `json:"error,omitempty"`
 }
 
@@ -40,10 +42,12 @@ type downTransition struct {
 }
 
 type downJournalResult struct {
-	events        []downTransition
-	gaps, omitted uint64
-	closed        bool
-	err           error
+	events               []downTransition
+	gaps, omitted        uint64
+	closed               bool
+	err                  error
+	incarnationsComplete bool
+	incarnationError     string
 }
 
 type downJournal struct {
@@ -51,36 +55,48 @@ type downJournal struct {
 	result chan downJournalResult
 }
 
-func startDownJournal(ctx context.Context, changes <-chan bfd.StateChange) *downJournal {
+func startDownJournal(ctx context.Context, changes <-chan bfd.StateChange, owner *Owner) *downJournal {
+	var entries []ownerSession
+	if owner != nil {
+		owner.inventory.RLock()
+		defer owner.inventory.RUnlock()
+		entries = owner.sessions
+	}
+	identities := newDownIncarnations(entries)
 	runCtx, cancel := context.WithCancel(ctx)
 	journal := &downJournal{cancel: cancel, result: make(chan downJournalResult, 1)}
-	go func() { journal.result <- collectDownJournal(runCtx, changes) }()
+	go func() { journal.result <- collectDownJournal(runCtx, changes, identities) }()
 	return journal
 }
 
-func collectDownJournal(ctx context.Context, changes <-chan bfd.StateChange) downJournalResult {
+func collectDownJournal(
+	ctx context.Context, changes <-chan bfd.StateChange, identities *downIncarnations,
+) downJournalResult {
 	var result downJournalResult
 	for {
 		if err := ctx.Err(); err != nil {
 			result.err = err
-			return result
+			return identities.finish(result)
 		}
 		select {
 		case <-ctx.Done():
 			result.err = ctx.Err()
-			return result
+			return identities.finish(result)
 		case change, open := <-changes:
 			if !open {
 				result.closed = true
-				return result
+				return identities.finish(result)
 			}
+			identity := identities.observe(change)
 			if change.Gap {
 				result.gaps++
 			} else if !change.Added && !change.Deleted && change.OldState == bfd.StateUp && change.NewState == bfd.StateDown {
 				if len(result.events) == maxDownEvents {
 					result.omitted++
 				} else {
-					result.events = append(result.events, captureDownTransition(change))
+					event := captureDownTransition(change)
+					event.witness.Incarnation = identity
+					result.events = append(result.events, event)
 				}
 			}
 		}
@@ -118,6 +134,8 @@ func (r *OwnerWorkloadObservation) joinDownJournal(
 ) error {
 	result, err := journal.join(ctx)
 	r.DownJournal.Closed = result.closed
+	r.DownJournal.IncarnationsComplete = result.incarnationsComplete
+	r.DownJournal.IncarnationError = result.incarnationError
 	r.NotificationGaps += result.gaps
 	r.DownEventsOmitted += result.omitted
 	r.DownWitnesses = make([]OwnerDownWitness, len(result.events))

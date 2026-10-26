@@ -367,8 +367,17 @@ reversed commit intervals remain unknown, with an explicit diagnostic.
 Virtual `synctest` timestamps do not establish native monotonic validity.
 
 [ADR-0012](adr/0012-owner-down-transition-witness.md) defines this evidence.
-Neither a commit witness nor `ObservationVersion` alone proves the session
-incarnation or the cause of Down; those remain required classifier inputs.
+Each row's `incarnation` binds a known fixed `slot`, `generation` and full
+manifest `endpoint` to the physical session. The collector seeds before churn,
+then follows matching `Deleted`/`Added` notifications; a repeated active `Added`
+does not advance generation. Missing or inconsistent history remains unknown.
+Only active slots hold `SessionRef`; deletion, invalidation and termination
+release those references. Lifetime rows keep scalar values.
+
+`down_journal.incarnations_complete` and `incarnation_error` describe identity
+history independently of source-count `complete`. Both completeness checks and
+known identities are required classifier inputs. Timing and identity alone
+do not establish the cause of Down or qualify the reference workload.
 
 ### Actual peer blackhole omissions
 

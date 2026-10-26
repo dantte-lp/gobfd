@@ -56,7 +56,7 @@ func TestDownJournalCutoffAccountsRealManagerTransitions(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				journal := startDownJournal(ctx, changes)
+				journal := startDownJournal(ctx, changes, nil)
 				if mode == "delayed_dispatch" {
 					synctest.Sleep(20 * time.Millisecond)
 				}
@@ -163,7 +163,7 @@ func TestDownJournalFinalSourceRequiresEveryLateNotification(t *testing.T) {
 				close(filtered)
 				changes = filtered
 			}
-			if drainErr := report.joinDownJournal(ctx, started, startDownJournal(ctx, changes)); drainErr != nil {
+			if drainErr := report.joinDownJournal(ctx, started, startDownJournal(ctx, changes, nil)); drainErr != nil {
 				t.Fatal(drainErr)
 			}
 			err = report.finalizeDownJournal()
@@ -211,7 +211,7 @@ func TestDownJournalRejectsLostOrCanceledDelivery(t *testing.T) {
 				}
 				joinCtx, stopJoin := context.WithTimeout(ctx, time.Second)
 				defer stopJoin()
-				drainErr := report.joinDownJournal(joinCtx, started, startDownJournal(ctx, changes))
+				drainErr := report.joinDownJournal(joinCtx, started, startDownJournal(ctx, changes, nil))
 				families, err := owner.registry.Gather()
 				if err != nil {
 					t.Fatal(err)
