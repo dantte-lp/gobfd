@@ -220,7 +220,7 @@ func TestPeersBlackholeCausesDownAndRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile.Duration, profile.BlackholeEvery, profile.BlackholeFor = 4*time.Second, 2*time.Second, 600*time.Millisecond
+	profile.Duration, profile.BlackholeEvery, profile.BlackholeFor = 5*time.Second, 2*time.Second, 600*time.Millisecond
 	owner, cfg := ownedPeerFixture(t, profile, 38061)
 	observed, err := RunPeers(t.Context(), cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
@@ -230,6 +230,15 @@ func TestPeersBlackholeCausesDownAndRecovery(t *testing.T) {
 		if peer.UpTransitions < 2 || peer.DownTransitions == 0 ||
 			peer.BlackholeOmitted == 0 || peer.ReceiveBlackholeOmitted == 0 || peer.WriteErrors != 0 {
 			t.Fatalf("blackhole did not traverse actual UDP Down/recovery: %+v", peer)
+		}
+		var tx, rx uint64
+		for _, window := range peer.BlackholeWindows {
+			tx += window.TXOmitted
+			rx += window.RXOmitted
+		}
+		if len(peer.BlackholeWindows) == 0 || peer.BlackholeEventsOmitted != 0 ||
+			tx != peer.BlackholeOmitted || rx != peer.ReceiveBlackholeOmitted {
+			t.Fatalf("actual UDP blackhole journal lost directional omissions: %+v", peer)
 		}
 	}
 	target, err := owner.Snapshot(t.Context())

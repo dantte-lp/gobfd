@@ -185,7 +185,7 @@ func (p *peerRuntime) onInput(ctx context.Context, input peerInput, started time
 		return nil
 	case packetBlackhole:
 		p.observed.ReceiveBlackholeOmitted++
-		return nil
+		return p.recordBlackhole(decision, true)
 	case packetTransmit:
 	}
 	previousState, previousInterval := p.state.state, p.state.periodicInterval()
@@ -268,7 +268,7 @@ func (p *peerRuntime) send(ctx context.Context, now, started time.Time, final bo
 		return nil
 	case packetBlackhole:
 		p.observed.BlackholeOmitted++
-		return nil
+		return p.recordBlackhole(decision, false)
 	case packetTransmit:
 	}
 	packet := p.state.packet(final)

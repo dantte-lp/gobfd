@@ -643,6 +643,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Retain bounded per-peer blackhole omission windows with actual directional
+  counts and decision times. Fail on journal overflow; keep causal Down
+  classification and reference workload acceptance separate.
+
 - Collect PR benchmark comparisons as ten alternating base/head pairs with
   100 ms timing targets. Reject incomplete or malformed sample groups and
   aliased output paths; retain one base worktree and cancellation-safe cleanup.

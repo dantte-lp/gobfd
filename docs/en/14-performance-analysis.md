@@ -345,6 +345,30 @@ measurement-window Down events. See the
 [journal implementation](../../test/internal/bfdload/down_journal_linux.go)
 and [timestamp classification](../../test/internal/bfdload/workload_linux.go).
 
+### Actual peer blackhole omissions
+
+Each peer retains `blackhole_windows` for actual generator omissions, separately
+from the declared loss schedule. `start_ns` identifies the scheduled window;
+`first_tx_ns`, `last_tx_ns`, `tx_omitted` and the corresponding RX fields record
+actual omission decisions. A zero direction count means its timestamps have no
+observation. These are decision times, not socket arrival or owner commit times.
+RX decisions precede input validation; the journal does not establish source
+identity or the validity of a discarded BFD packet.
+Elapsed times use the adopted common phase when `phase` is present, otherwise
+the peer worker epoch. Do not correlate uncontrolled worker-relative values
+with owner events as though they shared an epoch.
+
+One worker coalesces TX/RX decisions into at most 256 windows per peer. The next
+distinct window increments `blackhole_events_omitted` and fails the run;
+truncation cannot produce a completed report. Random omissions and cancelled
+sends do not enter this journal. With no overflow, window TX/RX sums equal
+`blackhole_omitted` and `receive_blackhole_omitted` respectively.
+
+This journal supplies evidence for `gobfd-qj0.8.2.1.6.3.4.3.6`; it does not
+classify a Down as intentional. Correlation still requires the session
+incarnation, settled owner journal and valid phase/timing evidence. Schedule
+overlap alone cannot establish causality or a passing false-Down gate.
+
 ### Completion and qualification
 
 Both controlled and uncontrolled modes freeze `measurement_final` before

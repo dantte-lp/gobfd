@@ -27,31 +27,33 @@ type PeerConfig struct {
 
 // PeerSessionObservation counts actual writes separately from scheduled omissions.
 type PeerSessionObservation struct {
-	ID                      uint64        `json:"id"`
-	Endpoint                OwnerEndpoint `json:"endpoint"`
-	SourcePort              uint16        `json:"source_port"`
-	State                   string        `json:"state"`
-	RemoteDiscriminator     uint32        `json:"remote_discriminator"`
-	Scheduled               uint64        `json:"scheduled"`
-	WriteAttempts           uint64        `json:"write_attempts"`
-	Written                 uint64        `json:"written"`
-	WriteErrors             uint64        `json:"write_errors"`
-	WriteCanceled           uint64        `json:"write_canceled"`
-	RandomOmitted           uint64        `json:"random_omitted"`
-	BlackholeOmitted        uint64        `json:"blackhole_omitted"`
-	Read                    uint64        `json:"read"`
-	ReadErrors              uint64        `json:"read_errors"`
-	Accepted                uint64        `json:"accepted"`
-	Rejected                uint64        `json:"rejected"`
-	ReceiveRandomOmitted    uint64        `json:"receive_random_omitted"`
-	ReceiveBlackholeOmitted uint64        `json:"receive_blackhole_omitted"`
-	ReceiveNotProcessed     uint64        `json:"receive_not_processed"`
-	KernelDropSamples       uint64        `json:"kernel_drop_samples"`
-	KernelDropInvalid       uint64        `json:"kernel_drop_invalid"`
-	KernelDropCounterRaw    uint32        `json:"kernel_drop_counter_raw"`
-	UpTransitions           uint64        `json:"up_transitions"`
-	DownTransitions         uint64        `json:"down_transitions"`
-	DetectionExpirations    uint64        `json:"detection_expirations"`
+	ID                      uint64                `json:"id"`
+	Endpoint                OwnerEndpoint         `json:"endpoint"`
+	SourcePort              uint16                `json:"source_port"`
+	State                   string                `json:"state"`
+	RemoteDiscriminator     uint32                `json:"remote_discriminator"`
+	Scheduled               uint64                `json:"scheduled"`
+	WriteAttempts           uint64                `json:"write_attempts"`
+	Written                 uint64                `json:"written"`
+	WriteErrors             uint64                `json:"write_errors"`
+	WriteCanceled           uint64                `json:"write_canceled"`
+	RandomOmitted           uint64                `json:"random_omitted"`
+	BlackholeOmitted        uint64                `json:"blackhole_omitted"`
+	Read                    uint64                `json:"read"`
+	ReadErrors              uint64                `json:"read_errors"`
+	Accepted                uint64                `json:"accepted"`
+	Rejected                uint64                `json:"rejected"`
+	ReceiveRandomOmitted    uint64                `json:"receive_random_omitted"`
+	ReceiveBlackholeOmitted uint64                `json:"receive_blackhole_omitted"`
+	ReceiveNotProcessed     uint64                `json:"receive_not_processed"`
+	KernelDropSamples       uint64                `json:"kernel_drop_samples"`
+	KernelDropInvalid       uint64                `json:"kernel_drop_invalid"`
+	KernelDropCounterRaw    uint32                `json:"kernel_drop_counter_raw"`
+	UpTransitions           uint64                `json:"up_transitions"`
+	DownTransitions         uint64                `json:"down_transitions"`
+	DetectionExpirations    uint64                `json:"detection_expirations"`
+	BlackholeWindows        []PeerBlackholeWindow `json:"blackhole_windows"`
+	BlackholeEventsOmitted  uint64                `json:"blackhole_events_omitted"`
 }
 
 // PeerObservation is generator evidence, never a daemon or reference verdict.
@@ -180,6 +182,10 @@ func (g *peerGroup) finish(
 		peer.observed.State, peer.observed.RemoteDiscriminator = peer.state.state.String(), peer.state.remoteDiscriminator
 		result.Peers = append(result.Peers, peer.observed)
 		runErr = errors.Join(runErr, peer.readErr, peer.loopErr)
+		if omitted := peer.observed.BlackholeEventsOmitted; omitted != 0 {
+			runErr = errors.Join(runErr, fmt.Errorf("peer %d blackhole journal omitted %d events: %w",
+				peer.observed.ID, omitted, ErrProfile))
+		}
 	}
 	result.Stopped, result.Completed = true, completed
 	if phase := g.phase.Load(); phase != nil {
