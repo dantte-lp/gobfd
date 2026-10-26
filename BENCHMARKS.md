@@ -22,6 +22,9 @@ qualify lifetime metric cardinality, supported scale or a latency distribution.
 
 ### Interpret allocation results
 
+- CI collects ten alternating base/head pairs with 100 ms samples; the
+  [paired comparison guide](docs/en/12-benchmarks.md#paired-ci-comparison)
+  distinguishes these samples from six-run standalone diagnostics.
 - A zero-allocation result applies only to the named benchmark body.
 - Authenticated unmarshal owns `AuthSection` and its bounded payload by value.
   Hash verification separately requires immutable retained wire. See
@@ -76,6 +79,9 @@ supported packet rates or claim immunity to GC pauses.
 
 ### Интерпретация выделений памяти
 
+- CI собирает десять чередующихся пар base/head с целевым временем 100 мс;
+  [руководство парного сравнения](docs/ru/12-benchmarks.md#парное-сравнение-в-ci)
+  отличает эти измерения от отдельных диагностических серий по шесть запусков.
 - Нулевые выделения относятся только к указанному телу бенчмарка.
 - Разбор аутентификации хранит `AuthSection` и ограниченный payload во владении
   пакета по значению. Hash verification отдельно требует сохранённого неизменяемого

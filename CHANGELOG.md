@@ -643,6 +643,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Collect PR benchmark comparisons as ten alternating base/head pairs with
+  100 ms timing targets. Reject incomplete or malformed sample groups and
+  aliased output paths; retain one base worktree and cancellation-safe cleanup.
+  Standalone six-run diagnostics and the warning-only report policy remain.
+
 - List unallowed vulnerability findings before exiting on allowlist validation
   failures. Preserve exit code 2 for expired or stale exceptions, exit code 1
   for unallowed findings without validation failures, and failure summaries

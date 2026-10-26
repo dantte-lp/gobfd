@@ -177,10 +177,9 @@ func TestCIWorkflowBenchmarkStepsUseGoOwner(t *testing.T) {
 		step    string
 		command string
 	}{
-		{step: "Run benchmarks (PR)", command: "go run ./test/cmd/cictl benchmark-run --output new.txt"},
 		{
-			step:    "Run benchmarks (base)",
-			command: "go run ./test/cmd/cictl benchmark-base --output old.txt",
+			step:    "Run paired benchmarks (base and PR)",
+			command: "go run ./test/cmd/cictl benchmark-pair --old old.txt --new new.txt",
 		},
 		{
 			step:    "Normalize renamed benchmarks and validate inputs",

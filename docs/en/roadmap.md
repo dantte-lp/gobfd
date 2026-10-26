@@ -7,8 +7,10 @@ record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 ## Publication boundary — 2026-10-26
 
 This projection covers local
-`dev@a80033c3412800c8e733b2ddea70da4f289a9ace` and vulnerability-audit
-diagnostic qualification under `gobfd-qj0.8.2.8.10`. Micro-BFD dispatch logging
+`dev@97c344a0738b796b0d76e247d7f5217c3ccd82b0` and paired benchmark
+qualification under `gobfd-qj0.8.2.8.8.1`. Vulnerability-audit diagnostic
+completeness is accepted under `gobfd-qj0.8.2.8.10`; this does not close
+security qualification. Micro-BFD dispatch logging
 is accepted under `gobfd-qj0.8.2.8.6.3.2.3.1`; inline authentication payload
 is accepted under `gobfd-qj0.8.2.8.6.3.2.2`. Value metadata and immutable-wire
 verification are accepted under `gobfd-qj0.8.2.1.18` and `gobfd-qj0.8.2.1.18.1`;

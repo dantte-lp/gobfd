@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec" //nolint:depguard // CI invokes only fixed commands assembled by this package.
 	"strings"
+	"time"
 )
 
 var errCommandNotAllowed = errors.New("CI command is not allowlisted")
@@ -25,6 +26,8 @@ type CommandSpec struct {
 	// Stdout and Stderr override the runner streams for artifact-producing commands.
 	Stdout io.Writer
 	Stderr io.Writer
+	// WaitDelay bounds inherited I/O pipes after cancellation or process exit.
+	WaitDelay time.Duration
 }
 
 func withoutEnvironmentKeys(environment []string, names ...string) []string {
@@ -81,6 +84,7 @@ func (r ExecRunner) RunCommand(ctx context.Context, spec CommandSpec) error {
 	command.Env = spec.Env
 	command.ExtraFiles = extraFiles
 	command.Stdin = spec.Stdin
+	command.WaitDelay = spec.WaitDelay
 	command.Stdout = r.Stdout
 	if spec.Stdout != nil {
 		command.Stdout = spec.Stdout

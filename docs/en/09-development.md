@@ -486,14 +486,28 @@ one 40- or 64-hex commit ID and passes `.git#commit=<sha>` to Buf, so branch
 characters cannot be interpreted as Buf source parameters. Both steps retain
 their pull-request-only conditions and fail on command errors.
 
-The benchmark job is also Go-owned. `cictl benchmark-run` executes the fixed
-package, timeout, sample-count, and memory-report arguments from the repository
-root and writes a fresh `new.txt`. `cictl benchmark-base` validates the
-`origin/<base>` ref, creates its detached worktree only below `RUNNER_TEMP`, and
-uses command-scoped `git -c safe.directory=<root>` configuration. A detached,
-bounded cleanup context removes that worktree even when the benchmark command
-fails or its parent context is cancelled; repository-global Git configuration
-is not changed.
+The benchmark job runs `cictl benchmark-pair --old old.txt --new new.txt`.
+It collects ten samples per revision with `-benchtime=100ms`, one sample per
+Go invocation. Pairs alternate base/head and head/base order, giving each
+revision five first runs. Both files are fresh; empty samples, malformed
+numeric records and package/name groups without exactly ten samples fail
+collection. Output paths cannot be identical, refer to the same file through
+hard links or use symbolic links.
+
+Each output has a streaming limit of 64 MiB. The paired child commands use
+a `WaitDelay` of 30 s to bound pipe waits after exit or cancellation.
+
+The collector validates `origin/<base>`, creates one detached worktree below
+`RUNNER_TEMP` and uses command-scoped `git -c safe.directory=<root>`.
+A detached, bounded cleanup context removes that worktree on success,
+failure or cancellation; repository-global Git configuration is unchanged.
+The workflow retains its 15-minute job timeout. Local budget measurements
+do not guarantee an otherwise busy runner's completion time.
+
+`cictl benchmark-run` and `cictl benchmark-base` retain their separate six-run,
+non-interleaved diagnostic behavior. Their output is not the paired CI sample
+set. The release snapshot and Make benchmark commands also retain six runs;
+they do not establish a calibrated latency or release-performance gate.
 
 `cictl benchmark-normalize` rewrites only the three exact historical aliases
 and requires `RecvDecodeLookupEnqueue`, `RecvDecodeFSM`, and `TxMarshalJitter`

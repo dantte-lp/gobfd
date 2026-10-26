@@ -37,6 +37,30 @@ and require a successful target exit and complete expected samples before
 accepting results.
 The Go-owned CI/release runners retain their separate failure handling.
 
+### Paired CI comparison
+
+The CI job uses `cictl benchmark-pair --old old.txt --new new.txt`, with the
+existing `BENCH_REGEX`, `GITHUB_BASE_REF` and `RUNNER_TEMP` inputs. Ten pairs
+alternate base/head and head/base order. Each invocation runs one non-race
+sample with `-benchtime=100ms` and the existing package and timeout bounds.
+Each package/name group must have exactly ten valid records per output;
+incomplete or malformed collection fails before normalization and reporting.
+The base worktree is created once and removed with bounded cancellation-safe
+cleanup. Failed raw output remains diagnostic evidence.
+
+The pinned [benchstat guidance](https://github.com/golang/perf/blob/19be9d8e6c701dc8ccabaad34bf705f773fd398b/cmd/benchstat/main.go#L363)
+recommends at least ten repeats, preferably twenty, and interleaving before/
+after runs. The fixed ten-pair CI budget does not justify rerunning until a
+desired p-value appears. Inspect uncertainty and tool notes; the existing
+warning-only regression policy remains unchanged. These component samples
+do not qualify UDP latency, supported scale or the final release workload.
+
+The six-run Make/release snapshots and standalone `benchmark-run`/
+`benchmark-base` commands remain non-interleaved diagnostics. They are not
+equivalent to this paired CI comparison.
+
+### Snapshot files
+
 | Saved file | Content |
 |---|---|
 | `benchmark-bfd.txt` | BFD benchmark samples |
