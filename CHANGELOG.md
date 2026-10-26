@@ -660,6 +660,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reserve retiring Control-session keys through owner join and complete resource
+  cleanup. Same-key claims and reverse rekeys return `AlreadyExists` before
+  sender acquisition; callers can retry after Delete completes. Qualified
+  different-key swaps and unrelated sessions retain their existing behavior.
+
 - Scope the no-Control-sessions alert to each healthy exporter, including
   fresh-empty and zero-count series. Report scrape failure or a missing job
   separately; exercise the shipped rules with virtual-time PromQL fixtures.

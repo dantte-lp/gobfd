@@ -156,6 +156,16 @@ exactly once. After publication the old captured session commits AdminDown and
 drains outside Manager/lifecycle mutation locks, retaining its lease and
 discriminator until completion or typed incomplete failure before cleanup.
 
+The retiring exact canonical key remains privately reserved until owner join,
+lease/discriminator release and metrics cleanup finish, including error outcomes.
+A matching new claim or reverse rekey is rejected before the sender factory
+with `ErrDuplicateSession` (`AlreadyExists` over the API). An explicit retry
+after Delete completes may create the next session; no automatic retry is added.
+The qualified SingleHop/MultiHop swap uses a different exact key and remains
+admissible while the old key drains. No registry/ownership/lifecycle lock spans
+drain or cleanup callbacks. Actual peer behavior remains a separate wire gate
+in `gobfd-qj0.8.2.1.3.12`.
+
 Overlay scope preflight is pure and covers one complete VXLAN or Geneve source
 before any backend open or `SetScopes`. Unequal scopes sharing a wire identity
 with a live/draining lease, including a VXLAN local-MAC change, require explicit

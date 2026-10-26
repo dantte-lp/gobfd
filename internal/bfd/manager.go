@@ -296,6 +296,9 @@ type Manager struct {
 	// sessionsByKey indexes wire sessions by canonical desired identity.
 	sessionsByKey map[SessionKey]*sessionEntry
 
+	// retiringSessions reserves exact keys through detached owner cleanup, guarded by mu.
+	retiringSessions map[SessionKey]*sessionEntry
+
 	// echoSessions indexed by local discriminator for echo demux.
 	// RFC 9747: echo packets are demultiplexed by MyDiscriminator on return.
 	echoSessions      map[uint32]*echoSessionEntry
@@ -529,6 +532,7 @@ func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 		sessions:          make(map[uint32]*sessionEntry),
 		sessionsByPeer:    make(map[packetDemuxKey]*sessionEntry),
 		sessionsByKey:     make(map[SessionKey]*sessionEntry),
+		retiringSessions:  make(map[SessionKey]*sessionEntry),
 		echoSessions:      make(map[uint32]*echoSessionEntry),
 		echoSessionsByKey: make(map[SessionKey]*echoSessionEntry),
 		microGroups:       make(map[string]*MicroBFDGroup),
@@ -933,7 +937,7 @@ func (m *Manager) detachCloseResources() (
 	for discr, entry := range m.echoSessions {
 		retiredEcho = append(retiredEcho, retiredEchoSession{localDiscr: discr, entry: entry})
 	}
-	// Clear maps to prevent use-after-close.
+	// Clear public maps; detached operations retain retiring keys until cleanup joins.
 	m.sessions = make(map[uint32]*sessionEntry)
 	m.sessionsByPeer = make(map[packetDemuxKey]*sessionEntry)
 	m.sessionsByKey = make(map[SessionKey]*sessionEntry)

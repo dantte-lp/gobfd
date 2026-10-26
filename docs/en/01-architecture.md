@@ -631,9 +631,13 @@ accepted creation rollback share this path. Non-final claims leave the wire
 session unchanged. A private ten-second cap also bounds Background callers;
 earlier caller cancellation returns `DrainIncompleteError` while cleanup still
 releases resources. Reconciliation drains retired sessions concurrently within
-one budget. No Manager lock is held across the wait, and a same-key replacement
-does not inherit the retired session's drain. `Manager.Close()` only cancels,
-joins and releases; daemon shutdown already drains its captured sessions.
+one budget. No Manager lock is held across the wait. A private reservation
+retains the exact canonical key through cancel/join, lease/discriminator release
+and metrics cleanup, including incomplete drain or lease-close errors. A new
+claim or reverse rekey to that key returns `ErrDuplicateSession` before sender
+acquisition (`AlreadyExists` over the API). Retry after Delete completes;
+conflict handling does not add automatic retries. `Manager.Close()` only
+cancels, joins and releases; daemon shutdown already drains its captured sessions.
 Rekey publishes the prepared replacement before the old captured session's
 actual AdminDown/drain, outside Manager and lifecycle mutation locks. The old
 lease/discriminator remain owned until drain completion or typed incomplete

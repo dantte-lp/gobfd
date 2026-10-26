@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -125,9 +126,19 @@ func TestManagerLastClaimDrainIncompleteReleasesResources(t *testing.T) {
 				if mgr.discriminators.IsAllocated(s.LocalDiscriminator()) {
 					t.Error("incomplete drain leaked discriminator")
 				}
+				replacementReleases := 0
+				replacement, err := mgr.CreateSession(t.Context(), cfg, func() (*SenderLease, error) {
+					return NewSenderLease(ownershipNoopSender{}, func() error { replacementReleases++; return nil }), nil
+				})
+				if err != nil {
+					t.Fatalf("same-key creation after incomplete cleanup: %v", err)
+				}
+				if replacement.Ref() == s.Ref() || len(mgr.Sessions()) != 1 {
+					t.Error("incomplete cleanup did not permit one new physical identity")
+				}
 				mgr.Close()
-				if releases != 1 {
-					t.Error("Close released retired sender again")
+				if releases != 1 || replacementReleases != 1 {
+					t.Errorf("Close releases old=%d new=%d, want 1 each", releases, replacementReleases)
 				}
 			})
 		})
@@ -183,14 +194,30 @@ func TestManagerLastClaimDrainCompletesAfterSilentZeroRx(t *testing.T) {
 
 func TestManagerLastClaimDrainCapturesIdentityWithoutLocks(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		mgr := NewManager(slog.New(slog.DiscardHandler))
+		metrics := &unregisterBarrierMetrics{entered: make(chan struct{}), release: make(chan struct{})}
+		mgr := NewManager(slog.New(slog.DiscardHandler), WithManagerMetrics(metrics))
 		defer mgr.Close()
+		defer func() {
+			metrics.armed.Store(false)
+			select {
+			case <-metrics.release:
+			default:
+				close(metrics.release)
+			}
+		}()
 		sender := &adminDrainSender{attempts: make(chan time.Time, 64), successful: make(chan time.Time, 64)}
 		cfg := ownershipTestConfig("192.0.2.203")
-		s, err := mgr.CreateSession(t.Context(), cfg, NonOwningSenderLeaseFactory(sender))
+		var releases atomic.Int32
+		s, err := mgr.CreateSession(t.Context(), cfg, func() (*SenderLease, error) {
+			return NewSenderLease(sender, func() error { releases.Add(1); return nil }), nil
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
+		mgr.mu.RLock()
+		entry := mgr.sessions[s.LocalDiscriminator()]
+		mgr.mu.RUnlock()
+		metrics.armed.Store(true)
 		result := make(chan error, 1)
 		go func() { result <- mgr.DestroySession(t.Context(), s.LocalDiscriminator()) }()
 		synctest.Wait()
@@ -209,21 +236,63 @@ func TestManagerLastClaimDrainCapturesIdentityWithoutLocks(t *testing.T) {
 			t.Fatal("drain holds lifecycle lock")
 		}
 		mgr.lifecycleMu.Unlock()
-		if !mgr.discriminators.IsAllocated(s.LocalDiscriminator()) {
-			t.Error("retiring discriminator released before drain")
+		if !mgr.discriminators.IsAllocated(s.LocalDiscriminator()) || releases.Load() != 0 {
+			t.Error("retiring discriminator or sender released before drain")
 		}
-		replacement, err := mgr.CreateSession(t.Context(), cfg, ownershipSenderLeaseFactory())
+		calls := 0
+		for _, owner := range []SessionOwner{compatibilityAPISessionOwner(), APISessionOwner("replacement")} {
+			replacement, claimErr := mgr.CreateSessionAs(t.Context(), cfg, func() (*SenderLease, error) {
+				calls++
+				return NewSenderLease(ownershipNoopSender{}, nil), nil
+			}, owner)
+			if !errors.Is(claimErr, ErrDuplicateSession) || replacement != nil || calls != 0 {
+				t.Fatalf("same-key claim during drain: err=%v session=%v factory calls=%d, want conflict before factory",
+					claimErr, replacement != nil, calls)
+			}
+		}
+		unrelatedCfg := ownershipTestConfig("192.0.2.204")
+		unrelated, err := mgr.CreateSession(t.Context(), unrelatedCfg, ownershipSenderLeaseFactory())
 		if err != nil {
-			t.Fatalf("same-key replacement during drain: %v", err)
+			t.Fatalf("unrelated key blocked by drain: %v", err)
 		}
-		if replacement.Ref() == s.Ref() || replacement.LocalDiscriminator() == s.LocalDiscriminator() {
-			t.Error("replacement reused retiring identity/discriminator")
+		<-metrics.entered
+		select {
+		case <-entry.done:
+		default:
+			t.Error("retired cleanup returned before owner join")
 		}
-		if err := <-result; err != nil {
-			t.Fatal(err)
+		if mgr.discriminators.IsAllocated(s.LocalDiscriminator()) || releases.Load() != 1 {
+			t.Errorf("retired cleanup leaked discriminator or released sender %d times", releases.Load())
 		}
-		if replacement.State() != StateDown || len(mgr.Sessions()) != 1 {
-			t.Error("retired cleanup drained or removed replacement")
+		_, claimErr := mgr.CreateSession(t.Context(), cfg, func() (*SenderLease, error) {
+			calls++
+			return NewSenderLease(ownershipNoopSender{}, nil), nil
+		})
+		if !errors.Is(claimErr, ErrDuplicateSession) || calls != 0 {
+			t.Fatalf("same-key claim before metrics cleanup: err=%v factory calls=%d", claimErr, calls)
+		}
+		metrics.armed.Store(false)
+		close(metrics.release)
+		if drainErr := <-result; drainErr != nil {
+			t.Fatal(drainErr)
+		}
+		if unrelated.State() != StateDown || len(mgr.Sessions()) != 1 {
+			t.Error("retired cleanup drained or removed unrelated session")
+		}
+		var replacementReleases atomic.Int32
+		replacement, err := mgr.CreateSession(t.Context(), cfg, func() (*SenderLease, error) {
+			calls++
+			return NewSenderLease(ownershipNoopSender{}, func() error { replacementReleases.Add(1); return nil }), nil
+		})
+		if err != nil {
+			t.Fatalf("same-key creation after joined cleanup: %v", err)
+		}
+		if replacement.Ref() == s.Ref() || calls != 1 || len(mgr.Sessions()) != 2 {
+			t.Error("joined cleanup did not admit exactly one new physical identity")
+		}
+		mgr.Close()
+		if releases.Load() != 1 || replacementReleases.Load() != 1 {
+			t.Errorf("Close releases old=%d new=%d, want 1 each", releases.Load(), replacementReleases.Load())
 		}
 	})
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/netip"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -432,6 +433,74 @@ func (s managerRekeyWireSender) SendPacket(_ context.Context, wire []byte, _ net
 		s.admin <- packet
 	}
 	return nil
+}
+
+func TestManagerRekeyRejectsRetiringExactKeyBeforeFactory(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		mgr := NewManager(slog.New(slog.DiscardHandler))
+		defer mgr.Close()
+		cfg := managerRekeyConfig("192.0.2.87")
+		wire := make(chan ControlPacket, 16)
+		var releases atomic.Int32
+		old := seedManagerRekey(t, mgr, cfg, func() (*SenderLease, error) {
+			return NewSenderLease(managerRekeyWireSender{wire}, func() error { releases.Add(1); return nil }), nil
+		})
+		next := cfg
+		next.Type = SessionTypeMultiHop
+		previous := []ReconcileConfig{managerRekeyDesired(next, ownershipSenderLeaseFactory())}
+		done := make(chan ReconcileResult, 1)
+		go func() {
+			done <- mgr.ReconcileSessionsForOwnerDetailed(t.Context(), ConfigReconciliationOwner(), previous)
+		}()
+		synctest.Wait()
+		if len(wire) == 0 || len(done) != 0 || releases.Load() != 0 ||
+			!mgr.discriminators.IsAllocated(old.LocalDiscriminator()) {
+			t.Fatal("first rekey did not retain old identity for AdminDown drain")
+		}
+		sessions := mgr.Sessions()
+		if len(sessions) != 1 || sessions[0].Ref == old.Ref() || sessions[0].Type != SessionTypeMultiHop {
+			t.Fatal("qualified first rekey did not publish the new type")
+		}
+		current, exists := mgr.LookupByDiscriminator(sessions[0].LocalDiscr)
+		if !exists {
+			t.Fatal("first rekey lost its current identity")
+		}
+		calls := 0
+		desired := []ReconcileConfig{managerRekeyDesired(cfg, func() (*SenderLease, error) {
+			calls++
+			return NewSenderLease(ownershipNoopSender{}, nil), nil
+		})}
+		accepted := false
+		admissionErr := mgr.AdmitSessionReload(previous, desired, func() { accepted = true })
+		if !errors.Is(admissionErr, ErrDuplicateSession) || accepted {
+			t.Errorf("reverse rekey admission accepted retiring key: err=%v accepted=%t", admissionErr, accepted)
+		}
+		rejected := mgr.ReconcileSessionsForOwnerDetailed(t.Context(), ConfigReconciliationOwner(), desired)
+		if !errors.Is(rejected.Err(), ErrDuplicateSession) || rejected.Created != 0 || rejected.Released != 0 || calls != 0 {
+			t.Fatalf("reverse rekey reached retiring exact key: %+v, factory calls %d", rejected, calls)
+		}
+		requireManagerRekeyRetained(t, mgr, current)
+		if len(done) != 0 || releases.Load() != 0 || !mgr.discriminators.IsAllocated(old.LocalDiscriminator()) {
+			t.Fatal("rejected reverse rekey completed the old drain")
+		}
+		finished := <-done
+		if finished.Err() != nil || finished.Created != 1 || finished.Released != 1 || releases.Load() != 1 ||
+			mgr.discriminators.IsAllocated(old.LocalDiscriminator()) {
+			t.Fatalf("first rekey cleanup: %+v, releases %d", finished, releases.Load())
+		}
+		requireManagerRekeyRetained(t, mgr, current)
+		retry := mgr.ReconcileSessionsForOwnerDetailed(t.Context(), ConfigReconciliationOwner(), desired)
+		sessions = mgr.Sessions()
+		if retry.Err() != nil || retry.Created != 1 || retry.Released != 1 || calls != 1 || len(sessions) != 1 ||
+			sessions[0].Type != SessionTypeSingleHop || sessions[0].Ref == old.Ref() {
+			t.Fatalf("reverse rekey after cleanup: %+v, factory calls %d", retry, calls)
+		}
+		mgr.Close()
+		if releases.Load() != 1 {
+			t.Errorf("Close released old rekey sender %d times", releases.Load())
+		}
+	})
 }
 
 func TestManagerRekeyDrainsOldWireOutsideLocks(t *testing.T) {
