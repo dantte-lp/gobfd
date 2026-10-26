@@ -26,20 +26,26 @@ const (
 )
 
 // Control owns a shared directory for the isolated workload's phase protocol.
-type Control struct{ root *os.Root }
+type Control struct {
+	root *os.Root
+	run  RunIdentity
+}
 
 type phaseStart struct {
 	NativeStartNS   int64
 	TimeNamespaceID uint64
 	BracketNS       int64
+	Run             RunIdentity
 	goStart         time.Time
 }
 
 // Phase reports a common monotonic epoch; it is not an RX uncertainty bound.
 type Phase struct {
-	NativeStartNS   int64  `json:"native_start_ns"`
-	TimeNamespaceID uint64 `json:"time_namespace_id"`
-	BracketNS       int64  `json:"bracket_ns"`
+	NativeStartNS   int64       `json:"native_start_ns"`
+	TimeNamespaceID uint64      `json:"time_namespace_id"`
+	BracketNS       int64       `json:"bracket_ns"`
+	BracketKnown    bool        `json:"bracket_known"`
+	Run             RunIdentity `json:"run"`
 }
 
 func openRunControl(directory string) (*Control, error) {
@@ -62,7 +68,11 @@ func openRunControl(directory string) (*Control, error) {
 	if openedErr != nil || !os.SameFile(info, opened) {
 		return nil, errors.Join(ErrControl, openedErr, root.Close())
 	}
-	return &Control{root: root}, nil
+	run, err := controlRunIdentity(native)
+	if err != nil {
+		return nil, errors.Join(err, root.Close())
+	}
+	return &Control{root: root, run: run}, nil
 }
 
 // OpenControl opens an already-created private workload control directory.
@@ -158,7 +168,7 @@ func (c *Control) readStart(ctx context.Context) (*phaseStart, bool, error) {
 	}
 	return &phaseStart{
 		NativeStartNS: deadline, TimeNamespaceID: namespace, BracketNS: int64(bracket),
-		goStart: after.Add(remaining),
+		goStart: after.Add(remaining), Run: c.run,
 	}, true, nil
 }
 

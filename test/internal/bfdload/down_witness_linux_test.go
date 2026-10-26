@@ -23,15 +23,16 @@ type downWitnessJSON struct {
 		Error      string        `json:"error,omitempty"`
 	} `json:"incarnation"`
 	Timing struct {
-		CommitKnown    bool   `json:"commit_known"`
-		CommitStartNS  int64  `json:"commit_start_ns"`
-		CommitEndNS    int64  `json:"commit_end_ns"`
-		ValidatedKnown bool   `json:"validated_known"`
-		ValidatedNS    int64  `json:"validated_ns"`
-		DetectionKnown bool   `json:"detection_known"`
-		DetectionDueNS int64  `json:"detection_due_ns"`
-		DetectionNS    int64  `json:"detection_ns"`
-		Error          string `json:"error,omitempty"`
+		CommitKnown                  bool   `json:"commit_known"`
+		CommitStartNS                int64  `json:"commit_start_ns"`
+		CommitEndNS                  int64  `json:"commit_end_ns"`
+		ValidatedKnown               bool   `json:"validated_known"`
+		ValidatedNS                  int64  `json:"validated_ns"`
+		DetectionKnown               bool   `json:"detection_known"`
+		DetectionDueNS               int64  `json:"detection_due_ns"`
+		DetectionNS                  int64  `json:"detection_ns"`
+		ValidatedRemoteDiscriminator uint32 `json:"validated_remote_discriminator"`
+		Error                        string `json:"error,omitempty"`
 	} `json:"timing"`
 }
 
@@ -50,6 +51,7 @@ func sourceDownWitness(started time.Time) bfd.StateChange {
 			Version: 7, ValidatedAt: started.Add(-100 * time.Millisecond),
 			CommitStartedAt: started.Add(201 * time.Millisecond), CommitEndedAt: started.Add(203 * time.Millisecond),
 			DetectionDue: started.Add(200 * time.Millisecond), DetectionTime: 300 * time.Millisecond,
+			ValidatedRemoteDiscriminator: 7,
 		},
 	}
 }
@@ -94,6 +96,7 @@ func TestDownWitnessProjectionRetainsCommitBeforeDelayedNotification(t *testing.
 		!witness.Timing.ValidatedKnown || witness.Timing.ValidatedNS != -100000000 ||
 		!witness.Timing.DetectionKnown || witness.Timing.DetectionDueNS != 200000000 ||
 		witness.Timing.DetectionNS != 300000000 ||
+		witness.Timing.ValidatedRemoteDiscriminator != 7 ||
 		witness.Timing.Error != "" {
 		t.Fatalf("frozen source timing was lost or converted through wall time: %+v", witness)
 	}
@@ -101,7 +104,9 @@ func TestDownWitnessProjectionRetainsCommitBeforeDelayedNotification(t *testing.
 
 func TestDownWitnessProjectionKeepsMissingAndStrippedTimesUnknown(t *testing.T) {
 	t.Parallel()
-	for _, mode := range []string{"version", "phase", "commit", "ordering", "receive", "deadline"} {
+	for _, mode := range []string{
+		"version", "phase", "commit", "ordering", "receive", "deadline", "remote_discriminator",
+	} {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 			started := time.Now()
@@ -122,6 +127,9 @@ func TestDownWitnessProjectionKeepsMissingAndStrippedTimesUnknown(t *testing.T) 
 			case "deadline":
 				change.TransitionTiming.DetectionDue = time.Time{}
 				wantCommit, wantReceive = true, true
+			case "remote_discriminator":
+				change.TransitionTiming.ValidatedRemoteDiscriminator = 0
+				wantCommit, wantReceive, wantDetection = true, true, true
 			}
 			_, witness := projectedDownWitness(t, started, change)
 			if witness.Timing.CommitKnown != wantCommit || witness.Timing.ValidatedKnown != wantReceive ||

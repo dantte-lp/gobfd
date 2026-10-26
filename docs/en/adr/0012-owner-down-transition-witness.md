@@ -73,6 +73,59 @@ independently of the existing `complete` source-count settlement. Classification
 must require both and known identity for each eligible row. Neither flag alone
 proves causality or acceptance.
 
+### Conditional controlled-model classification (2026-10-27)
+
+Detection expiry clears the wire remote discriminator before the FSM commit.
+Copy its previous scalar value through the existing timer observation into
+`ValidatedRemoteDiscriminator`; project it as `validated_remote_discriminator`
+with the same version-bound witness. Zero remains unknown. Keep discriminator
+clearing and protocol actions in their existing order.
+
+Actual blackhole windows retain bounded, direction-specific wire-identity
+segments, every omission offset and decision sequence. TX `valid` means only
+codec verification of the would-be packet. RX discard precedes acceptance and
+remains unqualified. No packet/Auth slice or retired session reference is retained.
+Keep 256 windows per peer, at most 16 identity segments and 128 omission times
+combined across both directions per window. Overflow increments omitted
+accounting and prevents completion even when cancellation loses the worker error.
+
+Bind both reports to the actual boot ID, private control directory device/inode,
+native start and time namespace. A stored offset `x` with conversion bracket `B`
+denotes the conditional interval `[x,x+B]`; an owner commit denotes
+`[commit_start_ns,commit_end_ns+Bowner]`. Use checked arithmetic. Commit intervals
+intersecting measurement or fault boundaries remain unresolved; notification
+delivery time does not select the measurement denominator.
+The explicit `bracket_known` flag distinguishes a measured zero conversion
+bracket from missing input.
+
+`ClassifyDowns` independently checks settled source counts, scalar incarnation
+history and complete omission accounting. It rejects inconsistent peer TX
+scheduling, write-result or RX disposition totals;
+all sums use checked arithmetic. Each direction's omission sequence is bounded
+by its actual Scheduled/Read total and increases across segments and windows,
+allowing gaps between windows. Invalid accounting leaves Down unresolved.
+The conditional `intentional` case
+requires timeout cause, prior remote Up, the actual old deadline, a commit wholly
+inside the measurement/fault window, and matching valid Up packets. Consecutive
+actual TX decisions must cover the old receive-to-deadline model: at least the
+negotiated multiplier, first attempt within one negotiated interval after the
+validated receive, no longer actual attempt gap, and the last interval covering
+the actual due time. The old directional Detection Time must match their wire
+inputs and fixed workload RX interval. Reused discriminators, unknown phase or
+identity, boundary overlap, missing progress and peer-originated Down remain
+unresolved. A lone omission or scheduled window overlap cannot establish intent.
+Known additional terminal loss, counter reset or missing commit progress anywhere
+in the measurement also prevents positive attribution; their exact fault times
+are not established by aggregate snapshots.
+
+The positive verdict assumes unchanged transport would deliver those unsent
+packets to the owner before due and no independent hidden fault coincides.
+These assumptions are serialized explicitly. `passing` applies only to this
+conditional model; any false/unresolved eligible Down prevents it. Total timing
+uncertainty remains unknown and `reference_qualified` remains false. The
+fixture-only `--tx-only-blackhole` case exercises this predicate independently
+of the retained bidirectional stress case; named qualification profiles reject it.
+
 ## Consequences
 
 The witness adds bounded value storage to each session and notification.
@@ -81,9 +134,9 @@ transition, without a per-packet callback, heap allocation or wire change.
 Allocation and notification-size measurements are required before source
 acceptance; this decision makes no RSS or latency improvement claim.
 
-This witness is a prerequisite for independent Down classification, not a
-classification verdict. Actual peer omission evidence, incarnation identity,
-phase brackets and causal validation remain mandatory. It does not establish
+The witness alone is not a classification verdict. The independent consumer
+requires actual peer omission evidence, incarnation identity, phase brackets
+and conditional causal validation. It does not establish
 total kernel timestamp uncertainty or qualify the reference, engineering,
 native wire or 24-hour release gates.
 

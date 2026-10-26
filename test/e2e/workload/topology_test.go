@@ -35,6 +35,15 @@ const (
 )
 
 func TestUDPWorkloadOwnedTopology(t *testing.T) {
+	testUDPWorkloadOwnedTopology(t, false)
+}
+
+func TestUDPWorkloadConditionalTXOnlyBlackhole(t *testing.T) {
+	testUDPWorkloadOwnedTopology(t, true)
+}
+
+func testUDPWorkloadOwnedTopology(t *testing.T, txOnly bool) {
+	t.Helper()
 	inputs := loadWorkloadInputs(t)
 	endpoint := containertest.RequirePodman(t)
 	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
@@ -51,8 +60,15 @@ func TestUDPWorkloadOwnedTopology(t *testing.T) {
 	profile.GCPressure = true
 	profile.SchedulerPressure = true
 	profile.SessionChurn = true
-	profile.Duration = 11 * time.Second
-	profile.BlackholeEvery, profile.BlackholeFor = 9*time.Second, 600*time.Millisecond
+	profile.LossPermille = 25
+	profile.Duration = 13 * time.Second
+	profile.BlackholeEvery, profile.BlackholeFor = 9*time.Second, 1200*time.Millisecond
+	profile.TXOnlyBlackhole = txOnly
+	if txOnly {
+		profile.CPULoadPercent, profile.GCPressure, profile.SchedulerPressure, profile.SessionChurn = 0, false, false, false
+		profile.Duration, profile.BlackholeEvery = 6*time.Second, 3*time.Second
+		profile.LossPermille = 0
+	}
 	cfg, err := bfdload.LoopbackConfig(profile)
 	if err != nil {
 		t.Fatal(err)
@@ -209,77 +225,83 @@ func TestUDPWorkloadOwnedTopology(t *testing.T) {
 	if ownerReport.Phase == nil || peerReport.Phase == nil ||
 		ownerReport.Phase.NativeStartNS != phase.NativeStartNS || peerReport.Phase.NativeStartNS != phase.NativeStartNS ||
 		ownerReport.Phase.TimeNamespaceID != phase.TimeNamespaceID ||
-		peerReport.Phase.TimeNamespaceID != phase.TimeNamespaceID {
+		peerReport.Phase.TimeNamespaceID != phase.TimeNamespaceID ||
+		ownerReport.Phase.Run != phase.Run || peerReport.Phase.Run != phase.Run {
 		t.Fatal("processes did not use the common phase")
+	}
+	if ownerReport.Config.Profile != profile || peerReport.Profile != profile {
+		t.Fatal("actual processes did not retain the controller's exact requested profile")
 	}
 	if ownerReport.MeasurementFinal.Scope == "" ||
 		len(ownerReport.MeasurementFinal.Sessions) != len(cfg.Sessions) || ownerReport.MeasurementFinal.Stopped {
 		t.Fatal("owner measurement snapshot is missing or includes shutdown")
 	}
-	pressure := ownerReport.CPUPressure
-	if !pressure.Completed || pressure.RequestedPercent != profile.CPULoadPercent || pressure.Workers != 1 ||
-		pressure.CPUTimeNS <= 0 || pressure.WorkerWallTimeNS <= 0 || pressure.Windows == 0 ||
-		!pressure.ScheduledAtUTC.Equal(ownerReport.StartedAtUTC) {
-		t.Fatalf("owner process has no actual phase-coordinated CPU receipt: %+v", pressure)
-	}
-	allocation := ownerReport.GCPressure
-	if !allocation.Enabled || !allocation.Completed || allocation.Workers != 1 || allocation.AllocatedBytes == 0 ||
-		allocation.Objects == 0 || allocation.ReleasedObjects == 0 || allocation.PeakRetainedObjects > 256 ||
-		!allocation.ScheduledAtUTC.Equal(ownerReport.StartedAtUTC) || !peerReport.Profile.GCPressure ||
-		ownerReport.Initial.Environment.Runtime.GCPercent != 100 ||
-		ownerReport.MeasurementFinal.Environment.Runtime.GCCycles <= ownerReport.Initial.Environment.Runtime.GCCycles {
-		t.Fatalf("owner process has no actual default-GC allocation receipt: %+v", allocation)
-	}
-	var gcPauses uint64
-	for _, count := range ownerReport.GCPauseWindow.Counts {
-		gcPauses += count
-	}
-	if gcPauses == 0 {
-		t.Fatal("independent owner process observed no GC pauses")
-	}
-	t.Logf("GC allocation receipt: %+v; process_gc_pauses=%d", allocation, gcPauses)
-	contention := ownerReport.SchedulerPressure
-	if !contention.Enabled || !contention.Completed || contention.Workers != 4 || contention.JoinedWorkers != 4 ||
-		contention.Rounds == 0 || contention.Yields != contention.Rounds || !peerReport.Profile.SchedulerPressure ||
-		!contention.ScheduledAtUTC.Equal(ownerReport.StartedAtUTC) {
-		t.Fatalf("owner process has no joined scheduler activity: %+v", contention)
-	}
-	var schedulerSamples uint64
-	for _, count := range ownerReport.SchedulerWindow.Counts {
-		schedulerSamples += count
-	}
-	if schedulerSamples == 0 {
-		t.Fatal("process scheduler histogram has no window observations")
-	}
-	for _, name := range []string{"gobfd_bfd_timer_delay_seconds", "gobfd_bfd_control_rx_commit_seconds"} {
-		initial := workloadHistogramCount(ownerReport.Initial, name)
-		final := workloadHistogramCount(ownerReport.MeasurementFinal, name)
-		if final <= initial {
-			t.Fatalf("no actual %s window samples: before=%d after=%d", name, initial, final)
+	if !txOnly {
+		pressure := ownerReport.CPUPressure
+		if !pressure.Completed || pressure.RequestedPercent != profile.CPULoadPercent || pressure.Workers != 1 ||
+			pressure.CPUTimeNS <= 0 || pressure.WorkerWallTimeNS <= 0 || pressure.Windows == 0 ||
+			!pressure.ScheduledAtUTC.Equal(ownerReport.StartedAtUTC) {
+			t.Fatalf("owner process has no actual phase-coordinated CPU receipt: %+v", pressure)
 		}
-		t.Logf("workload histogram %s: initial=%d final=%d", name, initial, final)
-	}
-	t.Logf("scheduler receipt: %+v; process_scheduler_samples=%d", contention, schedulerSamples)
-	churn := ownerReport.SessionChurn
-	if !churn.Enabled || !churn.Joined || !churn.Completed || churn.Released != 2 || churn.Created != 2 ||
-		churn.Recovered != 2 || churn.EventsOmitted != 0 || len(churn.Events) != 2 || !peerReport.Profile.SessionChurn ||
-		!churn.ScheduledAtUTC.Equal(ownerReport.StartedAtUTC) {
-		t.Fatalf("mixed fixture has no joined actual session churn: %+v", churn)
-	}
-	for _, event := range churn.Events {
-		if event.ReleaseStartedAtUTC.IsZero() || event.ReleasedAtUTC.Before(event.ReleaseStartedAtUTC) ||
-			event.CreatedAtUTC.Before(event.ReleasedAtUTC) || event.RecoveredAtUTC.Before(event.CreatedAtUTC) {
-			t.Fatalf("churn phase boundaries are missing or reversed: %+v", event)
+		allocation := ownerReport.GCPressure
+		if !allocation.Enabled || !allocation.Completed || allocation.Workers != 1 || allocation.AllocatedBytes == 0 ||
+			allocation.Objects == 0 || allocation.ReleasedObjects == 0 || allocation.PeakRetainedObjects > 256 ||
+			!allocation.ScheduledAtUTC.Equal(ownerReport.StartedAtUTC) || !peerReport.Profile.GCPressure ||
+			ownerReport.Initial.Environment.Runtime.GCPercent != 100 ||
+			ownerReport.MeasurementFinal.Environment.Runtime.GCCycles <= ownerReport.Initial.Environment.Runtime.GCCycles {
+			t.Fatalf("owner process has no actual default-GC allocation receipt: %+v", allocation)
 		}
-		if event.Before == nil || event.Absent == nil || event.Restored == nil ||
-			event.Before.KnownPeers != 2 || event.Absent.KnownPeers != 1 || event.Restored.KnownPeers != 2 ||
-			event.Before.ActiveMetricRegistrations != 2 || event.Absent.ActiveMetricRegistrations != 1 ||
-			event.Restored.ActiveMetricRegistrations != 2 || event.Absent.RetainedSessions != 2 ||
-			event.Absent.RetainedPacketRows != 8 || event.NewGeneration != event.OldGeneration+1 {
-			t.Fatalf("churn conflated registry, active registrations or retained metrics: %+v", event)
+		var gcPauses uint64
+		for _, count := range ownerReport.GCPauseWindow.Counts {
+			gcPauses += count
 		}
+		if gcPauses == 0 {
+			t.Fatal("independent owner process observed no GC pauses")
+		}
+		t.Logf("GC allocation receipt: %+v; process_gc_pauses=%d", allocation, gcPauses)
+		contention := ownerReport.SchedulerPressure
+		if !contention.Enabled || !contention.Completed || contention.Workers != 4 || contention.JoinedWorkers != 4 ||
+			contention.Rounds == 0 || contention.Yields != contention.Rounds || !peerReport.Profile.SchedulerPressure ||
+			!contention.ScheduledAtUTC.Equal(ownerReport.StartedAtUTC) {
+			t.Fatalf("owner process has no joined scheduler activity: %+v", contention)
+		}
+		var schedulerSamples uint64
+		for _, count := range ownerReport.SchedulerWindow.Counts {
+			schedulerSamples += count
+		}
+		if schedulerSamples == 0 {
+			t.Fatal("process scheduler histogram has no window observations")
+		}
+		for _, name := range []string{"gobfd_bfd_timer_delay_seconds", "gobfd_bfd_control_rx_commit_seconds"} {
+			initial := workloadHistogramCount(ownerReport.Initial, name)
+			final := workloadHistogramCount(ownerReport.MeasurementFinal, name)
+			if final <= initial {
+				t.Fatalf("no actual %s window samples: before=%d after=%d", name, initial, final)
+			}
+			t.Logf("workload histogram %s: initial=%d final=%d", name, initial, final)
+		}
+		t.Logf("scheduler receipt: %+v; process_scheduler_samples=%d", contention, schedulerSamples)
+		churn := ownerReport.SessionChurn
+		if !churn.Enabled || !churn.Joined || !churn.Completed || churn.Released != 2 || churn.Created != 2 ||
+			churn.Recovered != 2 || churn.EventsOmitted != 0 || len(churn.Events) != 2 || !peerReport.Profile.SessionChurn ||
+			!churn.ScheduledAtUTC.Equal(ownerReport.StartedAtUTC) {
+			t.Fatalf("mixed fixture has no joined actual session churn: %+v", churn)
+		}
+		for _, event := range churn.Events {
+			if event.ReleaseStartedAtUTC.IsZero() || event.ReleasedAtUTC.Before(event.ReleaseStartedAtUTC) ||
+				event.CreatedAtUTC.Before(event.ReleasedAtUTC) || event.RecoveredAtUTC.Before(event.CreatedAtUTC) {
+				t.Fatalf("churn phase boundaries are missing or reversed: %+v", event)
+			}
+			if event.Before == nil || event.Absent == nil || event.Restored == nil ||
+				event.Before.KnownPeers != 2 || event.Absent.KnownPeers != 1 || event.Restored.KnownPeers != 2 ||
+				event.Before.ActiveMetricRegistrations != 2 || event.Absent.ActiveMetricRegistrations != 1 ||
+				event.Restored.ActiveMetricRegistrations != 2 || event.Absent.RetainedSessions != 2 ||
+				event.Absent.RetainedPacketRows != 8 || event.NewGeneration != event.OldGeneration+1 {
+				t.Fatalf("churn conflated registry, active registrations or retained metrics: %+v", event)
+			}
+		}
+		t.Logf("session churn receipt: %+v", churn)
 	}
-	t.Logf("session churn receipt: %+v", churn)
 	journal := ownerReport.DownJournal
 	if !journal.Settled || !journal.Complete || journal.SourceTransitions == 0 ||
 		journal.ObservedBeforeCutoff == 0 || len(ownerReport.DownEvents) == 0 ||
@@ -291,6 +313,25 @@ func TestUDPWorkloadOwnedTopology(t *testing.T) {
 		t.Fatalf("actual blackhole transitions lack a complete source-settled journal: %+v", journal)
 	}
 	t.Logf("Down journal receipt: %+v", journal)
+	classification := bfdload.ClassifyDowns(ownerReport, peerReport)
+	inputs.save(t, "down-classification.json", classification)
+	if !classification.Complete || classification.Eligible == 0 || !classification.Conditional ||
+		classification.ReferenceQualified || classification.TimingUncertaintyNS != nil ||
+		classification.Eligible != classification.Intentional+classification.False+classification.Unresolved ||
+		(classification.Passing && (classification.False != 0 || classification.Unresolved != 0)) {
+		t.Fatalf("independent processes lost their complete conditional causal verdict: %+v", classification)
+	}
+	if txOnly && classification.Intentional == 0 {
+		t.Fatalf("TX-only controlled execution produced no conditionally intentional Down: %+v", classification)
+	}
+	t.Logf("conditional Down classification: %+v", classification)
+	var randomOmissions uint64
+	for _, peer := range peerReport.Peers {
+		randomOmissions += peer.RandomOmitted + peer.ReceiveRandomOmitted
+	}
+	if !txOnly && randomOmissions == 0 {
+		t.Fatal("bidirectional stress/loss execution observed no actual random omissions")
+	}
 	if !ownerReport.Completed || !ownerReport.Final.Stopped || ownerReport.ReferenceQualified ||
 		!peerReport.Completed || !peerReport.Stopped || peerReport.ReferenceQualified || len(peerReport.Peers) != 2 ||
 		len(ownerReport.Final.Sessions) != 2 || ownerReport.Final.TimingUncertaintyNS != nil {
@@ -305,7 +346,8 @@ func TestUDPWorkloadOwnedTopology(t *testing.T) {
 	}
 	for index, observed := range peerReport.Peers {
 		if observed.Written == 0 || observed.Accepted == 0 || observed.UpTransitions < 2 ||
-			ownerReport.Final.Sessions[index].Received == 0 {
+			ownerReport.Final.Sessions[index].Received == 0 || observed.BlackholeOmitted == 0 ||
+			(txOnly && observed.ReceiveBlackholeOmitted != 0) {
 			t.Fatalf("no actual independent-process Up/commit for peer %d: %+v", index, observed)
 		}
 	}
@@ -319,7 +361,8 @@ func TestUDPWorkloadOwnedTopology(t *testing.T) {
 			committed += row.Count
 		}
 	}
-	if ownerReport.Final.TerminalPackets != written || received != committed || ownerReport.Final.RetiredReceived == 0 {
+	if ownerReport.Final.TerminalPackets != written || received != committed ||
+		(profile.SessionChurn && ownerReport.Final.RetiredReceived == 0) {
 		t.Fatalf("actual lifetime boundary incomplete: written=%d terminal=%d committed=%d sampled=%d",
 			written, ownerReport.Final.TerminalPackets, committed, received)
 	}
@@ -379,6 +422,8 @@ func workloadArguments(cfg bfdload.PeerConfig) []string {
 		"--gc-pressure="+strconv.FormatBool(cfg.Profile.GCPressure),
 		"--scheduler-pressure="+strconv.FormatBool(cfg.Profile.SchedulerPressure),
 		"--session-churn="+strconv.FormatBool(cfg.Profile.SessionChurn),
+		"--tx-only-blackhole="+strconv.FormatBool(cfg.Profile.TXOnlyBlackhole),
+		"--loss-permille="+strconv.FormatUint(cfg.Profile.LossPermille, 10),
 		"--blackhole-every="+cfg.Profile.BlackholeEvery.String(),
 		"--blackhole-for="+cfg.Profile.BlackholeFor.String(),
 	)

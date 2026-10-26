@@ -5,12 +5,13 @@ import "time"
 // TransitionTiming brackets one Up-to-Down owner commit using monotonic values.
 // A zero Version denotes unavailable evidence, never a zero-duration observation.
 type TransitionTiming struct {
-	Version         uint64
-	ValidatedAt     time.Time
-	CommitStartedAt time.Time
-	CommitEndedAt   time.Time
-	DetectionDue    time.Time
-	DetectionTime   time.Duration
+	Version                      uint64
+	ValidatedAt                  time.Time
+	CommitStartedAt              time.Time
+	CommitEndedAt                time.Time
+	DetectionDue                 time.Time
+	DetectionTime                time.Duration
+	ValidatedRemoteDiscriminator uint32
 }
 
 func (s *Session) commitTransitionObservation(result FSMResult, diag Diag, cause Cause) (Observation, bool) {
@@ -20,6 +21,7 @@ func (s *Session) commitTransitionObservation(result FSMResult, diag Diag, cause
 		timing.ValidatedAt, timing.DetectionTime = s.lastValidRecv, s.calcDetectionTimeHot()
 		if s.timerEvent.active && s.timerEvent.kind == TimerControlDetection {
 			timing.DetectionDue = s.timerEvent.due
+			timing.ValidatedRemoteDiscriminator = s.timerEvent.validatedRemoteDiscriminator
 		}
 	}
 	// Interruption can apply pending RX; retain the expired inputs before it changes them.

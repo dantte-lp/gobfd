@@ -12,15 +12,16 @@ import (
 // OwnerDownTiming projects independently available owner timestamps into the phase.
 // Known flags distinguish real phase-zero offsets from unavailable measurements.
 type OwnerDownTiming struct {
-	CommitKnown    bool   `json:"commit_known"`
-	CommitStartNS  int64  `json:"commit_start_ns"`
-	CommitEndNS    int64  `json:"commit_end_ns"`
-	ValidatedKnown bool   `json:"validated_known"`
-	ValidatedNS    int64  `json:"validated_ns"`
-	DetectionKnown bool   `json:"detection_known"`
-	DetectionDueNS int64  `json:"detection_due_ns"`
-	DetectionNS    int64  `json:"detection_ns"`
-	Error          string `json:"error,omitempty"`
+	CommitKnown                  bool   `json:"commit_known"`
+	CommitStartNS                int64  `json:"commit_start_ns"`
+	CommitEndNS                  int64  `json:"commit_end_ns"`
+	ValidatedKnown               bool   `json:"validated_known"`
+	ValidatedNS                  int64  `json:"validated_ns"`
+	DetectionKnown               bool   `json:"detection_known"`
+	DetectionDueNS               int64  `json:"detection_due_ns"`
+	DetectionNS                  int64  `json:"detection_ns"`
+	ValidatedRemoteDiscriminator uint32 `json:"validated_remote_discriminator"`
+	Error                        string `json:"error,omitempty"`
 }
 
 // OwnerDownWitness retains all delivered Up-to-Down source witnesses, including setup/drain.
@@ -80,6 +81,7 @@ func projectDownTiming(timing bfd.TransitionTiming, version uint64, started time
 		return result
 	}
 	result.CommitKnown = true
+	result.ValidatedRemoteDiscriminator = timing.ValidatedRemoteDiscriminator
 	result.CommitStartNS = int64(timing.CommitStartedAt.Sub(started))
 	result.CommitEndNS = int64(timing.CommitEndedAt.Sub(started))
 	if timing.ValidatedAt != timing.ValidatedAt.Round(0) && !timing.ValidatedAt.After(timing.CommitStartedAt) {
@@ -88,8 +90,8 @@ func projectDownTiming(timing bfd.TransitionTiming, version uint64, started time
 	if timing.DetectionDue != timing.DetectionDue.Round(0) && timing.DetectionTime > 0 {
 		result.DetectionKnown, result.DetectionDueNS = true, int64(timing.DetectionDue.Sub(started))
 	}
-	if !result.ValidatedKnown || !result.DetectionKnown {
-		result.Error = "last validated receive or actual detection deadline is unavailable"
+	if !result.ValidatedKnown || !result.DetectionKnown || result.ValidatedRemoteDiscriminator == 0 {
+		result.Error = "last validated receive, remote discriminator or actual detection deadline is unavailable"
 	}
 	return result
 }

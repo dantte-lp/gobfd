@@ -301,6 +301,53 @@ passes in 47.67 s with the same 79/79 ledger and explicit nonempty measurement
 snapshot. Mutation and malformed-report checks prove snapshot and failure
 boundaries. Reference and absolute-clock qualification remain open.
 
+### Conditional Down classification
+
+`bfdload.ClassifyDowns` consumes the joined owner/peer reports independently.
+The existing topology controller saves `down-classification.json` beside their
+JSON, exact binary SHA/build evidence, effective resource inspection and cleanup
+receipts. It requires both source-count and incarnation completeness. Every
+eligible source witness receives exactly one `intentional`, `false` or
+`unresolved` outcome; wholly outside commit intervals are counted separately.
+Delayed notification timestamps do not discard an in-window commit. Invalid
+journals, duplicate witnesses, gaps, overflow or mismatched run/clock identity
+prevent a passing result.
+
+`blackhole_windows[].segments` freezes scalar packet identity with every actual
+omission offset and sequence. Each peer retains at most 256 windows, 16 segments
+and 128 combined TX/RX omission times per window. At 1,000 peers the absolute
+source limits are 4,096,000 segments and 32,768,000 offset/sequence pairs; the
+24-hour half-open reference schedule has 47 in-window periods, limiting these
+to 752,000 segments and 6,016,000 pairs. These are storage cardinality bounds,
+not measured allocation/RSS acceptance; slice capacities and other reports add
+overhead. Any limit violation remains counted and rejects completion.
+
+TX `valid=true` proves only codec validity. RX omissions remain unqualified
+because discard precedes source/TTL/packet acceptance. Conditional intentional
+classification additionally requires exact incarnation/tuple, the pre-expiry
+`validated_remote_discriminator`, old directional Detection Time, actual due,
+known role conversion brackets and a consecutive omission sequence covering
+that receive-to-deadline model. Early/unrelated Down cannot be excused by the
+schedule; missing evidence stays unresolved. Positive results explicitly assume
+unchanged transport would deliver unsent valid packets before due and no hidden
+independent fault coincides. `passing` is a conditional-model result;
+`reference_qualified=false` and unknown total timing uncertainty remain unchanged.
+See [ADR-0012](./adr/0012-owner-down-transition-witness.md).
+
+`--tx-only-blackhole` is a permanent, default-off `fixture` input owned by the
+workload harness, introduced on 2026-10-27 under Beads
+`gobfd-qj0.8.2.1.6.3.4.3.6.2`. It keeps peer RX active for the separate controlled
+positive case and records `tx_only_blackhole` in both requested profiles.
+Random loss streams remain unchanged. The canonical `reference` and `engineering`
+validators reject `true`; the original bidirectional stress case is retained.
+The separate quiet TX-only fixture requests six seconds, one 1.2-second blackout
+after three seconds, and no random loss, pressure or churn. The bidirectional
+fixture requests 13 seconds, a 1.2-second blackout after nine seconds, CPU/GC/
+scheduler pressure, churn and 25-per-mille random loss, requiring actual nonzero
+random omissions. These declared fixture inputs are not the named reference or
+engineering workload. Both process reports must equal the controller's requested
+profile; the controller passes fault direction and loss flags explicitly.
+
 ### Down-journal completeness
 
 `RunOwner` records initial/final real collector snapshots, sampled resource

@@ -293,6 +293,7 @@ func (s *Session) handleDetectTimer(
 	// notification; a Passive session stays silent because bfd.RemoteDiscr is
 	// now zero (Section 6.8.7).
 	s.mu.Lock()
+	s.timerEvent.validatedRemoteDiscriminator = s.remoteDiscr
 	s.remoteDiscr = 0
 	s.remoteMinRxInterval, s.remoteDemandMode = initialRemoteMinRx, false
 	s.mu.Unlock()

@@ -82,6 +82,32 @@ func TestDownTransitionWitnessRetainsNativeMonotonicValues(t *testing.T) {
 	}
 }
 
+func TestDownTransitionWitnessRetainsValidatedRemoteDiscriminator(t *testing.T) {
+	t.Parallel()
+	s, _, tx, detect := newRemoteTxTestSession(t)
+	s.desiredMinTxInterval, s.requiredMinRxInterval = time.Millisecond, time.Millisecond
+	packet := s.buildControlPacket()
+	packet.State, packet.MyDiscriminator = StateUp, 77
+	s.handleRecvPacket(t.Context(), recvItem{pkt: packet}, tx, detect)
+	changes := make(chan StateChange, 2)
+	s.notifyCh = changes
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	done := make(chan struct{})
+	go func() { s.runLoop(ctx, tx, detect); close(done) }()
+	defer func() { cancel(); <-done }()
+	select {
+	case change := <-changes:
+		if change.Cause != CauseDetectionTimeout || change.Status.RemoteDiscr != 0 {
+			t.Fatalf("fixture did not execute real detection expiry and discriminator clearing: %+v", change)
+		}
+		if change.TransitionTiming.ValidatedRemoteDiscriminator != 77 {
+			t.Fatalf("owner expiry discarded validated remote discriminator 77: %+v", change.TransitionTiming)
+		}
+	case <-ctx.Done():
+		t.Fatal("native owner timer did not publish Down")
+	}
+}
+
 func newDownWitnessStep(tb testing.TB, handler slog.Handler) func() StateChange {
 	tb.Helper()
 	s := newCachedPacketTestSession(MaxPacketSize)

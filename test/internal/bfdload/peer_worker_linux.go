@@ -69,6 +69,9 @@ func bindPeer(
 	}
 	receiveProfile := cfg.Profile
 	receiveProfile.Seed ^= peerRXSeedMask
+	if receiveProfile.TXOnlyBlackhole {
+		receiveProfile.BlackholeEvery, receiveProfile.BlackholeFor = 0, 0
+	}
 	rx, err := newLossSchedule(receiveProfile, id)
 	if err != nil {
 		return nil, err
@@ -185,7 +188,7 @@ func (p *peerRuntime) onInput(ctx context.Context, input peerInput, started time
 		return nil
 	case packetBlackhole:
 		p.observed.ReceiveBlackholeOmitted++
-		return p.recordBlackhole(decision, true)
+		return p.recordBlackhole(decision, true, input.packet)
 	case packetTransmit:
 	}
 	previousState, previousInterval := p.state.state, p.state.periodicInterval()
@@ -268,7 +271,7 @@ func (p *peerRuntime) send(ctx context.Context, now, started time.Time, final bo
 		return nil
 	case packetBlackhole:
 		p.observed.BlackholeOmitted++
-		return p.recordBlackhole(decision, false)
+		return p.recordBlackhole(decision, false, p.state.packet(final))
 	case packetTransmit:
 	}
 	packet := p.state.packet(final)

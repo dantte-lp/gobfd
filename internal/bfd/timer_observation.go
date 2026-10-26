@@ -63,10 +63,11 @@ func (e TimerEvent) String() string {
 
 // timerObservation is confined to one owner loop and never changes deadlines.
 type timerObservation struct {
-	due      time.Time
-	kind     TimerKind
-	active   bool
-	effected bool
+	due                          time.Time
+	validatedRemoteDiscriminator uint32
+	kind                         TimerKind
+	active                       bool
+	effected                     bool
 }
 
 func (o *timerObservation) begin(metrics MetricsReporter, kind TimerKind, due time.Time) {

@@ -34,6 +34,7 @@ type Profile struct {
 	GCPressure        bool          `json:"gc_pressure"`
 	SchedulerPressure bool          `json:"scheduler_pressure"`
 	SessionChurn      bool          `json:"session_churn"`
+	TXOnlyBlackhole   bool          `json:"tx_only_blackhole"`
 	Seed              uint64        `json:"seed"`
 }
 

@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Classify joined workload Down witnesses against bounded historical peer
+  omissions, run identity and owner commit/deadline evidence. Record explicit
+  conditional assumptions and false/unresolved outcomes; retain unknown reference
+  validity. Add a fixture-only TX blackhole case without changing named profiles.
+
 - Configure ordinary BFD sender IPv4 DSCP and IPv6 Traffic Class with CS6
   defaults, independent Linux SO_PRIORITY, and optional SO_MARK disabled by
   default. Required option failures reject creation; explicitly optional

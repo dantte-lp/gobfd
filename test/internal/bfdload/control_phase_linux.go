@@ -77,7 +77,10 @@ func (c *Control) awaitStart(ctx context.Context) (*phaseStart, error) {
 }
 
 func (p *phaseStart) observation() *Phase {
-	return &Phase{NativeStartNS: p.NativeStartNS, TimeNamespaceID: p.TimeNamespaceID, BracketNS: p.BracketNS}
+	return &Phase{
+		NativeStartNS: p.NativeStartNS, TimeNamespaceID: p.TimeNamespaceID,
+		BracketNS: p.BracketNS, BracketKnown: true, Run: p.Run,
+	}
 }
 
 // Begin waits for both roles to reach Up and publishes a future common epoch.
