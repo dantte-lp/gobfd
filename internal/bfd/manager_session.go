@@ -574,11 +574,11 @@ func (m *Manager) Demux(pkt *ControlPacket, meta PacketMeta) (DeliveryOutcome, e
 
 // DemuxWithWire returns Queued only for admission, never owner commit. A
 // non-nil ancillary lease-close error can accompany a Queued outcome.
-func (m *Manager) DemuxWithWire(pkt *ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
+func (m *Manager) DemuxWithWire(pkt ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
 	if pkt.YourDiscriminator != 0 {
-		return m.demuxByDiscr(pkt, meta, wire)
+		return m.demuxByDiscr(&pkt, meta, wire)
 	}
-	return m.demuxByPeer(pkt, meta, wire)
+	return m.demuxByPeer(&pkt, meta, wire)
 }
 
 func (m *Manager) demuxByDiscr(pkt *ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
@@ -714,7 +714,7 @@ func unsolicitedRejection(policy *UnsolicitedPolicy, pkt *ControlPacket, err err
 		if policy.Auth == nil && pkt.AuthPresent {
 			return DeliveryAuthUnexpected
 		}
-		if !pkt.AuthPresent || pkt.Auth == nil {
+		if !pkt.AuthPresent || pkt.Auth.IsZero() {
 			return DeliveryAuthMissing
 		}
 		return DeliveryAuthFailed

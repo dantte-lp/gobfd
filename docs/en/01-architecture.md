@@ -142,6 +142,13 @@ selection between the header and authentication checks.
 
 The codec rejects malformed packets before session lookup or locking.
 
+Packets own authentication metadata by value and borrow its payload from
+immutable wire. The default and overlay receivers copy authenticated wire
+before releasing pooled input. Demux and verification pass packet values;
+hash verification changes only a bounded local PDU copy. Scalar metadata
+survives packet copies and re-decode; backing bytes still require the retained
+wire lifetime described in [ADR-0010](adr/0010-bfd-auth-value-ownership.md).
+
 ### Packet TX Flow
 
 ```mermaid

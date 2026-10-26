@@ -64,12 +64,12 @@ func BenchmarkControlPacketMarshalWithAuth(b *testing.B) {
 		YourDiscriminator:     0xCAFEBABE,
 		DesiredMinTxInterval:  100000,
 		RequiredMinRxInterval: 100000,
-		Auth: &bfd.AuthSection{
+		Auth: bfd.AuthSection{
 			Type:           bfd.AuthTypeKeyedSHA1,
 			Len:            28,
 			KeyID:          1,
 			SequenceNumber: 42,
-			Digest:         make([]byte, 20),
+			Data:           make([]byte, 20),
 		},
 	}
 	buf := make([]byte, bfd.MaxPacketSize)
@@ -95,18 +95,18 @@ func BenchmarkSimplePasswordAuthVerifyStaticStore(b *testing.B) {
 	auth := bfd.SimplePasswordAuth{}
 	pkt := &bfd.ControlPacket{
 		AuthPresent: true,
-		Auth: &bfd.AuthSection{
-			Type:     bfd.AuthTypeSimplePassword,
-			Len:      11,
-			KeyID:    1,
-			AuthData: []byte("password"),
+		Auth: bfd.AuthSection{
+			Type:  bfd.AuthTypeSimplePassword,
+			Len:   11,
+			KeyID: 1,
+			Data:  []byte("password"),
 		},
 	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		if err := auth.Verify(nil, store, pkt, nil, 0); err != nil {
+		if err := auth.Verify(nil, store, *pkt, nil, 0); err != nil {
 			b.Fatalf("Verify: %v", err)
 		}
 	}
@@ -166,12 +166,12 @@ func BenchmarkControlPacketUnmarshalWithAuth(b *testing.B) {
 		YourDiscriminator:     0xCAFEBABE,
 		DesiredMinTxInterval:  100000,
 		RequiredMinRxInterval: 100000,
-		Auth: &bfd.AuthSection{
+		Auth: bfd.AuthSection{
 			Type:           bfd.AuthTypeKeyedSHA1,
 			Len:            28,
 			KeyID:          1,
 			SequenceNumber: 42,
-			Digest:         make([]byte, 20),
+			Data:           make([]byte, 20),
 		},
 	}
 	buf := make([]byte, bfd.MaxPacketSize)
@@ -785,7 +785,7 @@ func BenchmarkManagerDemuxTransportClass(b *testing.B) {
 
 			b.ReportAllocs()
 			for b.Loop() {
-				_, _ = mgr.DemuxWithWire(&pkt, meta, nil)
+				_, _ = mgr.DemuxWithWire(pkt, meta, nil)
 			}
 		})
 	}

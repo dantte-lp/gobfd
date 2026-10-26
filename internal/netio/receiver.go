@@ -23,7 +23,7 @@ var ErrListenerClosed = errors.New("listener closed while receiver is running")
 type Demuxer interface {
 	// DemuxWithWire routes a packet to the matching session, passing
 	// raw wire bytes for authentication verification.
-	DemuxWithWire(pkt *bfd.ControlPacket, meta bfd.PacketMeta, wire []byte) (bfd.DeliveryOutcome, error)
+	DemuxWithWire(pkt bfd.ControlPacket, meta bfd.PacketMeta, wire []byte) (bfd.DeliveryOutcome, error)
 	bfd.DeliveryReporter
 }
 
@@ -135,7 +135,7 @@ func (r *Receiver) recvOne(ctx context.Context, ln *Listener) error {
 	// Auth fields are zero-copy slices into raw. If auth is present, copy and
 	// re-parse from stable wire bytes before returning raw to PacketPool.
 	var wire []byte
-	if pkt.Auth != nil {
+	if !pkt.Auth.IsZero() {
 		wire = make([]byte, len(raw))
 		copy(wire, raw)
 		if err := bfd.UnmarshalControlPacket(wire, &pkt); err != nil {
@@ -143,7 +143,7 @@ func (r *Receiver) recvOne(ctx context.Context, ln *Listener) error {
 		}
 	}
 
-	if outcome, err := r.demuxer.DemuxWithWire(&pkt, bfdMeta, wire); err != nil {
+	if outcome, err := r.demuxer.DemuxWithWire(pkt, bfdMeta, wire); err != nil {
 		r.logger.Debug("demux failed",
 			slog.String("outcome", outcome.String()),
 			slog.String("src", bfdMeta.SrcAddr.String()),

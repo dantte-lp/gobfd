@@ -51,7 +51,7 @@ func TestControlDemuxRejectsFullQueue(t *testing.T) {
 				meta := PacketMeta{SrcAddr: cfg.PeerAddr, DstAddr: cfg.LocalAddr, IfName: cfg.Interface, TTL: 255}
 				var outcome DeliveryOutcome
 				if tc.wire {
-					outcome, err = mgr.DemuxWithWire(&pkt, meta, nil)
+					outcome, err = mgr.DemuxWithWire(pkt, meta, nil)
 				} else {
 					outcome, err = mgr.Demux(&pkt, meta)
 				}
@@ -85,9 +85,9 @@ func TestControlOwnerAuthRejectionAccounting(t *testing.T) {
 			case "unexpected":
 				s.auth = nil
 			case "missing":
-				item.pkt.AuthPresent, item.pkt.Auth = false, nil
+				item.pkt.AuthPresent, item.pkt.Auth = false, AuthSection{}
 			case "failed":
-				item.pkt.Auth.Digest[0] ^= 0xff
+				item.pkt.Auth.Data[0] ^= 0xff
 			}
 			metrics := &controlDeliveryMetrics{}
 			s.metrics = metrics
@@ -246,7 +246,7 @@ func TestControlOwnerValidAndZeroTXAccounting(t *testing.T) {
 			s.delivery = mgr
 			item := signedAuthExpiryPacket(t, s, 202)
 			if !authenticated {
-				s.auth, item.pkt.Auth, item.pkt.AuthPresent = nil, nil, false
+				s.auth, item.pkt.Auth, item.pkt.AuthPresent = nil, AuthSection{}, false
 			}
 			metrics := &controlDeliveryMetrics{}
 			s.metrics = metrics
@@ -386,7 +386,7 @@ func TestControlDemuxRejectsStoppedOwner(t *testing.T) {
 				meta := PacketMeta{SrcAddr: cfg.PeerAddr, DstAddr: cfg.LocalAddr, IfName: cfg.Interface, TTL: 255}
 				var outcome DeliveryOutcome
 				if tc.wire {
-					outcome, err = mgr.DemuxWithWire(pkt, meta, nil)
+					outcome, err = mgr.DemuxWithWire(*pkt, meta, nil)
 				} else {
 					outcome, err = mgr.Demux(pkt, meta)
 				}

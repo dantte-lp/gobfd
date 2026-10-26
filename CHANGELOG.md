@@ -638,6 +638,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Decode authentication metadata by value with a single borrowed payload,
+  removing per-packet auth-object allocations. Pass packet values across
+  read-only demux/verification boundaries and preserve copied metadata across
+  re-decode. Hash verification uses a bounded local PDU copy, keeping received
+  wire unchanged on success and failure so decoded unsolicited triggers can
+  also pass owner verification. Retain protocol, protobuf and configuration
+  formats; document internal Go contract and queue-size changes in ADR-0010.
+
 - Reject UDP sender source ports outside 49152-65535 before applying options
   or opening a socket; zero no longer requests automatic allocation. Preserve
   production allocator behavior, including the existing Echo source-port policy.

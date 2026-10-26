@@ -294,7 +294,7 @@ func TestUnsolicitedOwnerPreservesAuthenticatedLifetime(t *testing.T) {
 		synctest.Wait()
 		before, received := sess.PacketsSent(), sess.PacketsReceived()
 		pkt, wire = sign(StateUp)
-		pkt.Auth.Digest[0] ^= 0xff
+		pkt.Auth.Data[0] ^= 0xff
 		sess.RecvPacket(pkt, wire)
 		synctest.Wait()
 		synctest.Sleep(3*time.Second - time.Nanosecond)

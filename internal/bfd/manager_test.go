@@ -1157,7 +1157,7 @@ func TestManagerDestroyDoesNotReleaseUnsolicitedClaim(t *testing.T) {
 		IfName:  "eth0",
 		TTL:     255,
 	}
-	if _, err := mgr.DemuxWithWire(first, firstMeta, nil); err != nil {
+	if _, err := mgr.DemuxWithWire(*first, firstMeta, nil); err != nil {
 		t.Fatalf("create first unsolicited session: %v", err)
 	}
 
@@ -1177,7 +1177,7 @@ func TestManagerDestroyDoesNotReleaseUnsolicitedClaim(t *testing.T) {
 	second := makeUnsolicitedControlPacket(200)
 	secondMeta := firstMeta
 	secondMeta.SrcAddr = netip.MustParseAddr("192.0.2.11")
-	if _, err := mgr.DemuxWithWire(second, secondMeta, nil); !errors.Is(
+	if _, err := mgr.DemuxWithWire(*second, secondMeta, nil); !errors.Is(
 		err, bfd.ErrUnsolicitedMaxSessions,
 	) {
 		t.Fatalf("second unsolicited error = %v, want ErrUnsolicitedMaxSessions", err)
@@ -1218,7 +1218,7 @@ func TestManagerUnsolicitedCleanupRemovesDownSession(t *testing.T) {
 		IfName:  "eth0",
 		TTL:     255,
 	}
-	if _, err := mgr.DemuxWithWire(makeUnsolicitedControlPacket(100), meta, nil); err != nil {
+	if _, err := mgr.DemuxWithWire(*makeUnsolicitedControlPacket(100), meta, nil); err != nil {
 		t.Fatalf("create unsolicited session: %v", err)
 	}
 

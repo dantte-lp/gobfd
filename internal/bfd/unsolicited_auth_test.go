@@ -37,7 +37,11 @@ func signedTrigger(t *testing.T, keys AuthKeyStore) (*ControlPacket, []byte) {
 		t.Fatalf("Sign: %v", err)
 	}
 	n := HeaderSize + int(pkt.Auth.Len)
-	return pkt, buf[:n]
+	var decoded ControlPacket
+	if err := UnmarshalControlPacket(buf[:n], &decoded); err != nil {
+		t.Fatalf("decode signed trigger: %v", err)
+	}
+	return &decoded, buf[:n]
 }
 
 // replyCaptureSender keeps copies of sent packets; the session loop reuses
@@ -111,11 +115,11 @@ func TestUnsolicitedAuthAdmitsSignedTrigger(t *testing.T) {
 	// The session loop owns cachedPacket; read the sent copy instead.
 	var wireReply []byte
 	for deadline := time.Now().Add(2 * time.Second); ; {
-		if wireReply, ok = sender.first(); ok {
+		if wireReply, ok = sender.first(); ok && sess.PacketsReceived() == 1 {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("unsolicited session sent no reply")
+			t.Fatal("unsolicited session did not commit the decoded authenticated trigger and send a reply")
 		}
 		time.Sleep(time.Millisecond)
 	}

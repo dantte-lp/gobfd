@@ -68,7 +68,7 @@ costs as the same workload.
 | Benchmark family | Measured work | Important exclusion or limit |
 |---|---|---|
 | Control marshal | Serialize the packet into a supplied buffer | With-auth marshal serializes an already prepared auth section; it does not sign |
-| Control unmarshal | Parse and validate wire fields | With-auth parse allocates `AuthSection`; its digest borrows the input buffer |
+| Control unmarshal | Parse and validate wire fields | Authentication metadata is held by value; the payload borrows immutable input |
 | FSM | Indexed transition lookup | No owner loop, socket, timer or notification |
 | Jitter and interval arithmetic | The named calculation | No timer wake-up or scheduling delay |
 | `RecvDecodeLookupEnqueue` | Decode, discriminator lookup, attempted buffered enqueue | Enqueue is not packet processing or owner commit |
@@ -88,8 +88,10 @@ name or boundary changes. Avoid fixed benchmark counts in documentation.
 ## Allocation policy
 
 Selected codec, FSM, timer, lookup and caller-buffer operations target
-zero allocations. Authenticated parsing allocates an `AuthSection`; its digest
-is not copied there, so callers retaining it must respect buffer lifetime.
+zero allocations, including authenticated decode with value-owned auth metadata.
+The payload is not copied there, so retained packets require immutable backing
+storage. [ADR-0010](adr/0010-bfd-auth-value-ownership.md) records the scoped
+measurements and packet/queue layout tradeoff.
 The compatibility inner-packet builder allocates its returned slice. Session
 construction and reconciliation allocate lifecycle state. A zero result for
 one body neither proves all hot paths allocate zero nor bounds runtime GC pauses.

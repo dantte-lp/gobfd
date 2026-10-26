@@ -69,9 +69,9 @@ func demuxTransport(mgr *Manager, sess *Session, path demuxPath, meta PacketMeta
 	switch path {
 	case demuxPathDiscr:
 		pkt.YourDiscriminator = sess.LocalDiscriminator()
-		return mgr.DemuxWithWire(pkt, meta, nil)
+		return mgr.DemuxWithWire(*pkt, meta, nil)
 	case demuxPathPeer:
-		return mgr.DemuxWithWire(pkt, meta, nil)
+		return mgr.DemuxWithWire(*pkt, meta, nil)
 	default:
 		return mgr.Demux(pkt, meta)
 	}

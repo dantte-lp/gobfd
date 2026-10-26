@@ -97,8 +97,10 @@ the original RFC text requires this behavior. See `gobfd-9ro`.
 **Implementation**: [`internal/bfd/packet.go`](../../internal/bfd/packet.go)
 
 The mandatory 24-byte header uses `encoding/binary.BigEndian` on caller-owned
-storage. Unauthenticated parse and selected marshal paths allocate zero;
-authenticated parse allocates `AuthSection` and borrows digest/password bytes.
+storage. Valid parse paths and selected marshal paths allocate zero.
+Authentication metadata is held by value and borrows immutable payload bytes;
+hash verification leaves received wire unchanged. The internal ownership and
+measured layout tradeoff are recorded in [ADR-0010](adr/0010-bfd-auth-value-ownership.md).
 See [codec lifetime](02-protocol.md) before reusing a receive buffer.
 
 See [02-protocol.md](./02-protocol.md) for the complete packet format table.

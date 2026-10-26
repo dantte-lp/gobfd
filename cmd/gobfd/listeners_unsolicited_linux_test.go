@@ -25,7 +25,7 @@ type listenerAdmissionRecorder struct {
 }
 
 func (r *listenerAdmissionRecorder) DemuxWithWire(
-	pkt *bfd.ControlPacket, meta bfd.PacketMeta, wire []byte,
+	pkt bfd.ControlPacket, meta bfd.PacketMeta, wire []byte,
 ) (bfd.DeliveryOutcome, error) {
 	outcome, err := r.mgr.DemuxWithWire(pkt, meta, wire)
 	r.calls <- listenerAdmission{meta: meta, err: err}

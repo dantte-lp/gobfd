@@ -114,7 +114,7 @@ func (p *peerRuntime) read(ctx context.Context, cancel context.CancelFunc) {
 		var packet bfd.ControlPacket
 		parseErr := bfd.UnmarshalControlPacket(wire[:n], &packet)
 		// Unsupported authentication must not retain a slice into the reusable wire buffer.
-		packet.Auth = nil
+		packet.Auth = bfd.AuthSection{}
 		input := peerInput{packet: packet, meta: meta, invalid: readErr != nil || parseErr != nil}
 		select {
 		case p.input <- input:

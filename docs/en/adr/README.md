@@ -34,3 +34,4 @@ forward link to the replacement.
 | [0007](./0007-workload-phase-accounting.md) | Workload phases and terminal packet accounting | Accepted policy; qualification separate |
 | [0008](./0008-experimental-prerelease-boundary.md) | Experimental prerelease boundary | Proposed; no publication authorization |
 | [0009](./0009-echo-principal-claims.md) | Principal claims on a shared Echo wire | Accepted policy; local qualification separate |
+| [0010](./0010-bfd-auth-value-ownership.md) | Value ownership of BFD authentication metadata | Accepted policy; source and runtime qualification separate |

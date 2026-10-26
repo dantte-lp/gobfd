@@ -46,10 +46,12 @@ RFC 5880 Section 4.1 defines a 24-byte mandatory header:
 > ```
 
 **Codec allocation and lifetime**: marshal writes into a supplied buffer;
-unauthenticated unmarshal fills a caller-owned packet without allocation.
-Authenticated unmarshal allocates `AuthSection`, while its digest/password
-fields borrow the input buffer. Callers retaining those fields must copy them
-before returning the buffer to the pool.
+valid authenticated and unauthenticated unmarshal fill a caller-owned packet
+without allocating an auth object. Auth metadata is held by value;
+`AuthSection.Data` borrows the input buffer. Retained packets require immutable
+backing storage; receivers copy and reparse authenticated wire before returning
+pooled input. Hash verification uses a bounded scratch PDU and leaves received
+wire unchanged. See [ADR-0010](adr/0010-bfd-auth-value-ownership.md).
 
 ### FSM State Machine
 

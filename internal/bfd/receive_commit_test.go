@@ -148,7 +148,7 @@ func TestReceiveTimingUnsolicitedAdmission(t *testing.T) {
 		defer mgr.Close()
 		meta := admissionMeta("192.0.2.64", "192.0.2.1")
 		meta.ReceiveTiming = ReceiveTiming{outcome: ReceiveTimingClockStep}
-		outcome, err := mgr.DemuxWithWire(ownershipDownPacket(99), meta, nil)
+		outcome, err := mgr.DemuxWithWire(*ownershipDownPacket(99), meta, nil)
 		if err != nil || outcome != DeliveryQueued {
 			t.Fatalf("unsolicited admission=%s error=%v", outcome, err)
 		}

@@ -23,9 +23,12 @@ qualify lifetime metric cardinality, supported scale or a latency distribution.
 ### Interpret allocation results
 
 - A zero-allocation result applies only to the named benchmark body.
-- Authenticated unmarshal allocates `AuthSection`; the parsed digest borrows
-  the input buffer. The allocation is not a digest copy and provides no
-  independent digest lifetime.
+- Authenticated unmarshal fills `AuthSection` by value without an auth-object
+  allocation; its payload still borrows immutable input. The local three-run
+  200000-iteration result is 0 B/op and 0 allocs/op. The in-memory plain RX
+  benchmark changes from 176 B/op and 2 allocs/op to 128 B/op and 1 alloc/op;
+  these measurements exclude sockets and owner commit. See
+  [ADR-0010](docs/en/adr/0010-bfd-auth-value-ownership.md) for layout and lifetime.
 - `BuildInnerPacketInto` writes into caller-owned storage and is used by
   production overlay TX. `BuildInnerPacket` is the allocating compatibility wrapper.
 - Runtime FSM lookup uses an indexed array built from the declarative map
@@ -69,8 +72,12 @@ supported packet rates or claim immunity to GC pauses.
 ### Интерпретация выделений памяти
 
 - Нулевые выделения относятся только к указанному телу бенчмарка.
-- Разбор аутентификации создаёт `AuthSection`; дайджест ссылается на входной
-  буфер. Это не копия дайджеста и не независимый срок его жизни.
+- Разбор аутентификации заполняет `AuthSection` по значению без выделения
+  auth-объекта; payload по-прежнему заимствует неизменяемый вход. Локальные
+  три серии по 200000 итераций дают 0 B/op и 0 allocs/op. In-memory benchmark
+  обычного RX меняется со 176 B/op и 2 allocs/op на 128 B/op и 1 alloc/op;
+  сокеты и фиксация владельцем в эти измерения не входят. Размеры и время жизни
+  описаны в [ADR-0010](docs/ru/adr/0010-bfd-auth-value-ownership.md).
 - `BuildInnerPacketInto` пишет в память вызывающего кода и используется
   рабочим путём передачи overlay. `BuildInnerPacket` — обёртка совместимости
   с выделением памяти.

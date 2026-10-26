@@ -114,7 +114,7 @@ func (s *Session) verifyReceivedAuth(item recvItem) DeliveryOutcome {
 	// Expire the old sequence window before authenticating a restarted peer.
 	s.maybeResetAuthSeqKnown()
 	pkt := item.pkt
-	if err := s.auth.Verify(s.authState, s.authKeys, &pkt, item.wire, len(item.wire)); err != nil {
+	if err := s.auth.Verify(s.authState, s.authKeys, pkt, item.wire, len(item.wire)); err != nil {
 		s.logger.Debug("auth verification failed",
 			slog.String("error", err.Error()),
 		)

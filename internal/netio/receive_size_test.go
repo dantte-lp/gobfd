@@ -49,7 +49,7 @@ func TestListenerRejectsInvalidReadSize(t *testing.T) {
 
 type receiveBenchmarkDemux struct{}
 
-func (receiveBenchmarkDemux) DemuxWithWire(*bfd.ControlPacket, bfd.PacketMeta, []byte) (bfd.DeliveryOutcome, error) {
+func (receiveBenchmarkDemux) DemuxWithWire(bfd.ControlPacket, bfd.PacketMeta, []byte) (bfd.DeliveryOutcome, error) {
 	return bfd.DeliveryQueued, nil
 }
 
@@ -83,11 +83,11 @@ func BenchmarkUnauthenticatedRX(b *testing.B) {
 
 type paddedWireDemux struct {
 	wire []byte
-	auth *bfd.AuthSection
+	auth bfd.AuthSection
 }
 
 func (d *paddedWireDemux) DemuxWithWire(
-	pkt *bfd.ControlPacket, _ bfd.PacketMeta, wire []byte,
+	pkt bfd.ControlPacket, _ bfd.PacketMeta, wire []byte,
 ) (bfd.DeliveryOutcome, error) {
 	d.wire, d.auth = wire, pkt.Auth
 	return bfd.DeliveryQueued, nil
@@ -102,7 +102,7 @@ func TestPaddedAuthenticatedReceiveOwnsCompleteWire(t *testing.T) {
 	pkt := &bfd.ControlPacket{
 		Version: bfd.Version, State: bfd.StateDown, DetectMult: 3, MyDiscriminator: 1,
 		DesiredMinTxInterval: 100000, RequiredMinRxInterval: 100000, AuthPresent: true,
-		Auth: &bfd.AuthSection{Type: bfd.AuthTypeSimplePassword, Len: 6, KeyID: 1, AuthData: []byte("key")},
+		Auth: bfd.AuthSection{Type: bfd.AuthTypeSimplePassword, Len: 6, KeyID: 1, Data: []byte("key")},
 	}
 	if _, err := bfd.MarshalControlPacket(pkt, payload); err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestPaddedAuthenticatedReceiveOwnsCompleteWire(t *testing.T) {
 	if &dmux.wire[0] == &conn.borrowed[0] {
 		t.Fatal("authenticated wire aliases borrowed packet buffer")
 	}
-	if dmux.auth == nil || string(dmux.auth.AuthData) != "key" {
+	if dmux.auth.IsZero() || string(dmux.auth.Data) != "key" {
 		t.Fatal("owned authentication fields lost")
 	}
 }

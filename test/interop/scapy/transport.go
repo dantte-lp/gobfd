@@ -94,7 +94,7 @@ func (transport *peerTransport) decode(wire []byte) (bfd.ControlPacket, error) {
 	if err := bfd.UnmarshalControlPacket(work, &verified); err != nil {
 		return packet, fmt.Errorf("decode peer auth work buffer: %w", err)
 	}
-	if err := transport.auth.Verify(transport.state, transport.keys, &verified, work, len(work)); err != nil {
+	if err := transport.auth.Verify(transport.state, transport.keys, verified, work, len(work)); err != nil {
 		return packet, fmt.Errorf("verify peer authentication: %w", err)
 	}
 	return packet, nil

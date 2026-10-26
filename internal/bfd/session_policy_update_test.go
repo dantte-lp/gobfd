@@ -138,7 +138,7 @@ func TestSessionPacketPolicyUpdateWireAndGrowth(t *testing.T) {
 					length := MinPacketSizeNoAuth
 					if authenticated {
 						length = 52
-						if verifyErr := s.auth.Verify(receiver, s.authKeys, &packet, raw, len(raw)); verifyErr != nil {
+						if verifyErr := s.auth.Verify(receiver, s.authKeys, packet, raw, len(raw)); verifyErr != nil {
 							t.Fatal(verifyErr)
 						}
 					}

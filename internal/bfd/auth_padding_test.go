@@ -103,7 +103,7 @@ func TestRFC9764AuthKnownVectors(t *testing.T) {
 					}
 					state := &bfd.AuthState{AuthSeqKnown: true, RcvAuthSeq: 41}
 					keys := newTestKeyStore(1, vector.typ, []byte("vector-key"))
-					if err := auth.Verify(state, keys, &pkt, wire, len(wire)); err != nil {
+					if err := auth.Verify(state, keys, pkt, wire, len(wire)); err != nil {
 						t.Fatalf("Verify: %v", err)
 					}
 					wantSeq := uint32(42)
@@ -176,7 +176,7 @@ func TestRFC9764AuthTamperPreservesSequence(t *testing.T) {
 						if authErr != nil {
 							t.Fatal(authErr)
 						}
-						err = auth.Verify(state, newTestKeyStore(1, vector.typ, []byte("vector-key")), &pkt, wire, len(wire))
+						err = auth.Verify(state, newTestKeyStore(1, vector.typ, []byte("vector-key")), pkt, wire, len(wire))
 					}
 					if err == nil {
 						t.Fatal("tampered packet accepted")
@@ -223,7 +223,7 @@ func TestRFC9764AuthWireBounds(t *testing.T) {
 				}
 				state := &bfd.AuthState{RcvAuthSeq: 41}
 				before := *state
-				err = auth.Verify(state, newTestKeyStore(1, vector.typ, []byte("vector-key")), &pkt, wire, tc.n)
+				err = auth.Verify(state, newTestKeyStore(1, vector.typ, []byte("vector-key")), pkt, wire, tc.n)
 				if !errors.Is(err, bfd.ErrAuthWireMissing) {
 					t.Fatalf("Verify = %v, want ErrAuthWireMissing", err)
 				}
@@ -264,7 +264,7 @@ func TestRFC9764SimplePasswordWireContract(t *testing.T) {
 	state := &bfd.AuthState{AuthSeqKnown: true, RcvAuthSeq: 41}
 	before := *state
 	keys := newTestKeyStore(1, vector.typ, []byte("vector-key"))
-	if err := (bfd.SimplePasswordAuth{}).Verify(state, keys, &pkt, nil, 0); err != nil {
+	if err := (bfd.SimplePasswordAuth{}).Verify(state, keys, pkt, nil, 0); err != nil {
 		t.Fatalf("Verify without wire: %v", err)
 	}
 	if *state != before {

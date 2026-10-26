@@ -1282,7 +1282,7 @@ func TestConfigSessionToBFDConfiguresAuthentication(t *testing.T) {
 	if err := cfg.Auth.Sign(state, cfg.AuthKeys, pkt, buf, 0); err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
-	if !pkt.AuthPresent || pkt.Auth == nil {
+	if !pkt.AuthPresent || pkt.Auth.IsZero() {
 		t.Fatal("signed packet missing auth section")
 	}
 	if pkt.Auth.Type != bfd.AuthTypeKeyedSHA1 {

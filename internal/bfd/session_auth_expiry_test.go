@@ -110,7 +110,7 @@ func TestAuthExpiryInvalidDigestDoesNotRefreshReceiveTime(t *testing.T) {
 		detection := s.calcDetectionTimeHot()
 		s.lastPacketRecv.Store(time.Now().Add(24 * time.Hour).UnixNano())
 		bad := signedAuthExpiryPacket(t, s, 202)
-		bad.pkt.Auth.Digest[0] ^= 0xff
+		bad.pkt.Auth.Data[0] ^= 0xff
 		synctest.Sleep(2*detection - time.Nanosecond)
 		s.handleRecvPacket(t.Context(), bad, tx, detect)
 		if s.PacketsReceived() != 1 || s.lastValidRecv != received ||

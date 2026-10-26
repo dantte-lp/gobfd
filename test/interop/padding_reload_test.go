@@ -64,7 +64,7 @@ func requirePaddingReadiness(ctx context.Context, t *testing.T, name string) {
 	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	output, err := paddingReadiness(probeCtx)
-	writeTimerArtifact(t, name+"-readiness", "txt", []byte(fmt.Sprintf("%s\nerror=%v\n", output, err)))
+	writeTimerArtifact(t, name+"-readiness", "txt", fmt.Appendf(nil, "%s\nerror=%v\n", output, err))
 	if err != nil {
 		t.Fatalf("readiness subprocess: %v", err)
 	}
@@ -258,7 +258,7 @@ func runPaddingCandidate(ctx context.Context, t *testing.T, candidate, name stri
 			t.Fatal(err)
 		}
 		output, err := podmanCommand(phaseCtx, "kill", "--signal", "USR2", id)
-		writeTimerArtifact(t, name+"-probe", "txt", []byte(fmt.Sprintf("%s\nerror=%v\n", output, err)))
+		writeTimerArtifact(t, name+"-probe", "txt", fmt.Appendf(nil, "%s\nerror=%v\n", output, err))
 		if err != nil {
 			t.Fatalf("current-state Poll probe: %v", err)
 		}
@@ -557,7 +557,7 @@ func paddingPacketMatches(frame detectFrame, packet *bfd.ControlPacket) bool {
 		uint64(packet.DetectMult) != frame.Multiplier {
 		return false
 	}
-	return packet.Auth == nil || uint64(packet.Auth.Type) == frame.AuthType && uint64(packet.Auth.KeyID) == frame.Key &&
+	return packet.Auth.IsZero() || uint64(packet.Auth.Type) == frame.AuthType && uint64(packet.Auth.KeyID) == frame.Key &&
 		uint64(packet.Auth.SequenceNumber) == frame.Sequence
 }
 
@@ -593,7 +593,7 @@ func verifyPaddingFrame(frame paddingFrame, size uint64, state *bfd.AuthState, k
 	if err != nil {
 		return fmt.Errorf("padding authenticator: %w", err)
 	}
-	if err := auth.Verify(state, keys, &packet, wire, len(wire)); err != nil {
+	if err := auth.Verify(state, keys, packet, wire, len(wire)); err != nil {
 		return fmt.Errorf("padding authentication: %w", err)
 	}
 	return nil

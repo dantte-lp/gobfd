@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 )
 
@@ -348,7 +349,7 @@ type Authenticator interface {
 
 	// Verify checks the authentication of a received packet.
 	// buf is the full received packet buffer, n is valid byte count.
-	Verify(state *AuthState, keys AuthKeyStore, pkt *ControlPacket, buf []byte, n int) error
+	Verify(state *AuthState, keys AuthKeyStore, pkt ControlPacket, buf []byte, n int) error
 }
 
 // -------------------------------------------------------------------------
@@ -385,19 +386,19 @@ func (a SimplePasswordAuth) Sign(
 	_ []byte,
 	_ int,
 ) error {
-	// Simple password AuthData becomes caller-visible packet state, so use the
+	// Simple password Data becomes caller-visible packet state, so use the
 	// public caller-owned copy instead of exposing StaticAuthKeyStore backing.
 	key := keys.CurrentKey()
 	if err := validateAuthKeyForType(key, AuthTypeSimplePassword); err != nil {
 		return fmt.Errorf("simple password current key: %w", err)
 	}
-	pkt.Auth = &AuthSection{
+	pkt.Auth = AuthSection{
 		Type: AuthTypeSimplePassword,
 		Len: uint8( // #nosec G115 -- validateAuthKey above limits the password to 16 bytes.
 			authSimpleHeaderSize + len(key.Secret),
 		),
-		KeyID:    key.ID,
-		AuthData: key.Secret,
+		KeyID: key.ID,
+		Data:  key.Secret,
 	}
 	pkt.AuthPresent = true
 
@@ -408,11 +409,11 @@ func (a SimplePasswordAuth) Sign(
 func (a SimplePasswordAuth) Verify(
 	_ *AuthState,
 	keys AuthKeyStore,
-	pkt *ControlPacket,
+	pkt ControlPacket,
 	_ []byte,
 	_ int,
 ) error {
-	if err := requireAuthSection(pkt); err != nil {
+	if err := requireAuthSection(&pkt); err != nil {
 		return err
 	}
 
@@ -427,7 +428,7 @@ func (a SimplePasswordAuth) Verify(
 			pkt.Auth.KeyID, ErrAuthKeyNotFound)
 	}
 
-	return verifyPassword(key, pkt.Auth)
+	return verifyPassword(key, &pkt.Auth)
 }
 
 // verifyPassword checks password length and value match.
@@ -443,7 +444,7 @@ func verifyPassword(key AuthKey, auth *AuthSection) error {
 			auth.Len, expectedLen, ErrAuthLenMismatch)
 	}
 
-	if subtle.ConstantTimeCompare(auth.AuthData, key.Secret) != 1 {
+	if subtle.ConstantTimeCompare(auth.Data, key.Secret) != 1 {
 		return fmt.Errorf("simple password: %w", ErrAuthPasswordMismatch)
 	}
 
@@ -474,11 +475,11 @@ func (a KeyedMD5Auth) Sign(
 func (a KeyedMD5Auth) Verify(
 	state *AuthState,
 	keys AuthKeyStore,
-	pkt *ControlPacket,
+	pkt ControlPacket,
 	buf []byte,
 	n int,
 ) error {
-	return verifyHash(state, keys, pkt, buf, n, hashParamsMD5())
+	return verifyHash(state, keys, &pkt, buf, n, hashParamsMD5())
 }
 
 // -------------------------------------------------------------------------
@@ -509,7 +510,7 @@ func (a MeticulousKeyedMD5Auth) Sign(
 func (a MeticulousKeyedMD5Auth) Verify(
 	state *AuthState,
 	keys AuthKeyStore,
-	pkt *ControlPacket,
+	pkt ControlPacket,
 	buf []byte,
 	n int,
 ) error {
@@ -517,7 +518,7 @@ func (a MeticulousKeyedMD5Auth) Verify(
 	p.meticulous = true
 	p.authType = AuthTypeMeticulousKeyedMD5
 
-	return verifyHash(state, keys, pkt, buf, n, p)
+	return verifyHash(state, keys, &pkt, buf, n, p)
 }
 
 // -------------------------------------------------------------------------
@@ -544,11 +545,11 @@ func (a KeyedSHA1Auth) Sign(
 func (a KeyedSHA1Auth) Verify(
 	state *AuthState,
 	keys AuthKeyStore,
-	pkt *ControlPacket,
+	pkt ControlPacket,
 	buf []byte,
 	n int,
 ) error {
-	return verifyHash(state, keys, pkt, buf, n, hashParamsSHA1())
+	return verifyHash(state, keys, &pkt, buf, n, hashParamsSHA1())
 }
 
 // -------------------------------------------------------------------------
@@ -579,7 +580,7 @@ func (a MeticulousKeyedSHA1Auth) Sign(
 func (a MeticulousKeyedSHA1Auth) Verify(
 	state *AuthState,
 	keys AuthKeyStore,
-	pkt *ControlPacket,
+	pkt ControlPacket,
 	buf []byte,
 	n int,
 ) error {
@@ -587,7 +588,7 @@ func (a MeticulousKeyedSHA1Auth) Verify(
 	p.meticulous = true
 	p.authType = AuthTypeMeticulousKeyedSHA1
 
-	return verifyHash(state, keys, pkt, buf, n, p)
+	return verifyHash(state, keys, &pkt, buf, n, p)
 }
 
 // -------------------------------------------------------------------------
@@ -660,27 +661,27 @@ func signHash(
 		return fmt.Errorf("sign hash: marshal: %w", err)
 	}
 
-	// Compute hash and write digest into buf and pkt.Auth.Digest.
+	// Compute hash and write digest into buf and pkt.Auth.Data.
 	computeAndPlaceDigest(buf, n, p)
-	pkt.Auth.Digest = copyDigest(buf, p)
+	pkt.Auth.Data = copyDigest(buf, p)
 
 	return nil
 }
 
 // buildAuthSection creates an AuthSection with the key material placed
 // in the digest slot for hash computation (RFC 5880 Sections 6.7.3/6.7.4).
-func buildAuthSection(key AuthKey, state *AuthState, p hashParams) *AuthSection {
+func buildAuthSection(key AuthKey, state *AuthState, p hashParams) AuthSection {
 	// RFC 5880 Section 6.7.3/6.7.4: "the Auth Key/Hash field is set to
 	// the value of the Authentication Key."
 	digest := make([]byte, p.digestSize)
 	copy(digest, key.Secret)
 
-	return &AuthSection{
+	return AuthSection{
 		Type:           p.authType,
 		Len:            p.authLen,
 		KeyID:          key.ID,
 		SequenceNumber: state.XmitAuthSeq,
-		Digest:         digest,
+		Data:           digest,
 	}
 }
 
@@ -725,9 +726,9 @@ func computeDigest(data []byte, p hashParams) []byte {
 //  1. Check auth section present and type matches.
 //  2. Look up key by Auth Key ID.
 //  3. Check sequence number window.
-//  4. Save received digest, replace with key material.
-//  5. Compute hash over modified packet.
-//  6. Compare computed hash with saved digest.
+//  4. Copy the bounded PDU and replace its digest with key material.
+//  5. Compute hash over the scratch packet.
+//  6. Compare with the unchanged received digest.
 //  7. Update RcvAuthSeq on success.
 func verifyHash(
 	state *AuthState,
@@ -822,8 +823,7 @@ func checkSeqWindow(state *AuthState, pkt *ControlPacket, p hashParams) error {
 	return nil
 }
 
-// verifyAndUpdateSeq saves the digest, computes the expected hash,
-// compares, and updates RcvAuthSeq on success.
+// verifyAndUpdateSeq preserves received wire and updates RcvAuthSeq only on success.
 func verifyAndUpdateSeq(
 	state *AuthState,
 	pkt *ControlPacket,
@@ -832,19 +832,20 @@ func verifyAndUpdateSeq(
 	n int,
 	p hashParams,
 ) error {
-	// Save received digest before overwriting.
-	savedDigest := make([]byte, p.digestSize)
-	copy(savedDigest, pkt.Auth.Digest)
+	// validateAuthWire bounds n by the one-octet BFD Length, excluding padding.
+	var scratch [math.MaxUint8]byte
+	pdu := scratch[:n]
+	copy(pdu, buf[:n])
 
 	// Replace digest slot with key material (zero-padded).
 	digestOffset := HeaderSize + 8
-	clearDigestSlot(buf, digestOffset, p.digestSize)
-	copy(buf[digestOffset:], key.Secret)
+	clearDigestSlot(pdu, digestOffset, p.digestSize)
+	copy(pdu[digestOffset:digestOffset+p.digestSize], key.Secret)
 
 	// Compute hash over the modified packet.
-	computed := computeDigest(buf[:n], p)
+	computed := computeDigest(pdu, p)
 
-	if subtle.ConstantTimeCompare(savedDigest, computed) != 1 {
+	if subtle.ConstantTimeCompare(pkt.Auth.Data, computed) != 1 {
 		return fmt.Errorf("hash auth: %w", ErrAuthDigestMismatch)
 	}
 
@@ -868,7 +869,7 @@ func clearDigestSlot(buf []byte, offset, size int) {
 
 // requireAuthSection returns an error if the packet has no auth section.
 func requireAuthSection(pkt *ControlPacket) error {
-	if pkt.Auth == nil {
+	if pkt.Auth.IsZero() {
 		return fmt.Errorf("verify auth: %w", ErrAuthMissingSection)
 	}
 

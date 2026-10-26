@@ -120,7 +120,7 @@ func BenchmarkReceiveOwnerCollector(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		meta.ReceiveTiming = clock.Capture(time.Now().UnixNano())
-		outcome, demuxErr := mgr.DemuxWithWire(&pkt, meta, nil)
+		outcome, demuxErr := mgr.DemuxWithWire(pkt, meta, nil)
 		if demuxErr != nil || outcome != bfd.DeliveryQueued {
 			b.Fatalf("admission=%s error=%v", outcome, demuxErr)
 		}

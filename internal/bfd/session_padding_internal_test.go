@@ -53,7 +53,7 @@ func TestRFC9764SessionAuthTransmit(t *testing.T) {
 				if err := UnmarshalControlPacket(wire, &pkt); err != nil {
 					t.Fatal(err)
 				}
-				if err := auth.Verify(&AuthState{}, keys, &pkt, wire, len(wire)); err != nil {
+				if err := auth.Verify(&AuthState{}, keys, pkt, wire, len(wire)); err != nil {
 					t.Fatalf("verify transmitted PDU: %v", err)
 				}
 			})
