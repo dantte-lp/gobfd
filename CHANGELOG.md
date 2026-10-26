@@ -643,6 +643,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- List unallowed vulnerability findings before exiting on allowlist validation
+  failures. Preserve exit code 2 for expired or stale exceptions, exit code 1
+  for unallowed findings without validation failures, and failure summaries
+  without a success message.
+
 - Store the bounded BFD authentication payload inline with an independent
   logical length. Built-in signing and the measured authenticated owner loop
   no longer allocate payload objects; packet copies own their bytes. Preserve
