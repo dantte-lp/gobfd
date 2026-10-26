@@ -8,6 +8,13 @@ and its accepted amendments define release scope. Beads owns execution,
 priorities, dependencies and estimates; this document is a dated assessment.
 No source, Dolt, Actions or release publication is authorized by it.
 
+Correction: the request for a separate YC profile is withdrawn. The runner
+program creates only Proxmox resources on existing VLAN 101; YC inventory was
+introduced by the broader greenfield network audit. Its applicability belongs
+to the infrastructure task and does not establish missing user credentials.
+Existing Teleport/PVE access and image delivery remain the provisioning path;
+this correction does not claim that the VM or its preflight is complete.
+
 ## Change since the previous audit
 
 The six confirmed defects from 23 October are fixed in accepted local source:
@@ -66,7 +73,7 @@ they are not added to the stable release critical path by this assessment.
 | Benchmark verdict | `BenchmarkReport` returns `writeBenchmarkWarnings` | Calibrated critical regressions must return nonzero and retain reports |
 | Small delivery defects | Fresh-empty alert uses `sum(gobfd_bfd_sessions) == 0`; five aggregate E2E wrappers use host Go; dev/debug images install Bash | Required alert, launcher and zero-shell corrections with existing consumers preserved |
 | OCI and integration | Shared trixie recipes and several consumers accepted; Containerlab candidate `4852538df409e0b0309b89505b6dc88861a49540` remains isolated | Native FRR lifecycle/wire assertions, Kubernetes immutable build/import, architecture evidence and explicit vendor OS-policy dispositions |
-| Runner | Pulumi source/operator datastore fix accepted in um-iac; VM absent | Legitimate G0 access, managed Debian image delivery, preview/apply and guest admission |
+| Runner | Pulumi source/operator datastore fix accepted in um-iac; VM absent | Existing Teleport/PVE access, applicable preflight, managed Debian image delivery, preview/apply and guest admission |
 | Final release | Per-slice local evidence exists | Final security/inventory, package upgrade/rollback, full required quality/review, engineering and 24-hour reference gates |
 | Cross-tree security/failure owners | Recipes retain the base from a historical fixable liblzma5 scan; an intermittent race-run failure remains unattributed | Fresh candidate disposition/remediation under `gobfd-cs8` and `gobfd-sow`, without claiming historical findings are current measurements |
 
@@ -141,7 +148,7 @@ relevant gate. The first checkpoint targets implementation completion within
 48 hours; threshold failures update the affected row and remaining estimate.
 
 External waiting is excluded from active hours and adds directly to calendar
-time: legitimate YC/BareMetal G0 access, image/network availability, required
+time: Teleport/PVE access, image/network availability, required
 native architecture resources, and vendor licensing/OS-policy decisions.
 The current publication hold must be lifted separately after a concrete
 candidate is ready; no publication is requested now.
