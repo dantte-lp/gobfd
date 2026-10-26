@@ -253,6 +253,7 @@ type fakeNetworkManagerDBus struct {
 	activatedConnection  dbus.ObjectPath
 	activatedDevice      dbus.ObjectPath
 	closed               bool
+	uuidError            error
 }
 
 func newFakeNetworkManagerDBus() *fakeNetworkManagerDBus {
@@ -330,6 +331,18 @@ func (f *fakeNetworkManagerDBus) ConnectionSettings(
 		return nil, ErrNetworkManagerConnectionNotFound
 	}
 	return settings, nil
+}
+
+func (f *fakeNetworkManagerDBus) ConnectionByUUID(_ context.Context, uuid string) (dbus.ObjectPath, error) {
+	if f.uuidError != nil {
+		return "", f.uuidError
+	}
+	for path, settings := range f.settings {
+		if value, ok := settings["connection"]["uuid"]; ok && value.Value() == uuid {
+			return path, nil
+		}
+	}
+	return "", dbus.Error{Name: "org.freedesktop.NetworkManager.Settings.InvalidConnection"}
 }
 
 func (f *fakeNetworkManagerDBus) Close() error {

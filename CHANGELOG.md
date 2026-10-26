@@ -638,6 +638,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Revalidate active and cached NetworkManager bond-port ownership before
+  deactivation, active no-op or activation. Support UUID controllers and
+  modern/legacy bindings; reject foreign, malformed and deleted profiles
+  without mutation. Validate UUID lookup replies without `Store` coercion and
+  retain cancellation and typed remote errors. Actual NetworkManager and
+  member-wire qualification remain separate.
+
 - Honor actuator cancellation during Linux NetworkManager DNS, socket dialing,
   authentication and Hello. Preserve transport fallback and Unix FD negotiation;
   reject malformed nonce files and disable both TCP transports with

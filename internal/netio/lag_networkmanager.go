@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/godbus/dbus/v5"
@@ -23,7 +24,7 @@ const (
 var (
 	// ErrNetworkManagerConnectionNotFound indicates that no matching bond-port connection exists.
 	ErrNetworkManagerConnectionNotFound = errors.New("NetworkManager bond port connection not found")
-	// ErrNetworkManagerSettingsInvalid indicates that required connection settings are missing.
+	// ErrNetworkManagerSettingsInvalid indicates missing, malformed or incompatible connection settings.
 	ErrNetworkManagerSettingsInvalid = errors.New("NetworkManager connection settings are invalid")
 )
 
@@ -98,6 +99,7 @@ type networkManagerDBus interface {
 		ctx context.Context,
 		connection dbus.ObjectPath,
 	) (networkManagerConnectionSettings, error)
+	ConnectionByUUID(ctx context.Context, uuid string) (dbus.ObjectPath, error)
 	Close() error
 }
 
@@ -156,10 +158,13 @@ func (c *dbusNetworkManagerLAGClient) RemoveBondInterface(
 		return fmt.Errorf("resolve NetworkManager settings connection for interface %q: %w", iface, err)
 	}
 
-	c.rememberConnection(bond, iface, connection)
+	if err := validateNetworkManagerBondPort(ctx, nm, connection, bond, iface); err != nil {
+		return err
+	}
 	if err := nm.DeactivateConnection(ctx, active); err != nil {
 		return fmt.Errorf("deactivate NetworkManager connection for interface %q: %w", iface, err)
 	}
+	c.rememberConnection(bond, iface, connection)
 
 	return nil
 }
@@ -184,7 +189,11 @@ func (c *dbusNetworkManagerLAGClient) AddBondInterface(
 		return fmt.Errorf("read active NetworkManager connection for interface %q: %w", iface, err)
 	}
 	if !isNoObjectPath(active) {
-		return nil
+		connection, lookupErr := nm.ActiveConnectionConnection(ctx, active)
+		if lookupErr != nil {
+			return fmt.Errorf("resolve active NetworkManager settings for interface %q: %w", iface, lookupErr)
+		}
+		return validateNetworkManagerBondPort(ctx, nm, connection, bond, iface)
 	}
 
 	connection, ok := c.rememberedConnection(bond, iface)
@@ -193,6 +202,8 @@ func (c *dbusNetworkManagerLAGClient) AddBondInterface(
 		if err != nil {
 			return err
 		}
+	} else if validationErr := validateNetworkManagerBondPort(ctx, nm, connection, bond, iface); validationErr != nil {
+		return validationErr
 	}
 	_, err = nm.ActivateConnection(ctx, connection, device)
 	if err != nil {
@@ -234,16 +245,120 @@ func (c *dbusNetworkManagerLAGClient) findBondPortConnection(
 		return "", fmt.Errorf("list available NetworkManager connections for interface %q: %w", iface, err)
 	}
 	for _, connection := range available {
-		settings, err := nm.ConnectionSettings(ctx, connection)
+		matches, err := networkManagerConnectionMatchesBondPort(ctx, nm, connection, bond, iface)
 		if err != nil {
-			return "", fmt.Errorf("read NetworkManager connection settings for interface %q: %w", iface, err)
+			return "", err
 		}
-		if networkManagerSettingsMatchBondPort(settings, bond, iface) {
+		if matches {
 			c.rememberConnection(bond, iface, connection)
 			return connection, nil
 		}
 	}
 	return "", fmt.Errorf("%s/%s: %w", bond, iface, ErrNetworkManagerConnectionNotFound)
+}
+
+func validateNetworkManagerBondPort(
+	ctx context.Context, nm networkManagerDBus, connection dbus.ObjectPath, bond, iface string,
+) error {
+	matches, err := networkManagerConnectionMatchesBondPort(ctx, nm, connection, bond, iface)
+	if err != nil {
+		return err
+	}
+	if !matches {
+		return fmt.Errorf("NetworkManager profile %q does not own %s/%s: %w",
+			connection, bond, iface, ErrNetworkManagerSettingsInvalid)
+	}
+	return nil
+}
+
+func networkManagerConnectionMatchesBondPort(
+	ctx context.Context, nm networkManagerDBus, connection dbus.ObjectPath, bond, iface string,
+) (bool, error) {
+	settings, err := nm.ConnectionSettings(ctx, connection)
+	if err != nil {
+		return false, fmt.Errorf("read NetworkManager settings for interface %q: %w", iface, err)
+	}
+	controller, valid := networkManagerSettingAlias(settings["connection"], "controller", "master")
+	if !valid || !networkManagerSettingsMatchBondPort(settings, controller, iface) {
+		return false, nil
+	}
+	if controller == bond {
+		return true, nil
+	}
+	return networkManagerControllerMatchesBond(ctx, nm, controller, bond, iface)
+}
+
+func networkManagerControllerMatchesBond(
+	ctx context.Context, nm networkManagerDBus, controller, bond, iface string,
+) (bool, error) {
+	parent, err := nm.ConnectionByUUID(ctx, strings.ToLower(controller))
+	if err != nil {
+		remote, remoteOK := errors.AsType[dbus.Error](err)
+		if remoteOK && remote.Name == "org.freedesktop.NetworkManager.Settings.InvalidConnection" {
+			return false, nil
+		}
+		return false, fmt.Errorf("resolve NetworkManager controller for %s/%s: %w", bond, iface, err)
+	}
+	if isNoObjectPath(parent) {
+		return false, nil
+	}
+	parentSettings, err := nm.ConnectionSettings(ctx, parent)
+	if err != nil {
+		return false, fmt.Errorf("read NetworkManager controller settings for %s/%s: %w", bond, iface, err)
+	}
+	parentConnection := parentSettings["connection"]
+	uuid, uuidOK := networkManagerSettingString(parentConnection, "uuid")
+	kind, kindOK := networkManagerSettingString(parentConnection, "type")
+	if !uuidOK || !kindOK || !strings.EqualFold(uuid, controller) || kind != "bond" {
+		return false, nil
+	}
+	name, valid := networkManagerControllerInterface(parentSettings)
+	if !valid {
+		return false, nil
+	}
+	if name != "" {
+		return name == bond, nil
+	}
+	// An unbound controller profile needs an actual active-device binding.
+	return networkManagerControllerDeviceMatches(ctx, nm, parent, bond)
+}
+
+func networkManagerControllerDeviceMatches(
+	ctx context.Context, nm networkManagerDBus, parent dbus.ObjectPath, bond string,
+) (bool, error) {
+	device, err := nm.DeviceByIPInterface(ctx, bond)
+	if err != nil {
+		return false, fmt.Errorf("resolve NetworkManager bond device: %w", err)
+	}
+	active, err := nm.DeviceActiveConnection(ctx, device)
+	if err != nil {
+		return false, fmt.Errorf("read NetworkManager bond active connection: %w", err)
+	}
+	if isNoObjectPath(active) {
+		return false, nil
+	}
+	bound, err := nm.ActiveConnectionConnection(ctx, active)
+	if err != nil {
+		return false, fmt.Errorf("read active NetworkManager bond profile: %w", err)
+	}
+	return bound == parent, nil
+}
+
+func networkManagerControllerInterface(settings networkManagerConnectionSettings) (string, bool) {
+	for _, fields := range []map[string]dbus.Variant{settings["connection"], settings["bond"]} {
+		value, exists := fields["interface-name"]
+		if !exists {
+			continue
+		}
+		name, valid := value.Value().(string)
+		if !valid {
+			return "", false
+		}
+		if name != "" {
+			return name, true
+		}
+	}
+	return "", true
 }
 
 func networkManagerSettingsMatchBondPort(
@@ -255,22 +370,36 @@ func networkManagerSettingsMatchBondPort(
 	if !ok {
 		return false
 	}
-	interfaceName, ok := networkManagerSettingString(connection, "interface-name")
-	if ok && interfaceName != "" && interfaceName != iface {
+	if value, exists := connection["interface-name"]; exists {
+		name, valid := value.Value().(string)
+		if !valid || (name != "" && name != iface) {
+			return false
+		}
+	}
+	controller, valid := networkManagerSettingAlias(connection, "controller", "master")
+	if !valid || controller != bond {
 		return false
 	}
-	controller, ok := networkManagerSettingString(connection, "controller")
-	if !ok || controller == "" {
-		controller, _ = networkManagerSettingString(connection, "master")
+	portType, valid := networkManagerSettingAlias(connection, "port-type", "slave-type")
+	return valid && portType == "bond"
+}
+
+func networkManagerSettingAlias(settings map[string]dbus.Variant, modern, legacy string) (string, bool) {
+	var result string
+	for _, key := range []string{modern, legacy} {
+		value, exists := settings[key]
+		if !exists {
+			continue
+		}
+		text, valid := value.Value().(string)
+		if !valid || (result != "" && text != "" && text != result) {
+			return "", false
+		}
+		if text != "" {
+			result = text
+		}
 	}
-	if controller != bond {
-		return false
-	}
-	portType, ok := networkManagerSettingString(connection, "port-type")
-	if !ok || portType == "" {
-		portType, _ = networkManagerSettingString(connection, "slave-type")
-	}
-	return portType == "" || portType == "bond"
+	return result, result != ""
 }
 
 func networkManagerSettingString(settings map[string]dbus.Variant, key string) (string, bool) {
@@ -407,6 +536,24 @@ func (c dbusNetworkManager) ConnectionSettings(
 		return nil, ErrNetworkManagerSettingsInvalid
 	}
 	return settings, nil
+}
+
+func (c dbusNetworkManager) ConnectionByUUID(ctx context.Context, uuid string) (dbus.ObjectPath, error) {
+	call := c.object(networkManagerObjectPath+"/Settings").CallWithContext(
+		ctx, networkManagerInterface+".Settings.GetConnectionByUuid", 0, uuid,
+	)
+	if call.Err != nil {
+		return "", fmt.Errorf("call NetworkManager GetConnectionByUuid: %w", call.Err)
+	}
+	if len(call.Body) != 1 {
+		return "", fmt.Errorf("read NetworkManager controller path: %w", ErrNetworkManagerSettingsInvalid)
+	}
+	// Store permits numeric/string coercion; this method requires an object-path reply.
+	connection, valid := call.Body[0].(dbus.ObjectPath)
+	if !valid || !connection.IsValid() || isNoObjectPath(connection) {
+		return "", fmt.Errorf("read NetworkManager controller path: %w", ErrNetworkManagerSettingsInvalid)
+	}
+	return connection, nil
 }
 
 func (c dbusNetworkManager) Close() error {

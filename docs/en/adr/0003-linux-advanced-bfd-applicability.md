@@ -65,6 +65,20 @@ Production constraints:
    bytes; bounded reads and nonblocking open reject malformed files and pipes,
    but cannot bound filesystem calls on a stalled mount. Local private-bus
    cancellation checks do not qualify real owner interoperability or member wire.
+6. Active and cached NetworkManager profile paths are hints, not ownership
+   proof. Reload settings before deactivate, active no-op or cached activate;
+   accept only the requested bond port. Reject malformed or conflicting aliases
+   and reprofiled/deleted cached connections. A port's optional interface binding
+   is checked against the explicitly resolved device. Resolve UUID controllers
+   through `GetConnectionByUuid` and require a bond profile with the requested
+   interface name, including the deprecated bond-setting fallback. An unbound
+   controller requires an actual active-profile binding on the requested bond
+   device. The new UUID reply decoder requires one nonroot object path and
+   preserves remote/context errors; `Store` permits numeric/string coercion.
+   Strict reply qualification of older adapters is tracked separately in
+   `gobfd-qj0.8.2.2.11`. Checks and mutations use separate D-Bus calls;
+   concurrent administrator edits require external coordination. Local fixtures
+   do not qualify actual NetworkManager ownership or member-wire enforcement.
 
 ### VXLAN BFD on Linux
 
@@ -141,3 +155,6 @@ Production constraints:
   <https://docs.openvswitch.org/en/stable/ref/ovsdb.7/>
 - NetworkManager D-Bus API:
   <https://networkmanager.dev/docs/api/latest/spec.html>
+- NetworkManager profile settings and UUID lookup:
+  <https://networkmanager.dev/docs/api/latest/nm-settings-dbus.html>,
+  <https://networkmanager.dev/docs/api/latest/gdbus-org.freedesktop.NetworkManager.Settings.html>

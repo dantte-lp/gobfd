@@ -456,6 +456,22 @@ goes Down and activates the remembered or available bond port profile when the
 member recovers. Otherwise keep the default owner refusal policy for disabled
 and dry-run modes.
 
+Before deactivation, an already-active no-op or cached activation, the backend
+reloads the selected profile's settings and verifies its bond controller and
+port type. The member's optional `interface-name` must agree with the resolved
+device when nonempty. Modern `controller`/`port-type` and legacy
+`master`/`slave-type` fields are supported; conflicting or wrongly typed values
+are rejected. A deleted or reprofiled cached connection fails without activation.
+Discovery selects only a matching available profile.
+
+A controller UUID is resolved with `GetConnectionByUuid`; the referenced profile
+must identify the requested bond. `connection.interface-name` takes precedence
+over the deprecated `bond.interface-name`. An unbound controller is accepted
+only when the requested bond device's active connection uses that same profile.
+Repeated remove/add calls avoid further mutations once NetworkManager reports
+the corresponding inactive/active state. These checks use a fresh snapshot;
+concurrent administrative profile edits require external coordination.
+
 On Linux, NetworkManager network setup and property reply waits honor the
 actuator's context. Manager sets a 5 s context for each action, including DNS,
 socket dialing, D-Bus authentication and Hello. Each action owns a private

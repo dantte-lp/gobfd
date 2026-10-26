@@ -7,9 +7,11 @@
 ## Граница публикации — 2026-10-26
 
 Эта проекция охватывает локальный
-`dev@cb1c312d7900ee891cbac227e5990afc46186a05` и исправление контекста подключения
-NetworkManager, проходящее квалификацию в `gobfd-qj0.8.6.2.1`. Исправление чтения
-свойств принято в `gobfd-qj0.8.2.2.10`.
+`dev@611dc9f0ef0035a36290f903b76644e5c9d8c3d4` и исправление владения профилями
+NetworkManager, проходящее квалификацию в `gobfd-qj0.8.2.2.9`. Чтение свойств и
+подключение в Linux приняты в `gobfd-qj0.8.2.2.10` и `gobfd-qj0.8.6.2.1`.
+Строгая проверка ответов прежних адаптеров учитывается в `gobfd-qj0.8.2.2.11`;
+новый UUID lookup отклоняет преобразуемые типы ответа.
 Сверка публикации 31 пары принята в
 `gobfd-qj0.8.2.8.7.2.20`. API fixtures loopback и сохранение ошибок benchmark
 приняты локально в `gobfd-qj0.8.2.3.9` и `gobfd-qj0.8.2.8.7.2.5.1`;
@@ -37,7 +39,7 @@ FRR и восстановление checkpoint компилятора. 635 им�
 | Владение Echo | Идемпотентные claims principal разделяют канонический wire с конфигурацией и сохраняют RX после её удаления; это политика управления, а не аутентификация возвращённого пакета | `gobfd-qj0.8.2.2.8` |
 | Smallstep | Обновление существующего сертификата локально квалифицировано с настоящей CA и изолированным профилем зависимостей; первичный выпуск, расписание, переподключение и смена корней остаются отдельной работой после v1 | `gobfd-qj0.8.2.3.7`, `gobfd-qj0.8.2.3.7.4`, `gobfd-qj0.8.2.3.7.5` |
 | Containerlab | Изолированные compiler/runtime, привязка движков CLI/API, обязательные результаты и восстановление checkpoint приняты в зафиксированном кандидате; нативный FRR и интеграция в `dev` остаются открытыми; пять профилей NOS недоступны | `gobfd-qj0.8.2.8.5.2.7.3.4`, `gobfd-qj0.8.2.8.5.2.7.3`, `gobfd-qj0.8.2.8.5.2.7.4` |
-| NetworkManager | Чтение свойств учитывает контекст actuator; подключение в Linux использует тот же контекст с регрессиями частной шины, godbus v5.2.4 и обновлённым inventory на финальной квалификации исходников; настоящее владение и пакеты участников остаются открытыми | `gobfd-qj0.8.2.2.10`, `gobfd-qj0.8.2.2.9`, `gobfd-qj0.8.6.2.1` |
+| NetworkManager | Чтение свойств и подключение в Linux приняты локально на godbus v5.2.4; владение активным/кэшированным профилем, UUID controller и идемпотентные операции проходят квалификацию исходников; строгие прежние ответы, настоящее владение и пакеты участников остаются открытыми | `gobfd-qj0.8.2.2.10`, `gobfd-qj0.8.2.2.9`, `gobfd-qj0.8.6.2.1`, `gobfd-qj0.8.2.2.11` |
 | Предварительный Echo | Привязка декларативного и API TX для IPv4/IPv6, UDP/3785 и освобождение lease проходят локальные проверки; API приёма учитывает запрошенный интерфейс; полная квалификация RFC не завершена | `gobfd-qj0.8.2.1.19`, `gobfd-qj0.8.2.1.17` |
 | Устаревшие примеры | Расхождения CLI и селектора pod в HAProxy/Kubernetes требуют исправления исходников и фактического запуска | `gobfd-qj0.8.2.8.7.1.4.1` |
 | Экспозиция API Kubernetes | Исходники привязывают API GoBGP к loopback и используют ограниченные exec probes API; квалификация probes и ресурсов на работающем кластере остаётся открытой | `gobfd-qj0.8.2.8.7.1.4.1.1` |
@@ -902,7 +904,7 @@ upstream version channels.
 
 | Компонент | Установлен → цель | Самое раннее принятие UTC | Источник и следующая проверка |
 |---|---|---|---|
-| godbus | 5.2.2 → 5.2.4 | 2026-10-20 16:01:38 | Pin и сгенерированный inventory обновлены после порога; прочитаны [5.2.3](https://github.com/godbus/dbus/releases/tag/v5.2.3): allocation/error hardening и [5.2.4](https://github.com/godbus/dbus/releases/tag/v5.2.4): system-bus lookup errors; отмена подключения в Linux проходит финальную квалификацию исходников в `gobfd-qj0.8.6.2.1` |
+| godbus | 5.2.2 → 5.2.4 | 2026-10-20 16:01:38 | Pin, сгенерированный inventory и отмена подключения в Linux приняты локально в `gobfd-qj0.8.6.2.1`; прочитаны [5.2.3](https://github.com/godbus/dbus/releases/tag/v5.2.3): allocation/error hardening и [5.2.4](https://github.com/godbus/dbus/releases/tag/v5.2.4): system-bus lookup errors |
 | ConnectRPC | 2.0.0 → 2.0.1 | 2026-10-21 13:57:00 | [Notes](https://github.com/connectrpc/connect-go/releases/tag/v2.0.1): draining отклонённых сообщений, early responses, truncated/error envelopes; RPC/Watch/generator parity; `gobfd-qj0.8.6.10` |
 | ExaBGP | 5.0.13 → 5.0.15 | 2026-10-24 06:08:19 | [5.0.14](https://github.com/Exa-Networks/exabgp/releases/tag/5.0.14): UPDATE/withdraw/helper; [5.0.15](https://github.com/Exa-Networks/exabgp/releases/tag/5.0.15): только CI/tests; BGP/helper regression gates; `gobfd-qj0.8.6.6.1` |
 | OSV Scanner | 2.6.0 → 2.7.0 | 2026-10-19 01:32:07 | [Notes](https://github.com/google/osv-scanner/releases/tag/v2.7.0): parser/offline/call-analysis и SBOM; число входов scan и совместимость JSON/SBOM; `gobfd-qj0.8.6.3` |
