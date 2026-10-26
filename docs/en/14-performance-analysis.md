@@ -499,8 +499,11 @@ and wire behavior separately; their timestamps and success denominators differ.
 
 The approved reference is 1,000 mixed IPv4/IPv6 sessions, nominal 100 ms
 intervals and 24 hours after setup. The engineering profile is 5,000 sessions
-at 300 ms for 30 minutes. Named profiles preserve required CPU/loss/blackhole
-inputs. Bounded CPU, GC, scheduler-pressure and fixed-manifest session-churn
+at 300 ms for 30 minutes. Its one-second blackholes repeat every 10 minutes,
+with full windows at minutes 10 and 20; reference retains a 30-minute period.
+Activity at the measurement cutoff belongs to drain. A scheduled window alone
+does not prove actual omissions or causal Down/recovery. Named profiles preserve
+required CPU/loss/blackhole inputs. Bounded CPU, GC, scheduler-pressure and fixed-manifest session-churn
 drivers are implemented; GC, scheduler and churn variants are off by default.
 Calibrated stress distributions and independent clock evidence remain incomplete.
 Neither a short fixture nor a longer run without those
