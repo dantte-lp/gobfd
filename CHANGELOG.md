@@ -654,6 +654,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Scope the no-Control-sessions alert to each healthy exporter, including
+  fresh-empty and zero-count series. Report scrape failure or a missing job
+  separately; exercise the shipped rules with virtual-time PromQL fixtures.
+
 - Preserve declarative Echo claims when reconciliation is canceled before
   stale-claim release. Return a lifecycle error and let a live retry reuse
   already published wires without reallocating sender leases.
