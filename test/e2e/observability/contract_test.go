@@ -52,7 +52,7 @@ func TestObservabilityCompatibilityGateContract(t *testing.T) {
 	}
 	for _, path := range []string{
 		contract.gobfdConfig, contract.frrDaemons, contract.frrConfig,
-		contract.prometheusConfig, contract.alertRules, contract.grafanaDatasource,
+		contract.prometheusConfig, contract.alertRules, contract.alertRuleTests, contract.grafanaDatasource,
 		contract.grafanaDashboardProvider, contract.grafanaDashboard, contract.tsharkContainerfile,
 	} {
 		if _, err := os.Stat(path); err != nil {

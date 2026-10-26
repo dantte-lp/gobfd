@@ -282,6 +282,7 @@ func startObservabilityTopology(t *testing.T, topology *observabilityTopology) e
 			Files: []testcontainers.ContainerFile{
 				{HostFilePath: contract.prometheusConfig, ContainerFilePath: "/etc/prometheus/prometheus.yml", FileMode: 0o644},
 				{HostFilePath: contract.alertRules, ContainerFilePath: "/etc/prometheus/alert-rules.yml", FileMode: 0o644},
+				{HostFilePath: contract.alertRuleTests, ContainerFilePath: "/etc/prometheus/alert-rules.test.yml", FileMode: 0o644},
 			},
 			WaitingFor:               wait.ForHTTP("/-/ready").WithPort(prometheusPort).WithStartupTimeout(45 * time.Second),
 			EndpointSettingsModifier: staticIP(networkName, contract.prometheusIP),
@@ -303,6 +304,23 @@ func startObservabilityTopology(t *testing.T, topology *observabilityTopology) e
 		return err
 	}
 	topology.prometheusID = prometheus.GetContainerID()
+	ruleCtx, ruleCancel := context.WithTimeout(ctx, 30*time.Second)
+	ruleResult, ruleErr := topology.client.Exec(ruleCtx, topology.prometheusID, []string{
+		"/usr/local/bin/promtool", "test", "rules", "/etc/prometheus/alert-rules.test.yml",
+	})
+	ruleCancel()
+	if ruleErr != nil {
+		return fmt.Errorf("evaluate shipped observability alert rules: %w", ruleErr)
+	}
+	ruleEvidence, err := json.Marshal(map[string]any{
+		"stdout": ruleResult.Stdout, "stderr": ruleResult.Stderr, "exit_code": ruleResult.ExitCode,
+	})
+	if err != nil {
+		return fmt.Errorf("encode observability alert rule evaluation: %w", err)
+	}
+	if recordErr := topology.writeJSONEvidence("prometheus-rule-tests.json", ruleEvidence); recordErr != nil {
+		return fmt.Errorf("record observability alert rule evaluation: %w", recordErr)
+	}
 	topology.prometheusURL, err = prometheus.PortEndpoint(ctx, prometheusPort, "http")
 	if err != nil {
 		return fmt.Errorf("resolve Prometheus mapped endpoint: %w", err)
