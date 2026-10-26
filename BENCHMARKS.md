@@ -29,6 +29,10 @@ qualify lifetime metric cardinality, supported scale or a latency distribution.
   benchmark changes from 176 B/op and 2 allocs/op to 128 B/op and 1 alloc/op;
   these measurements exclude sockets and owner commit. See
   [ADR-0010](docs/en/adr/0010-bfd-auth-value-ownership.md) for layout and lifetime.
+- Built-in hash verification also reports 0 B/op and 0 allocs/op after returning
+  digest results by value. Signing retains caller-owned payload allocations;
+  [method samples](docs/en/12-benchmarks.md#authentication-methods--2026-10-26)
+  exclude retained-wire copies and owner processing.
 - `BuildInnerPacketInto` writes into caller-owned storage and is used by
   production overlay TX. `BuildInnerPacket` is the allocating compatibility wrapper.
 - Runtime FSM lookup uses an indexed array built from the declarative map
@@ -78,6 +82,10 @@ supported packet rates or claim immunity to GC pauses.
   обычного RX меняется со 176 B/op и 2 allocs/op на 128 B/op и 1 alloc/op;
   сокеты и фиксация владельцем в эти измерения не входят. Размеры и время жизни
   описаны в [ADR-0010](docs/ru/adr/0010-bfd-auth-value-ownership.md).
+- Встроенная hash verification также даёт 0 B/op и 0 allocs/op после возврата
+  digest по значению. Подпись сохраняет выделения payload во владение вызывающего
+  кода; [измерения методов](docs/ru/12-benchmarks.md#методы-аутентификации--2026-10-26)
+  не включают копирование сохраняемого wire и обработку владельцем.
 - `BuildInnerPacketInto` пишет в память вызывающего кода и используется
   рабочим путём передачи overlay. `BuildInnerPacket` — обёртка совместимости
   с выделением памяти.

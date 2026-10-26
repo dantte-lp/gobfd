@@ -46,6 +46,42 @@ func TestAuthenticatedDecodeAllocations(t *testing.T) {
 	}
 }
 
+func TestAuthenticationVerifyAllocations(t *testing.T) {
+	for _, vector := range paddedAuthVectors() {
+		t.Run(vector.name, func(t *testing.T) {
+			wire := authVectorWire(t, vector.wire, 128)
+			before := bytes.Clone(wire)
+			var pkt bfd.ControlPacket
+			if err := bfd.UnmarshalControlPacket(wire, &pkt); err != nil {
+				t.Fatal(err)
+			}
+			auth, err := bfd.NewAuthenticator(vector.typ)
+			if err != nil {
+				t.Fatal(err)
+			}
+			keys, err := bfd.NewStaticAuthKeyStore(bfd.AuthKey{
+				ID: 1, Type: vector.typ, Secret: []byte("vector-key"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := bfd.AuthState{AuthSeqKnown: true}
+			allocs := testing.AllocsPerRun(200000, func() {
+				state.RcvAuthSeq = pkt.Auth.SequenceNumber - 1
+				if verifyErr := auth.Verify(&state, keys, pkt, wire, len(wire)); verifyErr != nil {
+					panic(verifyErr)
+				}
+			})
+			if allocs != 0 {
+				t.Fatalf("successful authentication verify allocations = %g, want 0", allocs)
+			}
+			if !bytes.Equal(wire, before) {
+				t.Fatal("Verify changed immutable decoded wire")
+			}
+		})
+	}
+}
+
 func TestAuthenticatedDecodeCopySurvivesRedecode(t *testing.T) {
 	t.Parallel()
 	for authType := byte(1); authType <= 5; authType++ {

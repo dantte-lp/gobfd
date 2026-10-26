@@ -638,6 +638,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Return hash digest results by value to remove a per-packet allocation from
+  built-in MD5/SHA1 verification and signing. Keep exact digest lengths,
+  constant-time verification, immutable received wire and caller-owned signing
+  payloads; signing and the complete authenticated owner path retain separate
+  allocation qualification.
+
 - Decode authentication metadata by value with a single borrowed payload,
   removing per-packet auth-object allocations. Pass packet values across
   read-only demux/verification boundaries and preserve copied metadata across

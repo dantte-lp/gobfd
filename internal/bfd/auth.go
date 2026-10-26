@@ -691,7 +691,7 @@ func computeAndPlaceDigest(buf []byte, n int, p hashParams) {
 	// Auth section digest starts at: HeaderSize + 8 (type+len+keyid+reserved+seq).
 	digestOffset := HeaderSize + 8
 	digest := computeDigest(buf[:n], p)
-	copy(buf[digestOffset:], digest)
+	copy(buf[digestOffset:], digest[:p.digestSize])
 }
 
 // copyDigest extracts a copy of the digest from buf after it has been
@@ -705,16 +705,17 @@ func copyDigest(buf []byte, p hashParams) []byte {
 }
 
 // computeDigest computes MD5 or SHA1 hash over the given data.
-func computeDigest(data []byte, p hashParams) []byte {
+func computeDigest(data []byte, p hashParams) [sha1.Size]byte {
 	if p.digestSize == md5DigestSize {
 		// nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5
 		sum := md5.Sum(data) // #nosec G401 -- MD5 is required by RFC 5880 Section 6.7.3.
-		return sum[:]
+		var digest [sha1.Size]byte
+		copy(digest[:], sum[:])
+		return digest
 	}
 
 	// nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-sha1
-	sum := sha1.Sum(data) // #nosec G401 -- SHA-1 is required by RFC 5880 Section 6.7.4.
-	return sum[:]
+	return sha1.Sum(data) // #nosec G401 -- SHA-1 is required by RFC 5880 Section 6.7.4.
 }
 
 // -------------------------------------------------------------------------
@@ -845,7 +846,7 @@ func verifyAndUpdateSeq(
 	// Compute hash over the modified packet.
 	computed := computeDigest(pdu, p)
 
-	if subtle.ConstantTimeCompare(pkt.Auth.Data, computed) != 1 {
+	if subtle.ConstantTimeCompare(pkt.Auth.Data, computed[:p.digestSize]) != 1 {
 		return fmt.Errorf("hash auth: %w", ErrAuthDigestMismatch)
 	}
 

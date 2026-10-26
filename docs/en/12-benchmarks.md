@@ -69,6 +69,7 @@ costs as the same workload.
 |---|---|---|
 | Control marshal | Serialize the packet into a supplied buffer | With-auth marshal serializes an already prepared auth section; it does not sign |
 | Control unmarshal | Parse and validate wire fields | Authentication metadata is held by value; the payload borrows immutable input |
+| `BenchmarkAuthentication` | Built-in `Sign` and `VerifyKnownSequence` with an immutable static key store | Verify uses decoded signed wire and resets the prior sequence; excludes sockets, retained-wire copies and owner commit |
 | FSM | Indexed transition lookup | No owner loop, socket, timer or notification |
 | Jitter and interval arithmetic | The named calculation | No timer wake-up or scheduling delay |
 | `RecvDecodeLookupEnqueue` | Decode, discriminator lookup, attempted buffered enqueue | Enqueue is not packet processing or owner commit |
@@ -95,6 +96,23 @@ measurements and packet/queue layout tradeoff.
 The compatibility inner-packet builder allocates its returned slice. Session
 construction and reconciliation allocate lifecycle state. A zero result for
 one body neither proves all hot paths allocate zero nor bounds runtime GC pauses.
+
+### Authentication methods — 2026-10-26
+
+Local linux/amd64 samples use the pinned compiler, three runs of 200000
+iterations, and a 16-byte key. Returning the shared digest as a fixed array
+removes one digest allocation without changing wire or payload ownership.
+
+| Modes | Sign before, B/op and allocs/op | Sign after, B/op and allocs/op | Verify before, B/op and allocs/op | Verify after, B/op and allocs/op |
+|---|---|---|---|---|
+| Simple Password | 16 / 1 | 16 / 1 | 0 / 0 | 0 / 0 |
+| Keyed MD5, Meticulous Keyed MD5 | 48 / 3 | 32 / 2 | 16 / 1 | 0 / 0 |
+| Keyed SHA1, Meticulous Keyed SHA1 | 72 / 3 | 48 / 2 | 24 / 1 | 0 / 0 |
+
+These are successful method allocation samples, not a statistical latency
+comparison. Signing still allocates caller-owned payloads; the full authenticated
+owner/event-loop gate remains open in `gobfd-qj0.8.2.8.6.3.2`. The narrower digest
+change is tracked by `gobfd-qj0.8.2.8.6.3.2.1`.
 
 Historical Go 1.26 samples remain in
 [`testdata/benchmarks/v0.4.0/`](../../testdata/benchmarks/v0.4.0/).

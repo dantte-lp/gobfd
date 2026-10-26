@@ -112,6 +112,71 @@ func BenchmarkSimplePasswordAuthVerifyStaticStore(b *testing.B) {
 	}
 }
 
+// BenchmarkAuthentication measures successful built-in methods, excluding
+// sockets, retained-wire copies, queueing and session-owner processing.
+func BenchmarkAuthentication(b *testing.B) {
+	for _, authType := range []bfd.AuthType{
+		bfd.AuthTypeSimplePassword,
+		bfd.AuthTypeKeyedMD5,
+		bfd.AuthTypeMeticulousKeyedMD5,
+		bfd.AuthTypeKeyedSHA1,
+		bfd.AuthTypeMeticulousKeyedSHA1,
+	} {
+		b.Run(authType.String(), func(b *testing.B) {
+			auth, err := bfd.NewAuthenticator(authType)
+			if err != nil {
+				b.Fatal(err)
+			}
+			keys, err := bfd.NewStaticAuthKeyStore(bfd.AuthKey{
+				ID: 1, Type: authType, Secret: []byte("benchmark-secret"),
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+			pkt := bfd.ControlPacket{
+				Version: bfd.Version, State: bfd.StateUp, DetectMult: 3,
+				MyDiscriminator: 1, YourDiscriminator: 2,
+				DesiredMinTxInterval: 100000, RequiredMinRxInterval: 100000,
+			}
+			b.Run("Sign", func(b *testing.B) {
+				var state bfd.AuthState
+				buf := make([]byte, bfd.MaxPacketSize)
+				b.ReportAllocs()
+				for b.Loop() {
+					if signErr := auth.Sign(&state, keys, &pkt, buf, len(buf)); signErr != nil {
+						b.Fatal(signErr)
+					}
+				}
+			})
+
+			var state bfd.AuthState
+			buf := make([]byte, bfd.MaxPacketSize)
+			if signErr := auth.Sign(&state, keys, &pkt, buf, len(buf)); signErr != nil {
+				b.Fatal(signErr)
+			}
+			n, err := bfd.MarshalControlPacket(&pkt, buf)
+			if err != nil {
+				b.Fatal(err)
+			}
+			var decoded bfd.ControlPacket
+			if err := bfd.UnmarshalControlPacket(buf[:n], &decoded); err != nil {
+				b.Fatal(err)
+			}
+			b.Run("VerifyKnownSequence", func(b *testing.B) {
+				state := bfd.AuthState{AuthSeqKnown: true}
+				b.ReportAllocs()
+				for b.Loop() {
+					// Reuse the signed wire while keeping meticulous sequence admission valid.
+					state.RcvAuthSeq = decoded.Auth.SequenceNumber - 1
+					if err := auth.Verify(&state, keys, decoded, buf, n); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+		})
+	}
+}
+
 // -------------------------------------------------------------------------
 // BenchmarkControlPacketUnmarshal — hot path: parse BFD Control packet
 // -------------------------------------------------------------------------
