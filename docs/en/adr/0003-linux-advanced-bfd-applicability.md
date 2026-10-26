@@ -54,10 +54,17 @@ Production constraints:
    distinct.
 3. Manual operator changes require reconciliation on daemon restart.
 4. Teamd and additional switching stacks remain future integrations.
-5. NetworkManager property reply waits use the caller's context. Manager assigns
-   a 5 s context to each actuator call; cancellation and stalled-reply shutdown
-   are checked on an established private D-Bus connection. Connection setup and
-   real owner interoperability require separate qualification.
+5. Linux NetworkManager setup and property reply waits use the caller's context.
+   Manager assigns a 5 s context to each actuator call. The connector uses
+   `net.Dialer.DialContext` before godbus takes ownership, then retains godbus
+   authentication, Hello and Unix FD negotiation. `WithContext` alone cannot
+   cancel the initial godbus transport dial. Address selection follows godbus
+   v5.2.4: only transport failures try another address; authentication and Hello
+   never retry against another peer. `godbus_no_tcp` disables TCP and nonce-TCP
+   before DNS. Nonce files must be trusted local regular files of exactly 16
+   bytes; bounded reads and nonblocking open reject malformed files and pipes,
+   but cannot bound filesystem calls on a stalled mount. Local private-bus
+   cancellation checks do not qualify real owner interoperability or member wire.
 
 ### VXLAN BFD on Linux
 

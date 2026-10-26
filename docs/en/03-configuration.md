@@ -456,11 +456,20 @@ goes Down and activates the remembered or available bond port profile when the
 member recovers. Otherwise keep the default owner refusal policy for disabled
 and dry-run modes.
 
-NetworkManager property reply waits honor the actuator's context. Manager sets
-a 5 s context for each action; a stalled reply no longer blocks dispatch or
-shutdown indefinitely once the D-Bus connection is established. This does not
-qualify connection setup, NetworkManager ownership or member-wire behavior;
-see [ADR-0003](adr/0003-linux-advanced-bfd-applicability.md).
+On Linux, NetworkManager network setup and property reply waits honor the
+actuator's context. Manager sets a 5 s context for each action, including DNS,
+socket dialing, D-Bus authentication and Hello. Each action owns a private
+connection. Transport selection uses `DBUS_SYSTEM_BUS_ADDRESS` when nonempty,
+otherwise the first existing `/var/run/dbus/system_bus_socket` or
+`/run/dbus/system_bus_socket`. Unix path/abstract, TCP and nonce-TCP addresses
+are supported; `godbus_no_tcp` disables both TCP transports before DNS.
+
+Nonce-TCP requires a trusted local regular nonce file containing exactly 16
+bytes; pipes and other nonregular files are rejected. The context bounds network
+waits, not filesystem calls on a stalled mount. Transport failures may select
+the next address, but authentication or Hello failures never select another
+peer. Live NetworkManager ownership and member-wire behavior still require
+qualification; see [ADR-0003](adr/0003-linux-advanced-bfd-applicability.md).
 
 Groups are reconciled on SIGHUP reload. Group key: `lag_interface`.
 

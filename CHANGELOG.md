@@ -638,6 +638,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Honor actuator cancellation during Linux NetworkManager DNS, socket dialing,
+  authentication and Hello. Preserve transport fallback and Unix FD negotiation;
+  reject malformed nonce files and disable both TCP transports with
+  `godbus_no_tcp`. Upgrade godbus to v5.2.4 with regenerated dependency evidence.
+  Nonce files require a trusted local filesystem; live owner and member-wire
+  qualification remain separate.
+
 - Honor caller cancellation and deadlines while reading NetworkManager device
   and active-connection properties. Preserve typed replies and errors; stalled
   replies on an established D-Bus connection no longer hold manager shutdown

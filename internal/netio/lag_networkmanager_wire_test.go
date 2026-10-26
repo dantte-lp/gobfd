@@ -184,6 +184,14 @@ func networkManagerWireClient(t *testing.T, handle func(*dbus.Message) *dbus.Mes
 }
 
 func serveNetworkManagerWire(remote net.Conn, handle func(*dbus.Message) *dbus.Message) error {
+	return serveNetworkManagerWireFDs(remote, handle, false)
+}
+
+func serveNetworkManagerWireFDs(
+	remote net.Conn,
+	handle func(*dbus.Message) *dbus.Message,
+	acceptFDs bool,
+) error {
 	reader := bufio.NewReader(remote)
 	for _, step := range []struct{ request, reply string }{
 		{"\x00AUTH\r\n", "REJECTED EXTERNAL\r\n"},
@@ -193,6 +201,22 @@ func serveNetworkManagerWire(remote net.Conn, handle func(*dbus.Message) *dbus.M
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			return fmt.Errorf("read private auth: %w", err)
+		}
+		if step.request == "BEGIN\r\n" && acceptFDs && line != "NEGOTIATE_UNIX_FD\r\n" {
+			return errors.New("Unix client omitted descriptor negotiation")
+		}
+		if step.request == "BEGIN\r\n" && line == "NEGOTIATE_UNIX_FD\r\n" {
+			reply := "ERROR unsupported\r\n"
+			if acceptFDs {
+				reply = "AGREE_UNIX_FD\r\n"
+			}
+			if _, writeErr := io.WriteString(remote, reply); writeErr != nil {
+				return fmt.Errorf("decline private descriptor negotiation: %w", writeErr)
+			}
+			line, err = reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("read private auth after negotiation: %w", err)
+			}
 		}
 		if line != step.request {
 			return fmt.Errorf("private auth request %q, want %q", line, step.request)

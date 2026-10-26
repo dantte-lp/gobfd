@@ -9,7 +9,7 @@ require (
 	connectrpc.com/connect/v2 v2.0.0
 	connectrpc.com/grpchealth/v2 v2.0.0
 	github.com/containerd/errdefs v1.0.0
-	github.com/godbus/dbus/v5 v5.2.2
+	github.com/godbus/dbus/v5 v5.2.4
 	github.com/knadh/koanf/parsers/yaml v1.1.1
 	github.com/knadh/koanf/providers/env v1.1.0
 	github.com/knadh/koanf/providers/rawbytes v1.0.1

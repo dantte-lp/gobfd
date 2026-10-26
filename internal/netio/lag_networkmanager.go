@@ -118,10 +118,10 @@ type networkManagerMemberKey struct {
 
 func newDBusNetworkManagerLAGClient() *dbusNetworkManagerLAGClient {
 	return &dbusNetworkManagerLAGClient{
-		newDBus: func(context.Context) (networkManagerDBus, error) {
-			conn, err := dbus.ConnectSystemBus()
+		newDBus: func(ctx context.Context) (networkManagerDBus, error) {
+			conn, err := connectNetworkManagerBus(ctx)
 			if err != nil {
-				return nil, fmt.Errorf("connect NetworkManager system bus: %w", err)
+				return nil, fmt.Errorf("connect NetworkManager system bus: %w", errors.Join(ctx.Err(), err))
 			}
 			return dbusNetworkManager{conn: conn}, nil
 		},

@@ -7,8 +7,10 @@ record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 ## Publication boundary — 2026-10-26
 
 This projection covers local
-`dev@00ce6b7a39e3dcb13aa288d379325f73078e7a79` and the NetworkManager property
-context correction. The 31-pair publication review is accepted under
+`dev@cb1c312d7900ee891cbac227e5990afc46186a05` and the NetworkManager connection
+context correction under qualification in `gobfd-qj0.8.6.2.1`. The property-read
+correction is accepted under `gobfd-qj0.8.2.2.10`.
+The 31-pair publication review is accepted under
 `gobfd-qj0.8.2.8.7.2.20`. API loopback fixtures and benchmark failure propagation
 are accepted locally under `gobfd-qj0.8.2.3.9` and
 `gobfd-qj0.8.2.8.7.2.5.1`; the affected English and Russian pages are updated.
@@ -34,7 +36,7 @@ prerelease path. Beads, rather than this dated projection, owns their status.
 | Echo ownership | Idempotent principal claims share a canonical wire with config and retain RX through config withdrawal; this is management policy, not returned-packet authentication | `gobfd-qj0.8.2.2.8` |
 | Smallstep | Existing-certificate renewal locally qualified against a real CA with an isolated dependency profile; enrollment, scheduling, reconnect and root rollover remain separate post-v1 lifecycle work | `gobfd-qj0.8.2.3.7`, `gobfd-qj0.8.2.3.7.4`, `gobfd-qj0.8.2.3.7.5` |
 | Containerlab | Isolated compiler/runtime, CLI/API engine binding, mandatory verdicts and checkpoint recovery are accepted in the frozen candidate; native FRR and integration into `dev` remain open; five NOS profiles remain unavailable | `gobfd-qj0.8.2.8.5.2.7.3.4`, `gobfd-qj0.8.2.8.5.2.7.3`, `gobfd-qj0.8.2.8.5.2.7.4` |
-| NetworkManager | Established-connection property reads honor the actuator context; local stalled-peer and manager shutdown regressions pass; ownership checks, connection setup and live interoperability remain separate | `gobfd-qj0.8.2.2.10`, `gobfd-qj0.8.2.2.9`, `gobfd-qj0.8.6.2.1` |
+| NetworkManager | Property reads honor the actuator context; Linux connection setup uses the same context with private-bus regressions, godbus v5.2.4 and regenerated inventory under final source qualification; live ownership and member-wire acceptance remain open | `gobfd-qj0.8.2.2.10`, `gobfd-qj0.8.2.2.9`, `gobfd-qj0.8.6.2.1` |
 | Echo preview | Declarative and API IPv4/IPv6 TX binding, UDP/3785 and lease cleanup pass local checks; API receive claims honor the requested interface; full RFC qualification remains open | `gobfd-qj0.8.2.1.19`, `gobfd-qj0.8.2.1.17` |
 | Legacy demos | HAProxy/Kubernetes CLI and pod-selector drift require source fixes and actual execution | `gobfd-qj0.8.2.8.7.1.4.1` |
 | Kubernetes API exposure | Source binds GoBGP API to loopback and uses bounded exec API probes; live-cluster probe and resource qualification remains open | `gobfd-qj0.8.2.8.7.1.4.1.1` |
@@ -874,7 +876,7 @@ on hold; this retrospective does not refresh every upstream version channel.
 
 | Component | Installed → target | Earliest adoption UTC | Evidence and next check |
 |---|---|---|---|
-| godbus | 5.2.2 → 5.2.4 | 2026-10-20 16:01:38 | [5.2.3](https://github.com/godbus/dbus/releases/tag/v5.2.3) allocation/error hardening and [5.2.4](https://github.com/godbus/dbus/releases/tag/v5.2.4) system-bus lookup errors; NetworkManager missing-bus/cancellation tests; `gobfd-qj0.8.6.2.1` |
+| godbus | 5.2.2 → 5.2.4 | 2026-10-20 16:01:38 | Pin and generated inventory updated after the threshold; [5.2.3](https://github.com/godbus/dbus/releases/tag/v5.2.3) allocation/error hardening and [5.2.4](https://github.com/godbus/dbus/releases/tag/v5.2.4) system-bus lookup errors reviewed; Linux connection cancellation remains under final source qualification in `gobfd-qj0.8.6.2.1` |
 | ConnectRPC | 2.0.0 → 2.0.1 | 2026-10-21 13:57:00 | [Notes](https://github.com/connectrpc/connect-go/releases/tag/v2.0.1): rejected-message draining, early responses and truncated/error envelopes; RPC/Watch/generator parity; `gobfd-qj0.8.6.10` |
 | ExaBGP | 5.0.13 → 5.0.15 | 2026-10-24 06:08:19 | [5.0.14](https://github.com/Exa-Networks/exabgp/releases/tag/5.0.14) changes UPDATE/withdraw/helper behavior; [5.0.15](https://github.com/Exa-Networks/exabgp/releases/tag/5.0.15) changes CI/tests only; BGP/helper regression gates; `gobfd-qj0.8.6.6.1` |
 | OSV Scanner | 2.6.0 → 2.7.0 | 2026-10-19 01:32:07 | [Notes](https://github.com/google/osv-scanner/releases/tag/v2.7.0): parser/offline/call-analysis and SBOM changes; scan input counts and JSON/SBOM compatibility; `gobfd-qj0.8.6.3` |
