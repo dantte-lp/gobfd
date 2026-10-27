@@ -64,14 +64,18 @@ func (c *Control) drainOwner(ctx context.Context, owner *Owner) error {
 func terminalPacketCount(observed OwnerObservation) (uint64, error) {
 	var count uint64
 	for _, row := range observed.Delivery {
-		if terminalDelivery(row) {
+		terminal := terminalDelivery(row)
+		if observed.Echo {
+			terminal = terminalEchoDelivery(row)
+		}
+		if terminal {
 			if row.Count > math.MaxUint64-count {
 				return 0, fmt.Errorf("terminal packet counter overflow: %w", ErrControl)
 			}
 			count += row.Count
 		}
 	}
-	drops, err := controlSocketDrops(observed)
+	drops, err := ownerSocketDrops(observed)
 	if err != nil {
 		return 0, err
 	}
@@ -99,15 +103,36 @@ func terminalDelivery(row bfd.DeliveryCounter) bool {
 	}
 }
 
-func controlSocketDrops(observed OwnerObservation) (uint64, error) {
+func terminalEchoDelivery(row bfd.DeliveryCounter) bool {
+	switch row.Source {
+	case bfd.DeliveryEchoTTL:
+		return row.Outcome == bfd.DeliveryTTLRejected
+	case bfd.DeliveryEchoParse:
+		return row.Outcome == bfd.DeliveryParserRejected
+	case bfd.DeliveryEchoDemux:
+		return row.Outcome == bfd.DeliveryUnknownSession
+	case bfd.DeliveryEchoAdmission:
+		return row.Outcome == bfd.DeliveryQueueFull || row.Outcome == bfd.DeliveryClosed
+	case bfd.DeliveryEchoOwner:
+		return row.Outcome == bfd.DeliveryCommitted || row.Outcome == bfd.DeliveryAbandoned
+	default:
+		return false
+	}
+}
+
+func ownerSocketDrops(observed OwnerObservation) (uint64, error) {
 	const largestExactCounter = uint64(1) << 53
+	kind := "control"
+	if observed.Echo {
+		kind = "echo"
+	}
 	for _, family := range observed.Metrics {
 		if family.GetName() != "gobfd_bfd_socket_drops_total" {
 			continue
 		}
 		for _, metric := range family.GetMetric() {
 			labels := metric.GetLabel()
-			if len(labels) != 1 || labels[0].GetName() != "kind" || labels[0].GetValue() != "control" {
+			if len(labels) != 1 || labels[0].GetName() != "kind" || labels[0].GetValue() != kind {
 				continue
 			}
 			drops := metric.GetCounter().GetValue()

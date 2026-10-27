@@ -16,12 +16,17 @@ type startupRecordHandler struct {
 	slog.Handler
 
 	onCreated func()
+	message   string
 }
 
 func (startupRecordHandler) Enabled(context.Context, slog.Level) bool { return true }
 
 func (h startupRecordHandler) Handle(ctx context.Context, record slog.Record) error {
-	if record.Message == "session created" {
+	message := h.message
+	if message == "" {
+		message = "session created"
+	}
+	if record.Message == message {
 		h.onCreated()
 	}
 	if err := h.Handler.Handle(ctx, record); err != nil {
@@ -41,11 +46,26 @@ func (h startupRecordHandler) WithGroup(name string) slog.Handler {
 }
 
 func TestOwnerLateStartupCancellationReleasesActualSenderAndListeners(t *testing.T) {
+	runLateStartupCancellation(t, false)
+}
+
+func TestEchoOwnerLateStartupCancellationReleasesActualSenderAndListeners(t *testing.T) {
+	runLateStartupCancellation(t, true)
+}
+
+func runLateStartupCancellation(t *testing.T, echo bool) {
+	t.Helper()
 	first := OwnerEndpoint{
 		Local: netip.MustParseAddrPort("127.0.0.1:37975"), Peer: netip.MustParseAddrPort("127.32.0.2:37977"),
 	}
 	second := OwnerEndpoint{
 		Local: netip.MustParseAddrPort("127.0.0.1:37976"), Peer: netip.MustParseAddrPort("127.32.0.3:37978"),
+	}
+	message := "session created"
+	if echo {
+		first.Local = netip.MustParseAddrPort("127.0.0.1:3785")
+		second.Local = netip.MustParseAddrPort("127.0.0.4:3785")
+		message = "echo session created"
 	}
 	peer, err := net.ListenUDP("udp4", net.UDPAddrFromAddrPort(first.Peer))
 	if err != nil {
@@ -65,13 +85,14 @@ func TestOwnerLateStartupCancellationReleasesActualSenderAndListeners(t *testing
 	var readErr error
 	var read int
 	created := 0
-	handler := startupRecordHandler{Handler: slog.DiscardHandler, onCreated: func() {
+	handler := startupRecordHandler{Handler: slog.DiscardHandler, message: message, onCreated: func() {
 		created++
 		var wire [64]byte
 		read, source, readErr = peer.ReadFromUDPAddrPort(wire[:])
 		cancel()
 	}}
 	owner, startErr := StartOwner(ctx, OwnerConfig{
+		Echo:     echo,
 		Sessions: []OwnerEndpoint{first, second}, Interval: 100 * time.Millisecond, DetectMultiplier: 3,
 	}, slog.New(handler))
 	if owner != nil {

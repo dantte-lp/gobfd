@@ -265,7 +265,7 @@ alternate ports and validates actual packet commit, rejection and returned TX. I
 qualify RFC ports, an independent generator, daemon-wide resource bounds or the
 reference workload.
 
-`test/internal/bfdload.RunPeers` drives actual UDP with its own unauthenticated
+By default, `test/internal/bfdload.RunPeers` drives actual UDP with its own unauthenticated
 asynchronous Control state model, independent of the target session FSM.
 Separate seeded PCG streams cover each peer and direction; protocol jitter
 uses another stream. Random omissions and timed blackholes retain separate
@@ -280,6 +280,28 @@ for the named profiles. Scalar duplicates, malformed endpoints and reduced
 named profiles fail before sockets open. SIGINT/SIGTERM cancel the workload,
 join workers and emit a partial JSON report; signals retain normal termination
 while stdout is blocked after cleanup.
+
+The permanent test-tool selector `--echo` records `profile.echo=true` and uses
+actual Manager Echo sessions, the production Echo receiver and owned source-port
+leases. Named profiles retain their dimensions and require port 3785 for both
+ends; the prepared mixed-family plan keeps one owner address per family.
+`OwnerObservation.echo` records the receiver/ledger mode. The existing collector
+registers each physical Echo session once; repeated claims do not add gauges,
+and final release or Manager close unregisters after the owner joins.
+
+Echo peers return the original received datagram, including padding, with TTL
+or Hop Limit 254. They reject invalid codec, configured IP tuple, inbound TTL
+and authenticated input; they do not generate periodic Control packets or
+report a remote Control Up. Peer readiness means an actual return was written.
+The same phase, pressure, lifecycle, source-generation and bounded terminal
+accounting paths apply. A valid Echo RX blackhole segment denotes actual
+codec/tuple/TTL-checked input; `received_sequences` joins RX and return omissions
+to the independent Read sequence. It is not RFC return authentication.
+
+This software returner exercises the current Echo preview; it does not qualify
+an adjacent forwarding plane or complete RFC 9747. Echo-specific numeric/causal
+assessment remains pending in Beads `gobfd-qj0.8.2.1.7.1`; the current Control
+assessor rejects Echo manifests. Native A/B and final 24h/wire gates remain separate.
 
 ### Measurement phases and historical fixtures
 
@@ -413,8 +435,8 @@ return and the actual dispatched Echo detection deadline. For Echo,
 `ValidatedAt` denotes preview-owner acceptance, not RFC return validation or
 authentication; Detection Time is locally provisioned and remote state remains
 unknown. Direct handler calls do not manufacture a timer deadline. The existing
-Control workload/classifier does not qualify Echo: the actual Echo UDP driver,
-return accounting and typed assessment remain pending in Beads
+Control classifier does not qualify Echo. The actual Echo UDP driver records
+independent returns; typed numeric/causal assessment remains pending in Beads
 `gobfd-qj0.8.2.1.7.1`.
 
 The bounded `down_witnesses` array retains all delivered source transitions,

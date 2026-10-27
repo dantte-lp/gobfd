@@ -34,6 +34,7 @@ type OwnerEndpoint struct {
 
 // OwnerConfig configures the production core; it does not admit reference load.
 type OwnerConfig struct {
+	Echo             bool
 	Sessions         []OwnerEndpoint
 	Interval         time.Duration
 	DetectMultiplier uint8
@@ -64,6 +65,7 @@ type OwnerClockObservation struct {
 type OwnerObservation struct {
 	stoppedAt                      time.Time                 `json:"-"`
 	Scope                          string                    `json:"scope"`
+	Echo                           bool                      `json:"echo"`
 	Stopped                        bool                      `json:"stopped"`
 	Closing                        bool                      `json:"closing"`
 	StoppedAtUTC                   time.Time                 `json:"stopped_at_utc"`
@@ -86,7 +88,7 @@ type OwnerObservation struct {
 
 type ownerSession struct {
 	endpoint   OwnerEndpoint
-	session    *bfd.Session
+	session    workloadSession
 	sourcePort uint16
 	lease      *bfd.SenderLease
 	generation uint64
@@ -108,6 +110,7 @@ type Owner struct {
 	logger       *slog.Logger
 	inventory    sync.RWMutex
 	closing      bool
+	echo         bool
 	retired      uint64
 	retiredSent  uint64
 	retiredRX    uint64
@@ -139,6 +142,7 @@ func StartOwner(ctx context.Context, cfg OwnerConfig, logger *slog.Logger) (*Own
 	registry := prometheus.NewRegistry()
 	collector := bfdmetrics.NewCollector(registry)
 	owner := &Owner{
+		echo: cfg.Echo,
 		manager: bfd.NewManager(logger, bfd.WithManagerMetrics(collector),
 			bfd.WithSessionInterfaceResolver(netio.ResolveSessionIfIndex)),
 		registry: registry, ports: netio.NewSourcePortAllocator(), logger: logger, cancel: cancel, done: make(chan struct{}),
@@ -167,8 +171,12 @@ func validateOwnerConfig(cfg OwnerConfig) error {
 	interfaces := make(map[netip.AddrPort]string)
 	for _, endpoint := range cfg.Sessions {
 		local, peer := endpoint.Local.Addr(), endpoint.Peer.Addr()
+		portValid := ownerReceivePort(endpoint.Local.Port())
+		if cfg.Echo {
+			portValid = endpoint.Local.Port() == netio.PortEcho
+		}
 		if !ownerUnicast(local) || !ownerUnicast(peer) || local.Is4() != peer.Is4() ||
-			!ownerReceivePort(endpoint.Local.Port()) || endpoint.Peer.Port() == 0 {
+			!portValid || endpoint.Peer.Port() == 0 {
 			return fmt.Errorf("owner endpoint %s to %s: %w", endpoint.Local, endpoint.Peer, errOwnerConfig)
 		}
 		key := identity{local: local, peer: peer}
@@ -208,11 +216,15 @@ func (o *Owner) start(ctx context.Context, cfg OwnerConfig, logger *slog.Logger)
 		if _, found := bound[endpoint.Local]; found {
 			continue
 		}
-		//nolint:contextcheck // Socket API has no context; per-bind cancellation and rollback are owner-scoped.
-		listener, err := netio.NewListener(netio.ListenerConfig{
+		listenerConfig := netio.ListenerConfig{
 			Addr: endpoint.Local.Addr(), Port: endpoint.Local.Port(),
 			IfName: endpoint.Interface, Delivery: o.manager,
-		})
+		}
+		if cfg.Echo {
+			listenerConfig.ExpectedTTL = netio.TTLEchoLoopback
+		}
+		//nolint:contextcheck // Socket API has no context; cancellation and rollback are owner-scoped.
+		listener, err := netio.NewListener(listenerConfig)
 		if err != nil {
 			return fmt.Errorf("bind owner listener %s: %w", endpoint.Local, err)
 		}
@@ -231,11 +243,14 @@ func (o *Owner) start(ctx context.Context, cfg OwnerConfig, logger *slog.Logger)
 		entry.generation = 1
 		o.sessions = append(o.sessions, entry)
 	}
-	receiver := netio.NewReceiver(o.manager, logger)
+	receive := netio.NewReceiver(o.manager, logger).Run
+	if cfg.Echo {
+		receive = netio.NewEchoReceiver(o.manager, logger).Run
+	}
 	o.receiveErrs = make([]error, len(o.listeners))
 	for i, listener := range o.listeners {
 		o.workers.Go(func() {
-			o.receiveErrs[i] = receiver.Run(ctx, listener.Listener)
+			o.receiveErrs[i] = receive(ctx, listener.Listener)
 			if o.receiveErrs[i] != nil {
 				o.cancel()
 			}
@@ -247,11 +262,7 @@ func (o *Owner) start(ctx context.Context, cfg OwnerConfig, logger *slog.Logger)
 // createSession runs before publication or while the caller holds inventory.
 func (o *Owner) createSession(ctx context.Context, cfg OwnerConfig, endpoint OwnerEndpoint) (ownerSession, error) {
 	entry := ownerSession{endpoint: endpoint}
-	session, err := o.manager.CreateSession(ctx, bfd.SessionConfig{
-		LocalAddr: endpoint.Local.Addr(), PeerAddr: endpoint.Peer.Addr(), Interface: endpoint.Interface,
-		Type: bfd.SessionTypeSingleHop, Role: bfd.RoleActive,
-		DesiredMinTxInterval: cfg.Interval, RequiredMinRxInterval: cfg.Interval, DetectMultiplier: cfg.DetectMultiplier,
-	}, func() (*bfd.SenderLease, error) { //nolint:contextcheck // Socket API has no context; lease is owner-scoped.
+	factory := func() (*bfd.SenderLease, error) { //nolint:contextcheck // Socket API lacks context; leases own cleanup.
 		port, err := o.ports.Allocate()
 		if err != nil {
 			return nil, fmt.Errorf("allocate owner source port: %w", err)
@@ -272,14 +283,30 @@ func (o *Owner) createSession(ctx context.Context, cfg OwnerConfig, endpoint Own
 		})
 		entry.sourcePort, entry.lease = port, lease
 		return lease, nil
-	})
+	}
+	var err error
+	if cfg.Echo {
+		var session *bfd.EchoSession
+		session, err = o.manager.CreateEchoSessionAs(ctx, bfd.EchoSessionConfig{
+			LocalAddr: endpoint.Local.Addr(), PeerAddr: endpoint.Peer.Addr(), Interface: endpoint.Interface,
+			TxInterval: cfg.Interval, DetectMultiplier: cfg.DetectMultiplier,
+		}, factory, bfd.APISessionOwner("bfdload"))
+		if err == nil {
+			entry.session = echoOwnerSession{session}
+		}
+	} else {
+		entry.session, err = o.manager.CreateSession(ctx, bfd.SessionConfig{
+			LocalAddr: endpoint.Local.Addr(), PeerAddr: endpoint.Peer.Addr(), Interface: endpoint.Interface,
+			Type: bfd.SessionTypeSingleHop, Role: bfd.RoleActive,
+			DesiredMinTxInterval: cfg.Interval, RequiredMinRxInterval: cfg.Interval, DetectMultiplier: cfg.DetectMultiplier,
+		}, factory)
+	}
 	if err != nil {
 		if entry.lease != nil {
 			err = errors.Join(err, entry.lease.Close())
 		}
 		return ownerSession{}, fmt.Errorf("create owner session %s to %s: %w", endpoint.Local, endpoint.Peer, err)
 	}
-	entry.session = session
 	return entry, nil
 }
 
@@ -328,7 +355,7 @@ func (o *Owner) Snapshot(ctx context.Context) (OwnerObservation, error) {
 	o.inventory.RLock()
 	defer o.inventory.RUnlock()
 	report := OwnerObservation{
-		Scope: "production-core-owner-component", Environment: environment,
+		Scope: "production-core-owner-component", Environment: environment, Echo: o.echo,
 		TimingUncertaintyError: "total clock uncertainty has not been independently established",
 		Delivery:               o.manager.DeliveryCounters(), Sessions: make([]OwnerSessionObservation, 0, len(o.sessions)),
 		ClockCalibrations: make([]OwnerClockObservation, len(o.listeners)),
@@ -341,14 +368,18 @@ func (o *Owner) Snapshot(ctx context.Context) (OwnerObservation, error) {
 		report.StoppedAtUTC = o.stoppedAt.UTC()
 	default:
 	}
+	statuses, _ := o.manager.WatchSessionsWithRevision()
+	registered := make(map[bfd.SessionRef]bool, len(statuses))
+	for _, status := range statuses {
+		registered[status.Ref] = true
+	}
 	for _, entry := range o.sessions {
 		if entry.session == nil {
 			continue
 		}
-		registered, found := o.manager.LookupByDiscriminator(entry.session.LocalDiscriminator())
 		report.Sessions = append(report.Sessions, OwnerSessionObservation{
 			Endpoint: entry.endpoint, LocalDiscriminator: entry.session.LocalDiscriminator(), SourcePort: entry.sourcePort,
-			Generation: entry.generation, Registered: found && registered == entry.session,
+			Generation: entry.generation, Registered: registered[entry.session.Ref()],
 			Observation: entry.session.Observation(),
 			Sent:        entry.session.PacketsSent(), Received: entry.session.PacketsReceived(),
 			NegotiatedTXNS: int64(entry.session.NegotiatedTxInterval()), DetectionNS: int64(entry.session.DetectionTime()),
@@ -363,7 +394,7 @@ func (o *Owner) Snapshot(ctx context.Context) (OwnerObservation, error) {
 	if err != nil {
 		return OwnerObservation{}, fmt.Errorf("gather actual owner collector: %w", err)
 	}
-	report.Registrations, err = observeOwnerRegistrations(report.Metrics, len(o.manager.Sessions()))
+	report.Registrations, err = observeOwnerRegistrations(report.Metrics, len(statuses))
 	if err != nil {
 		return OwnerObservation{}, err
 	}

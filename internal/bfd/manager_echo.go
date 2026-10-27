@@ -151,6 +151,7 @@ func (m *Manager) registerEchoAndStart(
 	added.Added = true
 	counts := m.broadcastStateChange(added)
 	m.mu.Unlock()
+	m.metrics.RegisterSession(es.PeerAddr(), es.LocalAddr(), SessionTypeEcho.String())
 	m.reportFanoutDelivery(counts)
 	m.workers.Go(func() {
 		defer close(entry.done)
@@ -239,6 +240,7 @@ func (m *Manager) finishEchoSessionDestroyError(discr uint32, entry *echoSession
 		)
 	}
 	m.discriminators.Release(discr)
+	m.metrics.UnregisterSession(entry.session.PeerAddr(), entry.session.LocalAddr(), SessionTypeEcho.String())
 	m.logger.Info("echo session destroyed",
 		slog.String("peer", entry.session.PeerAddr().String()),
 		slog.Uint64("local_discr", uint64(discr)),

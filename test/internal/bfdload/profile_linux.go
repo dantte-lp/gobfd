@@ -23,6 +23,7 @@ var ErrProfile = errors.New("invalid workload profile")
 // Profile is the intended workload, not evidence that the runtime admitted or completed it.
 type Profile struct {
 	Kind              string        `json:"kind"`
+	Echo              bool          `json:"echo"`
 	Sessions          int           `json:"sessions"`
 	Interval          time.Duration `json:"interval_ns"`
 	DetectMultiplier  uint8         `json:"detect_multiplier"`
@@ -78,6 +79,7 @@ func (p Profile) Validate() error {
 	expected.GCPressure = p.GCPressure
 	expected.SchedulerPressure = p.SchedulerPressure
 	expected.SessionChurn = p.SessionChurn
+	expected.Echo = p.Echo
 	if p != expected {
 		return fmt.Errorf("workload differs from %s qualification inputs: %w", p.Kind, ErrProfile)
 	}

@@ -14,7 +14,8 @@ duration completion does not establish packet accounting or latency acceptance.
 ## Decision
 
 Reuse the Go-owned production-core workload and independent peer model. After
-both roles reach Up, publish one future native monotonic epoch. Each role checks
+the owner reaches Up and independent peer traffic is ready, publish one future
+native monotonic epoch. Each role checks
 the time-namespace identity before conversion to a Go timer. Private,
 owner-checked `os.Root` files are bounded at 64 bytes; complete publications
 refuse replacement and reads reject links and special files. The conversion
@@ -161,6 +162,13 @@ engineering runs with a 30-minute period do not prove the corrected workload.
 Actual omissions, Down/recovery and causal classification remain separate
 acceptance requirements in Beads `gobfd-qj0.8.2.1.6.3.4.3.6.3` and its parent.
 
+The positive actual-UDP Control classification fixture uses Detect Multiplier
+1: RFC 5880 section 6.8.7 limits its planned TX interval to 75–90% of the
+negotiated interval, leaving dispatch headroom. The classifier still rejects
+actual omission gaps exceeding that negotiated interval, including fractional
+overruns. Named qualification profiles retain multiplier 3; a correct
+`unresolved` result does not become intentional because a test expects it.
+
 The read-only `bfdload assess OWNER_JSON PEER_JSON` route evaluates one joined
 canonical reference/engineering run under the explicitly declared conditional
 clock model. Reuse the existing profile/admission/terminal-ledger/causal helpers
@@ -181,6 +189,37 @@ measured limit violations or false/unresolved Down fail. Both return a structure
 report and nonzero exit. Engineering does not invent six-hour windows inside its
 30-minute duration. Reader compatibility preserves existing numeric nanosecond
 durations while rejecting duplicate/unknown fields and invalid Unicode.
+
+### Echo traffic and physical registrations (2026-10-27)
+
+The explicit test-tool selector `--echo` records the mode in the profile and
+owner snapshots, without changing named-profile dimensions. Reuse the same
+Manager, sender leases, phases, pressure helpers, generation tracking and drain.
+The prepared mixed-family topology keeps one owner address per family; named
+Echo receive ports are 3785. Control port validation remains unchanged.
+
+Echo peers return only actual received bytes, including padding, using TTL/Hop
+Limit 254. Check codec, configured IP tuple and inbound TTL before the RX loss
+decision; authenticated input is unsupported and rejected. A surviving input
+creates one return decision. There is no autonomous Control FSM or periodic
+peer traffic. Peer readiness means an actual return was written, not remote Up.
+For bidirectional blackholes, an RX omission therefore creates no TX attempt.
+Use the existing terminal sum with Echo delivery sources and Echo socket drops.
+
+Register metrics once per physical Echo creation and unregister after final
+claim release or Manager close joins the owner. Repeated compatible claims
+share the same registration. Reuse the existing collector and packet cache.
+Control and Echo registry counts come from physical Manager snapshots; retained
+series alone never prove active owners. Keep the shared conservative churn
+timing budget; Echo does not advertise Control AdminDown.
+
+Each Echo omission also retains the original peer Read sequence. This joins
+RX omissions and return omissions despite their separate loss-schedule counters.
+The existing window/segment/time bounds still apply. Echo RX `valid` denotes
+codec/tuple/TTL-checked input, not RFC return authentication or wire delivery.
+The Control classifier cannot qualify these reports. Typed Echo numeric/causal
+assessment remains in Beads `gobfd-qj0.8.2.1.7.1`; driver source acceptance does
+not qualify native A/B, an adjacent forwarding plane or final 24h/wire gates.
 
 ## Consequences
 

@@ -16,7 +16,7 @@ const (
 
 // PeerOmissionSegment coalesces equal wire identities, retaining every actual omission time and decision sequence.
 // Valid means a codec-verified would-be TX packet, not transport, incarnation or delivery proof.
-// RX is discarded before acceptance and remains unqualified, including well-formed input.
+// Control RX remains unqualified; Echo RX records actual codec/tuple/TTL-checked input.
 type PeerOmissionSegment struct {
 	Direction         string    `json:"direction"`
 	FirstNS           int64     `json:"first_ns"`
@@ -34,6 +34,7 @@ type PeerOmissionSegment struct {
 	Final             bool      `json:"final"`
 	OffsetsNS         []int64   `json:"offsets_ns"`
 	Sequences         []uint64  `json:"sequences"`
+	ReceivedSequences []uint64  `json:"received_sequences,omitempty"`
 }
 
 func omissionPacket(packet bfd.ControlPacket, receive bool) PeerOmissionSegment {
@@ -87,6 +88,10 @@ type PeerBlackholeWindow struct {
 }
 
 func (p *peerRuntime) recordBlackhole(decision packetDecision, receive bool, packet bfd.ControlPacket) error {
+	segment, err := p.omissionSegment(packet, receive)
+	if err != nil {
+		return err
+	}
 	schedule := p.tx
 	if receive {
 		schedule = p.rx
@@ -114,7 +119,6 @@ func (p *peerRuntime) recordBlackhole(decision packetDecision, receive bool, pac
 		p.observed.BlackholeEventsOmitted++
 		return fmt.Errorf("peer blackhole window exceeds %d omission times: %w", maxPeerOmissionTimes, ErrProfile)
 	}
-	segment := omissionPacket(packet, receive)
 	index := len(window.Segments) - 1
 	for index >= 0 && window.Segments[index].Direction != segment.Direction {
 		index--
@@ -127,12 +131,29 @@ func (p *peerRuntime) recordBlackhole(decision packetDecision, receive bool, pac
 		window.Segments = append(window.Segments, segment)
 		index = len(window.Segments) - 1
 	}
-	row := &window.Segments[index]
+	p.recordOmission(&window.Segments[index], decision)
+	return nil
+}
+
+func (p *peerRuntime) omissionSegment(packet bfd.ControlPacket, receive bool) (PeerOmissionSegment, error) {
+	segment := omissionPacket(packet, receive)
+	if p.echo {
+		if p.echoReadSequence == 0 {
+			return segment, fmt.Errorf("echo omission has no actual received input: %w", ErrProfile)
+		}
+		segment.Valid = true
+	}
+	return segment, nil
+}
+
+func (p *peerRuntime) recordOmission(row *PeerOmissionSegment, decision packetDecision) {
 	if row.Count == 0 {
 		row.FirstNS = int64(decision.elapsed)
 	}
 	row.LastNS, row.Count = int64(decision.elapsed), row.Count+1
 	row.OffsetsNS = append(row.OffsetsNS, int64(decision.elapsed))
 	row.Sequences = append(row.Sequences, decision.sequence)
-	return nil
+	if p.echo {
+		row.ReceivedSequences = append(row.ReceivedSequences, p.echoReadSequence)
+	}
 }

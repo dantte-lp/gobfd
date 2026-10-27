@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add explicit `--echo` selection to the `bfdload` owner/peers workload with real Echo owners,
+  independent dual-stack datagram returns and typed terminal/omission accounting.
+  Register physical Echo metrics once across shared claims and unregister on
+  final cleanup. Echo numeric/causal assessment and native qualification remain pending.
+
 - Retain version-bound Echo owner Down commit times, last processed return and
   actual dispatched detection deadline. Preview return validation and the Echo
   load driver/causal assessment remain separate; this does not qualify native A/B.

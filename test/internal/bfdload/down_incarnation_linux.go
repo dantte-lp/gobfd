@@ -20,11 +20,22 @@ type OwnerDownIncarnation struct {
 
 type downEndpoint struct{ local, peer netip.Addr }
 
+type sessionWireIdentity interface {
+	LocalAddr() netip.Addr
+	PeerAddr() netip.Addr
+	Interface() string
+}
+
+func supportedWorkloadType(kind bfd.SessionType) bool {
+	return kind == bfd.SessionTypeSingleHop || kind == bfd.SessionTypeEcho
+}
+
 type downIncarnationSlot struct {
 	endpoint      OwnerEndpoint
 	generation    uint64
 	ref           bfd.SessionRef
 	discriminator uint32
+	kind          bfd.SessionType
 }
 
 type downIncarnations struct {
@@ -45,14 +56,17 @@ func newDownIncarnations(entries []ownerSession) *downIncarnations {
 	seen := make(map[uint32]struct{}, len(entries))
 	for index, entry := range entries {
 		session := entry.session
-		if session == nil || entry.generation == 0 || !entry.endpoint.Local.IsValid() || !entry.endpoint.Peer.IsValid() ||
-			session.LocalAddr() != entry.endpoint.Local.Addr() || session.PeerAddr() != entry.endpoint.Peer.Addr() ||
-			session.Interface() != entry.endpoint.Interface || session.Type() != bfd.SessionTypeSingleHop ||
+		identity, known := session.(sessionWireIdentity)
+		if session == nil || !known || entry.generation == 0 ||
+			!entry.endpoint.Local.IsValid() || !entry.endpoint.Peer.IsValid() ||
+			identity.LocalAddr() != entry.endpoint.Local.Addr() || identity.PeerAddr() != entry.endpoint.Peer.Addr() ||
+			identity.Interface() != entry.endpoint.Interface ||
+			!supportedWorkloadType(session.Type()) ||
 			session.LocalDiscriminator() == 0 {
 			d.invalidate("invalid owner incarnation seed")
 			return d
 		}
-		key := downEndpoint{session.LocalAddr(), session.PeerAddr()}
+		key := downEndpoint{identity.LocalAddr(), identity.PeerAddr()}
 		_, duplicateEndpoint := d.byEndpoint[key]
 		_, duplicateDiscriminator := seen[session.LocalDiscriminator()]
 		if duplicateEndpoint || duplicateDiscriminator {
@@ -61,7 +75,9 @@ func newDownIncarnations(entries []ownerSession) *downIncarnations {
 		}
 		d.byEndpoint[key] = index
 		seen[session.LocalDiscriminator()] = struct{}{}
-		d.slots[index] = downIncarnationSlot{entry.endpoint, entry.generation, session.Ref(), session.LocalDiscriminator()}
+		d.slots[index] = downIncarnationSlot{
+			entry.endpoint, entry.generation, session.Ref(), session.LocalDiscriminator(), session.Type(),
+		}
 	}
 	return d
 }
@@ -92,7 +108,7 @@ func (d *downIncarnations) observe(change bfd.StateChange) OwnerDownIncarnation 
 		return d.invalidate("inconsistent owner incarnation notification")
 	}
 	slot := &d.slots[index]
-	if change.Interface != slot.endpoint.Interface {
+	if change.Interface != slot.endpoint.Interface || change.Type != slot.kind {
 		return d.invalidate("owner incarnation interface mismatch")
 	}
 	if change.Added && slot.ref == (bfd.SessionRef{}) {
@@ -118,7 +134,8 @@ func coherentDownIncarnation(change bfd.StateChange) bool {
 		change.ObservationVersion != 0 && change.ObservationVersion == status.ObservationVersion &&
 		change.LocalDiscr != 0 && change.LocalDiscr == status.LocalDiscr &&
 		change.LocalAddr == status.LocalAddr && change.PeerAddr == status.PeerAddr &&
-		change.Type == bfd.SessionTypeSingleHop && change.Type == status.Type && change.Interface == status.Interface &&
+		supportedWorkloadType(change.Type) &&
+		change.Type == status.Type && change.Interface == status.Interface &&
 		(!change.Added || !change.Deleted)
 }
 

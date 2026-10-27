@@ -26,26 +26,36 @@ const (
 )
 
 type peerInput struct {
-	packet  bfd.ControlPacket
-	meta    netio.PacketMeta
-	invalid bool
+	packet   bfd.ControlPacket
+	meta     netio.PacketMeta
+	invalid  bool
+	wire     [bfd.MaxPacketSize]byte
+	length   int
+	sequence uint64
+}
+
+type peerSender interface {
+	bfd.PacketSender
+	Close() error
 }
 
 type peerRuntime struct {
-	listener *netio.LinuxPacketConn
-	sender   *netio.UDPSender
-	input    chan peerInput
-	state    peerState
-	tx       *lossSchedule
-	rx       *lossSchedule
-	jitter   *rand.Rand
-	observed PeerSessionObservation
-	started  bool
-	readErr  error
-	loopErr  error
-	up       atomic.Bool
-	phase    *atomic.Pointer[phaseStart]
-	duration time.Duration
+	listener         *netio.LinuxPacketConn
+	sender           peerSender
+	input            chan peerInput
+	state            peerState
+	tx               *lossSchedule
+	rx               *lossSchedule
+	jitter           *rand.Rand
+	observed         PeerSessionObservation
+	started          bool
+	readErr          error
+	loopErr          error
+	up               atomic.Bool
+	phase            *atomic.Pointer[phaseStart]
+	duration         time.Duration
+	echo             bool
+	echoReadSequence uint64
 }
 
 func bindPeer(
@@ -58,9 +68,13 @@ func bindPeer(
 	if port < 49152 || port > math.MaxUint16 {
 		return nil, fmt.Errorf("peer source port outside RFC 5881 range: %w", ErrProfile)
 	}
-	state, err := newPeerState(cfg.Profile, uint32(index+1))
-	if err != nil {
-		return nil, err
+	var state peerState
+	if !cfg.Profile.Echo {
+		var err error
+		state, err = newPeerState(cfg.Profile, uint32(index+1))
+		if err != nil {
+			return nil, err
+		}
 	}
 	id := uint64(index + 1)
 	tx, err := newLossSchedule(cfg.Profile, id)
@@ -83,13 +97,19 @@ func bindPeer(
 	if contextErr := ctx.Err(); contextErr != nil {
 		return nil, errors.Join(contextErr, listener.Close())
 	}
-	//nolint:contextcheck // Sender has no context; the group owns cancellation and rollback.
-	sender, err := netio.NewUDPSender(endpoint.Peer.Addr(), uint16(port), false, logger,
-		netio.WithDstPort(endpoint.Local.Port()), netio.WithBindDevice(endpoint.Interface))
+	var sender peerSender
+	if cfg.Profile.Echo {
+		sender, err = newEchoReturnSender(ctx, endpoint, uint16(port))
+	} else {
+		//nolint:contextcheck // Sender has no context; the group owns cancellation and rollback.
+		sender, err = netio.NewUDPSender(endpoint.Peer.Addr(), uint16(port), false, logger,
+			netio.WithDstPort(endpoint.Local.Port()), netio.WithBindDevice(endpoint.Interface))
+	}
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("bind peer sender %s:%d: %w", endpoint.Peer.Addr(), port, err), listener.Close())
 	}
 	return &peerRuntime{
+		echo:     cfg.Profile.Echo,
 		listener: listener, sender: sender, input: make(chan peerInput, peerInputCapacity), state: state, tx: tx, rx: rx,
 		// #nosec G404 -- Reproducible protocol jitter, separate from the loss streams; never security randomness.
 		jitter:   rand.New(rand.NewPCG(cfg.Profile.Seed^peerJitterSeedMask, id)),
@@ -119,6 +139,10 @@ func (p *peerRuntime) read(ctx context.Context, cancel context.CancelFunc) {
 		// Unsupported authentication must not retain a slice into the reusable wire buffer.
 		packet.Auth = bfd.AuthSection{}
 		input := peerInput{packet: packet, meta: meta, invalid: readErr != nil || parseErr != nil}
+		if p.echo {
+			input.length, input.sequence = n, p.observed.Read
+			copy(input.wire[:], wire[:n])
+		}
 		select {
 		case p.input <- input:
 		case <-ctx.Done():
@@ -143,6 +167,9 @@ type peerTimers struct {
 }
 
 func (p *peerRuntime) loop(ctx context.Context, started time.Time) error {
+	if p.echo {
+		return p.echoLoop(ctx, started)
+	}
 	timers := peerTimers{transmit: time.NewTimer(0), detection: time.NewTimer(time.Hour)}
 	defer timers.transmit.Stop()
 	timers.detection.Stop()
@@ -171,12 +198,7 @@ func (p *peerRuntime) loop(ctx context.Context, started time.Time) error {
 }
 
 func (p *peerRuntime) onInput(ctx context.Context, input peerInput, started time.Time, timers *peerTimers) error {
-	if input.meta.SocketDropsInvalid {
-		p.observed.KernelDropInvalid++
-	} else if input.meta.SocketDropsKnown {
-		p.observed.KernelDropSamples++
-		p.observed.KernelDropCounterRaw = input.meta.SocketDrops
-	}
+	p.observeSocketDrops(input.meta)
 	now := time.Now()
 	decision, err := p.decision(p.rx, now, started)
 	if err != nil {
@@ -209,6 +231,15 @@ func (p *peerRuntime) onInput(ctx context.Context, input peerInput, started time
 		p.resetPeriodic(timers.transmit, timers.lastPeriodic)
 	}
 	return nil
+}
+
+func (p *peerRuntime) observeSocketDrops(meta netio.PacketMeta) {
+	if meta.SocketDropsInvalid {
+		p.observed.KernelDropInvalid++
+	} else if meta.SocketDropsKnown {
+		p.observed.KernelDropSamples++
+		p.observed.KernelDropCounterRaw = meta.SocketDrops
+	}
 }
 
 func (p *peerRuntime) accept(input peerInput, now time.Time) (bool, bool) {

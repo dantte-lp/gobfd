@@ -224,12 +224,12 @@ func (es *EchoSession) LocalDiscriminator() uint32 { return es.localDiscr }
 
 // State returns the current echo session state.
 func (es *EchoSession) State() State {
-	return es.observationSnapshot().State
+	return es.Observation().State
 }
 
 // LocalDiag returns the current local diagnostic code.
 func (es *EchoSession) LocalDiag() Diag {
-	return es.observationSnapshot().LocalDiag
+	return es.Observation().LocalDiag
 }
 
 // PeerAddr returns the remote system's IP address (echo target).
@@ -506,7 +506,7 @@ func (es *EchoSession) sendEcho(ctx context.Context) {
 // RFC 9747: uses standard BFD Control packet format.
 // YourDiscriminator is zero while Down and the local discriminator while Up.
 func (es *EchoSession) rebuildCachedPacket() {
-	observation := es.observationSnapshot()
+	observation := es.Observation()
 	yourDiscr := uint32(0)
 	if observation.State == StateUp {
 		yourDiscr = es.localDiscr
@@ -608,7 +608,7 @@ type EchoSessionSnapshot struct {
 
 // Snapshot returns a read-only view of the echo session's current state.
 func (es *EchoSession) Snapshot() EchoSessionSnapshot {
-	observation := es.observationSnapshot()
+	observation := es.Observation()
 	return EchoSessionSnapshot{
 		LocalDiscr:       es.localDiscr,
 		PeerAddr:         es.peerAddr,

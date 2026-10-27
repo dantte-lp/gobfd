@@ -23,11 +23,16 @@ func (o *Owner) releaseForChurn(ctx context.Context, index int) (ownerSession, b
 		return entry, false, errChurnNotUp
 	}
 	discriminator := entry.session.LocalDiscriminator()
-	if current, found := o.manager.LookupByDiscriminator(discriminator); !found || current != entry.session {
+	if !o.sessionRegistered(entry) {
 		return entry, false, fmt.Errorf("churn slot is not the registered session: %w", errOwnerConfig)
 	}
-	err := o.manager.DestroySession(ctx, discriminator)
-	if _, found := o.manager.LookupByDiscriminator(discriminator); found {
+	var err error
+	if o.echo {
+		err = o.manager.DestroyEchoSessionAs(ctx, discriminator, bfd.APISessionOwner("bfdload"))
+	} else {
+		err = o.manager.DestroySession(ctx, discriminator)
+	}
+	if o.sessionRegistered(entry) {
 		return entry, false, errors.Join(err, fmt.Errorf("churn session remains registered: %w", errOwnerConfig))
 	}
 	// DestroySession has joined the retired session before its counters are frozen.
@@ -49,6 +54,7 @@ func (o *Owner) createForChurn(ctx context.Context, index int, profile Profile) 
 		return ownerSession{}, fmt.Errorf("churn slot still owns a session: %w", errOwnerConfig)
 	}
 	entry, err := o.createSession(ctx, OwnerConfig{
+		Echo:     o.echo,
 		Interval: profile.Interval, DetectMultiplier: profile.DetectMultiplier,
 	}, previous.endpoint)
 	if err != nil {
@@ -89,5 +95,6 @@ func (o *Owner) registrationSnapshot() (OwnerRegistrations, error) {
 	if err != nil {
 		return OwnerRegistrations{}, fmt.Errorf("gather owner registration metrics: %w", err)
 	}
-	return observeOwnerRegistrations(families, len(o.manager.Sessions()))
+	statuses, _ := o.manager.WatchSessionsWithRevision()
+	return observeOwnerRegistrations(families, len(statuses))
 }

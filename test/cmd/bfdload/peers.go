@@ -91,6 +91,7 @@ func parseWorkloadConfig(args []string) (bfdload.PeerConfig, error) {
 }
 
 func registerProfileFlags(flags *flag.FlagSet, p *bfdload.Profile) {
+	flags.BoolVar(&p.Echo, "echo", p.Echo, "select Echo owners and actual packet returns instead of Control peers")
 	flags.IntVar(&p.Sessions, "sessions", p.Sessions, "exact session count")
 	flags.DurationVar(&p.Interval, "interval", p.Interval, "desired TX and required RX interval")
 	flags.DurationVar(&p.Duration, "duration", p.Duration, "traffic duration")

@@ -233,6 +233,7 @@ func TestDownClassificationRejectsUnprovenOrFalseDowns(t *testing.T) {
 		{"single_omission", "unresolved"},
 		{"sequence_gap", "unresolved"},
 		{"attempt_gap", "unresolved"},
+		{"fractional_interval_overrun", "unresolved"},
 		{"random_loss_lead_in", "unresolved"},
 		{"missing_remote_discriminator", "unresolved"},
 		{"unknown_bracket", "unresolved"},
@@ -334,6 +335,8 @@ func editClassificationFixture(name string, owner *OwnerWorkloadObservation, pee
 		peers.Peers[0].BlackholeWindows[0].Segments[0].Sequences = []uint64{10, 12, 13}
 	case "attempt_gap":
 		peers.Peers[0].BlackholeWindows[0].Segments[0].OffsetsNS[1] = 450000000
+	case "fractional_interval_overrun":
+		peers.Peers[0].BlackholeWindows[0].Segments[0].OffsetsNS[1] = 520353374
 	case "random_loss_lead_in":
 		witness.Timing.ValidatedNS = 250000000
 	case "missing_remote_discriminator":
@@ -447,11 +450,16 @@ func TestControlledTXOnlyBlackholeProducesConditionalIntentionalDown(t *testing.
 	profile.Sessions, profile.Duration = 1, 4*time.Second
 	profile.BlackholeEvery, profile.BlackholeFor = 2*time.Second, 1200*time.Millisecond
 	profile.TXOnlyBlackhole = true
+	// RFC 5880 section 6.8.7 gives multiplier1 a 90% TX bound, leaving room for real dispatch lateness.
+	profile.DetectMultiplier = 1
 	owner, peers := runControlledWorkload(t, profile, 0)
 	report := ClassifyDowns(owner, peers)
 	if !report.Complete || report.Intentional == 0 || !report.Conditional || report.ReferenceQualified ||
 		!peers.Profile.TXOnlyBlackhole || peers.Peers[0].ReceiveBlackholeOmitted != 0 ||
 		peers.Peers[0].BlackholeOmitted == 0 || peers.Peers[0].UpTransitions < 2 {
+		t.Logf("conditional_fixture_witnesses=%+v", owner.DownWitnesses)
+		t.Logf("conditional_fixture_omissions=%+v", peers.Peers[0].BlackholeWindows)
+		t.Logf("conditional_fixture_profile=%+v owner_phase=%+v peer_phase=%+v", profile, owner.Phase, peers.Phase)
 		t.Fatalf("actual TX-only fault has no conditional intentional Down/recovery evidence: %+v", report)
 	}
 }

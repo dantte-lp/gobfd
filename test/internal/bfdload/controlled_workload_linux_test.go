@@ -145,6 +145,10 @@ func runControlledWorkload(
 			Local: netip.MustParseAddrPort("127.0.0.1:38171"), Peer: netip.MustParseAddrPort("127.34.0.2:38172"),
 		}},
 	}
+	if profile.Echo {
+		cfg.Sessions[0].Local = netip.MustParseAddrPort("127.0.0.1:3785")
+		cfg.Sessions[0].Peer = netip.MustParseAddrPort("127.34.0.2:3785")
+	}
 	type ownerResult struct {
 		report OwnerWorkloadObservation
 		err    error
@@ -182,9 +186,16 @@ func runControlledWorkload(
 		t.Fatal(stopErr)
 	}
 	peer := <-peers
+	peerReady := false
+	if len(peer.report.Peers) == 1 {
+		peerReady = peer.report.Peers[0].UpTransitions != 0
+		if profile.Echo {
+			peerReady = peer.report.Peers[0].Written != 0
+		}
+	}
 	if peer.err != nil || !peer.report.Completed || peer.report.Phase == nil ||
 		peer.report.Phase.NativeStartNS != phase.NativeStartNS ||
-		peer.report.Phase.TimeNamespaceID != phase.TimeNamespaceID || peer.report.Peers[0].UpTransitions == 0 {
+		peer.report.Phase.TimeNamespaceID != phase.TimeNamespaceID || !peerReady {
 		t.Fatalf("peer lost common phase or completed handshake: %+v: %v", peer.report, peer.err)
 	}
 	written := peer.report.Peers[0].Written
@@ -209,6 +220,9 @@ func runControlledWorkload(
 			owner.report.MeasurementFinal.Stopped, owner.err)
 	}
 	committed := deliveryCount(owner.report.Final, bfd.DeliveryPacketOwner, bfd.DeliveryCommitted)
+	if profile.Echo {
+		committed = deliveryCount(owner.report.Final, bfd.DeliveryEchoOwner, bfd.DeliveryCommitted)
+	}
 	pressure := owner.report.CPUPressure
 	if profile.CPULoadPercent != 0 && (!pressure.Completed || pressure.CPUTimeNS <= 0 || pressure.WorkerWallTimeNS <= 0 ||
 		pressure.RequestedPercent != profile.CPULoadPercent || !pressure.ScheduledAtUTC.Equal(owner.report.StartedAtUTC)) {
@@ -270,7 +284,7 @@ func assertChurnWorkload(
 	}
 	if observed.Final.RetiredReceived == 0 || observed.Final.TerminalPackets != written ||
 		observed.Final.RetiredReceived+owner.Final.Sessions[0].Received != committed ||
-		peer.Peers[0].UpTransitions < 2 {
+		(!owner.Config.Profile.Echo && peer.Peers[0].UpTransitions < 2) {
 		t.Fatalf("churn lost lifetime accounting or independent peer recovery: written=%d committed=%d retired=%d peer=%+v",
 			written, committed, observed.Final.RetiredReceived, peer.Peers[0])
 	}

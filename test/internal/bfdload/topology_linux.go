@@ -24,13 +24,17 @@ func LoopbackConfig(profile Profile) (PeerConfig, error) {
 		return cfg, err
 	}
 	ipv4 := (profile.Sessions + 1) / workloadAddressFamilies
+	port := uint16(3784)
+	if profile.Echo {
+		port = 3785
+	}
 	local, peer := netip.MustParseAddr("10.253.0.1"), netip.MustParseAddr("10.253.64.1")
 	for index := range profile.Sessions {
 		if index == ipv4 {
 			local, peer = netip.MustParseAddr("fd00:676f:6266::1"), netip.MustParseAddr("fd00:676f:6266:1::1")
 		}
 		cfg.Sessions = append(cfg.Sessions, OwnerEndpoint{
-			Local: netip.AddrPortFrom(local, 3784), Peer: netip.AddrPortFrom(peer, 3784), Interface: "lo",
+			Local: netip.AddrPortFrom(local, port), Peer: netip.AddrPortFrom(peer, port), Interface: "lo",
 		})
 		peer = peer.Next()
 	}

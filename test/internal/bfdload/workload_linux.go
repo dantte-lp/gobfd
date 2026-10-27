@@ -125,6 +125,7 @@ func RunOwner(ctx context.Context, cfg PeerConfig, logger *slog.Logger) (OwnerWo
 		return result, err
 	}
 	owner, err := StartOwner(ctx, OwnerConfig{
+		Echo:     cfg.Profile.Echo,
 		Sessions: cfg.Sessions,
 		Interval: cfg.Profile.Interval, DetectMultiplier: cfg.Profile.DetectMultiplier,
 	}, logger)

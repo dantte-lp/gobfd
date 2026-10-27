@@ -179,7 +179,9 @@ func (g *peerGroup) finish(
 				peer.observed.ReceiveNotProcessed++
 			}
 		}
-		peer.observed.State, peer.observed.RemoteDiscriminator = peer.state.state.String(), peer.state.remoteDiscriminator
+		if !peer.echo {
+			peer.observed.State, peer.observed.RemoteDiscriminator = peer.state.state.String(), peer.state.remoteDiscriminator
+		}
 		result.Peers = append(result.Peers, peer.observed)
 		runErr = errors.Join(runErr, peer.readErr, peer.loopErr)
 		if omitted := peer.observed.BlackholeEventsOmitted; omitted != 0 {
@@ -216,6 +218,7 @@ func (cfg PeerConfig) Validate() error {
 		return fmt.Errorf("peer count or stable source-port range: %w", ErrProfile)
 	}
 	if err := validateOwnerConfig(OwnerConfig{
+		Echo:     cfg.Profile.Echo,
 		Sessions: cfg.Sessions, Interval: cfg.Profile.Interval, DetectMultiplier: cfg.Profile.DetectMultiplier,
 	}); err != nil {
 		return fmt.Errorf("peer wire identities: %w: %w", ErrProfile, err)
@@ -237,9 +240,13 @@ func validatePeerBindings(cfg PeerConfig) error {
 		if endpoint.Local.Addr().Is4() {
 			ipv4++
 		}
-		wrongPort := endpoint.Local.Port() != netio.PortSingleHop || endpoint.Peer.Port() != netio.PortSingleHop
+		port := netio.PortSingleHop
+		if cfg.Profile.Echo {
+			port = netio.PortEcho
+		}
+		wrongPort := endpoint.Local.Port() != port || endpoint.Peer.Port() != port
 		if cfg.Profile.Kind != fixtureProfile && (wrongPort || endpoint.Interface == "") {
-			return fmt.Errorf("qualification peer requires RFC 5881 Control ports and interface binding: %w", ErrProfile)
+			return fmt.Errorf("qualification peer requires selected protocol ports and interface binding: %w", ErrProfile)
 		}
 	}
 	if cfg.Profile.Kind != fixtureProfile && (ipv4 == 0 || ipv4 == len(cfg.Sessions)) {

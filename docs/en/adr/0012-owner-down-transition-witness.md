@@ -139,9 +139,10 @@ state unknown: an Echo return is not a peer Control state machine.
 
 Capture adds no receive callback, wire field or separate observer. Preserve the
 existing Echo FSM, forwarding, receiver and thread-pinning behavior. The Control
-consumer's remote-Up and discriminator predicates cannot qualify Echo; its
-workload driver, independent return accounting and typed causal assessment
-remain required under Beads `gobfd-qj0.8.2.1.7.1`. This witness alone does not
+consumer's remote-Up and discriminator predicates cannot qualify Echo. The
+actual Echo UDP driver retains independent returns and typed incarnation
+identity; numeric/causal assessment remains required under Beads
+`gobfd-qj0.8.2.1.7.1`. This witness alone does not
 qualify Echo load or permit integration of the isolated unpin candidate.
 
 ## Consequences
