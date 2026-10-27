@@ -675,6 +675,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Build the five E2E aggregate launchers with the existing pinned container
+  compiler without an engine socket, then run the persistent binary on the
+  host. Serialize dev recreation, compilation and runtime without host Go;
+  retain target selection, reports and failure propagation.
+
 - Unsolicited cleanup regression tests await committed owner notifications with
   a real external watchdog instead of a fixed yield count. A gated-owner
   counterexample documents the observer defect without attributing the historical failure.

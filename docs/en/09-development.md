@@ -28,14 +28,20 @@
 
 - **Podman** + **Podman Compose** for containerized builds, tests and lint
 - **Git** for version control
+- **util-linux `flock`** for the five E2E aggregate launchers
 - Go 1.27.3 for IDE support and targets that invoke host Go; builds use the repository-pinned container toolchain
 
 > `make build`, `make test`, `make lint` and `make vulncheck` use Podman.
 > Host bootstrap, `lint-ci` and some integration/report targets still invoke
 > `go run` directly; they require the pinned Go toolchain or an explicit
 > container invocation. `semgrep*` targets call the selected host executable.
-> The five E2E aggregate launchers remain a container-boundary gap in
-> `gobfd-qj0.8.2.8.7.1.4.2`; containerized payload tests do not close it.
+> `e2e-routing`, `e2e-rfc`, `e2e-overlay`, `e2e-linux` and `e2e-vendor` rebuild
+> ignored `bin/e2ectl` with the digest-pinned compiler from `Containerfile.dev`,
+> then run it on the host without host Go. The compiler has read-only source,
+> a writable binary directory and no engine socket. One exclusive directory
+> lock covers dev recreation, compilation and runtime; lock acquisition waits
+> at most 120 seconds. `make -n` prints the delegation without creating the
+> binary directory or taking the lock. Payload and native qualification remain separate.
 > Containerlab has a separate gap: its five Make launchers depend on host Go
 > or the development service, and guarded vendor tests still compile with the
 > engine socket mounted and without `-race`. Replacement and native FRR

@@ -43,6 +43,14 @@ COMPOSE_FILE := deployments/compose/compose.dev.yml
 DC := COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) $(COMPOSE) -p $(COMPOSE_PROJECT_NAME) -f $(COMPOSE_FILE)
 EXEC := $(DC) exec -T dev
 E2ECTL_BIN := /tmp/gobfd-e2ectl
+E2E_AGGREGATES := e2e-routing e2e-rfc e2e-overlay e2e-linux e2e-vendor
+E2E_PRIVATE_TARGETS := $(addprefix _,$(E2E_AGGREGATES))
+ifneq ($(filter $(E2E_AGGREGATES) $(E2E_PRIVATE_TARGETS) e2e-overlay-test e2e-linux-test,$(MAKECMDGOALS)),)
+override E2E_COMPILER_PIN := $(shell awk '$$1 == "FROM" && $$3 == "AS" && $$4 == "go-toolchain" { image = $$2; count++ } $$1 == "toolchain" { toolchain = $$2 } END { digest = image; sub(/^.*@sha256:/, "", digest); sub(/^go/, "", toolchain); if (count == 1 && image == "docker.io/library/golang:" toolchain "-trixie@sha256:" digest && length(digest) == 64 && digest !~ /[^0-9a-f]/) print image }' deployments/docker/Containerfile.dev go.mod)
+ifneq ($(words $(E2E_COMPILER_PIN)),1)
+$(error E2E compiler requires exactly one digest-pinned go-toolchain FROM matching go.mod toolchain)
+endif
+endif
 SEMGREP ?= semgrep
 SEMGREP_CONFIG ?= p/golang
 SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-version-check --timeout 15 --no-git-ignore --include='*.go' .
@@ -55,6 +63,7 @@ SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-versi
         dev-ps dev-project dev-ensure e2ectl-build \
         e2e-help e2e-core e2e-core-testcontainers \
         e2e-routing e2e-routing-test e2e-rfc e2e-rfc-test e2e-overlay e2e-overlay-test e2e-linux e2e-linux-test e2e-vendor e2e-vendor-test \
+        $(E2E_PRIVATE_TARGETS) \
 	interop-project-validate interop interop-test interop-testcontainers interop-up interop-down interop-logs \
         interop-capture interop-pcap interop-pcap-summary integration \
         interop-bgp interop-bgp-test interop-bgp-testcontainers interop-bgp-up interop-bgp-down interop-bgp-logs \
@@ -132,8 +141,27 @@ e2e-core-testcontainers: e2ectl-build
 		./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/core/...
 	$(EXEC) $(E2ECTL_BIN) core
 e2e-routing: interop-project-validate
+
+# One directory lock covers dev recreation, non-atomic Go output publication and runtime.
+$(E2E_AGGREGATES):
+ifneq ($(findstring n,$(filter-out --%,$(firstword $(MAKEFLAGS)))),)
+	@printf '%s\n' '$(MAKE) --no-print-directory _$@'
+else
+	test ! -L bin
+	mkdir -p bin
+	test ! -L bin/e2ectl
+	flock --exclusive --close --wait 120 bin $(MAKE) --no-print-directory _$@
+endif
+
+$(E2E_PRIVATE_TARGETS):
 	$(DC) up -d --build --force-recreate dev
-	go run ./test/cmd/e2ectl routing
+	podman run --rm --cpus 2 --memory 2g --memory-swap 2g --pids-limit 512 \
+		--cap-drop ALL --security-opt no-new-privileges --image-volume ignore \
+		--volume "$(CURDIR):/src:ro,z" --volume "$(CURDIR)/bin:/out:rw,z" --workdir /src \
+		--env CGO_ENABLED=0 --env GOTOOLCHAIN=local --env GOMEMLIMIT=1500MiB \
+		--entrypoint /usr/local/go/bin/go "$(E2E_COMPILER_PIN)" \
+		build -trimpath -mod=readonly -o /out/e2ectl ./test/cmd/e2ectl
+	env "COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME)" ./bin/e2ectl $(patsubst _e2e-%,%,$@)
 
 e2e-routing-test: interop-project-validate
 	$(INTEROP_CTL) lock-run -- env "COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME)" \
@@ -149,29 +177,13 @@ e2e-routing-test: interop-project-validate
 		INTEROP_BGP_COMPOSE_FILE=/app/test/interop-bgp/compose.yml \
 		go test -tags interop_bgp -v -count=1 -timeout 300s ./test/interop-bgp/
 
-e2e-rfc:
-	$(DC) up -d --build --force-recreate dev
-	go run ./test/cmd/e2ectl rfc
-
 e2e-rfc-test:
 	$(EXEC) env INTEROP_RFC_COMPOSE_FILE=/app/test/interop-rfc/compose.yml \
 		go test -tags interop_rfc -v -count=1 -timeout 300s ./test/interop-rfc/
 
-e2e-overlay:
-	$(DC) up -d --build --force-recreate dev
-	go run ./test/cmd/e2ectl overlay
-
 e2e-overlay-test: e2e-overlay
 
-e2e-linux:
-	$(DC) up -d --build --force-recreate dev
-	go run ./test/cmd/e2ectl linux
-
 e2e-linux-test: e2e-linux
-
-e2e-vendor:
-	$(DC) up -d --build --force-recreate dev
-	go run ./test/cmd/e2ectl vendor
 
 e2e-vendor-test:
 	$(EXEC) go test -tags e2e_vendor -v -count=1 -timeout 120s ./test/e2e/vendor/
