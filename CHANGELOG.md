@@ -729,6 +729,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Accept the current CLI observation fields in the strict observability session
+  decoder while retaining duplicate, unknown-field, and trailing-data checks.
+
 - Bind observability image builds to the run's source revision and timestamp,
   share OCI provenance validation with FourPeer, and clean only verified owned
   image IDs even when tags change or builds fail.

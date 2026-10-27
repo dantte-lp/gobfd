@@ -44,6 +44,12 @@ type observabilityContract struct {
 }
 
 type bfdSessionView struct {
+	ObservationVersion  uint64 `json:"observation_version"`
+	RemoteKnown         bool   `json:"remote_known"`
+	RemoteDiagnostic    string `json:"remote_diagnostic"`
+	LocalC              bool   `json:"local_control_plane_independent"`
+	RemoteC             bool   `json:"remote_control_plane_independent"`
+	Cause               string `json:"cause"`
 	PeerAddress         string `json:"peer_address"`
 	LocalAddress        string `json:"local_address"`
 	InterfaceName       string `json:"interface_name,omitempty"`
@@ -54,6 +60,7 @@ type bfdSessionView struct {
 	LocalDiscriminator  uint32 `json:"local_discriminator"`
 	RemoteDiscriminator uint32 `json:"remote_discriminator"`
 	DetectMultiplier    uint32 `json:"detect_multiplier"`
+	PaddedPduSize       uint32 `json:"padded_pdu_size"`
 	DesiredMinTx        string `json:"desired_min_tx_interval,omitempty"`
 	RequiredMinRx       string `json:"required_min_rx_interval,omitempty"`
 	RemoteMinRx         string `json:"remote_min_rx_interval,omitempty"`
