@@ -859,6 +859,10 @@ IPv6 address on its expected interface to finish duplicate address detection.
 A missing or tentative address remains pending; failed detection or malformed
 address inventory stops deployment. Dry runs do not probe live addresses.
 
+Session checks select the exact local/peer tuple from JSON and distinguish
+local state, remote state and diagnostics. Another session's state or a
+diagnostic containing `Down` cannot satisfy a state check.
+
 Run `make interop-clab-bootstrap ARGS=--help` for all options. The bootstrap
 runner retains its fixed command allowlist; there is no vendor preparation
 fallback.

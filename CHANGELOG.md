@@ -729,6 +729,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Select exact JSON session states for FRR readiness and GoBFD Up/Down/recovery
+  checks; diagnostic text and unrelated sessions cannot satisfy the gate.
+
 - Wait for usable IPv6 addresses before starting the Containerlab GoBFD
   application; preserve duplicate address detection and fail on invalid state.
 

@@ -241,28 +241,20 @@ func vendorAvailable(ctx context.Context, v vendorPeer) bool {
 	return containerExists(ctx, v.container)
 }
 
-// gobfdBFDSessionUp checks GoBFD logs for a BFD session reaching Up state
-// for the given peer IP.
-func gobfdBFDSessionUp(ctx context.Context, peerIP string) (bool, error) {
-	// GoBFD runs via "podman exec -d" (not as PID 1), so container logs are
-	// empty. Use gobfdctl to query session state directly via gRPC.
-	output, err := containerExec(ctx, gobfdContainer,
-		"gobfdctl", "--addr", "localhost:50052", "session", "list")
+// gobfdBFDSessionUp requires the selected tuple's local and remote states to be Up.
+func gobfdBFDSessionUp(ctx context.Context, peer vendorPeer) (bool, error) {
+	row, err := readGoBFDSessionStatus(ctx, peer)
 	if err != nil {
-		return false, nil // gobfd may not be ready yet
+		return false, err
 	}
-	// gobfdctl output format: DISCRIMINATOR  PEER  LOCAL  TYPE  STATE  REMOTE-STATE  DIAG
-	// Look for a line containing the peer IP with "Up" state.
-	for line := range strings.SplitSeq(output, "\n") {
-		if strings.Contains(line, peerIP) && strings.Contains(line, "Up") {
-			return true, nil
-		}
-	}
-	return false, nil
+	return row.LocalState == "Up" && row.RemoteState == "Up", nil
 }
 
 // vendorBFDSessionUp checks the vendor's BFD session state via CLI.
 func vendorBFDSessionUp(ctx context.Context, v vendorPeer) (bool, error) {
+	if v.baseName == "frr" {
+		return frrBFDSessionUp(ctx, v)
+	}
 	output, err := containerExec(ctx, v.container, v.showCmd...)
 	if err != nil {
 		return false, nil //nolint:nilerr // vendor may not be ready yet
@@ -302,27 +294,19 @@ func waitBFDUp(ctx context.Context, t *testing.T, v vendorPeer) {
 	})
 
 	waitForCondition(t, v.name+" BFD Up (gobfd side)", bfdUpTimeout, func() (bool, error) {
-		return gobfdBFDSessionUp(ctx, v.peerIP)
+		return gobfdBFDSessionUp(ctx, v)
 	})
 }
 
 // bfdSessionStuck checks whether GoBFD's session with the given peer
 // is in a stuck state (remote AdminDown), indicating the vendor's BGP
 // session is broken and needs recovery.
-func bfdSessionStuck(ctx context.Context, peerIP string) bool {
-	output, err := containerExec(ctx, gobfdContainer,
-		"gobfdctl", "--addr", "localhost:50052", "session", "list")
+func bfdSessionStuck(ctx context.Context, peer vendorPeer) bool {
+	row, err := readGoBFDSessionStatus(ctx, peer)
 	if err != nil {
 		return false
 	}
-	for line := range strings.SplitSeq(output, "\n") {
-		if strings.Contains(line, peerIP) &&
-			strings.Contains(line, "Down") &&
-			strings.Contains(line, "AdminDown") {
-			return true
-		}
-	}
-	return false
+	return row.LocalState == "Down" && row.RemoteState == "AdminDown"
 }
 
 // ensureBFDUp waits for BFD session Up with automatic BGP recovery.
@@ -333,7 +317,7 @@ func bfdSessionStuck(ctx context.Context, peerIP string) bool {
 func ensureBFDUp(ctx context.Context, t *testing.T, v vendorPeer) {
 	t.Helper()
 
-	if bfdSessionStuck(ctx, v.peerIP) {
+	if bfdSessionStuck(ctx, v) {
 		t.Logf("BFD session with %s stuck (AdminDown), resetting BGP...", v.name)
 		resetGoBGPNeighbor(ctx, t, v)
 	}
@@ -486,16 +470,9 @@ func TestVendorBFD_FailureDetection(t *testing.T) {
 			foundDown := false
 			downDeadline := time.Now().Add(15 * time.Second)
 			for time.Now().Before(downDeadline) {
-				sessOut, sErr := containerExec(ctx, gobfdContainer,
-					"gobfdctl", "--addr", "localhost:50052", "session", "list")
-				if sErr == nil {
-					for line := range strings.SplitSeq(sessOut, "\n") {
-						if strings.Contains(line, v.peerIP) && strings.Contains(line, "Down") {
-							foundDown = true
-							t.Logf("BFD Down detected for %s: %s", v.name, strings.TrimSpace(line))
-							break
-						}
-					}
+				if down, err := gobfdBFDSessionDown(ctx, v); err == nil && down {
+					foundDown = true
+					t.Logf("BFD Down detected for %s: exact tuple localState=Down", v.name)
 				}
 				if foundDown {
 					break
@@ -719,16 +696,9 @@ func TestVendorBFD_DetectionTiming(t *testing.T) {
 			deadline := time.Now().Add(10 * time.Second)
 			for time.Now().Before(deadline) {
 				time.Sleep(200 * time.Millisecond)
-				sessOut, sErr := containerExec(ctx, gobfdContainer,
-					"gobfdctl", "--addr", "localhost:50052", "session", "list")
-				if sErr == nil {
-					for line := range strings.SplitSeq(sessOut, "\n") {
-						if strings.Contains(line, v.peerIP) && strings.Contains(line, "Down") {
-							detected = true
-							detectionTime = time.Since(startTime)
-							break
-						}
-					}
+				if down, err := gobfdBFDSessionDown(ctx, v); err == nil && down {
+					detected = true
+					detectionTime = time.Since(startTime)
 				}
 				if detected {
 					break

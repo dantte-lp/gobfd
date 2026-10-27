@@ -164,11 +164,15 @@ func validateFRRTimerStatus(row *frrTimerStatus, remote netip.Addr) error {
 		row.DetectionTimeout != timerStatusDetectionMS {
 		return errors.New("FRR nominal timers must be 300ms with multipliers 3 and detection timeout 900ms")
 	}
-	if len(row.Local) == 0 {
+	return validateFRRLocalAddress(row.Local, remote)
+}
+
+func validateFRRLocalAddress(raw json.RawMessage, remote netip.Addr) error {
+	if len(raw) == 0 {
 		return nil
 	}
 	var local string
-	if err := json.Unmarshal(row.Local, &local); err != nil {
+	if err := json.Unmarshal(raw, &local); err != nil {
 		return fmt.Errorf("decode optional FRR local address: %w", err)
 	}
 	address, err := netip.ParseAddr(local)
