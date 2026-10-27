@@ -96,6 +96,7 @@ type EchoSession struct {
 	observationMu    sync.RWMutex
 	observation      Observation
 	observationClock *atomic.Uint64
+	transitionTiming TransitionTiming
 
 	// --- Identity ---
 	localDiscr uint32
@@ -108,18 +109,19 @@ type EchoSession struct {
 	detectMult uint8
 
 	// --- Runtime ---
-	sender         PacketSender
-	metrics        MetricsReporter
-	timerEvent     timerObservation
-	delivery       DeliveryReporter
-	publicLossWake chan<- struct{}
-	logger         *slog.Logger
-	recvCh         chan struct{}
-	notifyCh       chan<- StateChange
-	cachedPacket   []byte
-	admissionMu    sync.Mutex
-	started        bool
-	closed         bool
+	sender           PacketSender
+	metrics          MetricsReporter
+	timerEvent       timerObservation
+	lastAcceptedEcho time.Time
+	delivery         DeliveryReporter
+	publicLossWake   chan<- struct{}
+	logger           *slog.Logger
+	recvCh           chan struct{}
+	notifyCh         chan<- StateChange
+	cachedPacket     []byte
+	admissionMu      sync.Mutex
+	started          bool
+	closed           bool
 
 	// --- Counters ---
 	echosSent        atomic.Uint64
@@ -400,7 +402,8 @@ func (es *EchoSession) echoRunLoop(
 func (es *EchoSession) handleEchoRecv(ctx context.Context, detectTimer *time.Timer) {
 	defer es.recordDelivery(DeliveryEchoOwner, DeliveryCommitted)
 	es.echosReceived.Add(1)
-	es.lastEchoRecv.Store(time.Now().UnixNano())
+	es.lastAcceptedEcho = time.Now()
+	es.lastEchoRecv.Store(es.lastAcceptedEcho.UnixNano())
 	es.metrics.IncPacketsReceived(es.peerAddr, es.localAddr)
 
 	// Reset detection timer on every echo return.
@@ -437,6 +440,14 @@ func (es *EchoSession) transitionTo(ctx context.Context, newState State, diag Di
 		es.observationMu.Unlock()
 		return
 	}
+	var timing TransitionTiming
+	if oldState == StateUp && newState == StateDown {
+		timing.ValidatedAt, timing.DetectionTime = es.lastAcceptedEcho, es.DetectionTime()
+		if es.timerEvent.active && es.timerEvent.kind == TimerEchoDetection {
+			timing.DetectionDue = es.timerEvent.due
+		}
+		timing.CommitStartedAt = time.Now()
+	}
 
 	es.observation.State, es.observation.LocalDiag = newState, diag
 	es.observation.Cause = CauseUnknown
@@ -444,6 +455,11 @@ func (es *EchoSession) transitionTo(ctx context.Context, newState State, diag Di
 		es.observation.Cause = CauseDetectionTimeout
 	}
 	es.observation.ObservationVersion = es.nextObservationVersionLocked()
+	if !timing.CommitStartedAt.IsZero() {
+		timing.CommitEndedAt = time.Now()
+		timing.Version = es.observation.ObservationVersion
+		es.transitionTiming = timing
+	}
 	es.stateTransitions.Add(1)
 	es.lastStateChange.Store(time.Now().UnixNano())
 	status := es.watchStatusForObservation(es.observation)
@@ -525,6 +541,12 @@ func (es *EchoSession) emitNotification(oldState State, status SessionSnapshot) 
 		return
 	}
 	sc := stateChangeOf(status, oldState)
+	es.observationMu.RLock()
+	timing := es.transitionTiming
+	es.observationMu.RUnlock()
+	if timing.Version != 0 && timing.Version == status.ObservationVersion {
+		sc.TransitionTiming = timing
+	}
 	select {
 	case es.notifyCh <- sc:
 		es.recordDelivery(DeliveryEchoNotification, DeliveryQueued)

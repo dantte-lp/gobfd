@@ -19,6 +19,11 @@
 
 ### Добавлено
 
+- Сохраняются привязанные к версии времена commit Echo Down, последнего
+  обработанного возврата и фактический deadline диспетчеризуемого detection-таймера.
+  Проверка preview-возврата, Echo-нагрузка и причинная оценка остаются отдельными;
+  эти данные не квалифицируют native A/B.
+
 - Добавлен read-only `bfdload assess OWNER_JSON PEER_JSON` с условным численным
   результатом pass/fail/incomplete. Native и release qualification проверяются отдельно.
 

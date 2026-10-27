@@ -408,6 +408,15 @@ Its version must match the published `ObservationVersion`. Logging and
 notification delays cannot move that bracket. `LastPacketReceived` remains
 wall-clock telemetry; the validated receive is not a kernel arrival timestamp.
 
+Echo owners retain the same version-bound commit bracket, their last processed
+return and the actual dispatched Echo detection deadline. For Echo,
+`ValidatedAt` denotes preview-owner acceptance, not RFC return validation or
+authentication; Detection Time is locally provisioned and remote state remains
+unknown. Direct handler calls do not manufacture a timer deadline. The existing
+Control workload/classifier does not qualify Echo: the actual Echo UDP driver,
+return accounting and typed assessment remain pending in Beads
+`gobfd-qj0.8.2.1.7.1`.
+
 The bounded `down_witnesses` array retains all delivered source transitions,
 including setup and drain. Unlike `down_events`, it is not filtered by the
 notification timestamp. A notification after cutoff can therefore retain a

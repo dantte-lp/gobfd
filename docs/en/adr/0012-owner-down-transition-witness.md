@@ -126,6 +126,24 @@ uncertainty remains unknown and `reference_qualified` remains false. The
 fixture-only `--tx-only-blackhole` case exercises this predicate independently
 of the retained bidirectional stress case; named qualification profiles reject it.
 
+### Echo owner witness (2026-10-27)
+
+Reuse `TransitionTiming` for a real Echo `Up` to `Down` commit, under the
+existing Echo observation mutex and with the same version check at publication.
+For this preview path, `ValidatedAt` denotes the last return processed by the
+Echo owner; it does not prove RFC 9747 return validation or authentication.
+Detection Time is locally provisioned. Copy the actual dispatched
+`TimerEchoDetection` deadline; a direct handler call without that dispatch
+leaves the deadline unavailable. Keep the remote discriminator zero and remote
+state unknown: an Echo return is not a peer Control state machine.
+
+Capture adds no receive callback, wire field or separate observer. Preserve the
+existing Echo FSM, forwarding, receiver and thread-pinning behavior. The Control
+consumer's remote-Up and discriminator predicates cannot qualify Echo; its
+workload driver, independent return accounting and typed causal assessment
+remain required under Beads `gobfd-qj0.8.2.1.7.1`. This witness alone does not
+qualify Echo load or permit integration of the isolated unpin candidate.
+
 ## Consequences
 
 The witness adds bounded value storage to each session and notification.
@@ -143,6 +161,7 @@ native wire or 24-hour release gates.
 ## References
 
 - [RFC 5880 Section 6.8.4](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.4).
+- [RFC 9747 Section 2](https://www.rfc-editor.org/rfc/rfc9747.html#section-2).
 - [Go time semantics at the pinned toolchain](https://github.com/golang/go/blob/go1.27.3/src/time/time.go).
 - Beads `gobfd-qj0.8.2.1.6.3.4.3.6.2`, `gobfd-qj0.8.2.1.6.3.4.3.6.2.1`
   and `gobfd-qj0.8.2.1.6.3.4.3.6.2.2`.

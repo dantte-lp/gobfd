@@ -4,6 +4,7 @@ import "time"
 
 // TransitionTiming brackets one Up-to-Down owner commit using monotonic values.
 // A zero Version denotes unavailable evidence, never a zero-duration observation.
+// Echo ValidatedAt is owner acceptance in the preview receiver, not RFC authentication.
 type TransitionTiming struct {
 	Version                      uint64
 	ValidatedAt                  time.Time

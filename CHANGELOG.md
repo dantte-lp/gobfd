@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Retain version-bound Echo owner Down commit times, last processed return and
+  actual dispatched detection deadline. Preview return validation and the Echo
+  load driver/causal assessment remain separate; this does not qualify native A/B.
+
 - Add read-only `bfdload assess OWNER_JSON PEER_JSON` with conditional numeric
   pass/fail/incomplete reports. Native and release qualification remain separate.
 
