@@ -185,7 +185,8 @@ ranks at the existing 25/50 ms effect-histogram boundaries, sampled resource
 limits and actual requested pressure activity. Keep RX, dispatch, successful
 effect, no-effect and invalid denominators separate. Only stopped observations
 support exact cross-counter settlement. Unknown/malformed evidence is incomplete;
-measured limit violations or false/unresolved Down fail. Both return a structured
+measured limit violations or false Down fail. Control retains numeric failure
+for unresolved Down; Echo unresolved evidence is incomplete. Both return a structured
 report and nonzero exit. Engineering does not invent six-hour windows inside its
 30-minute duration. Reader compatibility preserves existing numeric nanosecond
 durations while rejecting duplicate/unknown fields and invalid Unicode.
@@ -217,9 +218,18 @@ Each Echo omission also retains the original peer Read sequence. This joins
 RX omissions and return omissions despite their separate loss-schedule counters.
 The existing window/segment/time bounds still apply. Echo RX `valid` denotes
 codec/tuple/TTL-checked input, not RFC return authentication or wire delivery.
-The Control classifier cannot qualify these reports. Typed Echo numeric/causal
-assessment remains in Beads `gobfd-qj0.8.2.1.7.1`; driver source acceptance does
-not qualify native A/B, an adjacent forwarding plane or final 24h/wire gates.
+The typed consumer binds mode across owner snapshots and the shared peer
+manifest. Echo uses its own timer kinds, with unchanged integer histogram ranks,
+validity counters and stopped settlement. Sum current and retired return counters
+against committed Echo delivery; independent peer Read cannot exceed lifetime
+owner TX. Control kernel-RX timing is not reused: Echo's absent distribution is
+explicitly `not_applicable`. No peer Control FSM or remote Up is required.
+
+Actual received inputs qualify only the conditional old-deadline model from
+[ADR 0012](0012-owner-down-transition-witness.md). The Control predicate stays
+unchanged. Native qualification remains in Beads `gobfd-qj0.8.2.1.7.1`;
+source acceptance does not qualify native A/B, an adjacent forwarding plane or
+final 24h/wire gates.
 
 ## Consequences
 

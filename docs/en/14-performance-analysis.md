@@ -436,8 +436,10 @@ return and the actual dispatched Echo detection deadline. For Echo,
 authentication; Detection Time is locally provisioned and remote state remains
 unknown. Direct handler calls do not manufacture a timer deadline. The existing
 Control classifier does not qualify Echo. The actual Echo UDP driver records
-independent returns; typed numeric/causal assessment remains pending in Beads
-`gobfd-qj0.8.2.1.7.1`.
+independent returns. Its typed consumer classifies the witnessed old deadline
+under the explicit Echo return-delivery assumptions in
+[ADR 0012](adr/0012-owner-down-transition-witness.md). Native acceptance remains
+pending in Beads `gobfd-qj0.8.2.1.7.1`.
 
 The bounded `down_witnesses` array retains all delivered source transitions,
 including setup and drain. Unlike `down_events`, it is not filtered by the
@@ -569,7 +571,13 @@ TX and detection acceptance use successful-effect histograms: cumulative counts
 at 25/50 ms must reach exact integer ranks `ceil(0.99*N)` and `ceil(0.999*N)`.
 No percentile interpolation is used. Dispatch and no-effect denominators remain
 separate. Kernel-RX-to-owner latency retains its own distribution and conditional
-clock bound; the TX/detection thresholds are not an additional RX threshold.
+clock bound for Control; the TX/detection thresholds are not an additional RX threshold.
+Echo selects `echo_tx`/`echo_detection` with the same ranks and invalid-event
+checks. Echo has no kernel-RX-to-commit distribution: this check is explicitly
+`not_applicable`, without substituted Control samples. Its stopped committed
+returns must equal current plus retired Echo RX counters, and independent peer
+inputs cannot exceed current plus retired owner TX. All report snapshots must
+agree with the manifest mode; remote Control Up is not synthesized.
 Only stopped lifetime observations use exact cross-counter settlement; live
 measurement snapshots remain sequential. Reference RSS growth is strictly below
 5% between the first/final six-hour means. The 30-minute engineering report marks

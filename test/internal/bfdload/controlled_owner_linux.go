@@ -64,11 +64,7 @@ func (c *Control) drainOwner(ctx context.Context, owner *Owner) error {
 func terminalPacketCount(observed OwnerObservation) (uint64, error) {
 	var count uint64
 	for _, row := range observed.Delivery {
-		terminal := terminalDelivery(row)
-		if observed.Echo {
-			terminal = terminalEchoDelivery(row)
-		}
-		if terminal {
+		if workloadTerminalDelivery(observed.Echo, row) {
 			if row.Count > math.MaxUint64-count {
 				return 0, fmt.Errorf("terminal packet counter overflow: %w", ErrControl)
 			}
@@ -83,6 +79,13 @@ func terminalPacketCount(observed OwnerObservation) (uint64, error) {
 		return 0, fmt.Errorf("kernel drop counter overflow: %w", ErrControl)
 	}
 	return count + drops, nil
+}
+
+func workloadTerminalDelivery(echo bool, row bfd.DeliveryCounter) bool {
+	if echo {
+		return terminalEchoDelivery(row)
+	}
+	return terminalDelivery(row)
 }
 
 func terminalDelivery(row bfd.DeliveryCounter) bool {

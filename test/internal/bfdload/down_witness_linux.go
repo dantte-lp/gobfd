@@ -63,7 +63,9 @@ func captureDownTransition(change bfd.StateChange) downTransition {
 	}
 }
 
-func projectDownTiming(timing bfd.TransitionTiming, version uint64, started time.Time) OwnerDownTiming {
+func projectDownTiming(
+	timing bfd.TransitionTiming, version uint64, started time.Time, kind bfd.SessionType,
+) OwnerDownTiming {
 	result := OwnerDownTiming{DetectionNS: int64(timing.DetectionTime)}
 	if timing.Version == 0 || timing.Version != version {
 		result.Error = "missing or mismatched owner commit witness"
@@ -90,7 +92,8 @@ func projectDownTiming(timing bfd.TransitionTiming, version uint64, started time
 	if timing.DetectionDue != timing.DetectionDue.Round(0) && timing.DetectionTime > 0 {
 		result.DetectionKnown, result.DetectionDueNS = true, int64(timing.DetectionDue.Sub(started))
 	}
-	if !result.ValidatedKnown || !result.DetectionKnown || result.ValidatedRemoteDiscriminator == 0 {
+	if !result.ValidatedKnown || !result.DetectionKnown ||
+		kind != bfd.SessionTypeEcho && result.ValidatedRemoteDiscriminator == 0 {
 		result.Error = "last validated receive, remote discriminator or actual detection deadline is unavailable"
 	}
 	return result

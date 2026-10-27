@@ -265,6 +265,7 @@ func TestEchoControlledWorkloadRetainsActualPhaseLedgerAndIncarnations(t *testin
 			profile.Echo, profile.Sessions = true, 1
 			profile.Duration = 1500 * time.Millisecond
 			profile.BlackholeEvery, profile.BlackholeFor = 500*time.Millisecond, 400*time.Millisecond
+			profile.DetectMultiplier = 1
 			if churn {
 				profile.SessionChurn, profile.Duration = true, 6*time.Second
 				profile.BlackholeEvery, profile.BlackholeFor = 0, 0
@@ -284,6 +285,10 @@ func TestEchoControlledWorkloadRetainsActualPhaseLedgerAndIncarnations(t *testin
 			}
 			if len(owner.DownWitnesses) == 0 {
 				t.Fatal("Echo blackhole was not observed through the production Down journal")
+			}
+			if report := ClassifyDowns(owner, peers); !report.Complete || !report.Passing || report.Intentional == 0 ||
+				report.ReferenceQualified || report.TimingUncertaintyNS != nil {
+				t.Fatalf("actual Echo omissions did not qualify their old deadline: %+v", report)
 			}
 			for _, witness := range owner.DownWitnesses {
 				if witness.Type != bfd.SessionTypeEcho || !witness.Incarnation.Known ||

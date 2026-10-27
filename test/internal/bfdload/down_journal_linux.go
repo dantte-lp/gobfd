@@ -146,7 +146,7 @@ func (r *OwnerWorkloadObservation) joinDownJournal(
 		}, started)
 		witness := event.witness
 		witness.ElapsedNS = int64(event.at.Sub(started))
-		witness.Timing = projectDownTiming(event.timing, witness.ObservationVersion, started)
+		witness.Timing = projectDownTiming(event.timing, witness.ObservationVersion, started, witness.Type)
 		r.DownWitnesses[index] = witness
 	}
 	if err != nil {

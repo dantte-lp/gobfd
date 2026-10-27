@@ -10,20 +10,31 @@ import (
 )
 
 func validatePeerHistory(peer PeerSessionObservation, profile Profile) error {
-	if !validPeerLedger(peer) || peer.BlackholeEventsOmitted != 0 ||
-		len(peer.BlackholeWindows) > maxPeerBlackholeWindows {
+	validLedger := validPeerLedger(peer)
+	if profile.Echo {
+		validLedger = validEchoPeerLedger(peer)
+	}
+	if !validLedger || peer.BlackholeEventsOmitted != 0 || len(peer.BlackholeWindows) > maxPeerBlackholeWindows {
 		return historyError()
 	}
 	var tx, rx uint64
 	txDirection := omissionDirection{total: peer.Scheduled}
 	rxDirection := omissionDirection{total: peer.Read}
 	var previous int64
+	var previousInput uint64
 	for _, window := range peer.BlackholeWindows {
 		if !validOmissionWindowStart(window, profile, previous) {
 			return historyError()
 		}
 		if err := validateOmissionWindow(window, profile, &txDirection, &rxDirection); err != nil {
 			return err
+		}
+		if profile.Echo {
+			inputs, err := echoOmissionInputs(window, peer.Read)
+			if err != nil || inputs[0].received <= previousInput {
+				return historyError()
+			}
+			previousInput = inputs[len(inputs)-1].received
 		}
 		var txOK, rxOK bool
 		tx, txOK = addCount(tx, window.TXOmitted)
@@ -82,18 +93,15 @@ func validateOmissionWindow(window PeerBlackholeWindow, profile Profile, tx, rx 
 		direction := tx
 		switch segment.Direction {
 		case "tx":
-			if segment.Valid && !omissionPacket(segment.controlPacket(), false).Valid {
-				return historyError()
-			}
 		case "rx":
-			if segment.Valid {
-				return historyError()
-			}
 			direction = rx
 		default:
 			return historyError()
 		}
-		if err := direction.observe(segment, window.StartNS, end, int64(profile.Duration)); err != nil {
+		if !validWorkloadOmission(segment, profile.Echo) {
+			return historyError()
+		}
+		if err := direction.observe(segment, window.StartNS, end, int64(profile.Duration), !profile.Echo); err != nil {
 			return err
 		}
 	}
@@ -120,14 +128,14 @@ func boundedOmissionSegment(segment PeerOmissionSegment) bool {
 		segment.FirstNS == segment.OffsetsNS[0] && segment.LastNS == segment.OffsetsNS[len(segment.OffsetsNS)-1]
 }
 
-func (d *omissionDirection) observe(segment PeerOmissionSegment, start, end, duration int64) error {
+func (d *omissionDirection) observe(segment PeerOmissionSegment, start, end, duration int64, contiguous bool) error {
 	if !boundedOmissionSegment(segment) || d.count > maxPeerOmissionTimes-segment.Count {
 		return historyError()
 	}
 	for index, offset := range segment.OffsetsNS {
 		sequence := segment.Sequences[index]
 		if offset < start || offset >= end || offset >= duration || offset < d.last ||
-			sequence <= d.sequence || sequence > d.total || (d.count > 0 && sequence-d.sequence != 1) {
+			sequence <= d.sequence || sequence > d.total || (contiguous && d.count > 0 && sequence-d.sequence != 1) {
 			return historyError()
 		}
 		if d.count == 0 {
@@ -168,6 +176,9 @@ func classifyOmissions(
 		if witness.Timing.CommitStartNS >= startUpper && commitUpper < end {
 			if !progress {
 				return downUnresolved, "measurement contains missing progress, counter reset or an uncorrelated independent drop"
+			}
+			if owner.Config.Profile.Echo {
+				return conditionalEchoOmissionCoverage(owner, peers, window, witness)
 			}
 			return conditionalOmissionCoverage(owner, peers, window, witness)
 		}
@@ -235,7 +246,7 @@ type measurementDeliveryKey struct {
 func terminalLossCounters(owner OwnerObservation) (map[measurementDeliveryKey]uint64, bool) {
 	rows := make(map[measurementDeliveryKey]uint64)
 	for _, row := range owner.Delivery {
-		if !terminalDelivery(row) || row.Outcome == bfd.DeliveryCommitted {
+		if !workloadTerminalDelivery(owner.Echo, row) || row.Outcome == bfd.DeliveryCommitted {
 			continue
 		}
 		key := measurementDeliveryKey{row.Source, row.Outcome}
@@ -248,13 +259,16 @@ func terminalLossCounters(owner OwnerObservation) (map[measurementDeliveryKey]ui
 }
 
 func unchangedTerminalLoss(initial, final OwnerObservation) bool {
+	if initial.Echo != final.Echo {
+		return false
+	}
 	before, beforeKnown := terminalLossCounters(initial)
 	after, afterKnown := terminalLossCounters(final)
 	if !beforeKnown || !afterKnown {
 		return false
 	}
 	for _, pair := range bfd.DeliveryCounterPairs() {
-		if !terminalDelivery(pair) || pair.Outcome == bfd.DeliveryCommitted {
+		if !workloadTerminalDelivery(initial.Echo, pair) || pair.Outcome == bfd.DeliveryCommitted {
 			continue
 		}
 		key := measurementDeliveryKey{pair.Source, pair.Outcome}
@@ -270,8 +284,12 @@ func unchangedTerminalLoss(initial, final OwnerObservation) bool {
 func committedMeasurementPackets(owner OwnerObservation) (uint64, bool) {
 	var count uint64
 	found := false
+	source := bfd.DeliveryPacketOwner
+	if owner.Echo {
+		source = bfd.DeliveryEchoOwner
+	}
 	for _, row := range owner.Delivery {
-		if row.Source == bfd.DeliveryPacketOwner && row.Outcome == bfd.DeliveryCommitted {
+		if row.Source == source && row.Outcome == bfd.DeliveryCommitted {
 			if found {
 				return 0, false
 			}

@@ -119,9 +119,13 @@ func assessmentInputs(owner OwnerWorkloadObservation, peers PeerObservation) err
 		return fmt.Errorf("observation duration, epoch or resource sample period differs: %w", ErrAssessment)
 	}
 	var ipv4, ipv6 bool
+	port := uint16(3784)
+	if p.Echo {
+		port = 3785
+	}
 	for _, endpoint := range owner.Config.Sessions {
-		if endpoint.Local.Port() != 3784 || endpoint.Peer.Port() != 3784 {
-			return fmt.Errorf("qualification uses single-hop port3784: %w", ErrAssessment)
+		if endpoint.Local.Port() != port || endpoint.Peer.Port() != port {
+			return fmt.Errorf("qualification uses workload port%d: %w", port, ErrAssessment)
 		}
 		ipv4, ipv6 = ipv4 || endpoint.Local.Addr().Is4(), ipv6 || endpoint.Local.Addr().Is6()
 	}
@@ -232,6 +236,11 @@ func assessmentPackets(owner OwnerWorkloadObservation, peers PeerObservation) er
 	if !assessmentIndependentPeers(owner, peers) {
 		return fmt.Errorf("independent joined roles or final sessions are missing: %w", ErrAssessment)
 	}
+	if owner.Config.Profile.Echo {
+		if err := assessmentEchoTransmits(owner, peers); err != nil {
+			return err
+		}
+	}
 	var written uint64
 	for index, peer := range peers.Peers {
 		var valid bool
@@ -241,7 +250,7 @@ func assessmentPackets(owner OwnerWorkloadObservation, peers PeerObservation) er
 		}
 		for position, snapshot := range []OwnerObservation{owner.Initial, owner.MeasurementFinal, owner.Final} {
 			session := snapshot.Sessions[index]
-			if !assessmentSessionProgress(session, owner.Config.Sessions[index], position < 2) {
+			if !assessmentSessionProgress(session, owner.Config.Sessions[index], position < 2, owner.Config.Profile.Echo) {
 				return fmt.Errorf("owner session has no settled bilateral Up/progress: %w", ErrAssessment)
 			}
 		}
@@ -256,6 +265,22 @@ func assessmentPackets(owner OwnerWorkloadObservation, peers PeerObservation) er
 	return nil
 }
 
+func assessmentEchoTransmits(owner OwnerWorkloadObservation, peers PeerObservation) error {
+	sent, read := owner.Final.RetiredSent, uint64(0)
+	for index, peer := range peers.Peers {
+		var sentKnown, readKnown bool
+		sent, sentKnown = addCount(sent, owner.Final.Sessions[index].Sent)
+		read, readKnown = addCount(read, peer.Read)
+		if !sentKnown || !readKnown {
+			return fmt.Errorf("echo input/transmit counter overflow: %w", ErrAssessment)
+		}
+	}
+	if read == 0 || sent < read {
+		return fmt.Errorf("echo peer inputs exceed actual owner transmits: %w", ErrAssessment)
+	}
+	return nil
+}
+
 func assessmentIndependentPeers(owner OwnerWorkloadObservation, peers PeerObservation) bool {
 	o, p := owner.Final.Environment, peers.Environment
 	return len(owner.Final.Sessions) == len(owner.Config.Sessions) &&
@@ -265,13 +290,20 @@ func assessmentIndependentPeers(owner OwnerWorkloadObservation, peers PeerObserv
 }
 
 func assessmentPeerProgress(peer PeerSessionObservation, profile Profile) bool {
+	if profile.Echo {
+		return peer.Written > 0 && peer.Read > 0 && validEchoPeerLedger(peer) && validatePeerHistory(peer, profile) == nil
+	}
 	return peer.Written > 0 && peer.Read > 0 && peer.WriteErrors == 0 && peer.ReadErrors == 0 &&
 		peer.UpTransitions >= 2 && peer.State == "Up" && validatePeerHistory(peer, profile) == nil
 }
 
-func assessmentSessionProgress(s OwnerSessionObservation, endpoint OwnerEndpoint, registered bool) bool {
-	return s.Endpoint == endpoint && s.Observation.State == bfd.StateUp && s.Observation.RemoteKnown &&
-		s.Observation.RemoteState == bfd.StateUp && s.Sent > 0 && s.Received > 0 && s.SourcePort >= 49152 &&
+func assessmentSessionProgress(s OwnerSessionObservation, endpoint OwnerEndpoint, registered, echo bool) bool {
+	remote := s.Observation.RemoteKnown && s.Observation.RemoteState == bfd.StateUp
+	if echo {
+		remote = !s.Observation.RemoteKnown
+	}
+	return s.Endpoint == endpoint && s.Observation.State == bfd.StateUp && remote &&
+		s.Sent > 0 && s.Received > 0 && s.SourcePort >= 49152 &&
 		s.Registered == registered && s.Generation > 0 && s.LocalDiscriminator != 0
 }
 
@@ -296,6 +328,10 @@ func (r *ProfileAssessment) assessDowns(owner OwnerWorkloadObservation, peers Pe
 	r.Assumptions = append(r.Assumptions, c.Assumptions...)
 	r.Downs = AssessedDowns{c.Complete, c.Eligible, c.Outside, c.Intentional, c.False, c.Unresolved}
 	if !r.require("complete_down_evidence", assessmentDownCompleteness(c)) {
+		return
+	}
+	if owner.Config.Profile.Echo && c.Unresolved > 0 {
+		r.require("resolved_echo_down_evidence", fmt.Errorf("unresolved Echo old-deadline evidence: %w", ErrAssessment))
 		return
 	}
 	r.limit("intentional_downs_only", c.Passing, "false or unresolved Down prevents numeric acceptance")

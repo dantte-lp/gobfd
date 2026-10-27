@@ -13,12 +13,25 @@ import (
 const (
 	assessmentControlTX        = "control_tx"
 	assessmentControlDetection = "control_detection"
+	assessmentEchoTX           = "echo_tx"
+	assessmentEchoDetection    = "echo_detection"
 	assessmentDispatch         = "dispatch"
 	assessmentEffect           = "effect"
 	assessmentTimingValid      = "valid"
 	assessmentP99LimitSeconds  = 0.025
 	assessmentP999LimitSeconds = 0.05
 )
+
+func assessmentTimers(echo bool) [2]string {
+	if echo {
+		return [2]string{assessmentEchoTX, assessmentEchoDetection}
+	}
+	return [2]string{assessmentControlTX, assessmentControlDetection}
+}
+
+func assessmentDetectionTimer(timer string) bool {
+	return timer == assessmentControlDetection || timer == assessmentEchoDetection
+}
 
 // AssessedDistribution reports histogram CDF/rank evidence, never interpolated precision.
 // Threshold ranks apply only to the two effect distributions, not RX or dispatch.
@@ -175,7 +188,7 @@ func assessmentCounterDelta(before, after assessmentMetricSet, name string, labe
 		return 0, err
 	}
 	if !present {
-		if name == "gobfd_bfd_timer_events_total" && len(labels) == 4 && labels[1] == assessmentControlDetection {
+		if name == "gobfd_bfd_timer_events_total" && len(labels) == 4 && assessmentDetectionTimer(labels[1]) {
 			return last, nil
 		}
 		return 0, fmt.Errorf("initial counter %s is missing: %w", name, ErrAssessment)
@@ -206,20 +219,31 @@ func (r *ProfileAssessment) assessMetrics(owner OwnerWorkloadObservation) {
 	if !r.require("measurement_metrics", err) {
 		return
 	}
-	for _, timer := range []string{assessmentControlTX, assessmentControlDetection} {
+	for _, timer := range assessmentTimers(r.Profile.Echo) {
 		r.assessTimer(before, after, timer)
 	}
-	rx, err := assessmentHistogramDelta(before, after, "gobfd_bfd_control_rx_commit_seconds")
-	if r.require("kernel_rx_to_owner_distribution", err) {
-		rx.Name = "kernel_rx_to_owner"
-		r.Distributions = append(r.Distributions, rx)
-	}
+	r.assessReceiveDistribution(before, after)
 	r.require("timing_validity_denominators", r.assessDenominators(before, after))
 	final, err := newAssessmentMetricSet(owner.Final)
 	if r.require("stopped_metrics", err) {
 		r.require("measurement_to_stop_counters", assessmentMetricsContinue(after, final))
 		r.require("settled_rx_denominator", assessmentSettledRX(owner.Final, final))
-		r.require("settled_timer_denominators", assessmentSettledTimers(final))
+		r.require("settled_timer_denominators", assessmentSettledTimers(final, r.Profile.Echo))
+	}
+}
+
+func (r *ProfileAssessment) assessReceiveDistribution(before, after assessmentMetricSet) {
+	if r.Profile.Echo {
+		r.Checks = append(r.Checks, AssessmentCheck{
+			Name: "kernel_rx_to_owner_distribution", Status: "not_applicable",
+			Reason: "Echo has no kernel RX-to-commit instrumentation; no Control RX samples are substituted",
+		})
+		return
+	}
+	rx, err := assessmentHistogramDelta(before, after, "gobfd_bfd_control_rx_commit_seconds")
+	if r.require("kernel_rx_to_owner_distribution", err) {
+		rx.Name = "kernel_rx_to_owner"
+		r.Distributions = append(r.Distributions, rx)
 	}
 }
 
@@ -244,6 +268,9 @@ func (r *ProfileAssessment) assessDenominators(before, after assessmentMetricSet
 	if err := r.assessTimerDenominators(before, after); err != nil {
 		return err
 	}
+	if r.Profile.Echo {
+		return nil
+	}
 	for _, outcome := range []string{
 		"unavailable", assessmentTimingValid, "invalid", "before_calibration", "future", "clock_step",
 	} {
@@ -264,7 +291,7 @@ func (r *ProfileAssessment) assessDenominators(before, after assessmentMetricSet
 }
 
 func (r *ProfileAssessment) assessTimerDenominators(before, after assessmentMetricSet) error {
-	for _, timer := range []string{assessmentControlTX, assessmentControlDetection} {
+	for _, timer := range assessmentTimers(r.Profile.Echo) {
 		for _, event := range []string{
 			assessmentDispatch, assessmentEffect, "no_effect", "invalid_dispatch", "invalid_effect",
 		} {
@@ -286,6 +313,9 @@ func assessmentSettledRX(owner OwnerObservation, metrics assessmentMetricSet) er
 	committed, known := committedMeasurementPackets(owner)
 	if !known || committed == 0 {
 		return fmt.Errorf("settled commit denominator is missing: %w", ErrAssessment)
+	}
+	if owner.Echo {
+		return assessmentEchoReturns(owner, committed)
 	}
 	var total, validSamples uint64
 	for _, outcome := range []string{
@@ -314,6 +344,21 @@ func assessmentSettledRX(owner OwnerObservation, metrics assessmentMetricSet) er
 		!assessmentHistogramMetric(metrics["gobfd_bfd_control_rx_commit_seconds"], histogram) ||
 		histogram.GetHistogram().GetSampleCount() != validSamples {
 		return fmt.Errorf("stopped RX timing outcomes differ from committed packets: %w", ErrAssessment)
+	}
+	return nil
+}
+
+func assessmentEchoReturns(owner OwnerObservation, committed uint64) error {
+	total := owner.RetiredReceived
+	for _, session := range owner.Sessions {
+		var valid bool
+		total, valid = addCount(total, session.Received)
+		if !valid {
+			return fmt.Errorf("settled Echo received counter overflow: %w", ErrAssessment)
+		}
+	}
+	if total != committed {
+		return fmt.Errorf("settled Echo commits differ from current and retired returns: %w", ErrAssessment)
 	}
 	return nil
 }
@@ -360,8 +405,8 @@ func assessmentMetricContinues(first, last *dto.Metric) bool {
 	return true
 }
 
-func assessmentSettledTimers(metrics assessmentMetricSet) error {
-	for _, timer := range []string{assessmentControlTX, assessmentControlDetection} {
+func assessmentSettledTimers(metrics assessmentMetricSet, echo bool) error {
+	for _, timer := range assessmentTimers(echo) {
 		counts := make(map[string]uint64)
 		for _, event := range []string{
 			assessmentDispatch, assessmentEffect, "no_effect", "invalid_dispatch", "invalid_effect",
@@ -437,7 +482,7 @@ func assessmentHistogramMetric(family *dto.MetricFamily, metric *dto.Metric) boo
 }
 
 func assessmentLazyDetection(name string, labels []string) bool {
-	return name == "gobfd_bfd_timer_delay_seconds" && len(labels) == 4 && labels[1] == assessmentControlDetection
+	return name == "gobfd_bfd_timer_delay_seconds" && len(labels) == 4 && assessmentDetectionTimer(labels[1])
 }
 
 func validateAssessmentHistogram(metric *dto.Metric) error {

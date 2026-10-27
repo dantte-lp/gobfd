@@ -141,9 +141,37 @@ Capture adds no receive callback, wire field or separate observer. Preserve the
 existing Echo FSM, forwarding, receiver and thread-pinning behavior. The Control
 consumer's remote-Up and discriminator predicates cannot qualify Echo. The
 actual Echo UDP driver retains independent returns and typed incarnation
-identity; numeric/causal assessment remains required under Beads
-`gobfd-qj0.8.2.1.7.1`. This witness alone does not
+identity. Its typed numeric/causal consumer uses the model below. Native
+qualification remains required under Beads `gobfd-qj0.8.2.1.7.1`. This witness alone does not
 qualify Echo load or permit integration of the isolated unpin candidate.
+
+### Echo old-deadline classification (2026-10-27)
+
+Keep the Control predicate unchanged. For Echo, require the locally provisioned
+`D = interval * detect_multiplier`, checked for integer overflow, the actual old
+deadline `d`, last accepted return `r`, matching incarnation/version and
+`DiagEchoFailed`. Remote Control state and discriminator remain unknown.
+
+Merge RX and return-TX omissions by actual `received_sequences`, not by their
+separate decision counters. Require unique, increasing received indices across
+windows and nondecreasing input times. Inside the selected window, require at
+least `detect_multiplier` consecutive received indices whose checked Echo wire
+identity matches the owner generation. Each selected time `p` must satisfy
+`p > r + owner_bracket` and `p + peer_bracket < d`. The complete owner commit
+bracket must follow `d` and remain inside the same blackhole window. Keep all
+existing journal limits; sorting bounded input references does not reorder reports.
+
+Under the explicitly serialized assumption that those actual withheld inputs
+would have returned and been processed before `d`, they would reset that old
+timer. The conditional verdict concerns this specific old deadline, not absence
+of every later timeout in a counterfactual execution. Actual Echo inputs do not
+require guessing a continuous peer TX schedule; Control retains its interval-gap
+coverage rule. Missing input indices, replayed indices, boundary intersections,
+insufficient inputs, mismatched wire parameters or independent observed losses
+remain unresolved and make Echo profile assessment incomplete. Peer kernel drop
+or invalid drop samples also block qualification; unphased lifetime counters
+cannot be assigned to an unrelated interval. This software returner does not qualify a forwarding plane
+or RFC 9747 authentication.
 
 ## Consequences
 

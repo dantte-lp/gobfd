@@ -15,6 +15,7 @@ type downWitnessJSON struct {
 	LocalDiscriminator uint32    `json:"local_discriminator"`
 	ObservationVersion uint64    `json:"observation_version"`
 	Cause              bfd.Cause `json:"cause"`
+	RemoteKnown        bool      `json:"remote_known"`
 	Incarnation        struct {
 		Known      bool          `json:"known"`
 		Slot       int           `json:"slot"`
@@ -99,6 +100,21 @@ func TestDownWitnessProjectionRetainsCommitBeforeDelayedNotification(t *testing.
 		witness.Timing.ValidatedRemoteDiscriminator != 7 ||
 		witness.Timing.Error != "" {
 		t.Fatalf("frozen source timing was lost or converted through wall time: %+v", witness)
+	}
+}
+
+func TestEchoDownWitnessProjectionDoesNotInventRemoteControlEvidence(t *testing.T) {
+	t.Parallel()
+	started := time.Now()
+	change := sourceDownWitness(started)
+	change.Type, change.Status.Type = bfd.SessionTypeEcho, bfd.SessionTypeEcho
+	change.Diag, change.Status.LocalDiag = bfd.DiagEchoFailed, bfd.DiagEchoFailed
+	change.RemoteKnown, change.Status.RemoteKnown = false, false
+	change.Status.RemoteDiscr, change.TransitionTiming.ValidatedRemoteDiscriminator = 0, 0
+	_, witness := projectedDownWitness(t, started, change)
+	if !witness.Timing.CommitKnown || !witness.Timing.ValidatedKnown || !witness.Timing.DetectionKnown ||
+		witness.Timing.ValidatedRemoteDiscriminator != 0 || witness.RemoteKnown || witness.Timing.Error != "" {
+		t.Fatalf("actual Echo witness needs no remote Control discriminator: %+v", witness)
 	}
 }
 
