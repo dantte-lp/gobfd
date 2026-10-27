@@ -459,9 +459,20 @@ builds with Debian imagebuilder 1.2.5, which rejects the interop
 Containerfiles' `ADD --checksum`. Ubuntu 26.04 AppArmor attaches its `tshark`
 profile to `/usr/bin/tshark`, and rootless Podman runs containers without a
 profile, so the capture image runs `tshark` and `dumpcap` from
-`/usr/local/bin`. Each job allows the `pasta` profile to receive Podman
-signals before Podman starts (LP: #2154379) and prints AppArmor denials at the
-end. The vulnerability audit creates its own
+`/usr/local/bin`. Each E2E job calls `toolbootstrap podman-e2e`, which reuses
+the runtime/provider bootstrap, conditionally permits Podman signals in the
+`pasta` profile (LP: #2154379), and prepares a private rootless Unix socket.
+Socket-file readiness has a 20-second deadline; it does not assert API health.
+An existing socket is reused without taking ownership. A newly started direct
+`podman system service --time=0` outlives bootstrap only after version checks
+and publication of the four socket environment values succeed. Failure kills
+and joins only that new process; `podman-system-service.log` retains diagnostics.
+The command requires `GITHUB_ENV` and `GITHUB_PATH`; the existing pinned host-Go
+bootstrap remains separate from containerized builds and runtime qualification.
+At job end, `toolbootstrap apparmor-denials` emits only AppArmor denial lines.
+Diagnostics and `make down` use native `continue-on-error: true` with `always()`;
+their failures remain visible without blocking artifact upload. Other callers
+of `podman-runtime` keep their existing behavior. The vulnerability audit creates its own
 report directory; the workflow delegates to it directly without a separate
 directory command.
 

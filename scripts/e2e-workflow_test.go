@@ -5,7 +5,75 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
+
+func TestE2EWorkflowUsesGoOwnedRuntimeSetupAndDiagnostics(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile("../.github/workflows/e2e.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Run             string `yaml:"run"`
+				If              string `yaml:"if"`
+				ContinueOnError bool   `yaml:"continue-on-error"` //nolint:tagliatelle // GitHub Actions defines this exact field.
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		t.Fatalf("parse E2E workflow: %v", err)
+	}
+	if len(workflow.Jobs) != 3 {
+		t.Fatalf("expected three admitted E2E jobs, got %d", len(workflow.Jobs))
+	}
+	for _, name := range []string{"pr-safe", "nightly", "vendor"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			job, found := workflow.Jobs[name]
+			if !found {
+				t.Fatalf("E2E job %s is missing", name)
+			}
+			var bootstrapCount, diagnosticsCount, cleanupCount int
+			bootstrapIndex, startIndex := -1, -1
+			for index, step := range job.Steps {
+				if strings.ContainsAny(step.Run, "\r\n|;") || strings.Contains(step.Run, "&&") {
+					t.Errorf("job retains a repository-owned shell program: %q", step.Run)
+				}
+				switch step.Run {
+				case "go run ./test/cmd/toolbootstrap podman-e2e":
+					bootstrapCount++
+					bootstrapIndex = index
+					if step.ContinueOnError || step.If != "" {
+						t.Error("runtime setup can be skipped or its failure ignored")
+					}
+				case "go run ./test/cmd/toolbootstrap apparmor-denials":
+					diagnosticsCount++
+					if step.If != "always()" || !step.ContinueOnError {
+						t.Error("diagnostics lost always/nonblocking workflow semantics")
+					}
+				case "make down":
+					cleanupCount++
+					if step.If != "always()" || !step.ContinueOnError {
+						t.Error("cleanup lost always/nonblocking workflow semantics")
+					}
+				case "make up":
+					startIndex = index
+				}
+			}
+			if bootstrapCount != 1 || diagnosticsCount != 1 || cleanupCount != 1 {
+				t.Errorf("setup/diagnostics/cleanup counts=%d/%d/%d, want 1/1/1",
+					bootstrapCount, diagnosticsCount, cleanupCount)
+			}
+			if bootstrapIndex < 0 || startIndex <= bootstrapIndex {
+				t.Error("runtime setup must precede dev startup")
+			}
+		})
+	}
+}
 
 func TestE2EWorkflowPublishesEvidenceGates(t *testing.T) {
 	t.Parallel()
@@ -64,23 +132,6 @@ func TestE2EWorkflowPublishesEvidenceGates(t *testing.T) {
 	}
 	if strings.Contains(content, "ubuntu-latest") {
 		t.Fatal("E2E workflow uses ubuntu-latest, whose Podman rejects ADD --checksum")
-	}
-
-	// Ubuntu 26.04 pasta AppArmor profile rejects Podman signals during rootless
-	// network teardown (LP: #2154379); every job relaxes it before Podman starts.
-	for _, want := range []string{
-		"- name: Allow pasta to receive Podman signals\n",
-		"echo '  signal (receive) peer=podman,' | sudo tee -a \"${abstraction}\" >/dev/null\n",
-		"sudo apparmor_parser -r /etc/apparmor.d/usr.bin.pasta\n",
-		"- name: Report AppArmor denials\n",
-	} {
-		if got := strings.Count(content, want); got != 3 {
-			t.Fatalf("E2E workflow contains %q in %d jobs, want all 3", want, got)
-		}
-	}
-	if strings.Index(content, "Allow pasta to receive Podman signals") >
-		strings.Index(content, "Start Podman API socket") {
-		t.Fatal("E2E workflow relaxes the pasta profile after Podman starts")
 	}
 
 	// The package lifecycle runs only in the nightly job, after the routing

@@ -675,6 +675,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Replace duplicated E2E workflow AppArmor/socket shell setup with opt-in
+  `toolbootstrap podman-e2e`, retaining the provider bootstrap, environment
+  publication, bounded readiness and direct-service handoff. Filter AppArmor
+  diagnostics in Go and use native nonblocking cleanup/diagnostic step handling.
+
 - Build the five E2E aggregate launchers with the existing pinned container
   compiler without an engine socket, then run the persistent binary on the
   host. Serialize dev recreation, compilation and runtime without host Go;

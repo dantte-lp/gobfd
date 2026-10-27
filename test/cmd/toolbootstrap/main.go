@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/dantte-lp/gobfd/test/internal/toolbootstrap"
 )
@@ -20,16 +22,46 @@ func main() {
 
 func run(ctx context.Context, arguments []string) error {
 	if len(arguments) == 0 {
-		return fmt.Errorf("usage: toolbootstrap <compose|podman-runtime>: %w", flag.ErrHelp)
+		return fmt.Errorf("usage: toolbootstrap <compose|podman-runtime|podman-e2e|apparmor-denials>: %w", flag.ErrHelp)
 	}
 	switch arguments[0] {
 	case "compose":
 		return runCompose(ctx, arguments[1:])
 	case "podman-runtime":
 		return runPodmanRuntime(ctx, arguments[1:])
+	case "podman-e2e", "apparmor-denials":
+		if len(arguments) != 1 {
+			return fmt.Errorf("unexpected E2E bootstrap arguments: %w", flag.ErrHelp)
+		}
+		commandCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		if arguments[0] == "apparmor-denials" {
+			if err := toolbootstrap.AppArmorDenials(commandCtx, os.Stdout); err != nil {
+				return fmt.Errorf("report AppArmor denials: %w", err)
+			}
+			return nil
+		}
+		return runPodmanE2E(commandCtx)
 	default:
 		return fmt.Errorf("unknown tool bootstrap command %q: %w", arguments[0], flag.ErrHelp)
 	}
+}
+
+func runPodmanE2E(ctx context.Context) error {
+	installDir, err := toolbootstrap.DefaultInstallDir()
+	if err != nil {
+		return fmt.Errorf("resolve E2E runtime install directory: %w", err)
+	}
+	report, err := toolbootstrap.SetupPodmanE2E(ctx, toolbootstrap.RuntimeOptions{
+		InstallDir: installDir, GitHubEnv: os.Getenv("GITHUB_ENV"), GitHubPath: os.Getenv("GITHUB_PATH"),
+	})
+	if err != nil {
+		return fmt.Errorf("set up E2E runtime: %w", err)
+	}
+	slog.Info("verified E2E runtime", "podman", report.Podman,
+		"runner_image_os", os.Getenv("ImageOS"), "runner_image_version", os.Getenv("ImageVersion"),
+		"compose_version", report.Compose.Version, "compose_path", report.Compose.Path)
+	return nil
 }
 
 func runCompose(ctx context.Context, arguments []string) error {
