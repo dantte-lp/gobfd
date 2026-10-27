@@ -729,6 +729,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bound all six observability runtime containers and reject missing or changed
+  CPU, memory, swap and PID limits in the actual container inspection.
+
 - Bound all five observability test image builds to 2 CPUs and 2 GiB without
   additional swap; limit GoBFD compiler concurrency and its heap target.
 

@@ -387,6 +387,7 @@ func startObservabilityContainer(
 	request testcontainers.ContainerRequest,
 ) (testcontainers.Container, error) {
 	t.Helper()
+	request = observabilityContainerRequest(role, request)
 	request.Name = name
 	if err := topology.recordOwnedContainer(name, ""); err != nil {
 		return nil, err
@@ -402,6 +403,45 @@ func startObservabilityContainer(
 		err = fmt.Errorf("start observability %s container: %w", role, err)
 	}
 	return testContainer, errors.Join(err, recordErr)
+}
+
+func observabilityContainerRequest(
+	role string, request testcontainers.ContainerRequest,
+) testcontainers.ContainerRequest {
+	modifyRole := request.HostConfigModifier
+	request.HostConfigModifier = func(config *container.HostConfig) {
+		if modifyRole != nil {
+			modifyRole(config)
+		}
+		config.CPUPeriod, config.CPUQuota = 100000, 100000
+		config.Memory = observabilityRuntimeMemory(role)
+		config.MemorySwap = config.Memory
+		config.PidsLimit = new(int64(128))
+	}
+	return request
+}
+
+func observabilityRuntimeMemory(role string) int64 {
+	if role == "grafana" {
+		return 512 << 20
+	}
+	return 256 << 20
+}
+
+func validateObservabilityResources(role string, config *container.HostConfig) error {
+	if config == nil {
+		return fmt.Errorf("exact %s runtime container has no host configuration", role)
+	}
+	pids := int64(0)
+	if config.PidsLimit != nil {
+		pids = *config.PidsLimit
+	}
+	if config.CPUPeriod != 100000 || config.CPUQuota != 100000 ||
+		config.Memory != observabilityRuntimeMemory(role) || config.MemorySwap != config.Memory || pids != 128 {
+		return fmt.Errorf("exact %s runtime limits: CPU %d/%d, memory %d, memory+swap %d, PIDs %d",
+			role, config.CPUQuota, config.CPUPeriod, config.Memory, config.MemorySwap, pids)
+	}
+	return nil
 }
 
 func staticIP(networkName, address string) func(map[string]*network.EndpointSettings) {
@@ -424,6 +464,9 @@ func (topology *observabilityTopology) assertRuntimeContract(ctx context.Context
 		inspection, err := item.container.Inspect(ctx)
 		if err != nil {
 			return fmt.Errorf("inspect exact %s runtime container: %w", item.name, err)
+		}
+		if err := validateObservabilityResources(item.name, inspection.HostConfig); err != nil {
+			return err
 		}
 		volumeName, mountErr := validateObservabilityMounts(item.name, inspection.Mounts)
 		if mountErr != nil {

@@ -66,8 +66,104 @@ type inspectOnlyContainer struct {
 	inspection *container.InspectResponse
 }
 
+func TestObservabilityContainerRequestLimits(t *testing.T) {
+	for _, test := range []struct {
+		role   string
+		memory int64
+	}{
+		{"gobfd", 268435456},
+		{"frr", 268435456},
+		{"prometheus", 268435456},
+		{"grafana", 536870912},
+		{"tshark-capture", 268435456},
+		{"tshark-analyzer", 268435456},
+	} {
+		t.Run(test.role, func(t *testing.T) {
+			modified := false
+			request := observabilityContainerRequest(test.role, testcontainers.ContainerRequest{
+				HostConfigModifier: func(config *container.HostConfig) {
+					modified = true
+					config.CapAdd = append(config.CapAdd, "NET_RAW")
+					config.NetworkMode = "container:fixture-owner"
+					config.Memory = 64 << 20
+				},
+			})
+			config := new(container.HostConfig)
+			request.HostConfigModifier(config)
+			if !modified || config.NetworkMode != "container:fixture-owner" ||
+				len(config.CapAdd) != 1 || config.CapAdd[0] != "NET_RAW" {
+				t.Fatalf("runtime limits discarded the role modifier: %+v", config)
+			}
+			if config.CPUPeriod != 100000 || config.CPUQuota != 100000 ||
+				config.Memory != test.memory || config.MemorySwap != test.memory ||
+				config.PidsLimit == nil || *config.PidsLimit != 128 {
+				t.Errorf("runtime resources = %+v, want 1 CPU/%d bytes/no extra swap/128 PIDs", config.Resources, test.memory)
+			}
+		})
+	}
+	t.Run("without role modifier", func(t *testing.T) {
+		request := observabilityContainerRequest("gobfd", testcontainers.ContainerRequest{})
+		if request.HostConfigModifier == nil {
+			t.Fatal("runtime request has no resource modifier")
+		}
+		config := new(container.HostConfig)
+		request.HostConfigModifier(config)
+		if config.Memory != 268435456 || config.MemorySwap != 268435456 ||
+			config.CPUPeriod != 100000 || config.CPUQuota != 100000 ||
+			config.PidsLimit == nil || *config.PidsLimit != 128 {
+			t.Errorf("unmodified-role resources = %+v", config.Resources)
+		}
+	})
+}
+
 func (fake inspectOnlyContainer) Inspect(context.Context) (*container.InspectResponse, error) {
 	return fake.inspection, nil
+}
+
+func TestObservabilityRejectsUnboundedRuntime(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		alter     func(*container.HostConfig)
+		missing   bool
+		wantError bool
+	}{
+		{name: "bounded"},
+		{name: "missing config", missing: true, wantError: true},
+		{name: "unlimited CPU", alter: func(c *container.HostConfig) { c.CPUQuota = 0 }, wantError: true},
+		{name: "wrong CPU", alter: func(c *container.HostConfig) { c.CPUQuota = 200000 }, wantError: true},
+		{name: "wrong period", alter: func(c *container.HostConfig) { c.CPUPeriod = 0 }, wantError: true},
+		{name: "unlimited memory", alter: func(c *container.HostConfig) {
+			c.Memory, c.MemorySwap = 0, 0
+		}, wantError: true},
+		{name: "wrong memory", alter: func(c *container.HostConfig) {
+			c.Memory, c.MemorySwap = 512<<20, 512<<20
+		}, wantError: true},
+		{name: "additional swap", alter: func(c *container.HostConfig) { c.MemorySwap = 512 << 20 }, wantError: true},
+		{name: "unlimited PIDs", alter: func(c *container.HostConfig) { c.PidsLimit = nil }, wantError: true},
+		{name: "wrong PIDs", alter: func(c *container.HostConfig) { c.PidsLimit = new(int64(256)) }, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			config := &container.HostConfig{
+				CPUPeriod: 100000, CPUQuota: 100000, Memory: 268435456, MemorySwap: 268435456,
+				PidsLimit: new(int64(128)),
+			}
+			if test.alter != nil {
+				test.alter(config)
+			}
+			if test.missing {
+				config = nil
+			}
+			topology := &observabilityTopology{containers: []namedContainer{{
+				name: "tshark-analyzer",
+				container: inspectOnlyContainer{inspection: &container.InspectResponse{
+					HostConfig: config,
+				}},
+			}}}
+			if err := topology.assertRuntimeContract(t.Context()); (err != nil) != test.wantError {
+				t.Errorf("runtime validation error = %v, want error %t", err, test.wantError)
+			}
+		})
+	}
 }
 
 func TestObservabilityReportDirectoriesAreExclusive(t *testing.T) {
@@ -184,6 +280,10 @@ func TestPrometheusAnonymousVolumeContract(t *testing.T) {
 		{name: "multiple", role: "prometheus", mounts: []container.MountPoint{validMount, validMount}, wantErr: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			memory := int64(268435456)
+			if test.role == "grafana" {
+				memory = 536870912
+			}
 			topology := &observabilityTopology{
 				contract:    observabilityContract{prometheusIP: "172.25.0.30"},
 				networkName: "observability-test",
@@ -191,6 +291,10 @@ func TestPrometheusAnonymousVolumeContract(t *testing.T) {
 				containers: []namedContainer{{
 					name: test.role,
 					container: inspectOnlyContainer{inspection: &container.InspectResponse{
+						HostConfig: &container.HostConfig{
+							CPUPeriod: 100000, CPUQuota: 100000, Memory: memory, MemorySwap: memory,
+							PidsLimit: new(int64(128)),
+						},
 						Mounts: test.mounts,
 						NetworkSettings: &container.NetworkSettings{Networks: map[string]*network.EndpointSettings{
 							"observability-test": {IPAddress: netip.MustParseAddr("172.25.0.30")},

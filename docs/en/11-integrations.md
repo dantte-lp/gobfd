@@ -327,6 +327,12 @@ The testcontainers builder limits each of the five image builds to 2 CPUs,
 `GOMEMLIMIT=1500MiB` and `GOFLAGS=-p=1`. These build limits are separate from
 the runtime container limits and do not qualify production capacity.
 
+Each of the six runtime containers requests 1 CPU, 128 PIDs and no additional
+swap. Grafana receives 512 MiB RAM; GoBFD, FRR, Prometheus and both tshark
+containers receive 256 MiB each. The gate inspects these limits and rejects
+missing or different values while preserving each role's network and
+capability settings.
+
 ---
 
 ## ExaBGP Anycast

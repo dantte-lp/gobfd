@@ -328,6 +328,12 @@ make int-observability-down   # Очистка
 действуют отдельно от лимитов runtime-контейнеров и не подтверждают
 production capacity.
 
+Каждый из шести runtime-контейнеров получает 1 CPU, 128 PIDs без
+дополнительного swap. Для Grafana выделено 512 MiB RAM; для GoBFD, FRR,
+Prometheus и каждого из двух контейнеров tshark — 256 MiB. Проверка читает
+фактические лимиты через inspect и отклоняет отсутствующие или отличающиеся
+значения; настройки сети и capabilities каждой роли сохраняются.
+
 ---
 
 ## Anycast через ExaBGP

@@ -87,15 +87,12 @@ func buildOwnedImage(
 
 func observabilityBuildRequest(buildContext, repository, tag string) *testcontainers.ContainerRequest {
 	return &testcontainers.ContainerRequest{
-		//nolint:modernize // ContainerRequest implements ImageBuildInfo in testcontainers v0.44.
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context: buildContext, Dockerfile: "Containerfile", Repo: repository, Tag: tag, KeepImage: true,
-			BuildOptionsModifier: func(options *client.ImageBuildOptions) {
-				options.CPUPeriod = 100000
-				options.CPUQuota = 200000
-				options.Memory = 2 << 30
-				options.MemorySwap = 2 << 30
-			},
+		Context: buildContext, Dockerfile: "Containerfile", Repo: repository, Tag: tag, KeepImage: true,
+		BuildOptionsModifier: func(options *client.ImageBuildOptions) {
+			options.CPUPeriod = 100000
+			options.CPUQuota = 200000
+			options.Memory = 2 << 30
+			options.MemorySwap = 2 << 30
 		},
 	}
 }
