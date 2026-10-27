@@ -3,7 +3,6 @@ package bfd
 import (
 	"context"
 	"log/slog"
-	"runtime"
 	"time"
 )
 
@@ -40,13 +39,7 @@ func (s *Session) Run(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
-	// Pin the session goroutine to an OS thread for sub-millisecond timer
-	// precision. BFD detection intervals can be as low as 50ms; OS thread
-	// affinity reduces scheduler-induced jitter on timer wakeups.
 	s.cachedState = s.State()
-
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 
 	txInterval := s.calcTxIntervalHot()
 	txTimer := time.NewTimer(0)
