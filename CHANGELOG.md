@@ -672,6 +672,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Unsolicited cleanup regression tests await committed owner notifications with
+  a real external watchdog instead of a fixed yield count. A gated-owner
+  counterexample documents the observer defect without attributing the historical failure.
+
 - Reserve retiring Control-session keys through owner join and complete resource
   cleanup. Same-key claims and reverse rekeys return `AlreadyExists` before
   sender acquisition; callers can retry after Delete completes. Qualified
