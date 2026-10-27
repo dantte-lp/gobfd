@@ -729,6 +729,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Wait for usable IPv6 addresses before starting the Containerlab GoBFD
+  application; preserve duplicate address detection and fail on invalid state.
+
 - Avoid claiming a deployed Containerlab lab when prestarting external GoBFD
   and FRR containers. Retain private ownership and topology cleanup labels.
 

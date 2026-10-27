@@ -721,6 +721,11 @@ func configureGoBFDLinks(
 				return fmt.Errorf("configure GoBFD link for %s: %w", profile.name, err)
 			}
 		}
+		if profile.localIPv6 != "" && !options.DryRun {
+			if err := waitGoBFDIPv6Address(ctx, runner, interfaceName, profile.localIPv6); err != nil {
+				return fmt.Errorf("configure GoBFD link for %s: %w", profile.name, err)
+			}
+		}
 	}
 	return nil
 }

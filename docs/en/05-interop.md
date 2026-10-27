@@ -854,6 +854,11 @@ The external applications carry private owner/run labels and topology cleanup
 discovery labels. They omit the reserved `containerlab` label: Containerlab
 rejects an existing container with that lab label as an already-deployed lab.
 
+Before starting GoBFD, the runner waits up to 30 seconds for each configured
+IPv6 address on its expected interface to finish duplicate address detection.
+A missing or tentative address remains pending; failed detection or malformed
+address inventory stops deployment. Dry runs do not probe live addresses.
+
 Run `make interop-clab-bootstrap ARGS=--help` for all options. The bootstrap
 runner retains its fixed command allowlist; there is no vendor preparation
 fallback.
