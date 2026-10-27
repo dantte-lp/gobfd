@@ -161,6 +161,27 @@ engineering runs with a 30-minute period do not prove the corrected workload.
 Actual omissions, Down/recovery and causal classification remain separate
 acceptance requirements in Beads `gobfd-qj0.8.2.1.6.3.4.3.6.3` and its parent.
 
+The read-only `bfdload assess OWNER_JSON PEER_JSON` route evaluates one joined
+canonical reference/engineering run under the explicitly declared conditional
+clock model. Reuse the existing profile/admission/terminal-ledger/causal helpers
+and producer-recorded calibration bound. Serialized input does not reconstruct
+private monotonic coverage or turn no-observed-cancellation into step-free proof.
+Keep raw total uncertainty null and reference qualification false even on numeric
+pass. Native environment/clock discipline, source provenance, required variants
+and release acceptance remain outside this numeric result.
+Preserve the causal classifier's unchanged-transport and no-independent-hidden-fault
+assumptions in the public report alongside the clock conditions.
+
+Require complete evidence before threshold evaluation. Use exact integer CDF
+ranks at the existing 25/50 ms effect-histogram boundaries, sampled resource
+limits and actual requested pressure activity. Keep RX, dispatch, successful
+effect, no-effect and invalid denominators separate. Only stopped observations
+support exact cross-counter settlement. Unknown/malformed evidence is incomplete;
+measured limit violations or false/unresolved Down fail. Both return a structured
+report and nonzero exit. Engineering does not invent six-hour windows inside its
+30-minute duration. Reader compatibility preserves existing numeric nanosecond
+durations while rejecting duplicate/unknown fields and invalid Unicode.
+
 ## Consequences
 
 Commands without a control directory retain independent timers and explicit

@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add read-only `bfdload assess OWNER_JSON PEER_JSON` with conditional numeric
+  pass/fail/incomplete reports. Native and release qualification remain separate.
+
 - Add a scoped FRR-only same-key replacement wire fixture with API conflict,
   daemon-owned UDP socket lifetime, old/new packet epochs and peer recovery
   evidence. An actual exact-candidate runtime receipt remains required.

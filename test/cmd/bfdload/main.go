@@ -15,7 +15,8 @@ import (
 	"github.com/dantte-lp/gobfd/test/internal/bfdload"
 )
 
-var errCommandArguments = errors.New("expected environment, peers/owner PROFILE, or prepare HOST_NAMESPACE PROFILE")
+var errCommandArguments = errors.New("expected environment, peers/owner PROFILE, " +
+	"prepare HOST_NAMESPACE PROFILE, or assess OWNER_JSON PEER_JSON")
 
 func main() {
 	if err := run(context.Background(), os.Args[1:], os.Stdout); err != nil {
@@ -25,6 +26,9 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, output io.Writer) error {
+	if len(args) > 0 && args[0] == "assess" {
+		return runAssess(ctx, args[1:], output)
+	}
 	if len(args) > 0 && args[0] == "prepare" {
 		return runPrepare(ctx, args[1:], output)
 	}

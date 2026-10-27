@@ -508,6 +508,51 @@ bounds. Independent evidence of clock validity is still required before full
 load acceptance; cancellation evidence alone cannot satisfy it. This does not
 establish hardware timestamp accuracy, reference admission or supported load.
 
+### Conditional numeric profile assessment
+
+Run `bfdload assess OWNER_JSON PEER_JSON` after the existing owner and peer
+processes join. The read-only command accepts two regular JSON files, each
+bounded at 512 MiB. It rejects duplicate/unknown members, invalid Unicode,
+trailing documents and malformed schema. Existing numeric nanosecond durations
+remain compatible. JSON input cannot reconstruct process-local monotonic proof.
+
+The typed [assessor](../../test/internal/bfdload/assessment_linux.go) checks the
+canonical reference/engineering profile, admission, common phase, settled packet
+ledger, complete causal Down evidence, resource peaks and measured pressure.
+Requested GC, scheduler and churn variants require actual joined activity;
+one passing run does not complete the required variant matrix. A missing,
+unknown or inconsistent conditional conversion bound makes the result incomplete.
+It consumes the bound already recorded by the producer and checks its scalar
+model; it neither reruns `WithClockEpoch` on JSON nor promotes timerfd semantics.
+The report also retains the causal conditions: omitted packets would reach the
+owner over unchanged transport before due, with no coincident independent hidden fault.
+
+TX and detection acceptance use successful-effect histograms: cumulative counts
+at 25/50 ms must reach exact integer ranks `ceil(0.99*N)` and `ceil(0.999*N)`.
+No percentile interpolation is used. Dispatch and no-effect denominators remain
+separate. Kernel-RX-to-owner latency retains its own distribution and conditional
+clock bound; the TX/detection thresholds are not an additional RX threshold.
+Only stopped lifetime observations use exact cross-counter settlement; live
+measurement snapshots remain sequential. Reference RSS growth is strictly below
+5% between the first/final six-hour means. The 30-minute engineering report marks
+that six-hour comparison not applicable, while retaining its resource limits.
+
+Status `pass` exits zero; `fail` and `incomplete` exit nonzero after emitting the
+structured report. A pass means only numeric acceptance under the declared native
+software-clock model. Total `timing_uncertainty_ns` stays null and
+`reference_qualified` stays false. Native guest identity, operator clock discipline,
+source provenance, variant coverage and release qualification remain separate.
+
+Before each owned native run, use the approved runner procedure in
+`gobfd-qj0.8.2.1.6.3.4.4.1`: configure chrony over its Unix socket with
+`makestep 1.0 3`, bounded `waitsync 60 0.01 0 1`, then `makestep 1.0 0` before
+the measurement anchor. Retain daemon PID/InvocationID/start/restarts, selected
+source and normal leap status, boot/time namespace, kernel/Go/clocksource and
+configuration identities; compare after the run. The conditional model assumes
+no intervening suspend, migration, daemon restart, manual clock set or leap step.
+Chrony correction/skew is not the RX conversion-error bound. This operator
+procedure is not an assessor flag or a replacement for actual native evidence.
+
 ## Component comparison boundary
 
 The C programs in [`bench/c/`](../../bench/c/) are repository-owned models,
