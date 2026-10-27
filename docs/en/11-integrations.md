@@ -225,11 +225,13 @@ curl http://localhost:8080    # Verify load balancing
 make int-haproxy-down         # Cleanup
 ```
 
-`make int-haproxy` is the legacy demonstration runner: several observations
-are warning-only, and its session query still uses the unsupported `sessions`
-command. Use `make int-haproxy-testcontainers` for the separate assertion-based
-gate; a completed demo does not establish failover acceptance.
-The legacy runner correction is tracked in `gobfd-qj0.8.2.8.7.1.4.1`.
+`make int-haproxy` requires successful nginx traffic and the current
+`session list` command against the monitor's explicit loopback TCP endpoint.
+It pauses `backend1-bfd`, keeps the HTTP backend running, and attempts to
+restore the sidecar after an error or cancellation. Packet diagnostics remain
+optional. Use `make int-haproxy-testcontainers` for the separate assertion-based
+gate; a completed demo does not establish failover acceptance. Bounded native
+qualification is tracked in `gobfd-qj0.8.2.8.7.1.4.1.2`.
 
 ---
 

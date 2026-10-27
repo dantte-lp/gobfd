@@ -181,6 +181,13 @@ func TestRuntimeContractStartupFailureWraps(t *testing.T) {
 }
 
 func TestBFDSessionJSONGo127Compatibility(t *testing.T) {
+	valid := `{"peer_address":"172.23.0.30","local_address":"172.23.0.10","type":"SingleHop",` +
+		`"observation_version":42,"remote_known":true,"remote_diagnostic":"None",` +
+		`"local_control_plane_independent":true,"remote_control_plane_independent":true,` +
+		`"cause":"RemoteStateChange","padded_pdu_size":0,"local_state":"Up","remote_state":"Up"}`
+	if _, err := parseBFDSessionJSON(valid, "172.23.0.30"); err != nil {
+		t.Fatalf("decode current CLI session JSON: %v", err)
+	}
 	tests := map[string]struct {
 		input string
 		peer  string

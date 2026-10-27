@@ -729,6 +729,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Make legacy HAProxy traffic and current TCP CLI checks mandatory, pause the
+  BFD sidecar instead of the HTTP backend, and restore it after failures or
+  cancellation. Accept current CLI observation fields in the strict HAProxy gate.
+
 - Accept the current CLI observation fields in the strict observability session
   decoder while retaining duplicate, unknown-field, and trailing-data checks.
 

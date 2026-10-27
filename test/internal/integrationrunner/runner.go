@@ -28,14 +28,15 @@ const (
 )
 
 var (
-	errUsage          = errors.New("invalid integrationctl usage")
-	errEmptyPodName   = errors.New("kubectl returned an empty pod name")
-	errRootRequired   = errors.New("root privileges are required")
-	errK3sNotReady    = errors.New("K3s cluster did not become ready")
-	errHTTPStatus     = errors.New("unexpected HTTP status")
-	errHTTPBodyLarge  = errors.New("HTTP response body exceeds limit")
-	errEmptyArgv      = errors.New("empty command argument vector")
-	errComposeVersion = errors.New("unexpected Docker Compose provider version")
+	errUsage           = errors.New("invalid integrationctl usage")
+	errEmptyPodName    = errors.New("kubectl returned an empty pod name")
+	errRootRequired    = errors.New("root privileges are required")
+	errK3sNotReady     = errors.New("K3s cluster did not become ready")
+	errHTTPStatus      = errors.New("unexpected HTTP status")
+	errHTTPBodyLarge   = errors.New("HTTP response body exceeds limit")
+	errEmptyArgv       = errors.New("empty command argument vector")
+	errComposeVersion  = errors.New("unexpected Docker Compose provider version")
+	errHAProxyResponse = errors.New("HAProxy response does not identify nginx")
 )
 
 // ExitError preserves the exit status of a failed external command.
@@ -128,43 +129,55 @@ func (r *runner) composeLifecycle(
 	return operation(ctx)
 }
 
-func (r *runner) haproxy(ctx context.Context) error {
+func (r *runner) haproxy(ctx context.Context) (runErr error) {
 	if err := sleep(ctx, 10*time.Second); err != nil {
 		return err
 	}
 	r.info("Checking HAProxy traffic")
-	if body, err := r.httpGet(ctx, "http://localhost:8080"); err != nil || !bytes.Contains(body, []byte("nginx")) {
-		r.warn("HAProxy is not ready yet")
-	} else {
-		r.info("HAProxy is serving traffic from backends")
+	if err := r.requests(ctx, 1); err != nil {
+		return fmt.Errorf("check required HAProxy traffic: %w", err)
 	}
 
 	r.info("Checking BFD sessions")
-	if err := r.tryCommands(ctx,
-		[]string{"podman", "exec", "gobfd-monitor", "gobfdctl", "sessions"},
-		[]string{"podman", "exec", "gobfd-monitor", "/bin/gobfdctl", "sessions"},
+	if err := r.command(ctx, commandTimeout, r.stdout, r.stderr,
+		"podman", "exec", "gobfd-monitor", "/bin/gobfdctl", "--addr", "127.0.0.1:50052", "session", "list",
 	); err != nil {
-		r.warn("Could not query BFD sessions: %v", err)
+		return fmt.Errorf("query required HAProxy BFD sessions: %w", err)
 	}
 	r.capture(ctx, "tshark-haproxy", 10)
 
-	r.info("Pausing backend1")
-	if err := r.command(ctx, commandTimeout, r.stdout, r.stderr, "podman", "pause", "backend1"); err != nil {
+	restoreSidecar := true
+	defer func() {
+		if restoreSidecar {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+			defer cancel()
+			runErr = errors.Join(runErr, r.command(
+				cleanupCtx, cleanupTimeout, r.stdout, r.stderr, "podman", "unpause", "backend1-bfd",
+			))
+		}
+	}()
+	r.info("Pausing backend1 BFD sidecar")
+	if err := r.command(ctx, commandTimeout, r.stdout, r.stderr, "podman", "pause", "backend1-bfd"); err != nil {
 		return err
 	}
 	if err := sleep(ctx, 5*time.Second); err != nil {
 		return err
 	}
-	r.requests(ctx, 3)
+	if err := r.requests(ctx, 3); err != nil {
+		return fmt.Errorf("check HAProxy traffic during BFD failure: %w", err)
+	}
 
-	r.info("Unpausing backend1")
-	if err := r.command(ctx, commandTimeout, r.stdout, r.stderr, "podman", "unpause", "backend1"); err != nil {
+	r.info("Unpausing backend1 BFD sidecar")
+	if err := r.command(ctx, commandTimeout, r.stdout, r.stderr, "podman", "unpause", "backend1-bfd"); err != nil {
 		return err
 	}
+	restoreSidecar = false
 	if err := sleep(ctx, 8*time.Second); err != nil {
 		return err
 	}
-	r.requests(ctx, 3)
+	if err := r.requests(ctx, 3); err != nil {
+		return fmt.Errorf("check HAProxy traffic after BFD recovery: %w", err)
+	}
 	r.capture(ctx, "tshark-haproxy", 0)
 	r.info("HAProxy demo complete")
 	return nil
@@ -377,14 +390,18 @@ func (r *runner) kubernetesDown(ctx context.Context) error {
 	return r.kubectl(ctx, "delete", "namespace", "gobfd", "--timeout=30s")
 }
 
-func (r *runner) requests(ctx context.Context, count int) {
+func (r *runner) requests(ctx context.Context, count int) error {
 	for i := 1; i <= count; i++ {
-		if _, err := r.httpGet(ctx, "http://localhost:8080"); err != nil {
-			r.warn("Request %d failed: %v", i, err)
-		} else {
-			r.info("Request %d: OK", i)
+		body, err := r.httpGet(ctx, "http://localhost:8080")
+		if err != nil {
+			return fmt.Errorf("request %d: %w", i, err)
 		}
+		if !bytes.Contains(body, []byte("nginx")) {
+			return fmt.Errorf("request %d: %w", i, errHAProxyResponse)
+		}
+		r.info("Request %d: OK", i)
 	}
+	return nil
 }
 
 func (r *runner) capture(ctx context.Context, container string, count int) {
@@ -442,18 +459,6 @@ func (r *runner) httpGet(ctx context.Context, endpoint string) ([]byte, error) {
 	return body, nil
 }
 
-func (r *runner) tryCommands(ctx context.Context, commands ...[]string) error {
-	var lastErr error
-	for _, argv := range commands {
-		err := r.commandArgv(ctx, commandTimeout, r.stdout, r.stderr, argv)
-		if err == nil {
-			return nil
-		}
-		lastErr = err
-	}
-	return lastErr
-}
-
 func (r *runner) bestEffort(ctx context.Context, name string, args ...string) {
 	if err := r.command(ctx, commandTimeout, r.stdout, r.stderr, name, args...); err != nil {
 		r.warn("%s failed: %v", name, err)
@@ -495,18 +500,6 @@ func (r *runner) command(
 	args ...string,
 ) error {
 	return r.commandEnv(ctx, timeout, stdout, stderr, nil, name, args...)
-}
-
-func (r *runner) commandArgv(
-	ctx context.Context,
-	timeout time.Duration,
-	stdout, stderr io.Writer,
-	argv []string,
-) error {
-	if len(argv) == 0 {
-		return fmt.Errorf("run command: %w", errEmptyArgv)
-	}
-	return r.command(ctx, timeout, stdout, stderr, argv[0], argv[1:]...)
 }
 
 func (r *runner) commandArgvEnv(
