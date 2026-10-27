@@ -12,7 +12,6 @@ func managedContainerArguments(options Options, runID, name string) []string {
 		"run", "--detach", "--name", name,
 		labelOption, ownerLabel + "=" + labName,
 		labelOption, runLabel + "=" + runID,
-		labelOption, containerlabLabel + "=" + labName,
 		labelOption, "clab-topo-file=" + runtimeTopologyPath(options.ProjectRoot),
 		labelOption, "clab-node-lab-dir=" + filepath.Join(containerlabDirectory(options.ProjectRoot), name),
 		"--network", "none", "--cpus", "1", "--memory", "256m", "--memory-swap", "256m", "--pids-limit", "128",

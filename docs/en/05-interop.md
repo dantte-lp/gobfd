@@ -850,6 +850,10 @@ FRR container name in both the node and link endpoints; Containerlab only wires
 the already-started applications. Invalid input stops topology commands.
 Down and test-only paths keep their own receipt rules.
 
+The external applications carry private owner/run labels and topology cleanup
+discovery labels. They omit the reserved `containerlab` label: Containerlab
+rejects an existing container with that lab label as an already-deployed lab.
+
 Run `make interop-clab-bootstrap ARGS=--help` for all options. The bootstrap
 runner retains its fixed command allowlist; there is no vendor preparation
 fallback.

@@ -115,7 +115,7 @@ func TestVendorTestDriverBindsSelectedAPISocket(t *testing.T) {
 					body := map[string]any{
 						"Id": id, "Name": "/" + name,
 						"Config": map[string]any{"Labels": map[string]string{
-							ownerLabel: owner, runLabel: observedRun, containerlabLabel: labName,
+							ownerLabel: owner, runLabel: observedRun,
 						}},
 					}
 					if name == target {

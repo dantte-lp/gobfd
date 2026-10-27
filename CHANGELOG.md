@@ -729,6 +729,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Avoid claiming a deployed Containerlab lab when prestarting external GoBFD
+  and FRR containers. Retain private ownership and topology cleanup labels.
+
 - Reserve bounded raw and subscriber notification queues from configured producer
   populations in both the daemon and `bfdload`, preserving startup lifecycle
   bursts. Keep legacy capacity, over-budget GAP recovery and strict journal
