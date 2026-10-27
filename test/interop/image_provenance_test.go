@@ -3,52 +3,21 @@
 package interop_test
 
 import (
-	"encoding/hex"
 	"fmt"
 	"maps"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/dantte-lp/gobfd/test/internal/containertest"
 	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
 
 func validateFourPeerImageMetadata(metadata podmanapi.ImageMetadata, revision string) (map[string]string, error) {
-	if !fourPeerImageDigest(metadata.ID) {
-		return nil, fmt.Errorf("image identity is not an immutable SHA-256 digest: %w", errTimerEvidence)
-	}
-	labels := make(map[string]string, 9)
-	for _, name := range []string{
-		"source", "revision", "created", "version", "licenses", "title", "description", "base.name", "base.digest",
-	} {
-		key := "org.opencontainers.image." + name
-		value := metadata.Labels[key]
-		if strings.TrimSpace(value) == "" {
-			return nil, fmt.Errorf("image annotation %s is empty: %w", key, errTimerEvidence)
-		}
-		labels[key] = value
-	}
-	if labels["org.opencontainers.image.source"] != "https://github.com/dantte-lp/gobfd" ||
-		labels["org.opencontainers.image.revision"] != revision {
-		return nil, fmt.Errorf("image source does not match the candidate: %w", errTimerEvidence)
-	}
-	if _, err := time.Parse(time.RFC3339, labels["org.opencontainers.image.created"]); err != nil {
-		return nil, fmt.Errorf("parse image creation time: %w", err)
-	}
-	if labels["org.opencontainers.image.base.name"] != "docker.io/library/debian:trixie-slim" ||
-		!fourPeerImageDigest(labels["org.opencontainers.image.base.digest"]) {
-		return nil, fmt.Errorf("image base is not pinned Debian trixie: %w", errTimerEvidence)
+	labels, err := containertest.ValidateImageProvenance(metadata, revision)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errTimerEvidence, err)
 	}
 	return labels, nil
-}
-
-func fourPeerImageDigest(value string) bool {
-	digest, found := strings.CutPrefix(value, "sha256:")
-	if !found || len(digest) != 64 || digest != strings.ToLower(digest) {
-		return false
-	}
-	_, err := hex.DecodeString(digest)
-	return err == nil
 }
 
 func TestFourPeerImageProvenance(t *testing.T) {

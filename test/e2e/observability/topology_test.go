@@ -25,6 +25,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/dantte-lp/gobfd/test/internal/containertest"
+	"github.com/dantte-lp/gobfd/test/internal/interopproject"
 	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
 
@@ -33,6 +34,8 @@ type observabilityTopology struct {
 	endpoint                     string
 	root                         string
 	runID                        string
+	revision                     string
+	buildDate                    string
 	reportDir                    string
 	networkName                  string
 	containerNames               []string
@@ -40,6 +43,7 @@ type observabilityTopology struct {
 	containers                   []namedContainer
 	imageNames                   []string
 	imageIDs                     []string
+	imageProvenance              map[string]map[string]string
 	volumeNames                  []string
 	gobfdID                      string
 	frrID                        string
@@ -67,19 +71,20 @@ type namedContainer struct {
 }
 
 type observabilityResourceSnapshot struct {
-	ContainerNames []string `json:"container_names"`
-	ContainerIDs   []string `json:"container_ids"`
-	ImageNames     []string `json:"image_names"`
-	ImageIDs       []string `json:"image_ids"`
-	VolumeNames    []string `json:"volume_names"`
-	RuntimeImages  []string `json:"runtime_images"`
-	NetworkName    string   `json:"network_name"`
-	StartupError   string   `json:"startup_error,omitempty"`
+	ContainerNames  []string                     `json:"container_names"`
+	ContainerIDs    []string                     `json:"container_ids"`
+	ImageNames      []string                     `json:"image_names"`
+	ImageIDs        []string                     `json:"image_ids"`
+	ImageProvenance map[string]map[string]string `json:"image_provenance,omitempty"`
+	VolumeNames     []string                     `json:"volume_names"`
+	RuntimeImages   []string                     `json:"runtime_images"`
+	NetworkName     string                       `json:"network_name"`
+	StartupError    string                       `json:"startup_error,omitempty"`
 }
 
 type ownedImageClient interface {
 	ImageExists(ctx context.Context, image string) (bool, error)
-	ImageID(ctx context.Context, image string) (string, error)
+	ImageMetadata(ctx context.Context, image string) (podmanapi.ImageMetadata, error)
 	RemoveImage(ctx context.Context, image string) error
 }
 
@@ -150,6 +155,10 @@ func TestObservabilityTestcontainers(t *testing.T) {
 func newObservabilityTopology(t *testing.T, endpoint string) *observabilityTopology {
 	t.Helper()
 	root := repositoryRoot(t)
+	revision, buildDate, err := interopproject.BuildMetadata(t.Context(), root, os.Getenv("GOBFD_BUILD_REVISION"))
+	if err != nil {
+		t.Fatalf("resolve observability build metadata: %v", err)
+	}
 	runID, reportDir := observabilityReportDirectory(t, root)
 	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
 	if err != nil {
@@ -157,7 +166,7 @@ func newObservabilityTopology(t *testing.T, endpoint string) *observabilityTopol
 	}
 	topology := &observabilityTopology{
 		contract: newObservabilityContract(root), endpoint: endpoint, root: root,
-		runID: runID, reportDir: reportDir, client: client,
+		runID: runID, reportDir: reportDir, client: client, revision: revision, buildDate: buildDate,
 	}
 	if err := initializeDiagnostics(reportDir); err != nil {
 		t.Fatalf("initialize observability diagnostics: %v", err)
@@ -770,13 +779,14 @@ func (topology *observabilityTopology) recordStartupFailure(startupErr error) er
 
 func (topology *observabilityTopology) writeResourceSnapshot() error {
 	snapshot := observabilityResourceSnapshot{
-		ContainerNames: slices.Clone(topology.containerNames),
-		ContainerIDs:   slices.Clone(topology.containerIDs),
-		ImageNames:     slices.Clone(topology.imageNames),
-		ImageIDs:       slices.Clone(topology.imageIDs),
-		VolumeNames:    slices.Clone(topology.volumeNames),
-		RuntimeImages:  []string{topology.frrImage, topology.prometheusImage, topology.grafanaImage},
-		NetworkName:    topology.networkName, StartupError: topology.startupError,
+		ContainerNames:  slices.Clone(topology.containerNames),
+		ContainerIDs:    slices.Clone(topology.containerIDs),
+		ImageNames:      slices.Clone(topology.imageNames),
+		ImageIDs:        slices.Clone(topology.imageIDs),
+		ImageProvenance: topology.imageProvenance,
+		VolumeNames:     slices.Clone(topology.volumeNames),
+		RuntimeImages:   []string{topology.frrImage, topology.prometheusImage, topology.grafanaImage},
+		NetworkName:     topology.networkName, StartupError: topology.startupError,
 	}
 	contents, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {

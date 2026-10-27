@@ -18,6 +18,7 @@ import (
 	"github.com/moby/moby/client"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 
+	"github.com/dantte-lp/gobfd/test/internal/containertest"
 	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
 
@@ -45,9 +46,11 @@ func buildOwnedImage(
 	if !found {
 		return "", fmt.Errorf("split test-owned image %q", imageName)
 	}
-	if err := installOwnedImageCleanup(ctx, imageName, topology.client, t.Cleanup, func(err error) {
-		t.Errorf("%v", err)
-	}); err != nil {
+	var imageID string
+	if err := installOwnedImageCleanup(
+		ctx, imageName, topology.runID, &imageID, topology.client, t.Cleanup,
+		func(err error) { t.Errorf("%v", err) },
+	); err != nil {
 		return "", err
 	}
 	if err := topology.recordOwnedImage(imageName); err != nil {
@@ -65,58 +68,84 @@ func buildOwnedImage(
 			provider.Close(),
 		)
 	}
-	_, buildErr := dockerProvider.BuildImage(ctx, observabilityBuildRequest(buildContext, repository, tag))
+	_, buildErr := dockerProvider.BuildImage(ctx, topology.imageBuildRequest(buildContext, repository, tag))
 	if buildErr != nil {
 		return "", fmt.Errorf(
 			"build bounded test-owned image %s: %w", imageName,
 			errors.Join(buildErr, provider.Close()),
 		)
 	}
-	imageID, inspectErr := topology.client.ImageID(ctx, imageName)
-	if inspectErr == nil {
-		inspectErr = validateSHA256ContentID(imageID)
-	}
-	if inspectErr == nil {
-		inspectErr = topology.recordOwnedImageID(imageID)
-	}
+	imageID, inspectErr := topology.recordBuiltImage(ctx, imageName)
 	if err := errors.Join(inspectErr, provider.Close()); err != nil {
 		return "", fmt.Errorf("inspect exact built image tag %s: %w", imageName, err)
 	}
 	return imageName, nil
 }
 
-func observabilityBuildRequest(buildContext, repository, tag string) *testcontainers.ContainerRequest {
+func (topology *observabilityTopology) recordBuiltImage(ctx context.Context, imageName string) (string, error) {
+	metadata, err := topology.client.ImageMetadata(ctx, imageName)
+	if err != nil {
+		return "", err
+	}
+	if ownerErr := validateObservabilityImageOwner(metadata, imageName, topology.runID); ownerErr != nil {
+		return "", ownerErr
+	}
+	if recordErr := topology.recordOwnedImageID(metadata.ID); recordErr != nil {
+		return metadata.ID, recordErr
+	}
+	labels, err := containertest.ValidateImageProvenance(metadata, topology.revision)
+	if err != nil {
+		return metadata.ID, err
+	}
+	if labels["org.opencontainers.image.created"] != topology.buildDate {
+		return metadata.ID, fmt.Errorf("image %s build date does not match the run", metadata.ID)
+	}
+	if topology.imageProvenance == nil {
+		topology.imageProvenance = make(map[string]map[string]string)
+	}
+	topology.imageProvenance[metadata.ID] = labels
+	return metadata.ID, topology.writeResourceSnapshot()
+}
+
+func (topology *observabilityTopology) imageBuildRequest(
+	buildContext, repository, tag string,
+) *testcontainers.ContainerRequest {
 	return &testcontainers.ContainerRequest{
 		Context: buildContext, Dockerfile: "Containerfile", Repo: repository, Tag: tag, KeepImage: true,
+		BuildArgs: map[string]*string{"VCS_REF": &topology.revision, "BUILD_DATE": &topology.buildDate},
 		BuildOptionsModifier: func(options *client.ImageBuildOptions) {
 			options.CPUPeriod = 100000
 			options.CPUQuota = 200000
 			options.Memory = 2 << 30
 			options.MemorySwap = 2 << 30
+			options.Labels = map[string]string{
+				"io.gobfd.test": "observability", "io.gobfd.run": topology.runID,
+				"io.gobfd.image": repository + ":" + tag,
+			}
 		},
 	}
 }
 
-func validateSHA256ContentID(imageID string) error {
-	digest := strings.TrimPrefix(imageID, "sha256:")
-	if len(digest) != 64 || len(digest) == len(imageID) {
-		return fmt.Errorf("image ID = %q, want sha256 content ID", imageID)
-	}
-	for _, character := range digest {
-		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
-			return fmt.Errorf("image ID = %q, want lowercase hexadecimal", imageID)
-		}
+func validateObservabilityImageOwner(metadata podmanapi.ImageMetadata, imageName, runID string) error {
+	if !containertest.IsImageDigest(metadata.ID) || runID == "" ||
+		metadata.Labels["io.gobfd.test"] != "observability" || metadata.Labels["io.gobfd.run"] != runID ||
+		metadata.Labels["io.gobfd.image"] != imageName {
+		return fmt.Errorf("refuse unowned or invalid observability image %s", imageName)
 	}
 	return nil
 }
 
 func installOwnedImageCleanup(
 	ctx context.Context,
-	imageName string,
+	imageName, runID string,
+	ownedID *string,
 	client ownedImageClient,
 	register func(func()),
 	report func(error),
 ) error {
+	if ownedID == nil || runID == "" {
+		return errors.New("image cleanup requires a run and identity holder")
+	}
 	exists, err := client.ImageExists(ctx, imageName)
 	if err != nil {
 		return fmt.Errorf("inspect unique test-owned image %s before build: %w", imageName, err)
@@ -127,13 +156,31 @@ func installOwnedImageCleanup(
 	register(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
 		defer cancel()
-		exists, inspectErr := client.ImageExists(cleanupCtx, imageName)
+		reference := *ownedID
+		if reference == "" {
+			reference = imageName
+		}
+		exists, inspectErr := client.ImageExists(cleanupCtx, reference)
 		if inspectErr != nil {
 			report(fmt.Errorf("inspect exact test-owned image %s during cleanup: %w", imageName, inspectErr))
 			return
 		}
 		if exists {
-			if removeErr := client.RemoveImage(cleanupCtx, imageName); removeErr != nil {
+			metadata, err := client.ImageMetadata(cleanupCtx, reference)
+			if err != nil {
+				report(fmt.Errorf("inspect image ownership before cleanup: %w", err))
+				return
+			}
+			if err := validateObservabilityImageOwner(metadata, imageName, runID); err != nil {
+				report(err)
+				return
+			}
+			if *ownedID != "" && metadata.ID != *ownedID {
+				report(fmt.Errorf("observability image identity changed for %s", imageName))
+				return
+			}
+			*ownedID = metadata.ID
+			if removeErr := client.RemoveImage(cleanupCtx, metadata.ID); removeErr != nil {
 				report(fmt.Errorf("remove exact test-owned image %s: %w", imageName, removeErr))
 			}
 		}

@@ -4,8 +4,12 @@ package observability_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"maps"
+	"net"
+	"net/http"
 	"net/netip"
 	"os"
 	"os/exec" //nolint:depguard // Contract regression executes the current test binary with an isolated helper mode.
@@ -14,11 +18,14 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
 	testcontainers "github.com/testcontainers/testcontainers-go"
+
+	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
 
 func TestObservabilityBuildRequestLimits(t *testing.T) {
@@ -27,7 +34,10 @@ func TestObservabilityBuildRequestLimits(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(buildContext, "Containerfile"), []byte("FROM scratch\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	request := observabilityBuildRequest(buildContext, "localhost/gobfd-observability-fixture", "owned")
+	topology := &observabilityTopology{
+		revision: strings.Repeat("a", 40), buildDate: "2026-10-28T00:00:00Z", runID: "fixture-run",
+	}
+	request := topology.imageBuildRequest(buildContext, "localhost/gobfd-observability-fixture", "owned")
 	options, err := request.BuildOptions()
 	if err != nil {
 		t.Fatalf("construct actual image-build request: %v", err)
@@ -42,6 +52,21 @@ func TestObservabilityBuildRequestLimits(t *testing.T) {
 	if _, err := io.Copy(io.Discard, options.Context); err != nil {
 		t.Fatalf("consume image-build context: %v", err)
 	}
+	for name, want := range map[string]string{
+		"VCS_REF": strings.Repeat("a", 40), "BUILD_DATE": "2026-10-28T00:00:00Z",
+	} {
+		if got := options.BuildArgs[name]; got == nil || *got != want {
+			t.Errorf("image build argument %s = %v, want %q", name, got, want)
+		}
+	}
+	for name, want := range map[string]string{
+		"io.gobfd.test": "observability", "io.gobfd.run": "fixture-run",
+		"io.gobfd.image": "localhost/gobfd-observability-fixture:owned",
+	} {
+		if got := options.Labels[name]; got != want {
+			t.Errorf("image build ownership %s = %q, want %q", name, got, want)
+		}
+	}
 	for _, limit := range []struct {
 		name string
 		got  int64
@@ -55,6 +80,178 @@ func TestObservabilityBuildRequestLimits(t *testing.T) {
 		t.Run(limit.name, func(t *testing.T) {
 			if limit.got != limit.want {
 				t.Errorf("build %s = %d, want %d", limit.name, limit.got, limit.want)
+			}
+		})
+	}
+}
+
+func observabilityImageFixture() (string, map[string]string) {
+	return "sha256:" + strings.Repeat("1", 64), map[string]string{
+		"org.opencontainers.image.source":   "https://github.com/dantte-lp/gobfd",
+		"org.opencontainers.image.revision": strings.Repeat("a", 40),
+		"org.opencontainers.image.created":  "2026-10-28T00:00:00Z",
+		"org.opencontainers.image.version":  "fixture", "org.opencontainers.image.licenses": "Apache-2.0",
+		"org.opencontainers.image.title": "fixture", "org.opencontainers.image.description": "fixture",
+		"org.opencontainers.image.base.name":   "docker.io/library/debian:trixie-slim",
+		"org.opencontainers.image.base.digest": "sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f",
+		"io.gobfd.test":                        "observability",
+		"io.gobfd.run":                         "fixture-run",
+		"io.gobfd.image":                       "owned-child",
+		"private-value":                        "PRIVATE_FIXTURE",
+	}
+}
+
+func observabilityAPIClient(t *testing.T, handler http.Handler) *podmanapi.Client {
+	t.Helper()
+	socket := filepath.Join(t.TempDir(), "p.sock")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: handler, ReadHeaderTimeout: time.Second}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Close() })
+	client, err := podmanapi.NewClient(socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return client
+}
+
+func TestObservabilityBuiltImageProvenance(t *testing.T) {
+	id, valid := observabilityImageFixture()
+	for _, test := range []struct {
+		name, key, value string
+	}{
+		{"valid", "", ""},
+		{"missing annotation", "org.opencontainers.image.version", ""},
+		{"wrong source", "org.opencontainers.image.source", "other"},
+		{"wrong revision", "org.opencontainers.image.revision", strings.Repeat("b", 40)},
+		{"invalid timestamp", "org.opencontainers.image.created", "bad"},
+		{"stale timestamp", "org.opencontainers.image.created", "2026-10-27T00:00:00Z"},
+		{"wrong base", "org.opencontainers.image.base.name", "other"},
+		{"foreign run", "io.gobfd.run", "foreign"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			labels := maps.Clone(valid)
+			if test.key != "" {
+				labels[test.key] = test.value
+			}
+			client := observabilityAPIClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != "/v5.0.0/images/owned-child/json" {
+					http.NotFound(w, r)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"Id": id, "Config": map[string]any{
+					"Labels": labels, "Env": []string{"PRIVATE=PRIVATE_FIXTURE"},
+				}})
+			}))
+			topology := &observabilityTopology{
+				client: client, reportDir: t.TempDir(), runID: "fixture-run",
+				revision: strings.Repeat("a", 40), buildDate: "2026-10-28T00:00:00Z",
+			}
+			_, err := topology.recordBuiltImage(t.Context(), "owned-child")
+			if test.key != "" {
+				if err == nil {
+					t.Fatal("invalid built image provenance accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			contents, err := os.ReadFile(filepath.Join(topology.reportDir, "resources.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var retained struct {
+				Images map[string]map[string]string `json:"image_provenance"`
+			}
+			if err := json.Unmarshal(contents, &retained); err != nil {
+				t.Fatal(err)
+			}
+			if len(retained.Images[id]) != 9 || strings.Contains(string(contents), "PRIVATE_FIXTURE") {
+				t.Fatal("image provenance missing or retains unapproved metadata")
+			}
+		})
+	}
+}
+
+func TestObservabilityImageCleanupIdentity(t *testing.T) {
+	id, valid := observabilityImageFixture()
+	for _, test := range []struct {
+		name       string
+		bound      bool
+		foreign    bool
+		wantError  bool
+		wantDelete bool
+	}{
+		{"known identity despite substituted tag", true, true, false, true},
+		{"recover own failed build", false, false, false, true},
+		{"preserve foreign failed-build tag", false, true, true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var mu sync.Mutex
+			built, removed := false, false
+			var deleted []string
+			client := observabilityAPIClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				defer mu.Unlock()
+				if r.Method == http.MethodDelete {
+					deleted = append(deleted, strings.TrimPrefix(r.URL.Path, "/v5.0.0/images/"))
+					removed = true
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
+				if !built || removed {
+					http.NotFound(w, r)
+					return
+				}
+				labels := maps.Clone(valid)
+				responseID := id
+				if test.foreign && strings.HasSuffix(r.URL.Path, "/owned-child/json") {
+					labels["io.gobfd.run"] = "foreign"
+					responseID = "sha256:" + strings.Repeat("2", 64)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"Id": responseID, "Config": map[string]any{"Labels": labels},
+				})
+			}))
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			var callbacks []func()
+			var reported []error
+			ownedID := ""
+			if err := installOwnedImageCleanup(ctx, "owned-child", "fixture-run", &ownedID, client,
+				func(fn func()) { callbacks = append(callbacks, fn) },
+				func(err error) { reported = append(reported, err) }); err != nil {
+				t.Fatal(err)
+			}
+			mu.Lock()
+			built = true
+			mu.Unlock()
+			if test.bound {
+				ownedID = id
+			}
+			cancel()
+			callbacks[0]()
+			if test.wantDelete {
+				if ownedID != id {
+					t.Errorf("recovered image identity = %q, want %s", ownedID, id)
+				}
+				callbacks[0]()
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if (len(reported) != 0) != test.wantError {
+				t.Errorf("cleanup errors = %v, want error %t", reported, test.wantError)
+			}
+			if test.wantDelete {
+				if len(deleted) != 1 || deleted[0] != id {
+					t.Errorf("cleanup references = %v, want exact owned %s", deleted, id)
+				}
+			} else if len(deleted) != 0 {
+				t.Errorf("foreign image cleanup attempted: %v", deleted)
 			}
 		})
 	}

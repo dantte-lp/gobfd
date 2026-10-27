@@ -333,6 +333,14 @@ containers receive 256 MiB each. The gate inspects these limits and rejects
 missing or different values while preserving each role's network and
 capability settings.
 
+All five images receive one run's revision and build date through the shared
+metadata resolver. For an archived checkout without Git, pass its verified
+`GOBFD_BUILD_REVISION`. The gate verifies the nine public OCI annotations,
+records their allowlisted values with immutable image IDs, and rejects another
+run's images. Cleanup uses the captured ID; recovery of a failed build accepts
+only the exact image name with matching ownership labels. A substituted tag
+cannot redirect cleanup to a foreign image.
+
 ---
 
 ## ExaBGP Anycast

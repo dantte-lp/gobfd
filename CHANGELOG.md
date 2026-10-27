@@ -729,6 +729,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bind observability image builds to the run's source revision and timestamp,
+  share OCI provenance validation with FourPeer, and clean only verified owned
+  image IDs even when tags change or builds fail.
+
 - Preserve dangling parent images during shared Podman API test-image cleanup;
   keep forced removal disabled and propagate conflicts.
 
