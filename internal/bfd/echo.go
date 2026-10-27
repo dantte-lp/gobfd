@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -344,9 +343,6 @@ func (es *EchoSession) Run(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
 	txTimer := time.NewTimer(ApplyJitter(es.txInterval, es.detectMult))
 	defer txTimer.Stop()
 
