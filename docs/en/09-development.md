@@ -184,8 +184,10 @@ output to `go-test.json` and `go-test.log`, and preserves the test exit code.
 | `make int-k8s` | Kubernetes DaemonSet with GoBGP sidecar |
 
 The HAProxy and observability full-demo runners include warning-only
-observations; Kubernetes retains known selector and probe defects. Use the
-separate assertion-based testcontainers gates where available. Current limits
+observations. The Kubernetes manifest binds the GoBGP API to loopback and uses
+exec probes; its legacy runner still has selector and tool-probe defects, and
+live-cluster qualification remains open. Use the separate assertion-based
+testcontainers gates where available. Current limits
 and the tracked runner follow-up are in [Integrations](11-integrations.md).
 Their raw Compose `-down` targets remove volumes and orphans; inspect ownership
 and obtain the required deletion approval before cleanup.

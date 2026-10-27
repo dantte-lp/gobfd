@@ -4,6 +4,20 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## Publication boundary — 2026-10-27
+
+The current local source baseline is
+`dev@3e801626a889b2062829ce2a4b1fb6e0af82e6e2`. E2E runtime setup and diagnostics
+are Go-owned under closed `gobfd-qj0.8.2.8.2.2.8.4`; hosted-runner qualification
+remains separate from the accepted local source and critical fixtures.
+Pending activation implementation `gobfd-qj0.8.2.2.6` is closed after acceptance
+of its six required children. Optional interface-validation consolidation
+`gobfd-qj0.8.2.2.6.5` (P2) and global VNI reload `gobfd-qj0.8.2.2.6.6` (P3)
+remain unchanged in post-v1 backlog `gobfd-qj0.8.7`; global VNI defaults still
+require restart. Thread-pin A/B, calibrated reference/24h, final wire and
+security qualification remain open in their existing Beads tasks. Publication
+remains held. The previous dated projection is preserved below.
+
 ## Publication boundary — 2026-10-26
 
 This projection covers local

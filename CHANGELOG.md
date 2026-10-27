@@ -190,8 +190,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `cictl package-build` builds the DEB and RPM through the release path
   (GoReleaser v2.18.2, then RPM lifecycle finalization) as version 0.0.0, and
-  `cictl package-lifecycle` installs them into systemd containers built from
-  the pinned Debian 13 and Oracle Linux 10 release bases. The test proves the
+  `cictl package-lifecycle` installs the DEB into a systemd container built from
+  the pinned Debian 13 release base. Oracle Linux 10 is excluded from v1 OCI
+  products and lifecycle qualification; generic RPM generation is retained.
+  The scenario checks the
   hardened unit through start, sandbox state, a hold past `WatchdogSec=`,
   reload, restart after `SIGKILL`, a stop with a dead peer, zero sandbox
   denials and package removal.
@@ -617,8 +619,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refreshed base images: `debian:trixie-slim` index `a29215f6` (Debian 13.7,
   `trixie-20261005`) for every first-party recipe, `haproxy:3.4.6-trixie`
   (3.4.4-3.4.6 bug fixes, including BUG/MAJOR QUIC, H3 and HTX fixes) and
-  `nginx:1.31.6-trixie` (CVE-2026-90439 HTTP/3 fix). `oraclelinux:10-slim`
-  follows from 2026-10-19.
+  `nginx:1.31.6-trixie` (CVE-2026-90439 HTTP/3 fix). Oracle Linux 10 is excluded
+  from the v1 OCI product set; generic RPM generation remains available.
 - ExaBGP Anycast uses the shared GoBGP v4.10.0 recipe and a Debian trixie
   ExaBGP 5.0.13 image with `gobfd-exabgp-bridge` instead of
   `docker.io/jauderho/gobgp:v3.37.0` and `ghcr.io/exa-networks/exabgp`. Its
@@ -634,8 +636,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   consumers; the local amd64 BGP+BFD and BGP fast-failover testcontainers
   gates pass, and the RFC testcontainers gate passes all four race scenarios
   in 162.12 s; manual Compose paths are not rerun.
-  ExaBGP anycast, Kubernetes and Containerlab still use GoBGP v3.37.0 images
-  and are incompatible until migrated. `release/v0.6` keeps GoBGP v3.37.0.
+  ExaBGP anycast, Kubernetes and the Containerlab sidecar now build GoBGP from
+  the shared v4 source pin; their remaining live-cluster and vendor/native
+  qualification gates stay separate. `release/v0.6` keeps GoBGP v3.37.0.
 - BGP fast-failover Compose and testcontainers reuse the shared trixie
   FRR 10.7.1 and GoBGP recipes (v3.37.0 at qualification; v4.10.0 since the
   GoBGP v4 migration above) with capped builds/runtime. Manual
@@ -674,6 +677,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   all three P1 maintenance-review findings in Beads.
 
 ### Fixed
+
+- Normalize surrounding whitespace in VXLAN/Geneve backend selection consistently
+  between configuration validation and network constructors. Reserved backends
+  remain unavailable.
+- Reject missing, malformed or unpinned FRR topologies during Containerlab
+  deployment dry runs before issuing orchestration commands.
 
 - Replace duplicated E2E workflow AppArmor/socket shell setup with opt-in
   `toolbootstrap podman-e2e`, retaining the provider bootstrap, environment
