@@ -1,10 +1,114 @@
 package main
 
 import (
+	"bytes"
+	"errors"
+	"os"
+	"os/exec" //nolint:depguard // The current test binary isolates report's process exit and allowlist fixture.
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestVulnerabilityReportDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	expired := allowEntry{
+		Package: "example.com/module", Owner: "netops", Expires: "2000-01-01",
+		Reason: "fixture exception", Mitigation: "fixture isolation",
+	}
+	valid := expired
+	valid.Expires = "9999-12-31"
+	known := finding{Scanner: govulncheckName, ID: "GO-2099-0001", Package: expired.Package}
+	unknown := finding{
+		Scanner: osvScannerName, ID: "GO-2099-0002", Package: "example.com/other",
+		Version: "v1.0.0", Source: "fixture source",
+	}
+	cases := []struct {
+		name       string
+		entries    map[string]allowEntry
+		findings   []finding
+		wantExit   int
+		wantStderr []string
+		wantStdout string
+	}{
+		{
+			name: "expired-and-unallowed", entries: map[string]allowEntry{known.ID: expired},
+			findings: []finding{known, unknown}, wantExit: 2,
+			wantStderr: []string{
+				"allowlist entry GO-2099-0001 expired on 2000-01-01",
+				"unallowed vulnerability: GO-2099-0002",
+				"osv-scanner: example.com/other v1.0.0 fixture source",
+			},
+		},
+		{
+			name: "stale-and-unallowed", entries: map[string]allowEntry{known.ID: valid},
+			findings: []finding{unknown}, wantExit: 2,
+			wantStderr: []string{
+				"allowlist entry GO-2099-0001", "matches no scanner finding",
+				"unallowed vulnerability: GO-2099-0002",
+			},
+		},
+		{
+			name: "expired-only", entries: map[string]allowEntry{known.ID: expired},
+			findings: []finding{known}, wantExit: 2,
+			wantStderr: []string{"allowlist entry GO-2099-0001 expired on 2000-01-01"},
+		},
+		{
+			name: "unallowed-only", findings: []finding{unknown}, wantExit: 1,
+			wantStderr: []string{"unallowed vulnerability: GO-2099-0002"},
+		},
+		{
+			name: "allowed-only", entries: map[string]allowEntry{known.ID: valid}, findings: []finding{known},
+			wantStderr: []string{"allowed vulnerability: GO-2099-0001", "owner=netops expires=9999-12-31"},
+			wantStdout: "vulnerability audit: no unallowed vulnerabilities found",
+		},
+		{name: "no-findings", wantStdout: "vulnerability audit: no vulnerabilities found"},
+	}
+	const helperCase = "GOBFD_TEST_VULN_REPORT_CASE"
+	if name := os.Getenv(helperCase); name != "" {
+		for _, tc := range cases {
+			if tc.name == name {
+				allowlist = tc.entries
+				report(tc.findings)
+				return
+			}
+		}
+		t.Fatalf("unknown report fixture %q", name)
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			command := exec.CommandContext(t.Context(), os.Args[0],
+				"-test.run=^TestVulnerabilityReportDiagnostics$", "-test.timeout=15s")
+			command.Env = append(os.Environ(), helperCase+"="+tc.name)
+			var stdout, stderr bytes.Buffer
+			command.Stdout, command.Stderr = &stdout, &stderr
+			exitCode := 0
+			if err := command.Run(); err != nil {
+				var exitErr *exec.ExitError
+				if !errors.As(err, &exitErr) {
+					t.Fatalf("execute report fixture: %v", err)
+				}
+				exitCode = exitErr.ExitCode()
+			}
+			if exitCode != tc.wantExit {
+				t.Errorf("exit code=%d, want %d; stderr=%s", exitCode, tc.wantExit, stderr.String())
+			}
+			for _, fragment := range tc.wantStderr {
+				if !strings.Contains(stderr.String(), fragment) {
+					t.Errorf("stderr missing %q: %s", fragment, stderr.String())
+				}
+			}
+			if tc.wantExit != 0 && strings.Contains(stdout.String(), "vulnerability audit: no ") {
+				t.Errorf("failed audit printed success: %s", stdout.String())
+			}
+			if tc.wantStdout != "" && !strings.Contains(stdout.String(), tc.wantStdout) {
+				t.Errorf("stdout missing %q: %s", tc.wantStdout, stdout.String())
+			}
+		})
+	}
+}
 
 func TestClassifyFindingsHonorsAllowlistExpiry(t *testing.T) {
 	t.Parallel()

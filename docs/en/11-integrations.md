@@ -285,16 +285,17 @@ pre-session parser/demux refusals are not all peer packet drops. See
 
 | Alert | Expression | Severity |
 |-------|-----------|----------|
-| BFDNoActiveSessions | `sum(gobfd_bfd_sessions) == 0` for 10s | Warning |
+| BFDNoActiveSessions | `(up{job="gobfd"} == 1) unless on(job, instance) (gobfd_bfd_sessions{job="gobfd"} > 0)` for 10s | Warning |
+| BFDExporterUnavailable | `(up{job="gobfd"} == 0) or absent(up{job="gobfd"})` for 10s | Critical |
 | BFDSessionDownTransition | `increase(gobfd_bfd_state_transitions_total{from_state="Up",to_state="Down"}[1m]) > 0` | Critical |
 | BFDSessionFlapping | `sum by (peer_addr, local_addr) (increase(gobfd_bfd_state_transitions_total[5m])) > 3` for 1m | Warning |
 | BFDAuthFailures | `rate(gobfd_bfd_auth_failures_total[5m]) > 0` for 30s | Warning |
 | BFDPacketDrops | `rate(gobfd_bfd_packets_dropped_total[5m]) > 0` for 1m | Warning |
 
-The shipped `BFDNoActiveSessions` rule requires an existing session series and
-does not fire for a fresh empty exporter. Use the empty-vector handling in
-[Monitoring](07-monitoring.md#alerting-rules) when adapting this example;
-the shared rule correction is tracked in `gobfd-qj0.8.2.8.7.2.8`.
+The shipped `BFDNoActiveSessions` rule checks each healthy GoBFD exporter for
+the absence of a positive Control-session series, including a fresh empty
+exporter. `BFDExporterUnavailable` separately covers a failed scrape or an
+absent GoBFD scrape job. See [Monitoring](07-monitoring.md#alerting-rules).
 
 Prometheus v3.15.0, Grafana 13.2.4 and FRR 10.7.1 are built from
 checksum-pinned upstream artifacts on Debian trixie

@@ -78,6 +78,13 @@ scale and final qualification remain open under the parent.
 
 ## Timer observation boundary
 
+Control and Echo receive handlers reset their detection timers directly. The
+pinned [Go 1.27.3 timer contract](https://github.com/golang/go/blob/go1.27.3/src/time/sleep.go#L130-L136)
+guarantees that subsequent reads cannot return a tick from the previous settings.
+The [Go 1.27 release notes](https://go.dev/doc/go1.27#runtime) remove
+`asynctimerchan` permanently. The existing owner retains each timer and its
+deadline calculation; this cleanup provides no scheduling or scale qualification.
+
 Control and Echo owner loops retain the actual `time.Timer.C` timestamp.
 Go's [sendTime](https://github.com/golang/go/blob/master/src/time/sleep.go)
 adjusts a delayed channel delivery back to its scheduled firing time. Normal
@@ -258,7 +265,7 @@ alternate ports and validates actual packet commit, rejection and returned TX. I
 qualify RFC ports, an independent generator, daemon-wide resource bounds or the
 reference workload.
 
-`test/internal/bfdload.RunPeers` drives actual UDP with its own unauthenticated
+By default, `test/internal/bfdload.RunPeers` drives actual UDP with its own unauthenticated
 asynchronous Control state model, independent of the target session FSM.
 Separate seeded PCG streams cover each peer and direction; protocol jitter
 uses another stream. Random omissions and timed blackholes retain separate
@@ -273,6 +280,28 @@ for the named profiles. Scalar duplicates, malformed endpoints and reduced
 named profiles fail before sockets open. SIGINT/SIGTERM cancel the workload,
 join workers and emit a partial JSON report; signals retain normal termination
 while stdout is blocked after cleanup.
+
+The permanent test-tool selector `--echo` records `profile.echo=true` and uses
+actual Manager Echo sessions, the production Echo receiver and owned source-port
+leases. Named profiles retain their dimensions and require port 3785 for both
+ends; the prepared mixed-family plan keeps one owner address per family.
+`OwnerObservation.echo` records the receiver/ledger mode. The existing collector
+registers each physical Echo session once; repeated claims do not add gauges,
+and final release or Manager close unregisters after the owner joins.
+
+Echo peers return the original received datagram, including padding, with TTL
+or Hop Limit 254. They reject invalid codec, configured IP tuple, inbound TTL
+and authenticated input; they do not generate periodic Control packets or
+report a remote Control Up. Peer readiness means an actual return was written.
+The same phase, pressure, lifecycle, source-generation and bounded terminal
+accounting paths apply. A valid Echo RX blackhole segment denotes actual
+codec/tuple/TTL-checked input; `received_sequences` joins RX and return omissions
+to the independent Read sequence. It is not RFC return authentication.
+
+This software returner exercises the current Echo preview; it does not qualify
+an adjacent forwarding plane or complete RFC 9747. Echo-specific numeric/causal
+assessment remains pending in Beads `gobfd-qj0.8.2.1.7.1`; the current Control
+assessor rejects Echo manifests. Native A/B and final 24h/wire gates remain separate.
 
 ### Measurement phases and historical fixtures
 
@@ -301,7 +330,65 @@ passes in 47.67 s with the same 79/79 ledger and explicit nonempty measurement
 snapshot. Mutation and malformed-report checks prove snapshot and failure
 boundaries. Reference and absolute-clock qualification remain open.
 
+### Conditional Down classification
+
+`bfdload.ClassifyDowns` consumes the joined owner/peer reports independently.
+The existing topology controller saves `down-classification.json` beside their
+JSON, exact binary SHA/build evidence, effective resource inspection and cleanup
+receipts. It requires both source-count and incarnation completeness. Every
+eligible source witness receives exactly one `intentional`, `false` or
+`unresolved` outcome; wholly outside commit intervals are counted separately.
+Delayed notification timestamps do not discard an in-window commit. Invalid
+journals, duplicate witnesses, gaps, overflow or mismatched run/clock identity
+prevent a passing result.
+
+`blackhole_windows[].segments` freezes scalar packet identity with every actual
+omission offset and sequence. Each peer retains at most 256 windows, 16 segments
+and 128 combined TX/RX omission times per window. At 1,000 peers the absolute
+source limits are 4,096,000 segments and 32,768,000 offset/sequence pairs; the
+24-hour half-open reference schedule has 47 in-window periods, limiting these
+to 752,000 segments and 6,016,000 pairs. These are storage cardinality bounds,
+not measured allocation/RSS acceptance; slice capacities and other reports add
+overhead. Any limit violation remains counted and rejects completion.
+
+TX `valid=true` proves only codec validity. RX omissions remain unqualified
+because discard precedes source/TTL/packet acceptance. Conditional intentional
+classification additionally requires exact incarnation/tuple, the pre-expiry
+`validated_remote_discriminator`, old directional Detection Time, actual due,
+known role conversion brackets and a consecutive omission sequence covering
+that receive-to-deadline model. Early/unrelated Down cannot be excused by the
+schedule; missing evidence stays unresolved. Positive results explicitly assume
+unchanged transport would deliver unsent valid packets before due and no hidden
+independent fault coincides. `passing` is a conditional-model result;
+`reference_qualified=false` and unknown total timing uncertainty remain unchanged.
+See [ADR-0012](./adr/0012-owner-down-transition-witness.md).
+
+`--tx-only-blackhole` is a permanent, default-off `fixture` input owned by the
+workload harness, introduced on 2026-10-27 under Beads
+`gobfd-qj0.8.2.1.6.3.4.3.6.2`. It keeps peer RX active for the separate controlled
+positive case and records `tx_only_blackhole` in both requested profiles.
+Random loss streams remain unchanged. The canonical `reference` and `engineering`
+validators reject `true`; the original bidirectional stress case is retained.
+The separate quiet TX-only fixture requests six seconds, one 1.2-second blackout
+after three seconds, and no random loss, pressure or churn. The bidirectional
+fixture requests 13 seconds, a 1.2-second blackout after nine seconds, CPU/GC/
+scheduler pressure, churn and 25-per-mille random loss, requiring actual nonzero
+random omissions. These declared fixture inputs are not the named reference or
+engineering workload. Both process reports must equal the controller's requested
+profile; the controller passes fault direction and loss flags explicitly.
+
 ### Down-journal completeness
+
+The daemon and workload owner reserve raw and per-subscriber queues with the
+same `WithNotificationPopulation` policy: `min(65536, 64 + 3*N)` entries.
+The daemon counts enabled configured producer cohorts, including unsolicited
+capacity; `bfdload` uses its owner manifest. A 1000-session manifest reserves
+3064 entries in each queue. This bounded startup reserve covers registration
+and two state changes per producer, through 21824 producers before saturation.
+Each subscriber allocates its own queue; API/reload growth and sustained churn
+can still overflow it. The legacy channel and an unconfigured manager stay at
+64 entries. Raw overflow recovery, subscriber GAPs and strict completeness
+checks remain active. Source tests do not establish native scale acceptance.
 
 `RunOwner` records initial/final real collector snapshots, sampled resource
 peaks, means for the first/final six-hour RSS windows, runtime histogram
@@ -344,6 +431,75 @@ gap, omission or error. Do not use `observed_before_cutoff` as the number of
 measurement-window Down events. See the
 [journal implementation](../../test/internal/bfdload/down_journal_linux.go)
 and [timestamp classification](../../test/internal/bfdload/workload_linux.go).
+
+### Owner commit witnesses
+
+The optional `StateChange.TransitionTiming` carries a value copy of the last
+validated owner receive, the actual detection deadline when dispatched,
+negotiated Detection Time and a bracket around the local observation commit.
+Its version must match the published `ObservationVersion`. Logging and
+notification delays cannot move that bracket. `LastPacketReceived` remains
+wall-clock telemetry; the validated receive is not a kernel arrival timestamp.
+
+Echo owners retain the same version-bound commit bracket, their last processed
+return and the actual dispatched Echo detection deadline. For Echo,
+`ValidatedAt` denotes preview-owner acceptance, not RFC return validation or
+authentication; Detection Time is locally provisioned and remote state remains
+unknown. Direct handler calls do not manufacture a timer deadline. The existing
+Control classifier does not qualify Echo. The actual Echo UDP driver records
+independent returns. Its typed consumer classifies the witnessed old deadline
+under the explicit Echo return-delivery assumptions in
+[ADR 0012](adr/0012-owner-down-transition-witness.md). Native acceptance remains
+pending in Beads `gobfd-qj0.8.2.1.7.1`.
+
+The bounded `down_witnesses` array retains all delivered source transitions,
+including setup and drain. Unlike `down_events`, it is not filtered by the
+notification timestamp. A notification after cutoff can therefore retain a
+commit from inside the measurement window. Legacy cutoff counters keep their
+existing notification-time semantics and source-completeness requirements.
+
+Offsets are computed before UTC conversion or serialization. `commit_known`,
+`validated_known` and `detection_known` distinguish measured phase-zero values
+from unavailable data. Version mismatches, missing monotonic readings and
+reversed commit intervals remain unknown, with an explicit diagnostic.
+Virtual `synctest` timestamps do not establish native monotonic validity.
+
+[ADR-0012](adr/0012-owner-down-transition-witness.md) defines this evidence.
+Each row's `incarnation` binds a known fixed `slot`, `generation` and full
+manifest `endpoint` to the physical session. The collector seeds before churn,
+then follows matching `Deleted`/`Added` notifications; a repeated active `Added`
+does not advance generation. Missing or inconsistent history remains unknown.
+Only active slots hold `SessionRef`; deletion, invalidation and termination
+release those references. Lifetime rows keep scalar values.
+
+`down_journal.incarnations_complete` and `incarnation_error` describe identity
+history independently of source-count `complete`. Both completeness checks and
+known identities are required classifier inputs. Timing and identity alone
+do not establish the cause of Down or qualify the reference workload.
+
+### Actual peer blackhole omissions
+
+Each peer retains `blackhole_windows` for actual generator omissions, separately
+from the declared loss schedule. `start_ns` identifies the scheduled window;
+`first_tx_ns`, `last_tx_ns`, `tx_omitted` and the corresponding RX fields record
+actual omission decisions. A zero direction count means its timestamps have no
+observation. These are decision times, not socket arrival or owner commit times.
+RX decisions precede input validation; the journal does not establish source
+identity or the validity of a discarded BFD packet.
+Elapsed times use the adopted common phase when `phase` is present, otherwise
+the peer worker epoch. Do not correlate uncontrolled worker-relative values
+with owner events as though they shared an epoch.
+
+One worker coalesces TX/RX decisions into at most 256 windows per peer. The next
+distinct window increments `blackhole_events_omitted` and fails the run;
+truncation cannot produce a completed report. Random omissions and cancelled
+sends do not enter this journal. With no overflow, window TX/RX sums equal
+`blackhole_omitted` and `receive_blackhole_omitted` respectively.
+
+This journal supplies evidence for `gobfd-qj0.8.2.1.6.3.4.3.6`; it does not
+classify a Down as intentional. Correlation still requires the session
+incarnation, settled owner journal and valid phase/timing evidence. Schedule
+overlap alone cannot establish causality or a passing false-Down gate.
 
 ### Completion and qualification
 
@@ -403,6 +559,57 @@ bounds. Independent evidence of clock validity is still required before full
 load acceptance; cancellation evidence alone cannot satisfy it. This does not
 establish hardware timestamp accuracy, reference admission or supported load.
 
+### Conditional numeric profile assessment
+
+Run `bfdload assess OWNER_JSON PEER_JSON` after the existing owner and peer
+processes join. The read-only command accepts two regular JSON files, each
+bounded at 512 MiB. It rejects duplicate/unknown members, invalid Unicode,
+trailing documents and malformed schema. Existing numeric nanosecond durations
+remain compatible. JSON input cannot reconstruct process-local monotonic proof.
+
+The typed [assessor](../../test/internal/bfdload/assessment_linux.go) checks the
+canonical reference/engineering profile, admission, common phase, settled packet
+ledger, complete causal Down evidence, resource peaks and measured pressure.
+Requested GC, scheduler and churn variants require actual joined activity;
+one passing run does not complete the required variant matrix. A missing,
+unknown or inconsistent conditional conversion bound makes the result incomplete.
+It consumes the bound already recorded by the producer and checks its scalar
+model; it neither reruns `WithClockEpoch` on JSON nor promotes timerfd semantics.
+The report also retains the causal conditions: omitted packets would reach the
+owner over unchanged transport before due, with no coincident independent hidden fault.
+
+TX and detection acceptance use successful-effect histograms: cumulative counts
+at 25/50 ms must reach exact integer ranks `ceil(0.99*N)` and `ceil(0.999*N)`.
+No percentile interpolation is used. Dispatch and no-effect denominators remain
+separate. Kernel-RX-to-owner latency retains its own distribution and conditional
+clock bound for Control; the TX/detection thresholds are not an additional RX threshold.
+Echo selects `echo_tx`/`echo_detection` with the same ranks and invalid-event
+checks. Echo has no kernel-RX-to-commit distribution: this check is explicitly
+`not_applicable`, without substituted Control samples. Its stopped committed
+returns must equal current plus retired Echo RX counters, and independent peer
+inputs cannot exceed current plus retired owner TX. All report snapshots must
+agree with the manifest mode; remote Control Up is not synthesized.
+Only stopped lifetime observations use exact cross-counter settlement; live
+measurement snapshots remain sequential. Reference RSS growth is strictly below
+5% between the first/final six-hour means. The 30-minute engineering report marks
+that six-hour comparison not applicable, while retaining its resource limits.
+
+Status `pass` exits zero; `fail` and `incomplete` exit nonzero after emitting the
+structured report. A pass means only numeric acceptance under the declared native
+software-clock model. Total `timing_uncertainty_ns` stays null and
+`reference_qualified` stays false. Native guest identity, operator clock discipline,
+source provenance, variant coverage and release qualification remain separate.
+
+Before each owned native run, use the approved runner procedure in
+`gobfd-qj0.8.2.1.6.3.4.4.1`: configure chrony over its Unix socket with
+`makestep 1.0 3`, bounded `waitsync 60 0.01 0 1`, then `makestep 1.0 0` before
+the measurement anchor. Retain daemon PID/InvocationID/start/restarts, selected
+source and normal leap status, boot/time namespace, kernel/Go/clocksource and
+configuration identities; compare after the run. The conditional model assumes
+no intervening suspend, migration, daemon restart, manual clock set or leap step.
+Chrony correction/skew is not the RX conversion-error bound. This operator
+procedure is not an assessor flag or a replacement for actual native evidence.
+
 ## Component comparison boundary
 
 The C programs in [`bench/c/`](../../bench/c/) are repository-owned models,
@@ -424,9 +631,11 @@ a host Go toolchain. Raw historical Go samples remain in
 
 Remove no workload stage from the denominator when comparing results. A
 buffered enqueue, stateless FSM lookup and committed owner receive are three
-different operations. Authentication parsing allocates an `AuthSection` whose
-digest borrows the input buffer; signing and session-owned copies have their
-own lifetime and cost. Production VXLAN/Geneve TX uses caller-buffer
+different operations. Authentication parsing fills value-owned metadata and a
+bounded inline payload without an auth-object allocation. Packet and retained-wire
+ownership are recorded in [ADR-0011](adr/0011-bfd-auth-inline-payload.md).
+Signing, retained wire and session processing keep their own measured boundaries.
+Production VXLAN/Geneve TX uses caller-buffer
 `BuildInnerPacketInto`; the allocating compatibility wrapper is a separate path.
 
 ## Runtime architecture and resource limits
@@ -473,8 +682,11 @@ and wire behavior separately; their timestamps and success denominators differ.
 
 The approved reference is 1,000 mixed IPv4/IPv6 sessions, nominal 100 ms
 intervals and 24 hours after setup. The engineering profile is 5,000 sessions
-at 300 ms for 30 minutes. Named profiles preserve required CPU/loss/blackhole
-inputs. Bounded CPU, GC, scheduler-pressure and fixed-manifest session-churn
+at 300 ms for 30 minutes. Its one-second blackholes repeat every 10 minutes,
+with full windows at minutes 10 and 20; reference retains a 30-minute period.
+Activity at the measurement cutoff belongs to drain. A scheduled window alone
+does not prove actual omissions or causal Down/recovery. Named profiles preserve
+required CPU/loss/blackhole inputs. Bounded CPU, GC, scheduler-pressure and fixed-manifest session-churn
 drivers are implemented; GC, scheduler and churn variants are off by default.
 Calibrated stress distributions and independent clock evidence remain incomplete.
 Neither a short fixture nor a longer run without those

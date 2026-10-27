@@ -118,7 +118,7 @@ func newTestOverlayOwner(
 	t.Helper()
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
-	owner := newOverlayOwner(config.DefaultConfig(), newUDPSenderFactory(0), mgr, readiness,
+	owner := newOverlayOwner(config.DefaultConfig(), newUDPSenderFactory(config.SocketConfig{}), mgr, readiness,
 		slog.New(slog.DiscardHandler))
 	owner.open = opener.open
 	t.Cleanup(owner.close)
@@ -328,7 +328,8 @@ func TestOverlayOwnerRealBackendsWidenInPlace(t *testing.T) {
 	mgr := bfd.NewManager(logger)
 	t.Cleanup(mgr.Close)
 	coordinator, _ := newConvergedReadinessCoordinator(t)
-	owner := newOverlayOwner(config.DefaultConfig(), newUDPSenderFactory(0), mgr, coordinator.readiness, logger)
+	owner := newOverlayOwner(config.DefaultConfig(), newUDPSenderFactory(config.SocketConfig{}),
+		mgr, coordinator.readiness, logger)
 	t.Cleanup(owner.close)
 	for index, kind := range []bfd.TransportScopeKind{bfd.TransportScopeVXLAN, bfd.TransportScopeGeneve} {
 		local := netip.AddrFrom4([4]byte{127, 0, 57, byte(index + 1)})
@@ -380,7 +381,8 @@ func TestOverlayOwnerRejectsSameWireReplacement(t *testing.T) {
 	mgr := bfd.NewManager(logger)
 	t.Cleanup(mgr.Close)
 	coordinator, _ := newConvergedReadinessCoordinator(t)
-	owner := newOverlayOwner(config.DefaultConfig(), newUDPSenderFactory(0), mgr, coordinator.readiness, logger)
+	owner := newOverlayOwner(config.DefaultConfig(), newUDPSenderFactory(config.SocketConfig{}),
+		mgr, coordinator.readiness, logger)
 	t.Cleanup(owner.close)
 	old := bfd.TransportScope{
 		Kind: bfd.TransportScopeVXLAN, Owner: "overlay-test", Backend: "userspace-udp", VNI: 100,

@@ -339,11 +339,13 @@ func TestUnsolicitedCleanupScannerPreservesPendingFirstPacket(t *testing.T) {
 }
 
 func TestUnsolicitedCleanupPreservesReplacementDuringDueRetirement(t *testing.T) {
+	done, watchdogErr := realUnsolicitedWatchdog(t, 5*time.Second)
 	synctest.Test(t, func(t *testing.T) {
 		mgr, sess, pkt := newUnsolicitedTXOwner(t, ownershipNoopSender{}, StateDown)
 		defer mgr.Close()
 		mgr.unsolicited.policy.CleanupTimeout = time.Second
-		mgr.scheduleUnsolicitedCleanup(t.Context(), unsolicitedPathFailure(t, mgr, sess))
+		old := unsolicitedPathFailure(t, mgr, sess)
+		mgr.scheduleUnsolicitedCleanup(t.Context(), old)
 		synctest.Wait()
 		mgr.ownershipMu.Lock()
 		locked := true
@@ -354,45 +356,44 @@ func TestUnsolicitedCleanupPreservesReplacementDuringDueRetirement(t *testing.T)
 		}()
 		// Wait cannot quiesce a cleanup worker blocked on ownershipMu.
 		time.Sleep(time.Second)
-		blocked := false
-		for range 1000 {
-			if !mgr.lifecycleMu.TryLock() {
-				blocked = true
-				break
-			}
+		for mgr.lifecycleMu.TryLock() {
 			mgr.lifecycleMu.Unlock()
-			runtime.Gosched()
-		}
-		if !blocked {
-			t.Fatal("due cleanup did not reach its lifecycle-protected retirement")
-		}
-		receive := func(state State) StateChange {
-			for range 1000 {
-				select {
-				case event := <-mgr.rawNotifyCh:
-					if event.Ref == sess.Ref() && event.NewState == state {
-						return event
-					}
-				default:
-					runtime.Gosched()
-				}
+			select {
+			case <-done:
+				t.Fatal("due cleanup did not reach its lifecycle-protected retirement: ", watchdogErr())
+			default:
+				runtime.Gosched()
 			}
-			t.Fatalf("owner did not publish committed %s while old retirement waited", state)
-			return StateChange{}
+		}
+		heldAt := time.Now()
+		receive := func(state State) StateChange {
+			event, ok := awaitUnsolicitedObservation(done, mgr.rawNotifyCh, sess.Ref(), state)
+			if !ok {
+				t.Fatalf("owner did not publish committed %s while old retirement waited: %v",
+					state, watchdogErr())
+			}
+			return event
 		}
 		pkt.State = StateDown
 		if sess.RecvPacket(pkt) != DeliveryQueued {
 			t.Fatal("new attempt was not admitted while old retirement waited")
 		}
-		receive(StateInit)
+		init := receive(StateInit)
+		if init.unsolicitedAttempt <= old.unsolicitedAttempt || init.ObservationVersion <= old.ObservationVersion {
+			t.Fatal("new Init did not publish a fresh attempt and observation")
+		}
 		if sess.SetPathDown() != DeliveryQueued {
 			t.Fatal("later attempt did not admit its failure")
 		}
 		later := receive(StateDown)
-		if later.Cause != CausePathDown {
+		if later.Cause != CausePathDown || later.unsolicitedAttempt != init.unsolicitedAttempt ||
+			later.ObservationVersion <= init.ObservationVersion {
 			t.Fatal("later failure was not owner-committed PathDown")
 		}
 		mgr.scheduleUnsolicitedCleanup(t.Context(), later)
+		if !time.Now().Equal(heldAt) {
+			t.Fatal("observation wait advanced fake time while old retirement waited")
+		}
 		mgr.ownershipMu.Unlock()
 		locked = false
 		synctest.Wait()

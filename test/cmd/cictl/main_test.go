@@ -257,7 +257,9 @@ func TestRunDispatchesBenchmarkModes(t *testing.T) {
 	t.Parallel()
 
 	wantErr := errors.New("working directory unavailable")
-	for _, mode := range []string{"benchmark-run", "benchmark-base", "benchmark-normalize", "benchmark-report"} {
+	for _, mode := range []string{
+		"benchmark-run", "benchmark-base", "benchmark-pair", "benchmark-normalize", "benchmark-report",
+	} {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 
@@ -273,30 +275,28 @@ func TestRunDispatchesBenchmarkModes(t *testing.T) {
 
 func TestRunBenchmarkBaseDerivesOriginRefFromGitHubEnvironment(t *testing.T) {
 	t.Parallel()
-
-	wantErr := errors.New("stop after ref validation")
-	runner := &specCommandRecorder{err: wantErr}
-	root := t.TempDir()
-	runnerTemp := t.TempDir()
-	values := map[string]string{
-		"BENCH_REGEX":     "^BenchmarkRequired$",
-		"GITHUB_BASE_REF": "release/v0.6",
-		"RUNNER_TEMP":     runnerTemp,
-	}
-	err := run(context.Background(), []string{"benchmark-base", "--output", "old.txt"}, dependencies{
-		getwd:      func() (string, error) { return root, nil },
-		getenv:     func(name string) string { return values[name] },
-		specRunner: runner,
-	})
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("run(benchmark-base) error = %v, want wrapped runner error", err)
-	}
-	if len(runner.specs) != 1 {
-		t.Fatalf("benchmark-base command count = %d, want 1", len(runner.specs))
-	}
-	wantRef := "origin/release/v0.6"
-	if got := runner.specs[0].Args[len(runner.specs[0].Args)-1]; got != wantRef {
-		t.Errorf("validated base ref = %q, want %q", got, wantRef)
+	for _, mode := range []string{"benchmark-base", "benchmark-pair"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			wantErr := errors.New("stop after ref validation")
+			runner := &specCommandRecorder{err: wantErr}
+			root := t.TempDir()
+			values := map[string]string{
+				"BENCH_REGEX": "^BenchmarkRequired$", "GITHUB_BASE_REF": "release/v0.6", "RUNNER_TEMP": t.TempDir(),
+			}
+			if err := run(t.Context(), []string{mode}, dependencies{
+				getwd: func() (string, error) { return root, nil }, getenv: func(name string) string { return values[name] },
+				specRunner: runner,
+			}); !errors.Is(err, wantErr) {
+				t.Fatalf("run(%s) error=%v, want wrapped runner error", mode, err)
+			}
+			if len(runner.specs) != 1 {
+				t.Fatalf("%s command count=%d, want 1", mode, len(runner.specs))
+			}
+			if got := runner.specs[0].Args[len(runner.specs[0].Args)-1]; got != "origin/release/v0.6" {
+				t.Errorf("validated base ref=%q, want origin/release/v0.6", got)
+			}
+		})
 	}
 }
 

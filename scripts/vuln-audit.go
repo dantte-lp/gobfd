@@ -379,20 +379,20 @@ func report(findings []finding) {
 		}
 	}
 
-	if len(failures) > 0 {
-		for _, failure := range failures {
-			fmt.Fprintln(os.Stderr, failure)
+	for _, failure := range failures {
+		fmt.Fprintln(os.Stderr, failure)
+	}
+	for _, id := range sortedIDs(unallowed) {
+		fmt.Fprintf(os.Stderr, "unallowed vulnerability: %s\n", id)
+		for _, item := range unallowed[id] {
+			fmt.Fprintf(os.Stderr, "  - %s: %s %s %s\n", item.Scanner, item.Package, item.Version, item.Source)
 		}
-		os.Exit(2)
 	}
 
+	if len(failures) > 0 {
+		os.Exit(2)
+	}
 	if len(unallowed) > 0 {
-		for _, id := range sortedIDs(unallowed) {
-			fmt.Fprintf(os.Stderr, "unallowed vulnerability: %s\n", id)
-			for _, item := range unallowed[id] {
-				fmt.Fprintf(os.Stderr, "  - %s: %s %s %s\n", item.Scanner, item.Package, item.Version, item.Source)
-			}
-		}
 		os.Exit(1)
 	}
 

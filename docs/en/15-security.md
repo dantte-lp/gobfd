@@ -119,6 +119,12 @@ the recorded rationale, other exceptions and removal triggers. This policy
 is not a statement of current advisory-database contents or final-candidate
 acceptance.
 
+For successfully collected and parsed scanner input, the audit lists all
+unallowed findings even when an exception is expired or stale. Allowlist
+failures retain exit code 2; otherwise unallowed findings return 1. Neither
+failure path emits a success summary. Scanner execution and parsing failures
+remain fail-closed.
+
 CI scans the runtime and isolated tool module manifests separately. Raw
 runtime and tools vulnerability reports and their separate CycloneDX SBOMs are
 retained in the `dependency-security-reports` artifact so tool-only findings

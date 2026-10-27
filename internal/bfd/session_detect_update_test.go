@@ -252,7 +252,7 @@ func TestSessionDetectMultiplierPreservesAuthentication(t *testing.T) {
 			if err = UnmarshalControlPacket(raw, &packet); err != nil {
 				t.Fatal(err)
 			}
-			if err = auth.Verify(receiver, keys, &packet, raw, len(raw)); err != nil {
+			if err = auth.Verify(receiver, keys, packet, raw, len(raw)); err != nil {
 				t.Fatal(err)
 			}
 			if packet.Auth.KeyID != 7 || packet.DetectMult != uint8(3+2*i) ||

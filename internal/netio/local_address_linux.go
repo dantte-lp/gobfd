@@ -80,7 +80,7 @@ func probeLocalAddress(claim LocalAddress) error {
 	lc := net.ListenConfig{Control: func(_, _ string, raw syscall.RawConn) error {
 		var optionErr error
 		if err := raw.Control(func(fd uintptr) {
-			optionErr = setSenderSockOpts(int(fd), addr.Is6(), false, claim.Interface)
+			optionErr = setSenderSockOpts(int(fd), addr.Is6(), false, claim.Interface, nil, nil)
 			if optionErr == nil {
 				// A probe must never share an existing session's port.
 				optionErr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEADDR, 0)

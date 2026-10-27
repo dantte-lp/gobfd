@@ -22,10 +22,21 @@ qualify lifetime metric cardinality, supported scale or a latency distribution.
 
 ### Interpret allocation results
 
+- CI collects ten alternating base/head pairs with 100 ms samples; the
+  [paired comparison guide](docs/en/12-benchmarks.md#paired-ci-comparison)
+  distinguishes these samples from six-run standalone diagnostics.
 - A zero-allocation result applies only to the named benchmark body.
-- Authenticated unmarshal allocates `AuthSection`; the parsed digest borrows
-  the input buffer. The allocation is not a digest copy and provides no
-  independent digest lifetime.
+- Authenticated unmarshal owns `AuthSection` and its bounded payload by value.
+  Hash verification separately requires immutable retained wire. See
+  [ADR-0011](docs/en/adr/0011-bfd-auth-inline-payload.md).
+- All five built-in Sign/Verify methods and the authenticated owner fixture with
+  real metrics report 0 B/op and 0 allocs/op, three runs of 200000 iterations.
+  [Inline samples](docs/en/12-benchmarks.md#inline-payload--2026-10-26) exclude
+  socket receive and retained-wire allocation; clock input is synthetic.
+- Micro-BFD dispatch logging reports 0 allocs/op without an actuator, including
+  enabled JSON encoding. The noop actuator retains 4 allocs/op for its bounded
+  context; the full allocation target remains open. See
+  [dispatch samples](docs/en/12-benchmarks.md#micro-bfd-dispatch-logging--2026-10-26).
 - `BuildInnerPacketInto` writes into caller-owned storage and is used by
   production overlay TX. `BuildInnerPacket` is the allocating compatibility wrapper.
 - Runtime FSM lookup uses an indexed array built from the declarative map
@@ -68,9 +79,21 @@ supported packet rates or claim immunity to GC pauses.
 
 ### Интерпретация выделений памяти
 
+- CI собирает десять чередующихся пар base/head с целевым временем 100 мс;
+  [руководство парного сравнения](docs/ru/12-benchmarks.md#парное-сравнение-в-ci)
+  отличает эти измерения от отдельных диагностических серий по шесть запусков.
 - Нулевые выделения относятся только к указанному телу бенчмарка.
-- Разбор аутентификации создаёт `AuthSection`; дайджест ссылается на входной
-  буфер. Это не копия дайджеста и не независимый срок его жизни.
+- Разбор аутентификации хранит `AuthSection` и ограниченный payload во владении
+  пакета по значению. Hash verification отдельно требует сохранённого неизменяемого
+  wire. См. [ADR-0011](docs/ru/adr/0011-bfd-auth-inline-payload.md).
+- Все пять встроенных Sign/Verify и fixture аутентифицированного владельца
+  с реальными метриками дают 0 B/op и 0 allocs/op: три серии по 200000 итераций.
+  [Измерения inline](docs/ru/12-benchmarks.md#встроенный-payload--2026-10-26)
+  не включают приём сокетом и выделение сохраняемого wire; вход часов синтетический.
+- Логирование Micro-BFD dispatch даёт 0 allocs/op без actuator, включая
+  включённое JSON-кодирование. Noop-actuator сохраняет 4 allocs/op для
+  ограниченного контекста; полная цель выделений остаётся открытой. См.
+  [измерения dispatch](docs/ru/12-benchmarks.md#логирование-micro-bfd-dispatch--2026-10-26).
 - `BuildInnerPacketInto` пишет в память вызывающего кода и используется
   рабочим путём передачи overlay. `BuildInnerPacket` — обёртка совместимости
   с выделением памяти.

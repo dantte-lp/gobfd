@@ -15,7 +15,7 @@ func (failingCachedPacketAuth) Sign(*AuthState, AuthKeyStore, *ControlPacket, []
 	return errors.New("test auth sign failure")
 }
 
-func (failingCachedPacketAuth) Verify(*AuthState, AuthKeyStore, *ControlPacket, []byte, int) error {
+func (failingCachedPacketAuth) Verify(*AuthState, AuthKeyStore, ControlPacket, []byte, int) error {
 	return nil
 }
 
@@ -23,14 +23,14 @@ type oversizedCachedPacketAuth struct{}
 
 func (oversizedCachedPacketAuth) Sign(_ *AuthState, _ AuthKeyStore, pkt *ControlPacket, _ []byte, _ int) error {
 	pkt.AuthPresent = true
-	pkt.Auth = &AuthSection{
+	pkt.Auth = AuthSection{
 		Type: AuthTypeSimplePassword,
 		Len:  MaxPacketSize,
 	}
 	return nil
 }
 
-func (oversizedCachedPacketAuth) Verify(*AuthState, AuthKeyStore, *ControlPacket, []byte, int) error {
+func (oversizedCachedPacketAuth) Verify(*AuthState, AuthKeyStore, ControlPacket, []byte, int) error {
 	return nil
 }
 

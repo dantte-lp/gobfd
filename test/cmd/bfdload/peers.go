@@ -91,6 +91,7 @@ func parseWorkloadConfig(args []string) (bfdload.PeerConfig, error) {
 }
 
 func registerProfileFlags(flags *flag.FlagSet, p *bfdload.Profile) {
+	flags.BoolVar(&p.Echo, "echo", p.Echo, "select Echo owners and actual packet returns instead of Control peers")
 	flags.IntVar(&p.Sessions, "sessions", p.Sessions, "exact session count")
 	flags.DurationVar(&p.Interval, "interval", p.Interval, "desired TX and required RX interval")
 	flags.DurationVar(&p.Duration, "duration", p.Duration, "traffic duration")
@@ -100,6 +101,8 @@ func registerProfileFlags(flags *flag.FlagSet, p *bfdload.Profile) {
 	flags.BoolVar(&p.SchedulerPressure, "scheduler-pressure", p.SchedulerPressure,
 		"generate bounded owner compute/yield contention")
 	flags.BoolVar(&p.SessionChurn, "session-churn", p.SessionChurn, "release and recover admitted owner sessions")
+	flags.BoolVar(&p.TXOnlyBlackhole, "tx-only-blackhole", p.TXOnlyBlackhole,
+		"fixture only: omit peer TX while retaining owner-to-peer input")
 	flags.Uint64Var(&p.LossPermille, "loss-permille", p.LossPermille, "intentional loss per thousand in each direction")
 	flags.DurationVar(&p.BlackholeEvery, "blackhole-every", p.BlackholeEvery, "blackhole period, zero disables")
 	flags.DurationVar(&p.BlackholeFor, "blackhole-for", p.BlackholeFor, "blackhole duration, zero disables")

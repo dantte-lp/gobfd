@@ -27,31 +27,33 @@ type PeerConfig struct {
 
 // PeerSessionObservation counts actual writes separately from scheduled omissions.
 type PeerSessionObservation struct {
-	ID                      uint64        `json:"id"`
-	Endpoint                OwnerEndpoint `json:"endpoint"`
-	SourcePort              uint16        `json:"source_port"`
-	State                   string        `json:"state"`
-	RemoteDiscriminator     uint32        `json:"remote_discriminator"`
-	Scheduled               uint64        `json:"scheduled"`
-	WriteAttempts           uint64        `json:"write_attempts"`
-	Written                 uint64        `json:"written"`
-	WriteErrors             uint64        `json:"write_errors"`
-	WriteCanceled           uint64        `json:"write_canceled"`
-	RandomOmitted           uint64        `json:"random_omitted"`
-	BlackholeOmitted        uint64        `json:"blackhole_omitted"`
-	Read                    uint64        `json:"read"`
-	ReadErrors              uint64        `json:"read_errors"`
-	Accepted                uint64        `json:"accepted"`
-	Rejected                uint64        `json:"rejected"`
-	ReceiveRandomOmitted    uint64        `json:"receive_random_omitted"`
-	ReceiveBlackholeOmitted uint64        `json:"receive_blackhole_omitted"`
-	ReceiveNotProcessed     uint64        `json:"receive_not_processed"`
-	KernelDropSamples       uint64        `json:"kernel_drop_samples"`
-	KernelDropInvalid       uint64        `json:"kernel_drop_invalid"`
-	KernelDropCounterRaw    uint32        `json:"kernel_drop_counter_raw"`
-	UpTransitions           uint64        `json:"up_transitions"`
-	DownTransitions         uint64        `json:"down_transitions"`
-	DetectionExpirations    uint64        `json:"detection_expirations"`
+	ID                      uint64                `json:"id"`
+	Endpoint                OwnerEndpoint         `json:"endpoint"`
+	SourcePort              uint16                `json:"source_port"`
+	State                   string                `json:"state"`
+	RemoteDiscriminator     uint32                `json:"remote_discriminator"`
+	Scheduled               uint64                `json:"scheduled"`
+	WriteAttempts           uint64                `json:"write_attempts"`
+	Written                 uint64                `json:"written"`
+	WriteErrors             uint64                `json:"write_errors"`
+	WriteCanceled           uint64                `json:"write_canceled"`
+	RandomOmitted           uint64                `json:"random_omitted"`
+	BlackholeOmitted        uint64                `json:"blackhole_omitted"`
+	Read                    uint64                `json:"read"`
+	ReadErrors              uint64                `json:"read_errors"`
+	Accepted                uint64                `json:"accepted"`
+	Rejected                uint64                `json:"rejected"`
+	ReceiveRandomOmitted    uint64                `json:"receive_random_omitted"`
+	ReceiveBlackholeOmitted uint64                `json:"receive_blackhole_omitted"`
+	ReceiveNotProcessed     uint64                `json:"receive_not_processed"`
+	KernelDropSamples       uint64                `json:"kernel_drop_samples"`
+	KernelDropInvalid       uint64                `json:"kernel_drop_invalid"`
+	KernelDropCounterRaw    uint32                `json:"kernel_drop_counter_raw"`
+	UpTransitions           uint64                `json:"up_transitions"`
+	DownTransitions         uint64                `json:"down_transitions"`
+	DetectionExpirations    uint64                `json:"detection_expirations"`
+	BlackholeWindows        []PeerBlackholeWindow `json:"blackhole_windows"`
+	BlackholeEventsOmitted  uint64                `json:"blackhole_events_omitted"`
 }
 
 // PeerObservation is generator evidence, never a daemon or reference verdict.
@@ -177,9 +179,15 @@ func (g *peerGroup) finish(
 				peer.observed.ReceiveNotProcessed++
 			}
 		}
-		peer.observed.State, peer.observed.RemoteDiscriminator = peer.state.state.String(), peer.state.remoteDiscriminator
+		if !peer.echo {
+			peer.observed.State, peer.observed.RemoteDiscriminator = peer.state.state.String(), peer.state.remoteDiscriminator
+		}
 		result.Peers = append(result.Peers, peer.observed)
 		runErr = errors.Join(runErr, peer.readErr, peer.loopErr)
+		if omitted := peer.observed.BlackholeEventsOmitted; omitted != 0 {
+			runErr = errors.Join(runErr, fmt.Errorf("peer %d blackhole journal omitted %d events: %w",
+				peer.observed.ID, omitted, ErrProfile))
+		}
 	}
 	result.Stopped, result.Completed = true, completed
 	if phase := g.phase.Load(); phase != nil {
@@ -210,6 +218,7 @@ func (cfg PeerConfig) Validate() error {
 		return fmt.Errorf("peer count or stable source-port range: %w", ErrProfile)
 	}
 	if err := validateOwnerConfig(OwnerConfig{
+		Echo:     cfg.Profile.Echo,
 		Sessions: cfg.Sessions, Interval: cfg.Profile.Interval, DetectMultiplier: cfg.Profile.DetectMultiplier,
 	}); err != nil {
 		return fmt.Errorf("peer wire identities: %w: %w", ErrProfile, err)
@@ -231,9 +240,13 @@ func validatePeerBindings(cfg PeerConfig) error {
 		if endpoint.Local.Addr().Is4() {
 			ipv4++
 		}
-		wrongPort := endpoint.Local.Port() != netio.PortSingleHop || endpoint.Peer.Port() != netio.PortSingleHop
+		port := netio.PortSingleHop
+		if cfg.Profile.Echo {
+			port = netio.PortEcho
+		}
+		wrongPort := endpoint.Local.Port() != port || endpoint.Peer.Port() != port
 		if cfg.Profile.Kind != fixtureProfile && (wrongPort || endpoint.Interface == "") {
-			return fmt.Errorf("qualification peer requires RFC 5881 Control ports and interface binding: %w", ErrProfile)
+			return fmt.Errorf("qualification peer requires selected protocol ports and interface binding: %w", ErrProfile)
 		}
 	}
 	if cfg.Profile.Kind != fixtureProfile && (ipv4 == 0 || ipv4 == len(cfg.Sessions)) {

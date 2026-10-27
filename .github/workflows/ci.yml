@@ -216,11 +216,8 @@ jobs:
           path: /go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
-      - name: Run benchmarks (PR)
-        run: go run ./test/cmd/cictl benchmark-run --output new.txt
-
-      - name: Run benchmarks (base)
-        run: go run ./test/cmd/cictl benchmark-base --output old.txt
+      - name: Run paired benchmarks (base and PR)
+        run: go run ./test/cmd/cictl benchmark-pair --old old.txt --new new.txt
 
       - name: Normalize renamed benchmarks and validate inputs
         run: go run ./test/cmd/cictl benchmark-normalize --old old.txt --new new.txt

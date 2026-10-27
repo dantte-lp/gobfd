@@ -25,6 +25,9 @@ type sessionReplacement struct {
 func (m *Manager) replacementEntryLocked(
 	owner SessionOwner, key SessionKey, desired map[SessionKey]reconcileCandidate,
 ) (*sessionEntry, bool, error) {
+	if _, retiring := m.retiringSessions[key]; retiring {
+		return nil, false, fmt.Errorf("reconcile retiring identity: %w", ErrDuplicateSession)
+	}
 	entry, exists := m.sessionsByPeer[demuxKeyFromSessionConfig(desired[key].config.SessionConfig)]
 	if !exists || entry.key == key {
 		return nil, false, nil

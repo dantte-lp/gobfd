@@ -180,7 +180,7 @@ func TestSingleHopListenerPort3784DeliversToSession(t *testing.T) {
 			if err := bfd.UnmarshalControlPacket(received.Data, &pkt); err != nil {
 				t.Fatal(err)
 			}
-			if outcome, err := mgr.DemuxWithWire(&pkt, convertMeta(received.Meta), nil); outcome != bfd.DeliveryQueued {
+			if outcome, err := mgr.DemuxWithWire(pkt, convertMeta(received.Meta), nil); outcome != bfd.DeliveryQueued {
 				t.Fatalf("DemuxWithWire = %s, %v; want queued", outcome, err)
 			}
 		})

@@ -23,6 +23,7 @@ const (
 type packetDecision struct {
 	sequence    uint64
 	disposition packetDisposition
+	elapsed     time.Duration
 }
 
 // Each peer worker owns its stream; traversal order cannot couple different peers.
@@ -67,5 +68,5 @@ func (s *lossSchedule) next(elapsed time.Duration) (packetDecision, error) {
 	case draw < s.lossPermille:
 		disposition = packetRandomLoss
 	}
-	return packetDecision{sequence: s.sequence, disposition: disposition}, nil
+	return packetDecision{sequence: s.sequence, disposition: disposition, elapsed: elapsed}, nil
 }

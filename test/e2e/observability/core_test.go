@@ -36,6 +36,7 @@ type observabilityContract struct {
 	grafanaVersion                     string
 	gobfdConfig, frrDaemons, frrConfig string
 	prometheusConfig, alertRules       string
+	alertRuleTests                     string
 	grafanaDatasource                  string
 	grafanaDashboardProvider           string
 	grafanaDashboard                   string
@@ -156,6 +157,7 @@ func newObservabilityContract(root string) observabilityContract {
 		frrConfig:                filepath.Join(base, "frr/frr.conf"),
 		prometheusConfig:         filepath.Join(base, "configs/prometheus/prometheus.yml"),
 		alertRules:               filepath.Join(base, "configs/prometheus/alert-rules.yml"),
+		alertRuleTests:           filepath.Join(root, "test/e2e/observability/testdata/alert-rules.yml"),
 		grafanaDatasource:        filepath.Join(base, "configs/grafana/provisioning/datasources/prometheus.yml"),
 		grafanaDashboardProvider: filepath.Join(base, "configs/grafana/provisioning/dashboards/dashboards.yml"),
 		grafanaDashboard:         filepath.Join(base, "configs/grafana/dashboards/bfd.json"),

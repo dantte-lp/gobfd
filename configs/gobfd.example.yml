@@ -10,6 +10,12 @@
 #   GOBFD_ECHO_ENABLED=true
 #   GOBFD_SOCKET_READ_BUFFER_SIZE=4194304
 #   GOBFD_SOCKET_WRITE_BUFFER_SIZE=4194304
+#   GOBFD_SOCKET_IPV4_DSCP=48
+#   GOBFD_SOCKET_IPV6_TRAFFIC_CLASS=192
+#   GOBFD_SOCKET_PRIORITY=0
+#   GOBFD_SOCKET_MARK=0
+#   GOBFD_SOCKET_PRIORITY_REQUIRED=true
+#   GOBFD_SOCKET_MARK_REQUIRED=true
 #   GOBFD_VXLAN_ENABLED=true
 #   GOBFD_VXLAN_BACKEND=userspace-udp
 #   GOBFD_GENEVE_ENABLED=true
@@ -54,6 +60,18 @@ log:
   level: "info"
   # Log format: json, text.
   format: "json"
+
+# Startup-only UDP buffer and ordinary sender QoS policy; changes require restart.
+# Overlay outer sockets do not inherit the QoS fields.
+socket:
+  read_buffer_size: 4194304
+  write_buffer_size: 4194304
+  ipv4_dscp: 48              # CS6; set 0 for best effort.
+  ipv6_traffic_class: 192    # Complete octet, CS6 with ECN=0; 0 = best effort.
+  priority: 0               # Linux local queue policy, independent of DSCP.
+  mark: 0                   # No SO_MARK call; nonzero values need capabilities.
+  priority_required: true
+  mark_required: true        # False permits sending without the requested routing mark.
 
 bfd:
   # Default BFD session parameters (can be overridden per session via gRPC).

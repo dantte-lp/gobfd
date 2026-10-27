@@ -9,12 +9,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Remove legacy Stop/drain before Control and Echo detection timer resets under
+  the pinned Go 1.27.3 synchronous timer-channel contract.
+
 - Oracle Linux 10 OCI images and their release aliases are excluded from v1.
   OCI releases use Debian trixie; generic RPM packages remain available.
   The package lifecycle gate covers Debian DEB; historical v0.6 artifacts
   and qualification records remain unchanged.
 
 ### Added
+
+- Add explicit `--echo` selection to the `bfdload` owner/peers workload with real Echo owners,
+  independent dual-stack datagram returns and typed terminal/omission accounting.
+  Register physical Echo metrics once across shared claims and unregister on
+  final cleanup. Native qualification remains pending.
+
+- Assess Echo workloads with their own TX/detection distributions, settled return
+  counters and conditional old-deadline evidence from actual received omission
+  inputs. Bind workload modes across reports, preserve unknown remote state and
+  physical uncertainty, and declare unavailable Echo kernel-RX timing explicitly.
+
+- Retain version-bound Echo owner Down commit times, last processed return and
+  actual dispatched detection deadline. Preview return validation and the Echo
+  load driver/causal assessment remain separate; this does not qualify native A/B.
+
+- Add read-only `bfdload assess OWNER_JSON PEER_JSON` with conditional numeric
+  pass/fail/incomplete reports. Native and release qualification remain separate.
+
+- Add a scoped FRR-only same-key replacement wire fixture with API conflict,
+  daemon-owned UDP socket lifetime, old/new packet epochs and peer recovery
+  evidence. An actual exact-candidate runtime receipt remains required.
+
+- Classify joined workload Down witnesses against bounded historical peer
+  omissions, run identity and owner commit/deadline evidence. Record explicit
+  conditional assumptions and false/unresolved outcomes; retain unknown reference
+  validity. Add a fixture-only TX blackhole case without changing named profiles.
+
+- Configure ordinary BFD sender IPv4 DSCP and IPv6 Traffic Class with CS6
+  defaults, independent Linux SO_PRIORITY, and optional SO_MARK disabled by
+  default. Required option failures reject creation; explicitly optional
+  priority/mark failures warn and continue. QoS changes require restart;
+  overlay outer policy and per-session source-port allocation remain separate.
+
+- Bind workload Down witnesses to fixed manifest slots and session generations.
+  Retain only active physical references; gaps and inconsistent lifecycle history
+  remain unknown. Report identity completeness separately from count settlement;
+  independent causal classification and native qualification remain required.
 
 - Retain fixed `interface_pending` and `address_pending` reason-class flags in
   reconciliation receipts and structured logs. A class change emits a new
@@ -164,8 +204,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `cictl package-build` builds the DEB and RPM through the release path
   (GoReleaser v2.18.2, then RPM lifecycle finalization) as version 0.0.0, and
-  `cictl package-lifecycle` installs them into systemd containers built from
-  the pinned Debian 13 and Oracle Linux 10 release bases. The test proves the
+  `cictl package-lifecycle` installs the DEB into a systemd container built from
+  the pinned Debian 13 release base. Oracle Linux 10 is excluded from v1 OCI
+  products and lifecycle qualification; generic RPM generation is retained.
+  The scenario checks the
   hardened unit through start, sandbox state, a hold past `WatchdogSec=`,
   reload, restart after `SIGKILL`, a stop with a dead peer, zero sandbox
   denials and package removal.
@@ -387,6 +429,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Require Containerlab 0.82.0 for vendor bootstrap and publish verified amd64
   and arm64 archive checksums. This includes upstream destroy/cleanup fixes;
   vendor runtime qualification remains separate.
+
+- Engineering workload blackholes repeat every 10 minutes, placing full
+  one-second windows at minutes 10 and 20 inside the 30-minute measurement.
+  The 5,000-session scale, 300 ms interval, loss and CPU inputs remain fixed;
+  reference retains its 30-minute period. Drain-only omissions do not qualify
+  measured failures or recovery.
+
+- Remove boxed log-attribute allocations from Micro-BFD member, aggregate and
+  state fan-out logging while retaining fields, levels and delivery behavior.
+  Local dispatch samples fall from 11 to 0 allocs/op without an actuator and
+  from 15 to 4 with a noop actuator; per-call deadline and cancellation remain.
 
 - gRPC health readiness derives from components (H-30, `gobfd-qj0.8.2.3.1`).
   The empty service is the AND of the five reconciliation sources, the runtime
@@ -617,8 +670,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refreshed base images: `debian:trixie-slim` index `a29215f6` (Debian 13.7,
   `trixie-20261005`) for every first-party recipe, `haproxy:3.4.6-trixie`
   (3.4.4-3.4.6 bug fixes, including BUG/MAJOR QUIC, H3 and HTX fixes) and
-  `nginx:1.31.6-trixie` (CVE-2026-90439 HTTP/3 fix). `oraclelinux:10-slim`
-  follows from 2026-10-19.
+  `nginx:1.31.6-trixie` (CVE-2026-90439 HTTP/3 fix). Oracle Linux 10 is excluded
+  from the v1 OCI product set; generic RPM generation remains available.
 - ExaBGP Anycast uses the shared GoBGP v4.10.0 recipe and a Debian trixie
   ExaBGP 5.0.13 image with `gobfd-exabgp-bridge` instead of
   `docker.io/jauderho/gobgp:v3.37.0` and `ghcr.io/exa-networks/exabgp`. Its
@@ -634,8 +687,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   consumers; the local amd64 BGP+BFD and BGP fast-failover testcontainers
   gates pass, and the RFC testcontainers gate passes all four race scenarios
   in 162.12 s; manual Compose paths are not rerun.
-  ExaBGP anycast, Kubernetes and Containerlab still use GoBGP v3.37.0 images
-  and are incompatible until migrated. `release/v0.6` keeps GoBGP v3.37.0.
+  ExaBGP anycast, Kubernetes and the Containerlab sidecar now build GoBGP from
+  the shared v4 source pin; their remaining live-cluster and vendor/native
+  qualification gates stay separate. `release/v0.6` keeps GoBGP v3.37.0.
 - BGP fast-failover Compose and testcontainers reuse the shared trixie
   FRR 10.7.1 and GoBGP recipes (v3.37.0 at qualification; v4.10.0 since the
   GoBGP v4 migration above) with capped builds/runtime. Manual
@@ -674,6 +728,119 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   all three P1 maintenance-review findings in Beads.
 
 ### Fixed
+
+- Reserve bounded raw and subscriber notification queues from configured producer
+  populations in both the daemon and `bfdload`, preserving startup lifecycle
+  bursts. Keep legacy capacity, over-budget GAP recovery and strict journal
+  completeness; native scale qualification remains separate.
+
+- Normalize surrounding whitespace in VXLAN/Geneve backend selection consistently
+  between configuration validation and network constructors. Reserved backends
+  remain unavailable.
+- Reject missing, malformed or unpinned FRR topologies during Containerlab
+  deployment dry runs before issuing orchestration commands.
+
+- Replace duplicated E2E workflow AppArmor/socket shell setup with opt-in
+  `toolbootstrap podman-e2e`, retaining the provider bootstrap, environment
+  publication, bounded readiness and direct-service handoff. Filter AppArmor
+  diagnostics in Go and use native nonblocking cleanup/diagnostic step handling.
+
+- Build the five E2E aggregate launchers with the existing pinned container
+  compiler without an engine socket, then run the persistent binary on the
+  host. Serialize dev recreation, compilation and runtime without host Go;
+  retain target selection, reports and failure propagation.
+
+- Unsolicited cleanup regression tests await committed owner notifications with
+  a real external watchdog instead of a fixed yield count. A gated-owner
+  counterexample documents the observer defect without attributing the historical failure.
+
+- Reserve retiring Control-session keys through owner join and complete resource
+  cleanup. Same-key claims and reverse rekeys return `AlreadyExists` before
+  sender acquisition; callers can retry after Delete completes. Qualified
+  different-key swaps and unrelated sessions retain their existing behavior.
+
+- Scope the no-Control-sessions alert to each healthy exporter, including
+  fresh-empty and zero-count series. Report scrape failure or a missing job
+  separately; exercise the shipped rules with virtual-time PromQL fixtures.
+
+- Preserve declarative Echo claims when reconciliation is canceled before
+  stale-claim release. Return a lifecycle error and let a live retry reuse
+  already published wires without reallocating sender leases.
+
+- Preserve an optional owner-monotonic Down commit witness through the bounded
+  workload journal, including transitions whose notification arrives after
+  cutoff. Keep unknown clock components explicit and separate causal and
+  reference qualification.
+
+- Retain bounded per-peer blackhole omission windows with actual directional
+  counts and decision times. Fail on journal overflow; keep causal Down
+  classification and reference workload acceptance separate.
+
+- Collect PR benchmark comparisons as ten alternating base/head pairs with
+  100 ms timing targets. Reject incomplete or malformed sample groups and
+  aliased output paths; retain one base worktree and cancellation-safe cleanup.
+  Standalone six-run diagnostics and the warning-only report policy remain.
+
+- List unallowed vulnerability findings before exiting on allowlist validation
+  failures. Preserve exit code 2 for expired or stale exceptions, exit code 1
+  for unallowed findings without validation failures, and failure summaries
+  without a success message.
+
+- Store the bounded BFD authentication payload inline with an independent
+  logical length. Built-in signing and the measured authenticated owner loop
+  no longer allocate payload objects; packet copies own their bytes. Preserve
+  immutable verification wire and key-store isolation, and remove redundant
+  receive reparsing. ADR-0011 supersedes the slice-storage decision.
+
+- Return hash digest results by value to remove a per-packet allocation from
+  built-in MD5/SHA1 verification and signing. Keep exact digest lengths,
+  constant-time verification, immutable received wire and caller-owned signing
+  payloads; signing and the complete authenticated owner path retain separate
+  allocation qualification.
+
+- Decode authentication metadata by value with a single borrowed payload,
+  removing per-packet auth-object allocations. Pass packet values across
+  read-only demux/verification boundaries and preserve copied metadata across
+  re-decode. Hash verification uses a bounded local PDU copy, keeping received
+  wire unchanged on success and failure so decoded unsolicited triggers can
+  also pass owner verification. Retain protocol, protobuf and configuration
+  formats; document internal Go contract and queue-size changes in ADR-0010.
+
+- Reject UDP sender source ports outside 49152-65535 before applying options
+  or opening a socket; zero no longer requests automatic allocation. Preserve
+  production allocator behavior, including the existing Echo source-port policy.
+  Decode Linux TTL/Hop Limit and packet-info indices in native byte order;
+  reject malformed or out-of-range TTL/Hop Limit integers. Native architecture
+  qualification remains separate from source checks.
+
+- Decode NetworkManager replies with exact D-Bus types and arity across path,
+  property, settings and deactivation RPCs. Reject coercible strings, arrays,
+  missing Variant envelopes and malformed profile paths; preserve inactive
+  property sentinels, empty available lists, remote errors and cancellation.
+
+- Revalidate active and cached NetworkManager bond-port ownership before
+  deactivation, active no-op or activation. Support UUID controllers and
+  modern/legacy bindings; reject foreign, malformed and deleted profiles
+  without mutation. Validate UUID lookup replies without `Store` coercion and
+  retain cancellation and typed remote errors. Actual NetworkManager and
+  member-wire qualification remain separate.
+
+- Honor actuator cancellation during Linux NetworkManager DNS, socket dialing,
+  authentication and Hello. Preserve transport fallback and Unix FD negotiation;
+  reject malformed nonce files and disable both TCP transports with
+  `godbus_no_tcp`. Upgrade godbus to v5.2.4 with regenerated dependency evidence.
+  Nonce files require a trusted local filesystem; live owner and member-wire
+  qualification remain separate.
+
+- Honor caller cancellation and deadlines while reading NetworkManager device
+  and active-connection properties. Preserve typed replies and errors; stalled
+  replies on an established D-Bus connection no longer hold manager shutdown
+  beyond the actuator context budget. Connection setup and live ownership
+  qualification remain separate.
+
+- Preserve benchmark, `benchstat`, `tee` and Go-version lookup failures in Make
+  targets. Stop subsequent metadata and HTML writes while retaining raw output
+  already written for diagnosis.
 
 - Reject truncated Podman multiplexed output headers instead of treating them
   as successful EOF. Preserve completed binary stdout/stderr and wrapped read

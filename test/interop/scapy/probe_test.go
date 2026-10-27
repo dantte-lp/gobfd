@@ -78,7 +78,7 @@ func TestPeerTTLProbeTransaction(t *testing.T) {
 	if err := bfd.UnmarshalControlPacket(frames[2].Payload, &packet); err != nil {
 		t.Fatal(err)
 	}
-	if !packet.Poll || packet.Final || packet.Auth == nil || packet.Auth.Type != bfd.AuthTypeMeticulousKeyedSHA1 {
+	if !packet.Poll || packet.Final || packet.Auth.IsZero() || packet.Auth.Type != bfd.AuthTypeMeticulousKeyedSHA1 {
 		t.Fatal("probe is not an authenticated Poll")
 	}
 	final := remoteControl(bfd.StateUp)

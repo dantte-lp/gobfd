@@ -2,6 +2,7 @@ package main
 
 import (
 	"io"
+	"reflect"
 	"syscall"
 	"testing"
 	"time"
@@ -257,7 +258,7 @@ func TestPeerPacketsUseRepositoryCodec(t *testing.T) {
 		t.Fatalf("repository codec rejected peer packet: %v", err)
 	}
 	decoded.Length = 0
-	if decoded != packet {
+	if !reflect.DeepEqual(decoded, packet) {
 		t.Fatalf("decoded = %+v, want %+v", decoded, packet)
 	}
 	if err := crafted.apply("unknown"); err == nil {

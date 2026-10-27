@@ -239,7 +239,7 @@ func TestReconcileAllSessionsDuplicateMicroBFDKeyPreservesState(t *testing.T) {
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
 	wantSessions, wantGroups := seedDuplicateMicroBFDTestState(t, mgr)
-	sf := newUDPSenderFactory(0)
+	sf := newUDPSenderFactory(config.SocketConfig{})
 	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 
 	cfg := duplicateMicroBFDConfig()
@@ -259,7 +259,7 @@ func TestReloadConfigDuplicateMicroBFDKeyPreservesStateAndLogLevel(t *testing.T)
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
 	wantSessions, wantGroups := seedDuplicateMicroBFDTestState(t, mgr)
-	sf := newUDPSenderFactory(0)
+	sf := newUDPSenderFactory(config.SocketConfig{})
 	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 	level := new(slog.LevelVar)
 	level.Set(slog.LevelInfo)
@@ -622,7 +622,7 @@ func TestReconcileSessionsRejectsWholeCandidateBeforeOpeningSenders(t *testing.T
 	}
 	before := mgr.Sessions()
 
-	sf := newUDPSenderFactory(0)
+	sf := newUDPSenderFactory(config.SocketConfig{})
 	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 	cfg := config.DefaultConfig()
 	cfg.Sessions = []config.SessionConfig{
@@ -674,7 +674,7 @@ func TestReconcileSessionsForwardsEmptyBaseDesiredSet(t *testing.T) {
 		context.Background(),
 		config.DefaultConfig(),
 		mgr,
-		newUDPSenderFactory(0),
+		newUDPSenderFactory(config.SocketConfig{}),
 		slog.New(slog.DiscardHandler),
 	)
 	if err := mgr.DestroySession(context.Background(), shared.LocalDiscriminator()); err != nil {
@@ -711,7 +711,7 @@ func TestReconcileMicroBFDGroupsForwardsEmptyMemberDesiredSet(t *testing.T) {
 		context.Background(),
 		config.DefaultConfig(),
 		mgr,
-		newUDPSenderFactory(0),
+		newUDPSenderFactory(config.SocketConfig{}),
 		slog.New(slog.DiscardHandler),
 	)
 	if got := len(mgr.Sessions()); got != 0 {
@@ -783,7 +783,7 @@ func TestReconcileOverlayTunnelsForwardsEmptyDesiredSets(t *testing.T) {
 func TestReconcileMicroBFDCandidateIsValidatedBeforeOpeningSenders(t *testing.T) {
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
-	sf := newUDPSenderFactory(0)
+	sf := newUDPSenderFactory(config.SocketConfig{})
 	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 
 	cfg := config.DefaultConfig()
@@ -913,7 +913,7 @@ func TestReconcileAllSessionsValidatesLaterSourceBeforeAnyApply(t *testing.T) {
 	}
 	before := mgr.Sessions()
 
-	sf := newUDPSenderFactory(0)
+	sf := newUDPSenderFactory(config.SocketConfig{})
 	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 	cfg := config.DefaultConfig()
 	cfg.Sessions = []config.SessionConfig{{
@@ -1282,7 +1282,7 @@ func TestConfigSessionToBFDConfiguresAuthentication(t *testing.T) {
 	if err := cfg.Auth.Sign(state, cfg.AuthKeys, pkt, buf, 0); err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
-	if !pkt.AuthPresent || pkt.Auth == nil {
+	if !pkt.AuthPresent || pkt.Auth.IsZero() {
 		t.Fatal("signed packet missing auth section")
 	}
 	if pkt.Auth.Type != bfd.AuthTypeKeyedSHA1 {

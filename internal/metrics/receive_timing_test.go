@@ -99,6 +99,32 @@ func (receiveOwnerSender) SendPacket(context.Context, []byte, netip.Addr) error 
 // BenchmarkReceiveOwnerCollector waits for every owner commit with real metrics;
 // its synthetic clock sample is not kernel RX or a latency-distribution claim.
 func BenchmarkReceiveOwnerCollector(b *testing.B) {
+	benchmarkReceiveOwnerCollector(b, bfd.AuthTypeNone)
+}
+
+func BenchmarkReceiveOwnerCollectorAuthentication(b *testing.B) {
+	for typ := bfd.AuthTypeSimplePassword; typ <= bfd.AuthTypeMeticulousKeyedSHA1; typ++ {
+		b.Run(typ.String(), func(b *testing.B) { benchmarkReceiveOwnerCollector(b, typ) })
+	}
+}
+
+func benchmarkReceiveOwnerCollector(b *testing.B, typ bfd.AuthType) {
+	b.Helper()
+	var auth bfd.Authenticator
+	var keys bfd.AuthKeyStore
+	if typ != bfd.AuthTypeNone {
+		var authErr error
+		auth, authErr = bfd.NewAuthenticator(typ)
+		if authErr != nil {
+			b.Fatal(authErr)
+		}
+		keys, authErr = bfd.NewStaticAuthKeyStore(bfd.AuthKey{
+			ID: 1, Type: typ, Secret: []byte("benchmark-secret"),
+		})
+		if authErr != nil {
+			b.Fatal(authErr)
+		}
+	}
 	metrics := &receiveOwnerMetrics{Collector: bfdmetrics.NewCollector(prometheus.NewRegistry())}
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler), bfd.WithManagerMetrics(metrics))
 	b.Cleanup(mgr.Close)
@@ -106,6 +132,7 @@ func BenchmarkReceiveOwnerCollector(b *testing.B) {
 	session, err := mgr.CreateSession(b.Context(), bfd.SessionConfig{
 		PeerAddr: peer, LocalAddr: local, IfIndex: 1, Type: bfd.SessionTypeSingleHop, Role: bfd.RolePassive,
 		DesiredMinTxInterval: time.Second, RequiredMinRxInterval: time.Second, DetectMultiplier: 3,
+		Auth: auth, AuthKeys: keys,
 	}, func() (*bfd.SenderLease, error) { return bfd.NewSenderLease(receiveOwnerSender{}, nil), nil })
 	if err != nil {
 		b.Fatal(err)
@@ -117,22 +144,60 @@ func BenchmarkReceiveOwnerCollector(b *testing.B) {
 	meta := bfd.PacketMeta{SrcAddr: peer, DstAddr: local, TTL: 255, IfIndex: 1}
 	clock := bfd.NewReceiveClock()
 	var count uint64
-	b.ReportAllocs()
-	for b.Loop() {
+	var signer bfd.AuthState
+	buf := make([]byte, bfd.MaxPacketSize)
+	deliver := func() {
 		meta.ReceiveTiming = clock.Capture(time.Now().UnixNano())
-		outcome, demuxErr := mgr.DemuxWithWire(&pkt, meta, nil)
+		var wire []byte
+		if auth != nil {
+			if signErr := auth.Sign(&signer, keys, &pkt, buf, len(buf)); signErr != nil {
+				b.Fatal(signErr)
+			}
+			n, marshalErr := bfd.MarshalControlPacket(&pkt, buf)
+			if marshalErr != nil {
+				b.Fatal(marshalErr)
+			}
+			var decoded bfd.ControlPacket
+			if decodeErr := bfd.UnmarshalControlPacket(buf[:n], &decoded); decodeErr != nil {
+				b.Fatal(decodeErr)
+			}
+			pkt, wire = decoded, buf[:n]
+		}
+		outcome, demuxErr := mgr.DemuxWithWire(pkt, meta, wire)
 		if demuxErr != nil || outcome != bfd.DeliveryQueued {
 			b.Fatalf("admission=%s error=%v", outcome, demuxErr)
 		}
 		count++
+		deadline := time.Now().Add(5 * time.Second)
 		for metrics.commits.Load() < count {
+			if time.Now().After(deadline) {
+				b.Fatal("queued packet did not reach owner commit")
+			}
 			runtime.Gosched()
 		}
+	}
+	if auth != nil {
+		// Reach steady Up before timing; remote Sign advances meticulous sequences.
+		pkt.State = bfd.StateDown
+		deliver()
+		pkt.State = bfd.StateInit
+		deliver()
+		pkt.State = bfd.StateUp
+		if session.State() != bfd.StateUp {
+			b.Fatal("authenticated fixture did not reach Up")
+		}
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		deliver()
 	}
 	if metrics.commits.Load() != count {
 		b.Fatal("noncommitted input counted")
 	}
 	if count == 0 || metrics.valid.Load() != count {
 		b.Fatalf("valid timing samples=%d, committed inputs=%d", metrics.valid.Load(), count)
+	}
+	if session.PacketsReceived() != count || auth != nil && session.State() != bfd.StateUp {
+		b.Fatal("owner receive count or steady state changed")
 	}
 }

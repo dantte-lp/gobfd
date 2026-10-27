@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
+	"github.com/dantte-lp/gobfd/internal/config"
 	"github.com/dantte-lp/gobfd/internal/netio"
 )
 
@@ -19,7 +20,7 @@ func TestDeclarativeSenderUnassignedAddressIsTyped(t *testing.T) {
 	t.Parallel()
 
 	local := netip.MustParseAddr("192.0.2.77") // TEST-NET-1, never assigned here.
-	sf := newUDPSenderFactory(0)
+	sf := newUDPSenderFactory(config.SocketConfig{})
 	_, err := declarativeSenderLeaseFactoryFor(sf, local, true, slog.New(slog.DiscardHandler))()
 	if !errors.Is(err, syscall.EADDRNOTAVAIL) && !errors.Is(err, bfd.ErrResourceUnavailable) {
 		t.Skipf("unassigned-address bind did not fail with EADDRNOTAVAIL here: %v", err)

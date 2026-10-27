@@ -3,7 +3,8 @@ package bfd
 // Ref returns this Echo session's comparable identity.
 func (es *EchoSession) Ref() SessionRef { return SessionRef{echo: es} }
 
-func (es *EchoSession) observationSnapshot() Observation {
+// Observation returns a value copy of the Echo owner's committed causal tuple.
+func (es *EchoSession) Observation() Observation {
 	es.observationMu.RLock()
 	defer es.observationMu.RUnlock()
 	return es.observation

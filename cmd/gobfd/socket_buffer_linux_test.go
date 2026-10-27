@@ -104,7 +104,7 @@ func TestAPIPaddedPDURequiresDF(t *testing.T) {
 	for index, target := range []uint32{0, 128} {
 		t.Run(strconv.FormatUint(uint64(target), 10), func(t *testing.T) {
 			local := netip.MustParseAddr(fmt.Sprintf("127.0.28.%d", index+1))
-			sf := newUDPSenderFactory(0)
+			sf := newUDPSenderFactory(config.SocketConfig{})
 			t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 			mgr := bfd.NewManager(logger)
 			t.Cleanup(mgr.Close)
@@ -169,7 +169,7 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 			}
 			for _, kind := range []string{"api", "echo", "micro", "unsolicited"} {
 				t.Run(kind, func(t *testing.T) {
-					sf := newUDPSenderFactory(cfg.Socket.WriteBufferSize)
+					sf := newUDPSenderFactory(cfg.Socket)
 					var err error
 					switch kind {
 					case "api":
@@ -249,7 +249,7 @@ func TestDaemonOverlaySocketBufferPolicy(t *testing.T) {
 				PeerMAC: "02:00:00:00:00:01", LocalMAC: "02:00:00:00:00:02",
 			}}
 			cfg.VXLAN.Enabled, cfg.Geneve.Enabled = true, true
-			sf := newUDPSenderFactory(cfg.Socket.WriteBufferSize)
+			sf := newUDPSenderFactory(cfg.Socket)
 			mgr := bfd.NewManager(logger)
 			t.Cleanup(mgr.Close)
 			owner := newOverlayOwner(cfg, sf, mgr, newDaemonReadiness(newDaemonHealthChecker()), logger)

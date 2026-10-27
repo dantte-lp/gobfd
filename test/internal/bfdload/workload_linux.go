@@ -81,6 +81,7 @@ type OwnerWorkloadObservation struct {
 	SchedulerWindow    Histogram                    `json:"scheduler_window"`
 	GCPauseWindow      Histogram                    `json:"gc_pause_window"`
 	DownEvents         []OwnerDownEvent             `json:"down_events"`
+	DownWitnesses      []OwnerDownWitness           `json:"down_witnesses"`
 	DownEventsOmitted  uint64                       `json:"down_events_omitted"`
 	NotificationGaps   uint64                       `json:"notification_gaps"`
 	DownJournal        DownJournalObservation       `json:"down_journal"`
@@ -124,6 +125,7 @@ func RunOwner(ctx context.Context, cfg PeerConfig, logger *slog.Logger) (OwnerWo
 		return result, err
 	}
 	owner, err := StartOwner(ctx, OwnerConfig{
+		Echo:     cfg.Profile.Echo,
 		Sessions: cfg.Sessions,
 		Interval: cfg.Profile.Interval, DetectMultiplier: cfg.Profile.DetectMultiplier,
 	}, logger)
@@ -138,7 +140,7 @@ func RunOwner(ctx context.Context, cfg PeerConfig, logger *slog.Logger) (OwnerWo
 	if subscribeErr != nil {
 		return result.finish(ctx, owner, guard, time.Now(), nil, subscribeErr)
 	}
-	journal := startDownJournal(journalCtx, changes)
+	journal := startDownJournal(journalCtx, changes, owner)
 	started, err := result.runWindow(ctx, owner)
 	return result.finish(ctx, owner, guard, started, journal, err)
 }

@@ -43,7 +43,7 @@ func TestReconcileEchoSenderTransport(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			logger := slog.New(slog.DiscardHandler)
 			local, peer := netip.MustParseAddr(test.local), netip.MustParseAddr(test.peer)
-			factory := newUDPSenderFactory(8192)
+			factory := newUDPSenderFactory(config.SocketConfig{WriteBufferSize: 8192})
 			t.Cleanup(func() { cleanupCandidateTestSenders(t, factory) })
 			mgr := bfd.NewManager(logger)
 			t.Cleanup(mgr.Close)

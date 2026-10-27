@@ -9,11 +9,12 @@ import (
 )
 
 const (
-	fixtureProfile      = "fixture"
-	referenceDuration   = 24 * time.Hour
-	engineeringInterval = 300 * time.Millisecond
-	engineeringDuration = 30 * time.Minute
-	blackholePeriod     = 30 * time.Minute
+	fixtureProfile             = "fixture"
+	referenceDuration          = 24 * time.Hour
+	engineeringInterval        = 300 * time.Millisecond
+	engineeringDuration        = 30 * time.Minute
+	blackholePeriod            = 30 * time.Minute
+	engineeringBlackholePeriod = 10 * time.Minute
 )
 
 // ErrProfile means the requested workload is invalid or reduces a named qualification profile.
@@ -22,6 +23,7 @@ var ErrProfile = errors.New("invalid workload profile")
 // Profile is the intended workload, not evidence that the runtime admitted or completed it.
 type Profile struct {
 	Kind              string        `json:"kind"`
+	Echo              bool          `json:"echo"`
 	Sessions          int           `json:"sessions"`
 	Interval          time.Duration `json:"interval_ns"`
 	DetectMultiplier  uint8         `json:"detect_multiplier"`
@@ -33,6 +35,7 @@ type Profile struct {
 	GCPressure        bool          `json:"gc_pressure"`
 	SchedulerPressure bool          `json:"scheduler_pressure"`
 	SessionChurn      bool          `json:"session_churn"`
+	TXOnlyBlackhole   bool          `json:"tx_only_blackhole"`
 	Seed              uint64        `json:"seed"`
 }
 
@@ -54,6 +57,9 @@ func DefaultProfile(kind string) (Profile, error) {
 	}
 	profile.LossPermille, profile.CPULoadPercent = 1, 80
 	profile.BlackholeEvery, profile.BlackholeFor = blackholePeriod, time.Second
+	if kind == "engineering" {
+		profile.BlackholeEvery = engineeringBlackholePeriod
+	}
 	return profile, nil
 }
 
@@ -73,6 +79,7 @@ func (p Profile) Validate() error {
 	expected.GCPressure = p.GCPressure
 	expected.SchedulerPressure = p.SchedulerPressure
 	expected.SessionChurn = p.SessionChurn
+	expected.Echo = p.Echo
 	if p != expected {
 		return fmt.Errorf("workload differs from %s qualification inputs: %w", p.Kind, ErrProfile)
 	}

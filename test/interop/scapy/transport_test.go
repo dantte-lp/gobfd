@@ -177,7 +177,7 @@ func TestPeerTransportSignedSequence(t *testing.T) {
 		if decodeErr != nil {
 			t.Fatal(decodeErr)
 		}
-		if len(wire) != 52 || !packet.AuthPresent || packet.Auth == nil ||
+		if len(wire) != 52 || !packet.AuthPresent || packet.Auth.IsZero() ||
 			packet.Auth.Type != bfd.AuthTypeMeticulousKeyedSHA1 || packet.Auth.KeyID != 7 {
 			t.Fatal("startup profile did not produce meticulous SHA1 PDU")
 		}

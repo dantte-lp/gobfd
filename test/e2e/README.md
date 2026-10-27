@@ -19,12 +19,19 @@ The current documentation work is local-only and does not authorize publication.
 | Rule | Requirement |
 |---|---|
 | Container runtime | Podman. |
-| Go toolchain | Core, BGP fast-failover, HAProxy and observability testcontainers gates use the pinned dev container; aggregate orchestration and some integration targets invoke host `go run` in the current Makefile. |
-| Host Go | Required by targets that invoke `go run` directly; use the repository-pinned toolchain or an explicit container invocation. |
+| Go toolchain | The five aggregate launchers compile persistent ignored `bin/e2ectl` in the compiler image pinned by `Containerfile.dev`, without an engine socket, then execute it on the host. Other testcontainers report gates use the pinned dev container. |
+| Host Go | Not required by the five aggregate launchers; some bootstrap and integration targets still invoke host `go run`. |
 | Compose project | Every dev stack uses `COMPOSE_PROJECT_NAME`; no fixed dev `container_name` is allowed. |
 | Vendor NOS | `e2e-vendor` checks manifests and image availability only; live `interop-clab` is a separate admitted manual topology. |
 | Packet capture | Required when a target claims wire behavior. |
 | E2E orchestration | `test/cmd/e2ectl` and `test/internal/e2erunner`; the five aggregate targets do not use shell runners. |
+
+The five aggregate launchers use util-linux `flock` on the checkout's `bin`
+directory across dev recreation, compilation and runtime. Lock acquisition
+waits at most 120 seconds; compiler and runtime failures stop the Make target.
+Source is mounted read-only and only `bin` is writable by the compiler.
+The compiler is limited to 2 CPUs, 2 GiB and 512 PIDs. The build artifact stays
+in `bin`; target-specific reports and runtime cleanup retain their existing contracts.
 
 ## Target Matrix
 

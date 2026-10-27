@@ -51,6 +51,12 @@ const (
 	startupFieldGRPCFlightRecorder
 	startupFieldMicroEnabled
 	startupFieldGRPCUnsafeLoopbackMutations
+	startupFieldSocketIPv4DSCP
+	startupFieldSocketIPv6TrafficClass
+	startupFieldSocketPriority
+	startupFieldSocketMark
+	startupFieldSocketPriorityRequired
+	startupFieldSocketMarkRequired
 )
 
 func (f startupFieldID) String() string {
@@ -91,6 +97,12 @@ func (f startupFieldID) String() string {
 		"grpc.flight_recorder",
 		"micro_bfd.enabled",
 		"grpc.unsafe_loopback_mutations",
+		"socket.ipv4_dscp",
+		"socket.ipv6_traffic_class",
+		"socket.priority",
+		"socket.mark",
+		"socket.priority_required",
+		"socket.mark_required",
 	}
 	if int(f) >= len(paths) {
 		return "unknown"
@@ -199,6 +211,12 @@ func (c startupRuntimeContract) changedFields(cfg *config.Config) []startupField
 	appendChanged(startupFieldLogFormat, c.logFormat != cfg.Log.Format)
 	appendChanged(startupFieldSocketReadBufferSize, c.socket.ReadBufferSize != cfg.Socket.ReadBufferSize)
 	appendChanged(startupFieldSocketWriteBufferSize, c.socket.WriteBufferSize != cfg.Socket.WriteBufferSize)
+	appendChanged(startupFieldSocketIPv4DSCP, c.socket.IPv4DSCP != cfg.Socket.IPv4DSCP)
+	appendChanged(startupFieldSocketIPv6TrafficClass, c.socket.IPv6TrafficClass != cfg.Socket.IPv6TrafficClass)
+	appendChanged(startupFieldSocketPriority, c.socket.Priority != cfg.Socket.Priority)
+	appendChanged(startupFieldSocketMark, c.socket.Mark != cfg.Socket.Mark)
+	appendChanged(startupFieldSocketPriorityRequired, c.socket.PriorityRequired != cfg.Socket.PriorityRequired)
+	appendChanged(startupFieldSocketMarkRequired, c.socket.MarkRequired != cfg.Socket.MarkRequired)
 	c.appendUnsolicitedChanges(cfg.Unsolicited, appendChanged)
 	appendChanged(startupFieldMicroEnabled, c.microEnabled != cfg.MicroBFD.Enabled)
 	appendChanged(startupFieldMicroActuatorMode, c.actuator.Mode != cfg.MicroBFD.Actuator.Mode)

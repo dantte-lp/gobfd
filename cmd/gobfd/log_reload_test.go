@@ -24,7 +24,7 @@ func TestInvalidLogYAMLReloadPreservesRuntime(t *testing.T) {
 	coordinator := newReconciliationCoordinator(startup, logger, checker)
 	mgr := bfd.NewManager(logger)
 	t.Cleanup(mgr.Close)
-	sf := newUDPSenderFactory(startup.Socket.WriteBufferSize)
+	sf := newUDPSenderFactory(startup.Socket)
 	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 	level := new(slog.LevelVar)
 	if err := coordinator.reconcile(context.Background(), startup, mgr, sf, level); err != nil {

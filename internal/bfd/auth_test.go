@@ -1,8 +1,10 @@
 package bfd_test
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
@@ -100,7 +102,7 @@ func TestSimplePasswordSignVerify(t *testing.T) {
 				t.Fatalf("Unmarshal: %v", err)
 			}
 
-			if err := auth.Verify(state, keys, &rxPkt, buf[:n], n); err != nil {
+			if err := auth.Verify(state, keys, rxPkt, buf[:n], n); err != nil {
 				t.Fatalf("Verify: %v", err)
 			}
 		})
@@ -115,8 +117,8 @@ func verifySimplePasswordFields(t *testing.T, pkt *bfd.ControlPacket, password s
 		t.Fatal("AuthPresent not set after Sign")
 	}
 
-	if pkt.Auth == nil {
-		t.Fatal("Auth section nil after Sign")
+	if pkt.Auth.IsZero() {
+		t.Fatal("Auth section empty after Sign")
 	}
 
 	if pkt.Auth.Type != bfd.AuthTypeSimplePassword {
@@ -128,8 +130,8 @@ func verifySimplePasswordFields(t *testing.T, pkt *bfd.ControlPacket, password s
 		t.Errorf("Auth.Len: got %d, want %d", pkt.Auth.Len, wantLen)
 	}
 
-	if string(pkt.Auth.AuthData) != password {
-		t.Errorf("Auth.AuthData: got %q, want %q", pkt.Auth.AuthData, password)
+	if string(pkt.Auth.Data[:pkt.Auth.DataLen]) != password {
+		t.Errorf("Auth.Data: got %q, want %q", pkt.Auth.Data, password)
 	}
 }
 
@@ -571,8 +573,8 @@ func TestAuthenticatorsRejectMismatchedKeyType(t *testing.T) {
 		t.Fatalf("SimplePasswordAuth.Sign() error = %v, want ErrAuthKeyTypeMismatch", err)
 	}
 	pkt.AuthPresent = true
-	pkt.Auth = &bfd.AuthSection{Type: bfd.AuthTypeSimplePassword, Len: 10, KeyID: 1}
-	if err := simple.Verify(&bfd.AuthState{}, simpleKeys, pkt, nil, 0); !errors.Is(err, bfd.ErrAuthKeyTypeMismatch) {
+	pkt.Auth = bfd.AuthSection{Type: bfd.AuthTypeSimplePassword, Len: 10, KeyID: 1}
+	if err := simple.Verify(&bfd.AuthState{}, simpleKeys, *pkt, nil, 0); !errors.Is(err, bfd.ErrAuthKeyTypeMismatch) {
 		t.Fatalf("SimplePasswordAuth.Verify() error = %v, want ErrAuthKeyTypeMismatch", err)
 	}
 
@@ -582,8 +584,8 @@ func TestAuthenticatorsRejectMismatchedKeyType(t *testing.T) {
 	if !errors.Is(err, bfd.ErrAuthKeyTypeMismatch) {
 		t.Fatalf("KeyedMD5Auth.Sign() error = %v, want ErrAuthKeyTypeMismatch", err)
 	}
-	pkt.Auth = &bfd.AuthSection{Type: bfd.AuthTypeKeyedMD5, Len: 24, KeyID: 2}
-	if err := hash.Verify(&bfd.AuthState{}, hashKeys, pkt, nil, 0); !errors.Is(err, bfd.ErrAuthKeyTypeMismatch) {
+	pkt.Auth = bfd.AuthSection{Type: bfd.AuthTypeKeyedMD5, Len: 24, KeyID: 2}
+	if err := hash.Verify(&bfd.AuthState{}, hashKeys, *pkt, nil, 0); !errors.Is(err, bfd.ErrAuthKeyTypeMismatch) {
 		t.Fatalf("KeyedMD5Auth.Verify() error = %v, want ErrAuthKeyTypeMismatch", err)
 	}
 }
@@ -646,7 +648,7 @@ func unmarshalSigned(
 	t *testing.T,
 	pkt *bfd.ControlPacket,
 	_ []byte,
-) ([]byte, *bfd.ControlPacket, int) {
+) ([]byte, bfd.ControlPacket, int) {
 	t.Helper()
 
 	rxBuf := make([]byte, bfd.MaxPacketSize)
@@ -661,7 +663,7 @@ func unmarshalSigned(
 		t.Fatalf("UnmarshalControlPacket: %v", err)
 	}
 
-	return rxBuf, &rxPkt, n
+	return rxBuf, rxPkt, n
 }
 
 // verifyHashAuthFields checks common auth section fields after Sign.
@@ -678,8 +680,8 @@ func verifyHashAuthFields(
 		t.Fatal("AuthPresent not set after Sign")
 	}
 
-	if pkt.Auth == nil {
-		t.Fatal("Auth section nil after Sign")
+	if pkt.Auth.IsZero() {
+		t.Fatal("Auth section empty after Sign")
 	}
 
 	if pkt.Auth.Type != authType {
@@ -690,14 +692,14 @@ func verifyHashAuthFields(
 		t.Errorf("Auth.Len: got %d, want %d", pkt.Auth.Len, expectedLen)
 	}
 
-	if len(pkt.Auth.Digest) != digestSize {
-		t.Errorf("Auth.Digest length: got %d, want %d",
-			len(pkt.Auth.Digest), digestSize)
+	if int(pkt.Auth.DataLen) != digestSize {
+		t.Errorf("Auth.Data length: got %d, want %d",
+			int(pkt.Auth.DataLen), digestSize)
 	}
 
 	// Verify digest is not all zeros (hash should produce non-zero).
 	allZero := true
-	for _, b := range pkt.Auth.Digest {
+	for _, b := range pkt.Auth.Data[:pkt.Auth.DataLen] {
 		if b != 0 {
 			allZero = false
 
@@ -706,7 +708,7 @@ func verifyHashAuthFields(
 	}
 
 	if allZero {
-		t.Error("Auth.Digest is all zeros after Sign")
+		t.Error("Auth.Data is all zeros after Sign")
 	}
 }
 
@@ -765,6 +767,11 @@ func FuzzAuthSignVerify(f *testing.F) {
 	f.Add([]byte("sha1-secret-20bytes!"), uint8(3), uint32(42))    // Keyed SHA1
 	f.Add([]byte("met-sha1-secret!!!!"), uint8(4), uint32(999999)) // Meticulous SHA1
 	f.Add([]byte("x"), uint8(0), uint32(0xFFFFFFFE))               // single-char near wrap
+	for authIdx := range uint8(5) {
+		for _, size := range []int{0, 1, 16, 17, 20, 21} {
+			f.Add(bytes.Repeat([]byte{0xa5}, size), authIdx, uint32(42))
+		}
+	}
 
 	f.Fuzz(func(t *testing.T, secret []byte, authIdx uint8, seq uint32) {
 		authTypes := []bfd.AuthType{
@@ -776,41 +783,37 @@ func FuzzAuthSignVerify(f *testing.F) {
 		}
 		authType := authTypes[authIdx%uint8(len(authTypes))]
 
-		// Constrain secret to valid lengths per RFC 5880.
-		if len(secret) == 0 {
-			return
+		// RFC 5880: password/MD5 keys are 1-16 bytes, SHA1 keys 1-20.
+		maxSecret := 16
+		if authType == bfd.AuthTypeKeyedSHA1 || authType == bfd.AuthTypeMeticulousKeyedSHA1 {
+			maxSecret = 20
 		}
-		if authType == bfd.AuthTypeSimplePassword && len(secret) > 16 {
-			return
-		}
-		if authType != bfd.AuthTypeSimplePassword && len(secret) > 20 {
-			return
-		}
+		validSecret := len(secret) >= 1 && len(secret) <= maxSecret
 
 		keys := newTestKeyStore(1, authType, secret)
 
-		var auth bfd.Authenticator
-		switch authType {
-		case bfd.AuthTypeNone:
-			return // No authenticator for AuthTypeNone.
-		case bfd.AuthTypeSimplePassword:
-			auth = bfd.SimplePasswordAuth{}
-		case bfd.AuthTypeKeyedMD5:
-			auth = bfd.KeyedMD5Auth{}
-		case bfd.AuthTypeMeticulousKeyedMD5:
-			auth = bfd.MeticulousKeyedMD5Auth{}
-		case bfd.AuthTypeKeyedSHA1:
-			auth = bfd.KeyedSHA1Auth{}
-		case bfd.AuthTypeMeticulousKeyedSHA1:
-			auth = bfd.MeticulousKeyedSHA1Auth{}
+		auth, err := bfd.NewAuthenticator(authType)
+		if err != nil {
+			t.Fatal(err)
 		}
 
 		txState := &bfd.AuthState{Type: authType, XmitAuthSeq: seq}
 		pkt := newTestPacket()
-		buf := make([]byte, bfd.MaxPacketSize)
+		beforePacket, beforeState := *pkt, *txState
+		beforeWire := bytes.Repeat([]byte{0xa5}, bfd.MaxPacketSize)
+		buf := bytes.Clone(beforeWire)
 
-		// Sign must succeed for valid inputs.
-		if err := auth.Sign(txState, keys, pkt, buf, 0); err != nil {
+		err = auth.Sign(txState, keys, pkt, buf, 0)
+		if !validSecret {
+			if !errors.Is(err, bfd.ErrAuthSecretInvalid) {
+				t.Fatalf("invalid key length %d: %v", len(secret), err)
+			}
+			if *txState != beforeState || !reflect.DeepEqual(*pkt, beforePacket) || !bytes.Equal(buf, beforeWire) {
+				t.Fatal("invalid key changed authentication state, packet or wire")
+			}
+			return
+		}
+		if err != nil {
 			t.Fatalf("Sign(%s, secret=%d bytes, seq=%d): %v",
 				authType, len(secret), seq, err)
 		}
@@ -830,7 +833,7 @@ func FuzzAuthSignVerify(f *testing.F) {
 
 		// Verify must succeed for a freshly signed packet.
 		rxState := &bfd.AuthState{Type: authType}
-		if err := auth.Verify(rxState, keys, &rxPkt, rxBuf[:n], n); err != nil {
+		if err := auth.Verify(rxState, keys, rxPkt, rxBuf[:n], n); err != nil {
 			t.Fatalf("Verify(%s, secret=%d bytes, seq=%d): %v",
 				authType, len(secret), seq, err)
 		}

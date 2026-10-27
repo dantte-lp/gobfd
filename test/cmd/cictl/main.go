@@ -62,7 +62,7 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 		return fmt.Errorf(
 			"usage: cictl {sonar-mode|sonar-skip-notice|build|lint|test-coverage|commit-policy|"+
 				"buf-fetch-base|buf-breaking|sbom|proto-verify|"+
-				"benchmark-run|benchmark-base|benchmark-normalize|benchmark-report|"+
+				"benchmark-run|benchmark-base|benchmark-pair|benchmark-normalize|benchmark-report|"+
 				"release-build|release-test-report|release-benchmarks|release-benchmark-metadata|"+
 				"release-benchmark-comparison|release-reports-archive|release-preflight|release-notes|"+
 				"release-upx|release-artifacts|release-assets-upload|release-oci-evidence|release-evidence|release-verify|"+
@@ -124,6 +124,8 @@ func runBenchmarkCommand(
 		return true, runBenchmark(ctx, arguments, deps)
 	case "benchmark-base":
 		return true, runBenchmarkBase(ctx, arguments, deps)
+	case "benchmark-pair":
+		return true, runBenchmarkPair(ctx, arguments, deps)
 	case "benchmark-normalize":
 		return true, runBenchmarkNormalize(arguments, deps)
 	case "benchmark-report":
@@ -568,6 +570,30 @@ func runBenchmarkBase(ctx context.Context, arguments []string, deps dependencies
 		Regex: deps.getenv("BENCH_REGEX"), Runner: deps.specRunner,
 	}); err != nil {
 		return fmt.Errorf("run base benchmarks: %w", err)
+	}
+	return nil
+}
+
+func runBenchmarkPair(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("benchmark-pair", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	oldName := flags.String("old", "old.txt", "raw base benchmark output")
+	newName := flags.String("new", "new.txt", "raw head benchmark output")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse benchmark-pair flags: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected benchmark-pair arguments: %w", flag.ErrHelp)
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.BenchmarkPair(ctx, cirunner.BenchmarkBaseOptions{
+		Root: root, RunnerTemp: deps.getenv("RUNNER_TEMP"), Ref: "origin/" + deps.getenv("GITHUB_BASE_REF"),
+		Output: *oldName, Regex: deps.getenv("BENCH_REGEX"), Runner: deps.specRunner,
+	}, *newName); err != nil {
+		return fmt.Errorf("run paired benchmarks: %w", err)
 	}
 	return nil
 }

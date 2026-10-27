@@ -69,7 +69,7 @@ func senderBoundDevice(t *testing.T, f *udpSenderFactory, srcPort uint16) string
 func TestUDPSenderFactoryBindsSingleHopDevice(t *testing.T) {
 	t.Parallel()
 	lo := loopbackName(t)
-	f := newUDPSenderFactory(0)
+	f := newUDPSenderFactory(config.SocketConfig{})
 	logger := slog.New(slog.DiscardHandler)
 	for _, ifName := range []string{lo, ""} {
 		_, srcPort, err := f.CreateSender(netip.MustParseAddr("127.0.0.1"), ifName, bfd.SessionTypeSingleHop, false, logger)
@@ -98,7 +98,7 @@ func TestReconcileBindsSingleHopSenderDevice(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 	mgr := bfd.NewManager(logger)
 	t.Cleanup(mgr.Close)
-	f := newUDPSenderFactory(0)
+	f := newUDPSenderFactory(config.SocketConfig{})
 	if err := applyBaseSessionCandidates(context.Background(), candidates, mgr, f, logger).Err(); err != nil {
 		t.Fatalf("applyBaseSessionCandidates: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestAPIZoneOnlySessionBindsSenderDevice(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 	mgr := bfd.NewManager(logger)
 	t.Cleanup(mgr.Close)
-	f := newUDPSenderFactory(0)
+	f := newUDPSenderFactory(config.SocketConfig{})
 	rpc := connect.NewServer()
 	server.Register(rpc, mgr, f, logger)
 	mux := http.NewServeMux()

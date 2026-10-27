@@ -29,6 +29,8 @@ func (m *Manager) CreateSession(
 // CreateSessionAs claims a session for an API owner (see APISessionOwner).
 // A matching session claimed by other owners is shared; a second claim by
 // the same owner returns ErrDuplicateSession.
+// An exact key still retiring also returns ErrDuplicateSession before sender
+// acquisition; callers may retry after its destruction finishes.
 func (m *Manager) CreateSessionAs(
 	ctx context.Context,
 	cfg SessionConfig,
@@ -167,6 +169,9 @@ func (m *Manager) claimExisting(
 	if err := ctx.Err(); err != nil {
 		return nil, true, fmt.Errorf("claim existing session: %w", err)
 	}
+	if _, retiring := m.retiringSessions[key]; retiring {
+		return nil, true, fmt.Errorf("claim retiring session: %w", ErrDuplicateSession)
+	}
 
 	entry, exists := m.sessionsByKey[key]
 	if !exists {
@@ -245,6 +250,10 @@ func (m *Manager) registerAndStart(
 	if err := ctx.Err(); err != nil {
 		m.mu.Unlock()
 		return nil, false, fmt.Errorf("register session: %w", err)
+	}
+	if _, retiring := m.retiringSessions[key]; retiring {
+		m.mu.Unlock()
+		return nil, false, fmt.Errorf("register retiring session: %w", ErrDuplicateSession)
 	}
 	if entry, exists := m.sessionsByKey[key]; exists {
 		session, err := entry.claimExisting(key, effective, owner, idempotent)
@@ -413,7 +422,7 @@ func (m *Manager) detachSessionClaimByDiscriminator(
 		return false, nil, nil
 	}
 
-	// Remove the wire session from every registry after its last claim.
+	// Detach the public wire identity after its last claim.
 	counts := m.removeSessionLocked(localDiscr, entry)
 	m.mu.Unlock()
 	m.reportFanoutDelivery(counts)
@@ -424,6 +433,7 @@ func (m *Manager) detachSessionClaimByDiscriminator(
 // removeSessionLocked detaches one physical identity. Its owner drains and
 // releases the captured entry after all Manager locks have been released.
 func (m *Manager) removeSessionLocked(localDiscr uint32, entry *sessionEntry) fanoutDelivery {
+	m.retiringSessions[entry.key] = entry
 	delete(m.sessions, localDiscr)
 	delete(m.sessionsByPeer, entry.demuxKey)
 	delete(m.sessionsByKey, entry.key)
@@ -464,6 +474,11 @@ func (m *Manager) finishSessionDestroyError(localDiscr uint32, entry *sessionEnt
 		entry.session.LocalAddr(),
 		entry.session.Type().String(),
 	)
+	m.mu.Lock()
+	if m.retiringSessions[entry.key] == entry {
+		delete(m.retiringSessions, entry.key)
+	}
+	m.mu.Unlock()
 
 	m.logger.Info("session destroyed",
 		slog.String("peer", entry.session.PeerAddr().String()),
@@ -574,11 +589,11 @@ func (m *Manager) Demux(pkt *ControlPacket, meta PacketMeta) (DeliveryOutcome, e
 
 // DemuxWithWire returns Queued only for admission, never owner commit. A
 // non-nil ancillary lease-close error can accompany a Queued outcome.
-func (m *Manager) DemuxWithWire(pkt *ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
+func (m *Manager) DemuxWithWire(pkt ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
 	if pkt.YourDiscriminator != 0 {
-		return m.demuxByDiscr(pkt, meta, wire)
+		return m.demuxByDiscr(&pkt, meta, wire)
 	}
-	return m.demuxByPeer(pkt, meta, wire)
+	return m.demuxByPeer(&pkt, meta, wire)
 }
 
 func (m *Manager) demuxByDiscr(pkt *ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
@@ -714,7 +729,7 @@ func unsolicitedRejection(policy *UnsolicitedPolicy, pkt *ControlPacket, err err
 		if policy.Auth == nil && pkt.AuthPresent {
 			return DeliveryAuthUnexpected
 		}
-		if !pkt.AuthPresent || pkt.Auth == nil {
+		if !pkt.AuthPresent || pkt.Auth.IsZero() {
 			return DeliveryAuthMissing
 		}
 		return DeliveryAuthFailed
@@ -918,7 +933,7 @@ func (m *Manager) SubscribeStateChanges(ctx context.Context) (<-chan StateChange
 		return nil, ErrManagerClosed
 	}
 
-	ch := make(chan StateChange, notifyChSize)
+	ch := make(chan StateChange, m.notificationCapacity)
 
 	m.subMu.Lock()
 	m.subscribers[ch] = &subscriber{}

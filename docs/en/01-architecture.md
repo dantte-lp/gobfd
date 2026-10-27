@@ -142,6 +142,14 @@ selection between the header and authentication checks.
 
 The codec rejects malformed packets before session lookup or locking.
 
+Packets own authentication metadata and a bounded inline payload by value.
+`DataLen` records its logical length independently of the wire authentication
+length. The default and overlay receivers retain complete authenticated wire
+before releasing pooled input. Demux and verification pass packet values;
+hash verification changes only a bounded local PDU copy. Packet copies retain
+independent payload bytes. See [ADR-0011](adr/0011-bfd-auth-inline-payload.md)
+for packet and retained-wire ownership.
+
 ### Packet TX Flow
 
 ```mermaid
@@ -623,9 +631,13 @@ accepted creation rollback share this path. Non-final claims leave the wire
 session unchanged. A private ten-second cap also bounds Background callers;
 earlier caller cancellation returns `DrainIncompleteError` while cleanup still
 releases resources. Reconciliation drains retired sessions concurrently within
-one budget. No Manager lock is held across the wait, and a same-key replacement
-does not inherit the retired session's drain. `Manager.Close()` only cancels,
-joins and releases; daemon shutdown already drains its captured sessions.
+one budget. No Manager lock is held across the wait. A private reservation
+retains the exact canonical key through cancel/join, lease/discriminator release
+and metrics cleanup, including incomplete drain or lease-close errors. A new
+claim or reverse rekey to that key returns `ErrDuplicateSession` before sender
+acquisition (`AlreadyExists` over the API). Retry after Delete completes;
+conflict handling does not add automatic retries. `Manager.Close()` only
+cancels, joins and releases; daemon shutdown already drains its captured sessions.
 Rekey publishes the prepared replacement before the old captured session's
 actual AdminDown/drain, outside Manager and lifecycle mutation locks. The old
 lease/discriminator remain owned until drain completion or typed incomplete

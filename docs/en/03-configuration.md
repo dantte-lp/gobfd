@@ -15,7 +15,7 @@
 - [Full Configuration Example](#full-configuration-example)
 - [Preview Capability Status](#preview-capability-status)
 - [Configuration Sections](#configuration-sections)
-- [Socket Tuning](#socket----socket-buffer-tuning)
+- [UDP Buffers and Sender QoS](#socket----socket-buffer-tuning)
 - [Environment Variables](#environment-variables)
 - [Declarative Sessions](#declarative-sessions)
 - [GoBGP Integration](#gobgp-integration)
@@ -100,10 +100,16 @@ gobgp:
     max_suppress_time: "60s"
     half_life: "15s"
 
-# Socket buffer tuning (reduces packet loss under high session counts)
+# Startup-owned UDP buffers and ordinary BFD sender QoS
 socket:
   read_buffer_size: 4194304    # SO_RCVBUF: 4 MiB (0 = OS default)
   write_buffer_size: 4194304   # SO_SNDBUF: 4 MiB (0 = OS default)
+  ipv4_dscp: 48               # CS6; 0 = best effort
+  ipv6_traffic_class: 192     # Full octet: CS6 with ECN=0; 0 = best effort
+  priority: 0                # Linux local queue priority, independent of DSCP
+  mark: 0                    # No SO_MARK operation when zero
+  priority_required: true
+  mark_required: true
 
 # Declarative sessions (reconciled on SIGHUP reload)
 sessions:
@@ -456,6 +462,46 @@ goes Down and activates the remembered or available bond port profile when the
 member recovers. Otherwise keep the default owner refusal policy for disabled
 and dry-run modes.
 
+Before deactivation, an already-active no-op or cached activation, the backend
+reloads the selected profile's settings and verifies its bond controller and
+port type. The member's optional `interface-name` must agree with the resolved
+device when nonempty. Modern `controller`/`port-type` and legacy
+`master`/`slave-type` fields are supported; conflicting or wrongly typed values
+are rejected. A deleted or reprofiled cached connection fails without activation.
+Discovery selects only a matching available profile.
+
+A controller UUID is resolved with `GetConnectionByUuid`; the referenced profile
+must identify the requested bond. `connection.interface-name` takes precedence
+over the deprecated `bond.interface-name`. An unbound controller is accepted
+only when the requested bond device's active connection uses that same profile.
+Repeated remove/add calls avoid further mutations once NetworkManager reports
+the corresponding inactive/active state. These checks use a fresh snapshot;
+concurrent administrative profile edits require external coordination.
+
+Replies retain the declared D-Bus types and arity. Object-path methods require
+one nonroot object path; property reads require a Variant containing the exact
+property type. The inactive `ActiveConnection` root sentinel and an empty
+`AvailableConnections` array remain valid. Available profile paths must be
+nonroot, `GetSettings` retains its nested Variant dictionary, and
+`DeactivateConnection` returns no values. Malformed replies return
+`ErrNetworkManagerSettingsInvalid`; remote errors and context cancellation are
+preserved. Reply validation cannot undo a request already processed by the peer.
+
+On Linux, NetworkManager network setup and property reply waits honor the
+actuator's context. Manager sets a 5 s context for each action, including DNS,
+socket dialing, D-Bus authentication and Hello. Each action owns a private
+connection. Transport selection uses `DBUS_SYSTEM_BUS_ADDRESS` when nonempty,
+otherwise the first existing `/var/run/dbus/system_bus_socket` or
+`/run/dbus/system_bus_socket`. Unix path/abstract, TCP and nonce-TCP addresses
+are supported; `godbus_no_tcp` disables both TCP transports before DNS.
+
+Nonce-TCP requires a trusted local regular nonce file containing exactly 16
+bytes; pipes and other nonregular files are rejected. The context bounds network
+waits, not filesystem calls on a stalled mount. Transport failures may select
+the next address, but authentication or Hello failures never select another
+peer. Live NetworkManager ownership and member-wire behavior still require
+qualification; see [ADR-0003](adr/0003-linux-advanced-bfd-applicability.md).
+
 Groups are reconciled on SIGHUP reload. Group key: `lag_interface`.
 
 Each group and its member sessions apply as one unit. A failed member session
@@ -620,12 +666,20 @@ geneve:
       detect_mult: 5
 ```
 
-#### `socket` -- Socket Buffer Tuning
+<a id="socket----socket-buffer-tuning"></a>
+
+#### `socket` -- UDP Buffers and Sender QoS
 
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `socket.read_buffer_size` | int | `4194304` (4 MiB) | `SO_RCVBUF` size in bytes for listener sockets. Larger buffers reduce packet loss under high session counts. Set to `0` to use the OS default. |
 | `socket.write_buffer_size` | int | `4194304` (4 MiB) | `SO_SNDBUF` size in bytes for sender sockets. Larger buffers reduce `sendto` failures under burst conditions. Set to `0` to use the OS default. |
+| `socket.ipv4_dscp` | int | `48` (CS6) | Six-bit IPv4 DSCP, 0–63; transmitted as `IP_TOS = DSCP << 2` with ECN=0. `0` selects best effort. |
+| `socket.ipv6_traffic_class` | int | `192` | Complete IPv6 Traffic Class octet, 0–255. `192` is CS6 with ECN=0; `0` selects best effort. |
+| `socket.priority` | int | `0` | Linux `SO_PRIORITY`, 0–2147483647; local queue policy independent of the IP marking. |
+| `socket.mark` | uint32 | `0` | Linux `SO_MARK`, 0–4294967295; zero skips the privileged socket operation. |
+| `socket.priority_required` | bool | `true` | Reject sender creation if setting `SO_PRIORITY` fails; `false` logs a warning and continues. |
+| `socket.mark_required` | bool | `true` | Reject sender creation if setting a nonzero `SO_MARK` fails; `false` logs a warning and continues. |
 
 Both values must be nonnegative integers representable as `int`. `read_buffer_size` applies to the shared
 single-hop and multihop control listeners, the interface-bound IPv4 and IPv6
@@ -641,6 +695,33 @@ Zero leaves the corresponding OS default unchanged. A socket-option error
 fails that socket construction and closes the new socket. Buffer policy is
 captured at startup, including for senders created later; changing either
 value through SIGHUP is rejected and requires a process restart.
+
+QoS applies to ordinary API and declarative Control, Echo, Micro-BFD and
+unsolicited senders, including senders created after startup. All six QoS
+settings are immutable until process restart; a changed SIGHUP candidate is
+rejected before generation, log level or session resources change. Numeric
+QoS input must be integral and within its declared range before decoding;
+boolean numeric coercion, fractions, overflow and null are rejected.
+
+CS6 is deployment policy, not an RFC 5881 requirement. Existing configurations
+without these fields now request CS6. Set both IP marking fields to `0` to
+retain best effort. Source-port range, per-session stability and allocation
+remain unchanged. `IP_TOS` and `IPV6_TCLASS` failures always reject the sender;
+optional priority/mark failures identify the option, value and error in a
+structured warning. The explicit priority is applied after IP marking because
+Linux `IP_TOS` also updates the socket's local priority.
+
+Linux permits unprivileged `SO_PRIORITY` values 0–6; higher values require
+capability permission. Linux 6.12 accepts `CAP_NET_RAW` or `CAP_NET_ADMIN`;
+check the deployed kernel's policy. Nonzero `SO_MARK` requires `CAP_NET_ADMIN`
+or, since Linux 5.17, `CAP_NET_RAW`; see
+[socket(7)](https://man7.org/linux/man-pages/man7/socket.7.html) and the
+[Linux 6.12 socket implementation](https://github.com/torvalds/linux/blob/v6.12/net/core/sock.c).
+An optional mark can continue without the intended routing mark; keep
+`mark_required: true` where the mark selects the required path. Local readback
+or packet marking does not establish cloud/fabric treatment or queue priority.
+QoS does not inherit into VXLAN/Geneve outer sockets or inner headers; overlay
+policy remains separate. Local-address availability probes also omit QoS.
 
 Qualify buffer sizes using actual burst load, requested/effective kernel
 limits and observed socket drops. Session count alone does not establish a
@@ -675,6 +756,12 @@ built-in defaults.
 | `GOBFD_MICRO_BFD_ENABLED` | `micro_bfd.enabled` | `true` |
 | `GOBFD_SOCKET_READ_BUFFER_SIZE` | `socket.read_buffer_size` | `8388608` |
 | `GOBFD_SOCKET_WRITE_BUFFER_SIZE` | `socket.write_buffer_size` | `8388608` |
+| `GOBFD_SOCKET_IPV4_DSCP` | `socket.ipv4_dscp` | `46` |
+| `GOBFD_SOCKET_IPV6_TRAFFIC_CLASS` | `socket.ipv6_traffic_class` | `184` |
+| `GOBFD_SOCKET_PRIORITY` | `socket.priority` | `6` |
+| `GOBFD_SOCKET_MARK` | `socket.mark` | `123` |
+| `GOBFD_SOCKET_PRIORITY_REQUIRED` | `socket.priority_required` | `true` |
+| `GOBFD_SOCKET_MARK_REQUIRED` | `socket.mark_required` | `true` |
 | `GOBFD_VXLAN_ENABLED` | `vxlan.enabled` | `true` |
 | `GOBFD_VXLAN_BACKEND` | `vxlan.backend` | `"userspace-udp"` |
 | `GOBFD_GENEVE_ENABLED` | `geneve.enabled` | `true` |
@@ -1156,6 +1243,8 @@ limit rather than a kernel or privilege boundary. A rejected reload logs only
 these bounded field paths, never configuration values or authentication
 secrets. Socket buffer values are included in this startup-only boundary
 and apply to every supported UDP socket described in the socket tuning section.
+Ordinary sender QoS is also startup-owned; these values do not configure the
+overlay outer sockets.
 
 Changing `grpc.unsafe_loopback_mutations` in either direction rejects the
 reload before generation acceptance, log-level changes, peer callbacks or
@@ -1183,6 +1272,11 @@ changes are not rolled back.
 | `log.level` must be `debug`, `info`, `warn`, or `error` (case-insensitive) | `ErrInvalidLogLevel` |
 | `log.format` must be exactly `json` or `text` | `ErrInvalidLogFormat` |
 | `socket.read_buffer_size` / `socket.write_buffer_size` must be >= 0 | `ErrInvalidSocketReadBufferSize` / `ErrInvalidSocketWriteBufferSize` |
+| `socket.ipv4_dscp` must be an integer in 0–63 | `ErrInvalidSocketIPv4DSCP` |
+| `socket.ipv6_traffic_class` must be an integer in 0–255 | `ErrInvalidSocketIPv6TrafficClass` |
+| `socket.priority` must be an integer in 0–2147483647 | `ErrInvalidSocketPriority` |
+| `socket.mark` must be an integer in 0–4294967295 | `ErrInvalidSocketMark` |
+| `socket.priority_required` / `socket.mark_required` must be boolean | `ErrInvalidSocketPriorityRequired` / `ErrInvalidSocketMarkRequired` |
 | At least one of `grpc.addr` or `grpc.socket.path` must be nonempty | `ErrEmptyGRPCAddr` |
 | `bfd.default_detect_multiplier` must be >= 1 | `ErrInvalidDetectMultiplier` |
 | `bfd.default_desired_min_tx` must be > 0 | `ErrInvalidDesiredMinTx` |
@@ -1258,6 +1352,9 @@ the error contains no address or interface values.
 | `gobgp.tls.enabled` | `false` | Backward-compatible localhost GoBGP default |
 | `socket.read_buffer_size` | `4194304` (4 MiB) | Requested receive buffer; qualify effective capacity under deployment load |
 | `socket.write_buffer_size` | `4194304` (4 MiB) | Requested send buffer; qualify effective capacity under deployment load |
+| `socket.ipv4_dscp` / `socket.ipv6_traffic_class` | `48` / `192` | CS6 deployment defaults; explicit zero selects best effort |
+| `socket.priority` / `socket.mark` | `0` / `0` | Default local queue and no routing mark |
+| `socket.priority_required` / `socket.mark_required` | `true` / `true` | Requested socket policy fails closed unless explicitly optional |
 
 ### Related Documents
 

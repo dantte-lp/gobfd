@@ -4,24 +4,97 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## Publication boundary — 2026-10-27
+
+The latest accepted local source baseline is
+`dev@43b5e5b326bff5bae0090efd3eb22ea924d276e1`. E2E runtime setup and diagnostics
+are Go-owned under closed `gobfd-qj0.8.2.8.2.2.8.4`; hosted-runner qualification
+remains separate from the accepted local source and critical fixtures.
+Echo owner-expiry witnesses, the real owner/independent UDP-return driver and
+typed workload assessment are accepted at
+`12cc9982c19df609f09291bb240797498de5de0b`,
+`7839788b04d016019e0498db26149f7735ba84bc` and
+`0973ae16432649d1d779ef79fb668420c5495a53`; the baseline adds the shared
+notification-queue population budget. The bounded actual-UDP Control/Echo
+160/240 matrix passes 8/8 cells across both sides with zero raw queue loss,
+subscriber gaps or stale dispatch. These results do not qualify native
+1,000-session/24h operation, timer p99.9, thread/RSS distributions or late timers.
+The held Containerlab candidate `4852538df409e0b0309b89505b6dc88861a49540`
+is receiving this accepted `dev` baseline for qualification. The current merge
+working tree is uncommitted and unaccepted; its historical source checks do not
+qualify the refreshed composite. Actual native FRR and strict wire/timer
+qualification must pass on the exact composite before candidate integration
+into `dev` under `gobfd-qj0.8.2.8.5.2.7.3.4`.
+Pending activation implementation `gobfd-qj0.8.2.2.6` is closed after acceptance
+of its six required children. Optional interface-validation consolidation
+`gobfd-qj0.8.2.2.6.5` (P2) and global VNI reload `gobfd-qj0.8.2.2.6.6` (P3)
+remain unchanged in post-v1 backlog `gobfd-qj0.8.7`; global VNI defaults still
+require restart. Thread-pin A/B, calibrated reference/24h, final wire and
+security qualification remain open in their existing Beads tasks. Publication
+remains held. The previous dated projection is preserved below.
+
 ## Publication boundary — 2026-10-26
 
-This checkout combines local `dev` baseline
-`1a3a0cb7e084d5b1fa1a5ed486fd378dd374c73a` with isolated Containerlab source
-`a14375c3ccca2c4e5e9f173e86d770ac0105d26e`. The baseline retains the
-Kubernetes loopback/probe correction and Podman output-header fix. The
-31-pair English/source and Russian semantic review
-`gobfd-qj0.8.2.8.7.2.20` is accepted at that `dev` baseline; subsequent
-source changes retain separate documentation and qualification gates.
+This projection covers local
+`dev@1c535f9ac1de7a12f7d85054a9d0fe81216f02c0`. Owner-monotonic Down
+commit witnesses are accepted under `gobfd-qj0.8.2.1.6.3.4.3.6.2.1` and
+[ADR-0012](adr/0012-owner-down-transition-witness.md). The engineering schedule
+places full blackhole windows lasting one second at minutes 10 and 20 inside
+its 30 minutes of measurement; source acceptance is recorded under
+`gobfd-qj0.8.2.1.6.3.4.3.6.3` and [ADR-0007](adr/0007-workload-phase-accounting.md).
+Source checks, bounded UDP fixtures and samples with zero allocations do not
+qualify engineering with 5,000 sessions or reference with 1,000 sessions for
+24 hours.
+Scalar incarnation binding is accepted under
+`gobfd-qj0.8.2.1.6.3.4.3.6.2.2`; independent causal classification remains open
+under `gobfd-qj0.8.2.1.6.3.4.3.6.2`.
+The [release retrospective](audits/2026-10-26-release-retrospective.md)
+compares the previous audit with current code and Beads. Its engineering
+estimate is 40–65 active hours plus the required 24-hour reference run;
+the planning window is 30 October–1 November, subject to the stated native
+qualification risks and external waiting. Execution remains in Beads.
+Actual peer blackhole journaling is accepted under
+`gobfd-qj0.8.2.1.6.3.4.3.6.1`; causal correlation remains separate. Paired benchmark
+collection is accepted under `gobfd-qj0.8.2.8.8.1`; it does not qualify native
+performance. Intentional/false-Down correlation remains open under
+`gobfd-qj0.8.2.1.6.3.4.3.6`. Vulnerability-audit diagnostic
+completeness is accepted under `gobfd-qj0.8.2.8.10`; this does not close
+security qualification. Micro-BFD dispatch logging
+is accepted under `gobfd-qj0.8.2.8.6.3.2.3.1`; inline authentication payload
+is accepted under `gobfd-qj0.8.2.8.6.3.2.2`. Value metadata and immutable-wire
+verification are accepted under `gobfd-qj0.8.2.1.18` and `gobfd-qj0.8.2.1.18.1`;
+fixed digest results are accepted under `gobfd-qj0.8.2.8.6.3.2.1`.
+UDP source corrections are accepted under `gobfd-qj0.8.2.1.16.1`.
+Strict NetworkManager replies and
+profile ownership checks are accepted under `gobfd-qj0.8.2.2.11` and
+`gobfd-qj0.8.2.2.9`; property reads and Linux connection setup are accepted
+under `gobfd-qj0.8.2.2.10` and `gobfd-qj0.8.6.2.1`. The shared reply decoder
+rejects coercible types and wrong arity while retaining property sentinels.
+The UDP constructor rejects invalid source ports before options or socket
+creation; Linux TTL/Hop Limit and packet-info indices use native byte order.
+Native `linux/amd64` and `linux/arm64` qualification remains separate in
+`gobfd-qj0.8.2.1.16.2`; intended architecture support is unchanged.
+Authentication metadata and its bounded payload are held by value; hash
+verification preserves decoded wire. [ADR-0011](adr/0011-bfd-auth-inline-payload.md)
+records inline ownership and the separate qualification boundary.
+The 31-pair publication review is accepted under
+`gobfd-qj0.8.2.8.7.2.20`. API loopback fixtures and benchmark failure propagation
+are accepted locally under `gobfd-qj0.8.2.3.9` and
+`gobfd-qj0.8.2.8.7.2.5.1`; the affected English and Russian pages are updated.
 
-The isolated source adds fresh socket-free compilation, exact artifact
-execution and CLI/API ownership checks against one original receipt before
-preparation and runtime entry. The source fixes for verdict completeness,
-interrupted compiler checkpoints and engine binding are accepted under
+The Containerlab compiler/runtime and strict wire/timer changes remain separate
+in candidate `4852538df409e0b0309b89505b6dc88861a49540`. Its source acceptance
+includes CLI/API engine binding, mandatory FRR verdicts and compiler checkpoint
+recovery. The 635 named passes apply to its frozen tree, not to later `dev`
+changes. Native FRR qualification and candidate integration into `dev` remain
+open; local parser and Debian artifact-loader checks do not replace them.
+Its source combines baseline `1a3a0cb7e084d5b1fa1a5ed486fd378dd374c73a`
+with isolated Containerlab implementation
+`a14375c3ccca2c4e5e9f173e86d770ac0105d26e`, retaining the Kubernetes
+loopback/probe and Podman output-header fixes. The verdict, compiler checkpoint
+and engine-binding source fixes are accepted under
 `gobfd-qj0.8.2.8.5.2.7.3.4.1`, `gobfd-qj0.8.2.8.5.2.7.3.4.3` and
-`gobfd-qj0.8.2.8.5.2.7.3.4.4`. Local strict packet/timer parsers and Debian
-artifact-loader checks do not close native FRR qualification or integration
-into `dev`. Five NOS profiles remain unavailable.
+`gobfd-qj0.8.2.8.5.2.7.3.4.4`.
 
 Publication remains held. Reference-load/24h, thread-pin A/B, final wire,
 integration and security qualification remain separate gates under
@@ -30,7 +103,7 @@ prerelease path. Beads, rather than this dated projection, owns their status.
 
 | Area | Current boundary | Beads authority |
 |---|---|---|
-| Documentation | The 31-pair English/source and Russian semantic audit is accepted at the dev baseline; Containerlab source documentation is updated separately | `gobfd-qj0.8.2.8.7.2.19`, `gobfd-qj0.8.2.8.7.2.20` |
+| Documentation | The 31-pair English/source and Russian publication audit is accepted locally; later benchmark, NetworkManager and isolated Containerlab source documentation is updated separately | `gobfd-qj0.8.2.8.7.2.19`, `gobfd-qj0.8.2.8.7.2.20`, `gobfd-qj0.8.2.8.7.2` |
 | Management/reload | Unsafe-loopback policy changes reject before candidate acceptance; core pending activation is accepted locally; the parent retains separate P2 interface-validation and P3 runtime-VNI work | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6`, `gobfd-qj0.8.2.2.6.5`, `gobfd-qj0.8.2.2.6.6` |
 | Sender recovery | Same-socket IPv4/IPv6 rebind and denied-privilege failure pass locally; matching named scope no longer increases packet-loop allocations after recreation | `gobfd-qj0.8.2.2.6.7` |
 | Pending qualification | Typed reason classes and active-address checks retain generation, claims and sockets; all-five periodic resource checks also cover missing monitor events; local process evidence remains separate from final release qualification | `gobfd-qj0.8.2.2.6.8`, `gobfd-qj0.8.2.2.6.8.1`, `gobfd-qj0.8.2.2.6.8.2` |
@@ -39,6 +112,10 @@ prerelease path. Beads, rather than this dated projection, owns their status.
 | Containerlab | The isolated candidate has the shared FRR recipe and schema-3 ownership/recovery guards; five NOS retain unavailable qualification with an explicit execution policy; native FRR and final integration remain open | `gobfd-qj0.8.2.8.5.2.7.3`, `gobfd-qj0.8.2.8.5.2.7.3.2`, `gobfd-qj0.8.2.8.5.2.7.4` |
 | Containerlab compiler/runtime | Fresh compilation is separated from engine-enabled execution; CLI/API IDs and owner/run labels are rechecked against the original receipt before preparation and runtime entry; native FRR qualification and integration remain open | `gobfd-qj0.8.2.8.5.2.7.3.4`, `gobfd-qj0.8.2.8.5.2.7.3.4.4` |
 | Containerlab verdict/wire | Ten named PASS results and package PASS are mandatory; strict PCAP/typed timer fixtures pass locally, while real commands and native FRR evidence remain unqualified | `gobfd-qj0.8.2.8.5.2.7.3.4.1`, `gobfd-qj0.8.2.8.5.2.7.3.5` |
+| NetworkManager | Context-bound setup, active/cached ownership with UUID bindings and exact reply types/arity are accepted locally; live ownership and member-wire acceptance remain open | `gobfd-qj0.8.2.2.10`, `gobfd-qj0.8.2.2.9`, `gobfd-qj0.8.6.2.1`, `gobfd-qj0.8.2.2.11` |
+| UDP transport | Constructor source-port validation and native-endian ancillary decoding are accepted locally; native architecture evidence remains separate | `gobfd-qj0.8.2.1.16.1`, `gobfd-qj0.8.2.1.16.2` |
+| Authentication | Inline payload preserves independent packet copies; built-in Sign/Verify and the authenticated owner fixture report zero allocations; Micro-BFD dispatch and final runtime acceptance remain separate | `gobfd-qj0.8.2.8.6.3.2.2`, `gobfd-qj0.8.2.8.6.3.2.3`, `gobfd-qj0.8.2.8.6.3.2` |
+| Micro-BFD dispatch | Typed logging samples report zero allocations without an actuator, including enabled JSON; noop actuator retains four allocations for its bounded context; the complete allocation target remains open | `gobfd-qj0.8.2.8.6.3.2.3.1`, `gobfd-qj0.8.2.8.6.3.2.3` |
 | Echo preview | Declarative and API IPv4/IPv6 TX binding, UDP/3785 and lease cleanup pass local checks; API receive claims honor the requested interface; full RFC qualification remains open | `gobfd-qj0.8.2.1.19`, `gobfd-qj0.8.2.1.17` |
 | Legacy demos | HAProxy/Kubernetes CLI and pod-selector drift require source fixes and actual execution | `gobfd-qj0.8.2.8.7.1.4.1` |
 | Kubernetes API exposure | Source binds GoBGP API to loopback and uses bounded exec API probes; live-cluster probe and resource qualification remains open | `gobfd-qj0.8.2.8.7.1.4.1.1` |
@@ -878,7 +955,7 @@ on hold; this retrospective does not refresh every upstream version channel.
 
 | Component | Installed → target | Earliest adoption UTC | Evidence and next check |
 |---|---|---|---|
-| godbus | 5.2.2 → 5.2.4 | 2026-10-20 16:01:38 | [5.2.3](https://github.com/godbus/dbus/releases/tag/v5.2.3) allocation/error hardening and [5.2.4](https://github.com/godbus/dbus/releases/tag/v5.2.4) system-bus lookup errors; NetworkManager missing-bus/cancellation tests; `gobfd-qj0.8.6.2.1` |
+| godbus | 5.2.2 → 5.2.4 | 2026-10-20 16:01:38 | Pin, generated inventory and Linux connection cancellation accepted locally in `gobfd-qj0.8.6.2.1`; [5.2.3](https://github.com/godbus/dbus/releases/tag/v5.2.3) allocation/error hardening and [5.2.4](https://github.com/godbus/dbus/releases/tag/v5.2.4) system-bus lookup errors reviewed |
 | ConnectRPC | 2.0.0 → 2.0.1 | 2026-10-21 13:57:00 | [Notes](https://github.com/connectrpc/connect-go/releases/tag/v2.0.1): rejected-message draining, early responses and truncated/error envelopes; RPC/Watch/generator parity; `gobfd-qj0.8.6.10` |
 | ExaBGP | 5.0.13 → 5.0.15 | 2026-10-24 06:08:19 | [5.0.14](https://github.com/Exa-Networks/exabgp/releases/tag/5.0.14) changes UPDATE/withdraw/helper behavior; [5.0.15](https://github.com/Exa-Networks/exabgp/releases/tag/5.0.15) changes CI/tests only; BGP/helper regression gates; `gobfd-qj0.8.6.6.1` |
 | OSV Scanner | 2.6.0 → 2.7.0 | 2026-10-19 01:32:07 | [Notes](https://github.com/google/osv-scanner/releases/tag/v2.7.0): parser/offline/call-analysis and SBOM changes; scan input counts and JSON/SBOM compatibility; `gobfd-qj0.8.6.3` |

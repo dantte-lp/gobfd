@@ -114,7 +114,7 @@ func (s *Session) verifyReceivedAuth(item recvItem) DeliveryOutcome {
 	// Expire the old sequence window before authenticating a restarted peer.
 	s.maybeResetAuthSeqKnown()
 	pkt := item.pkt
-	if err := s.auth.Verify(s.authState, s.authKeys, &pkt, item.wire, len(item.wire)); err != nil {
+	if err := s.auth.Verify(s.authState, s.authKeys, pkt, item.wire, len(item.wire)); err != nil {
 		s.logger.Debug("auth verification failed",
 			slog.String("error", err.Error()),
 		)
@@ -199,11 +199,13 @@ func (s *Session) executeFSMActions(
 			// These actions do not select a diagnostic.
 		}
 	}
+	var observation Observation
+	var changed bool
 	if result.Changed {
-		// Timer interruption captures the OLD advertised state before commit.
-		s.timerStateChange(result.OldState, result.NewState)
+		observation, changed = s.commitTransitionObservation(result, diag, cause)
+	} else {
+		observation, changed = s.commitObservation(result.NewState, diag, cause)
 	}
-	observation, changed := s.commitObservation(result.NewState, diag, cause)
 	s.cachedState = result.NewState
 	if result.Changed && result.NewState == StateDown && cause == CauseDetectionTimeout {
 		s.timerEvent.effect(s.metrics, TimerControlDetection, time.Now())
@@ -265,6 +267,7 @@ func (s *Session) executeAction(
 func (s *Session) emitNotification(result FSMResult, observation Observation) {
 	s.mu.RLock()
 	attempt := s.unsolicitedAttempt
+	timing := s.transitionTiming
 	failed := s.unsolicitedClaimWanted && s.unsolicitedCleanupAllowedLocked(attempt) &&
 		(attempt != 0 || (observation.State == StateDown &&
 			(observation.Cause == CauseDetectionTimeout || observation.Cause == CausePathDown)))
@@ -277,6 +280,9 @@ func (s *Session) emitNotification(result FSMResult, observation Observation) {
 	}
 	sc := stateChangeOf(snapshotForObservation(s, observation), result.OldState)
 	sc.unsolicitedAttempt = attempt
+	if timing.Version != 0 && timing.Version == observation.ObservationVersion {
+		sc.TransitionTiming = timing
+	}
 	select {
 	case s.notifyCh <- sc:
 		s.recordDelivery(DeliveryControlNotification, DeliveryQueued)
@@ -375,18 +381,7 @@ func (s *Session) scheduleTxTimer(txTimer *time.Timer, previousSend time.Time) {
 // Uses cached state for hot-path performance.
 func (s *Session) resetDetectTimer(detectTimer *time.Timer) {
 	detectTime := s.calcDetectionTimeHot()
-	if !detectTimer.Stop() {
-		drainTimer(detectTimer)
-	}
 	detectTimer.Reset(detectTime)
-}
-
-// drainTimer non-blockingly drains the timer channel.
-func drainTimer(t *time.Timer) {
-	select {
-	case <-t.C:
-	default:
-	}
 }
 
 // -------------------------------------------------------------------------

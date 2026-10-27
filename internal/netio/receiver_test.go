@@ -32,7 +32,7 @@ type demuxCall struct {
 }
 
 func (m *mockDemuxer) DemuxWithWire(
-	pkt *bfd.ControlPacket, meta bfd.PacketMeta, wire []byte,
+	pkt bfd.ControlPacket, meta bfd.PacketMeta, wire []byte,
 ) (bfd.DeliveryOutcome, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

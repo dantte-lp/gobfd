@@ -218,12 +218,20 @@ groups:
     rules:
       # Alert when no Control sessions are configured or dynamically active.
       - alert: BFDNoActiveSessions
-        expr: (sum(gobfd_bfd_sessions) or vector(0)) == 0
+        expr: (up{job="gobfd"} == 1) unless on(job, instance) (gobfd_bfd_sessions{job="gobfd"} > 0)
         for: 10s
         labels:
           severity: warning
         annotations:
           summary: "No active BFD Control sessions"
+
+      - alert: BFDExporterUnavailable
+        expr: (up{job="gobfd"} == 0) or absent(up{job="gobfd"})
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "BFD metrics exporter unavailable"
 
       # Alert on BFD session going Down.
       - alert: BFDSessionDownTransition
@@ -262,14 +270,20 @@ groups:
           summary: "BFD packet drops for {{ $labels.peer_addr }}"
 ```
 
-This aggregate example also handles a fresh daemon with no session label series.
-An Echo-only daemon also has no Control sessions for this gauge.
-It cannot distinguish an empty daemon from an unavailable exporter; monitor
-`up` separately. Fleet rules need job/instance scoping. See the Prometheus
+`BFDNoActiveSessions` selects each healthy scrape target in job `gobfd` that
+has no positive Control-session series, including a fresh or Echo-only daemon.
+Matching by `job, instance` keeps a populated daemon from hiding an empty one;
+zero-count retained series do not suppress the alert. The ten-second hold starts
+when the condition becomes true and resets when a session is registered.
+`BFDExporterUnavailable` separately reports failed scrapes or an entirely absent
+`gobfd` scrape job. Removing one target from a nonempty job requires an inventory
+alert; it cannot be inferred from absent telemetry alone. Federated deployments
+must include their cluster or tenant identity in matching when `job, instance`
+is not unique. See the Prometheus
 [operator](https://prometheus.io/docs/prometheus/latest/querying/operators/)
 and [function](https://prometheus.io/docs/prometheus/latest/querying/functions/)
-references. The shipped observability lab still uses the older expression
-without the empty-vector fallback (`gobfd-qj0.8.2.8.7.2.8`).
+references. The shipped observability lab uses these expressions and runs the
+shared virtual-time fixtures with its pinned `promtool` before runtime checks.
 
 ### Structured Logging
 

@@ -28,17 +28,24 @@
 
 - **Podman** + **Podman Compose** for containerized builds, tests and lint
 - **Git** for version control
+- **util-linux `flock`** for the five E2E aggregate launchers
 - Go 1.27.3 for IDE support and targets that invoke host Go; builds use the repository-pinned container toolchain
 
 > `make build`, `make test`, `make lint` and `make vulncheck` use Podman.
 > Host bootstrap, `lint-ci` and some integration/report targets still invoke
 > `go run` directly; they require the pinned Go toolchain or an explicit
 > container invocation. `semgrep*` targets call the selected host executable.
-> The five E2E aggregate launchers remain a container-boundary gap in
-> `gobfd-qj0.8.2.8.7.1.4.2`; containerized payload tests do not close it.
+> `e2e-routing`, `e2e-rfc`, `e2e-overlay`, `e2e-linux` and `e2e-vendor` rebuild
+> ignored `bin/e2ectl` with the digest-pinned compiler from `Containerfile.dev`,
+> then run it on the host without host Go. The compiler has read-only source,
+> a writable binary directory and no engine socket. One exclusive directory
+> lock covers dev recreation, compilation and runtime; lock acquisition waits
+> at most 120 seconds. `make -n` prints the delegation without creating the
+> binary directory or taking the lock. Payload and native qualification remain separate.
 > Containerlab's five Make launchers build a fresh controller in a socket-free
-> SDK. Its race-enabled payload compiles separately and executes in Debian;
-> native FRR qualification remains open in `gobfd-qj0.8.2.8.5.2.7.3.4`.
+> SDK. Its race-enabled payload compiles separately and executes in a Debian
+> runtime with the selected engine socket and no compiler. Native FRR
+> qualification remains open in `gobfd-qj0.8.2.8.5.2.7.3.4`.
 > Complete the [Compose-provider bootstrap](06-deployment.md#podman-compose)
 > before `make up`. The setup below assumes that its exported environment
 > variables remain set in the same shell.
@@ -189,8 +196,10 @@ output to `go-test.json` and `go-test.log`, and preserves the test exit code.
 | `make int-k8s` | Kubernetes DaemonSet with GoBGP sidecar |
 
 The HAProxy and observability full-demo runners include warning-only
-observations; Kubernetes retains known selector and probe defects. Use the
-separate assertion-based testcontainers gates where available. Current limits
+observations. The Kubernetes manifest binds the GoBGP API to loopback and uses
+exec probes; its legacy runner still has selector and tool-probe defects, and
+live-cluster qualification remains open. Use the separate assertion-based
+testcontainers gates where available. Current limits
 and the tracked runner follow-up are in [Integrations](11-integrations.md).
 Their raw Compose `-down` targets remove volumes and orphans; inspect ownership
 and obtain the required deletion approval before cleanup.
@@ -464,9 +473,20 @@ builds with Debian imagebuilder 1.2.5, which rejects the interop
 Containerfiles' `ADD --checksum`. Ubuntu 26.04 AppArmor attaches its `tshark`
 profile to `/usr/bin/tshark`, and rootless Podman runs containers without a
 profile, so the capture image runs `tshark` and `dumpcap` from
-`/usr/local/bin`. Each job allows the `pasta` profile to receive Podman
-signals before Podman starts (LP: #2154379) and prints AppArmor denials at the
-end. The vulnerability audit creates its own
+`/usr/local/bin`. Each E2E job calls `toolbootstrap podman-e2e`, which reuses
+the runtime/provider bootstrap, conditionally permits Podman signals in the
+`pasta` profile (LP: #2154379), and prepares a private rootless Unix socket.
+Socket-file readiness has a 20-second deadline; it does not assert API health.
+An existing socket is reused without taking ownership. A newly started direct
+`podman system service --time=0` outlives bootstrap only after version checks
+and publication of the four socket environment values succeed. Failure kills
+and joins only that new process; `podman-system-service.log` retains diagnostics.
+The command requires `GITHUB_ENV` and `GITHUB_PATH`; the existing pinned host-Go
+bootstrap remains separate from containerized builds and runtime qualification.
+At job end, `toolbootstrap apparmor-denials` emits only AppArmor denial lines.
+Diagnostics and `make down` use native `continue-on-error: true` with `always()`;
+their failures remain visible without blocking artifact upload. Other callers
+of `podman-runtime` keep their existing behavior. The vulnerability audit creates its own
 report directory; the workflow delegates to it directly without a separate
 directory command.
 
@@ -497,14 +517,28 @@ one 40- or 64-hex commit ID and passes `.git#commit=<sha>` to Buf, so branch
 characters cannot be interpreted as Buf source parameters. Both steps retain
 their pull-request-only conditions and fail on command errors.
 
-The benchmark job is also Go-owned. `cictl benchmark-run` executes the fixed
-package, timeout, sample-count, and memory-report arguments from the repository
-root and writes a fresh `new.txt`. `cictl benchmark-base` validates the
-`origin/<base>` ref, creates its detached worktree only below `RUNNER_TEMP`, and
-uses command-scoped `git -c safe.directory=<root>` configuration. A detached,
-bounded cleanup context removes that worktree even when the benchmark command
-fails or its parent context is cancelled; repository-global Git configuration
-is not changed.
+The benchmark job runs `cictl benchmark-pair --old old.txt --new new.txt`.
+It collects ten samples per revision with `-benchtime=100ms`, one sample per
+Go invocation. Pairs alternate base/head and head/base order, giving each
+revision five first runs. Both files are fresh; empty samples, malformed
+numeric records and package/name groups without exactly ten samples fail
+collection. Output paths cannot be identical, refer to the same file through
+hard links or use symbolic links.
+
+Each output has a streaming limit of 64 MiB. The paired child commands use
+a `WaitDelay` of 30 s to bound pipe waits after exit or cancellation.
+
+The collector validates `origin/<base>`, creates one detached worktree below
+`RUNNER_TEMP` and uses command-scoped `git -c safe.directory=<root>`.
+A detached, bounded cleanup context removes that worktree on success,
+failure or cancellation; repository-global Git configuration is unchanged.
+The workflow retains its 15-minute job timeout. Local budget measurements
+do not guarantee an otherwise busy runner's completion time.
+
+`cictl benchmark-run` and `cictl benchmark-base` retain their separate six-run,
+non-interleaved diagnostic behavior. Their output is not the paired CI sample
+set. The release snapshot and Make benchmark commands also retain six runs;
+they do not establish a calibrated latency or release-performance gate.
 
 `cictl benchmark-normalize` rewrites only the three exact historical aliases
 and requires `RecvDecodeLookupEnqueue`, `RecvDecodeFSM`, and `TxMarshalJitter`

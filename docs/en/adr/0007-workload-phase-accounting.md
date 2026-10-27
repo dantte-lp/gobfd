@@ -13,8 +13,24 @@ duration completion does not establish packet accounting or latency acceptance.
 
 ## Decision
 
+Use one bounded notification policy in the daemon and workload owner:
+`Q = min(65536, 64 + 3*N)` entries for the raw queue and each subscription.
+Count configured Control sessions, enabled Echo/VXLAN/Geneve peers, enabled
+Micro-BFD member links and the enabled unsolicited session limit. Shared claims
+may conservatively overcount producers. Add cohorts with checked arithmetic.
+The reserve covers registration and two state changes per producer while the
+dispatcher or subscriber is paused; it does not guarantee lossless sustained
+churn. The full reserve fits through `N=21824`; larger populations saturate.
+Each subscription has its own `O(Q)` storage, with no global subscriber budget.
+Construction without a population option and the legacy channel retain 64
+entries. API/reload growth does not resize queues or change admission.
+Over-budget raw loss still emits a recovery GAP; a slow subscriber retains its
+own GAP. Journal completeness continues to reject either loss. Apply this shared
+fix to both sides before comparing thread pinning.
+
 Reuse the Go-owned production-core workload and independent peer model. After
-both roles reach Up, publish one future native monotonic epoch. Each role checks
+the owner reaches Up and independent peer traffic is ready, publish one future
+native monotonic epoch. Each role checks
 the time-namespace identity before conversion to a Go timer. Private,
 owner-checked `os.Root` files are bounded at 64 bytes; complete publications
 refuse replacement and reads reject links and special files. The conversion
@@ -144,6 +160,91 @@ fully delivered later flaps remain outside the measured journal. Do not subtract
 sampled setup history: missed startup flaps conservatively fail this contract.
 Reuse production metrics; add no hot-path fence or counter. Journal completeness
 does not classify Down as intentional or qualify commit timestamps or clocks.
+
+### Measured blackholes (2026-10-26)
+
+The first blackhole starts one period after the measurement epoch. A 30-minute
+period therefore provides no blackhole in the engineering profile's measured
+`[0,30 min)` interval. Activity at the cutoff belongs to drain and cannot
+establish measured failure or recovery.
+
+Require a 10-minute period and one-second width for engineering: full windows
+start at minutes 10 and 20, with recovery time before the cutoff. Retain 5,000
+sessions, 300 ms intervals, 30 minutes, random loss and CPU pressure. Reference
+retains its 30-minute period and one-second width over 24 hours. Named-profile
+validation and reports must identify these different inputs explicitly; older
+engineering runs with a 30-minute period do not prove the corrected workload.
+Actual omissions, Down/recovery and causal classification remain separate
+acceptance requirements in Beads `gobfd-qj0.8.2.1.6.3.4.3.6.3` and its parent.
+
+The positive actual-UDP Control classification fixture uses Detect Multiplier
+1: RFC 5880 section 6.8.7 limits its planned TX interval to 75–90% of the
+negotiated interval, leaving dispatch headroom. The classifier still rejects
+actual omission gaps exceeding that negotiated interval, including fractional
+overruns. Named qualification profiles retain multiplier 3; a correct
+`unresolved` result does not become intentional because a test expects it.
+
+The read-only `bfdload assess OWNER_JSON PEER_JSON` route evaluates one joined
+canonical reference/engineering run under the explicitly declared conditional
+clock model. Reuse the existing profile/admission/terminal-ledger/causal helpers
+and producer-recorded calibration bound. Serialized input does not reconstruct
+private monotonic coverage or turn no-observed-cancellation into step-free proof.
+Keep raw total uncertainty null and reference qualification false even on numeric
+pass. Native environment/clock discipline, source provenance, required variants
+and release acceptance remain outside this numeric result.
+Preserve the causal classifier's unchanged-transport and no-independent-hidden-fault
+assumptions in the public report alongside the clock conditions.
+
+Require complete evidence before threshold evaluation. Use exact integer CDF
+ranks at the existing 25/50 ms effect-histogram boundaries, sampled resource
+limits and actual requested pressure activity. Keep RX, dispatch, successful
+effect, no-effect and invalid denominators separate. Only stopped observations
+support exact cross-counter settlement. Unknown/malformed evidence is incomplete;
+measured limit violations or false Down fail. Control retains numeric failure
+for unresolved Down; Echo unresolved evidence is incomplete. Both return a structured
+report and nonzero exit. Engineering does not invent six-hour windows inside its
+30-minute duration. Reader compatibility preserves existing numeric nanosecond
+durations while rejecting duplicate/unknown fields and invalid Unicode.
+
+### Echo traffic and physical registrations (2026-10-27)
+
+The explicit test-tool selector `--echo` records the mode in the profile and
+owner snapshots, without changing named-profile dimensions. Reuse the same
+Manager, sender leases, phases, pressure helpers, generation tracking and drain.
+The prepared mixed-family topology keeps one owner address per family; named
+Echo receive ports are 3785. Control port validation remains unchanged.
+
+Echo peers return only actual received bytes, including padding, using TTL/Hop
+Limit 254. Check codec, configured IP tuple and inbound TTL before the RX loss
+decision; authenticated input is unsupported and rejected. A surviving input
+creates one return decision. There is no autonomous Control FSM or periodic
+peer traffic. Peer readiness means an actual return was written, not remote Up.
+For bidirectional blackholes, an RX omission therefore creates no TX attempt.
+Use the existing terminal sum with Echo delivery sources and Echo socket drops.
+
+Register metrics once per physical Echo creation and unregister after final
+claim release or Manager close joins the owner. Repeated compatible claims
+share the same registration. Reuse the existing collector and packet cache.
+Control and Echo registry counts come from physical Manager snapshots; retained
+series alone never prove active owners. Keep the shared conservative churn
+timing budget; Echo does not advertise Control AdminDown.
+
+Each Echo omission also retains the original peer Read sequence. This joins
+RX omissions and return omissions despite their separate loss-schedule counters.
+The existing window/segment/time bounds still apply. Echo RX `valid` denotes
+codec/tuple/TTL-checked input, not RFC return authentication or wire delivery.
+The typed consumer binds mode across owner snapshots and the shared peer
+manifest. Echo uses its own timer kinds, with unchanged integer histogram ranks,
+validity counters and stopped settlement. Sum current and retired return counters
+against committed Echo delivery; independent peer Read cannot exceed lifetime
+owner TX. Control kernel-RX timing is not reused: Echo's absent distribution is
+explicitly `not_applicable`. No peer Control FSM or remote Up is required.
+
+Actual received inputs qualify only the conditional old-deadline model from
+[ADR 0012](0012-owner-down-transition-witness.md). The Control predicate stays
+unchanged. Native qualification remains in Beads `gobfd-qj0.8.2.1.7.1`;
+source acceptance does not qualify native A/B, an adjacent forwarding plane or
+final 24h/wire gates.
 
 ## Consequences
 

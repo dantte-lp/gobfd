@@ -129,10 +129,10 @@ func validateBenchmarkInputs(root string, options BenchmarkReportOptions) error 
 	if newPathErr != nil {
 		return newPathErr
 	}
-	if _, err := readRegularFile(oldPath, "old benchmark input", benchmarkInputLimit); err != nil {
+	if _, err := readRegularFile(oldPath, "old benchmark input"); err != nil {
 		return err
 	}
-	if _, err := readRegularFile(newPath, "new benchmark input", benchmarkInputLimit); err != nil {
+	if _, err := readRegularFile(newPath, "new benchmark input"); err != nil {
 		return err
 	}
 	return nil

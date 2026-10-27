@@ -104,8 +104,6 @@ func TestControlledWorkloadConsumesStartupAndStopBeyondSubscriberBuffer(t *testi
 
 func testControlledWorkload(t *testing.T, extraWrites, cpuPercent uint64, gc, churn bool) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
 	profile, err := DefaultProfile("fixture")
 	if err != nil {
 		t.Fatal(err)
@@ -122,6 +120,15 @@ func testControlledWorkload(t *testing.T, extraWrites, cpuPercent uint64, gc, ch
 			t.Fatal(decodeErr)
 		}
 	}
+	runControlledWorkload(t, profile, extraWrites)
+}
+
+func runControlledWorkload(
+	t *testing.T, profile Profile, extraWrites uint64,
+) (OwnerWorkloadObservation, PeerObservation) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), max(10*time.Second, profile.Duration+4*time.Second))
+	defer cancel()
 	directory := privateControlDirectory(t)
 	control, err := OpenControl(directory)
 	if err != nil {
@@ -137,6 +144,10 @@ func testControlledWorkload(t *testing.T, extraWrites, cpuPercent uint64, gc, ch
 		Sessions: []OwnerEndpoint{{
 			Local: netip.MustParseAddrPort("127.0.0.1:38171"), Peer: netip.MustParseAddrPort("127.34.0.2:38172"),
 		}},
+	}
+	if profile.Echo {
+		cfg.Sessions[0].Local = netip.MustParseAddrPort("127.0.0.1:3785")
+		cfg.Sessions[0].Peer = netip.MustParseAddrPort("127.34.0.2:3785")
 	}
 	type ownerResult struct {
 		report OwnerWorkloadObservation
@@ -175,9 +186,16 @@ func testControlledWorkload(t *testing.T, extraWrites, cpuPercent uint64, gc, ch
 		t.Fatal(stopErr)
 	}
 	peer := <-peers
+	peerReady := false
+	if len(peer.report.Peers) == 1 {
+		peerReady = peer.report.Peers[0].UpTransitions != 0
+		if profile.Echo {
+			peerReady = peer.report.Peers[0].Written != 0
+		}
+	}
 	if peer.err != nil || !peer.report.Completed || peer.report.Phase == nil ||
 		peer.report.Phase.NativeStartNS != phase.NativeStartNS ||
-		peer.report.Phase.TimeNamespaceID != phase.TimeNamespaceID || peer.report.Peers[0].UpTransitions == 0 {
+		peer.report.Phase.TimeNamespaceID != phase.TimeNamespaceID || !peerReady {
 		t.Fatalf("peer lost common phase or completed handshake: %+v: %v", peer.report, peer.err)
 	}
 	written := peer.report.Peers[0].Written
@@ -190,7 +208,7 @@ func testControlledWorkload(t *testing.T, extraWrites, cpuPercent uint64, gc, ch
 			t.Fatalf("unaccounted write completed=%t stopped=%t: %v",
 				owner.report.Completed, owner.report.Final.Stopped, owner.err)
 		}
-		return
+		return owner.report, peer.report
 	}
 	if owner.err != nil || !owner.report.Completed || !owner.report.Final.Stopped || owner.report.Phase == nil ||
 		owner.report.Phase.NativeStartNS != phase.NativeStartNS ||
@@ -202,29 +220,33 @@ func testControlledWorkload(t *testing.T, extraWrites, cpuPercent uint64, gc, ch
 			owner.report.MeasurementFinal.Stopped, owner.err)
 	}
 	committed := deliveryCount(owner.report.Final, bfd.DeliveryPacketOwner, bfd.DeliveryCommitted)
+	if profile.Echo {
+		committed = deliveryCount(owner.report.Final, bfd.DeliveryEchoOwner, bfd.DeliveryCommitted)
+	}
 	pressure := owner.report.CPUPressure
-	if cpuPercent != 0 && (!pressure.Completed || pressure.CPUTimeNS <= 0 || pressure.WorkerWallTimeNS <= 0 ||
-		pressure.RequestedPercent != cpuPercent || !pressure.ScheduledAtUTC.Equal(owner.report.StartedAtUTC)) {
+	if profile.CPULoadPercent != 0 && (!pressure.Completed || pressure.CPUTimeNS <= 0 || pressure.WorkerWallTimeNS <= 0 ||
+		pressure.RequestedPercent != profile.CPULoadPercent || !pressure.ScheduledAtUTC.Equal(owner.report.StartedAtUTC)) {
 		t.Fatalf("CPU workers lost the common epoch or actual receipt: %+v", pressure)
 	}
-	if cpuPercent != 0 {
+	if profile.CPULoadPercent != 0 {
 		t.Logf("common-phase CPU pressure receipt: %+v", pressure)
 	}
 	allocation := owner.report.GCPressure
-	if gc && (!allocation.Enabled || !allocation.Completed || allocation.AllocatedBytes == 0 ||
+	if profile.GCPressure && (!allocation.Enabled || !allocation.Completed || allocation.AllocatedBytes == 0 ||
 		allocation.ReleasedObjects == 0 || !allocation.ScheduledAtUTC.Equal(owner.report.StartedAtUTC) ||
 		owner.report.MeasurementFinal.Environment.Runtime.GCCycles <= owner.report.Initial.Environment.Runtime.GCCycles) {
 		t.Fatalf("GC worker lost the common epoch, observed cycles or cleanup: %+v", allocation)
 	}
-	if gc {
+	if profile.GCPressure {
 		t.Logf("common-phase GC pressure receipt: %+v", allocation)
 	}
-	if churn {
+	if profile.SessionChurn {
 		assertChurnWorkload(t, owner.report, peer.report, written, committed)
 	} else if written == 0 || committed != written || owner.report.Final.Sessions[0].Received != written {
 		t.Fatalf("incomplete actual UDP boundary: written=%d committed=%d", written, committed)
 	}
 	t.Logf("actual UDP common phase: written=%d committed=%d", written, committed)
+	return owner.report, peer.report
 }
 
 func assertChurnWorkload(
@@ -262,7 +284,7 @@ func assertChurnWorkload(
 	}
 	if observed.Final.RetiredReceived == 0 || observed.Final.TerminalPackets != written ||
 		observed.Final.RetiredReceived+owner.Final.Sessions[0].Received != committed ||
-		peer.Peers[0].UpTransitions < 2 {
+		(!owner.Config.Profile.Echo && peer.Peers[0].UpTransitions < 2) {
 		t.Fatalf("churn lost lifetime accounting or independent peer recovery: written=%d committed=%d retired=%d peer=%+v",
 			written, committed, observed.Final.RetiredReceived, peer.Peers[0])
 	}

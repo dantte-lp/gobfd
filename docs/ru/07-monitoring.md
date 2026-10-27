@@ -232,12 +232,20 @@ groups:
     rules:
       # Алерт, когда нет настроенных или динамически активных Control-сессий.
       - alert: BFDNoActiveSessions
-        expr: (sum(gobfd_bfd_sessions) or vector(0)) == 0
+        expr: (up{job="gobfd"} == 1) unless on(job, instance) (gobfd_bfd_sessions{job="gobfd"} > 0)
         for: 10s
         labels:
           severity: warning
         annotations:
           summary: "Нет активных BFD Control-сессий"
+
+      - alert: BFDExporterUnavailable
+        expr: (up{job="gobfd"} == 0) or absent(up{job="gobfd"})
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Exporter метрик BFD недоступен"
 
       # Алерт при переходе сессии в Down.
       - alert: BFDSessionDownTransition
@@ -276,15 +284,21 @@ groups:
           summary: "Потери BFD-пакетов для {{ $labels.peer_addr }}"
 ```
 
-Этот агрегированный пример также учитывает свежий демон без серий с метками сессий.
-Демон только с Echo также не имеет Control-сессий для этой метрики.
-Он не отличает пустой демон от недоступного exporter; проверяйте `up` отдельно.
-Правила для нескольких экземпляров требуют ограничения по job/instance.
+`BFDNoActiveSessions` выбирает каждый успешно опрашиваемый target задания
+`gobfd`, у которого нет положительных серий Control-сессий, включая свежий демон
+или демон только с Echo. Сопоставление по `job, instance` не позволяет демону
+с сессиями скрыть пустой соседний демон; сохранённые серии с нулём не подавляют
+alert. Выдержка десять секунд начинается при появлении условия и сбрасывается
+при регистрации сессии. `BFDExporterUnavailable` отдельно сообщает о неудачном
+scrape или полном отсутствии scrape job `gobfd`. Удаление одного target из
+непустого job требует alert по инвентарю: его нельзя вывести только из отсутствия
+телеметрии. В федеративных развёртываниях добавляйте в сопоставление идентичность
+кластера или tenant, если `job, instance` не уникальны.
 См. справочники Prometheus по
 [операторам](https://prometheus.io/docs/prometheus/latest/querying/operators/)
 и [функциям](https://prometheus.io/docs/prometheus/latest/querying/functions/).
-Поставляемый лабораторный стенд наблюдаемости пока использует прежнее выражение
-без подстановки нуля для пустого вектора (`gobfd-qj0.8.2.8.7.2.8`).
+Поставляемый лабораторный стенд использует эти выражения и проверяет общие
+fixtures с виртуальным временем закреплённым `promtool` до проверок runtime.
 
 ### Структурированное логирование
 

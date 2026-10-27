@@ -286,16 +286,17 @@ graph LR
 
 | Алерт | Выражение | Критичность |
 |-------|----------|-------------|
-| BFDNoActiveSessions | `sum(gobfd_bfd_sessions) == 0` за 10с | Warning |
+| BFDNoActiveSessions | `(up{job="gobfd"} == 1) unless on(job, instance) (gobfd_bfd_sessions{job="gobfd"} > 0)` за 10с | Warning |
+| BFDExporterUnavailable | `(up{job="gobfd"} == 0) or absent(up{job="gobfd"})` за 10с | Critical |
 | BFDSessionDownTransition | `increase(gobfd_bfd_state_transitions_total{from_state="Up",to_state="Down"}[1m]) > 0` | Critical |
 | BFDSessionFlapping | `sum by (peer_addr, local_addr) (increase(gobfd_bfd_state_transitions_total[5m])) > 3` за 1м | Warning |
 | BFDAuthFailures | `rate(gobfd_bfd_auth_failures_total[5m]) > 0` за 30с | Warning |
 | BFDPacketDrops | `rate(gobfd_bfd_packets_dropped_total[5m]) > 0` за 1м | Warning |
 
-Поставляемое правило `BFDNoActiveSessions` требует существующий ряд метрик сессии
-и не срабатывает для свежего пустого экспортёра. При адаптации примера используйте
-обработку отсутствующих рядов из [Мониторинга](07-monitoring.md#правила-алертинга);
-исправление общего правила отслеживается в `gobfd-qj0.8.2.8.7.2.8`.
+Поставляемое правило `BFDNoActiveSessions` проверяет отсутствие положительного
+ряда Control-сессий у каждого доступного экспортёра GoBFD, включая свежий пустой
+экспортёр. `BFDExporterUnavailable` отдельно обрабатывает неудачный сбор метрик или
+отсутствие задания сбора GoBFD. См. [Мониторинг](07-monitoring.md#правила-алертинга).
 
 Prometheus v3.15.0, Grafana 13.2.4 и FRR 10.7.1 собираются из закреплённых
 контрольными суммами артефактов upstream на Debian trixie (`test/interop/prometheus`,

@@ -41,42 +41,8 @@ jobs:
         with:
           go-version: "1.27.3"
 
-      - name: Install Podman runtime
-        run: go run ./test/cmd/toolbootstrap podman-runtime
-
-      # Ubuntu 26.04 labels Podman "podman", but the pasta AppArmor profile
-      # accepts signals only from unconfined peers, so rootless network
-      # teardown fails (LP: #2154379, Debian #1100135).
-      - name: Allow pasta to receive Podman signals
-        run: |
-          abstraction=/etc/apparmor.d/abstractions/pasta
-          if [ -f "${abstraction}" ] && ! grep -qF 'peer=podman' "${abstraction}"; then
-            echo '  signal (receive) peer=podman,' | sudo tee -a "${abstraction}" >/dev/null
-            sudo apparmor_parser -r /etc/apparmor.d/usr.bin.pasta
-          fi
-
-      - name: Start Podman API socket
-        run: |
-          export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-          socket="${XDG_RUNTIME_DIR}/podman/podman.sock"
-          install -d -m 0700 "${XDG_RUNTIME_DIR}" "$(dirname "${socket}")"
-          if [ ! -S "${socket}" ]; then
-            podman system service --time=0 "unix://${socket}" \
-              >podman-system-service.log 2>&1 &
-            for _ in $(seq 1 20); do
-              [ -S "${socket}" ] && break
-              sleep 1
-            done
-          fi
-          test -S "${socket}"
-          {
-            echo "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}"
-            echo "CONTAINER_HOST=unix://${socket}"
-            echo "PODMAN_HOST=unix://${socket}"
-            echo "PODMAN_SOCKET_PATH=${socket}"
-          } >> "$GITHUB_ENV"
-          podman --version
-          podman compose version
+      - name: Prepare E2E Podman runtime
+        run: go run ./test/cmd/toolbootstrap podman-e2e
 
       - name: Start dev stack
         run: make up
@@ -98,11 +64,13 @@ jobs:
 
       - name: Stop dev stack
         if: always()
-        run: make down || true
+        continue-on-error: true
+        run: make down
 
       - name: Report AppArmor denials
         if: always()
-        run: sudo dmesg | grep 'apparmor="DENIED"' || true
+        continue-on-error: true
+        run: go run ./test/cmd/toolbootstrap apparmor-denials
 
       - name: Upload PR-safe E2E artifacts
         if: always()
@@ -129,42 +97,8 @@ jobs:
         with:
           go-version: "1.27.3"
 
-      - name: Install Podman runtime
-        run: go run ./test/cmd/toolbootstrap podman-runtime
-
-      # Ubuntu 26.04 labels Podman "podman", but the pasta AppArmor profile
-      # accepts signals only from unconfined peers, so rootless network
-      # teardown fails (LP: #2154379, Debian #1100135).
-      - name: Allow pasta to receive Podman signals
-        run: |
-          abstraction=/etc/apparmor.d/abstractions/pasta
-          if [ -f "${abstraction}" ] && ! grep -qF 'peer=podman' "${abstraction}"; then
-            echo '  signal (receive) peer=podman,' | sudo tee -a "${abstraction}" >/dev/null
-            sudo apparmor_parser -r /etc/apparmor.d/usr.bin.pasta
-          fi
-
-      - name: Start Podman API socket
-        run: |
-          export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-          socket="${XDG_RUNTIME_DIR}/podman/podman.sock"
-          install -d -m 0700 "${XDG_RUNTIME_DIR}" "$(dirname "${socket}")"
-          if [ ! -S "${socket}" ]; then
-            podman system service --time=0 "unix://${socket}" \
-              >podman-system-service.log 2>&1 &
-            for _ in $(seq 1 20); do
-              [ -S "${socket}" ] && break
-              sleep 1
-            done
-          fi
-          test -S "${socket}"
-          {
-            echo "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}"
-            echo "CONTAINER_HOST=unix://${socket}"
-            echo "PODMAN_HOST=unix://${socket}"
-            echo "PODMAN_SOCKET_PATH=${socket}"
-          } >> "$GITHUB_ENV"
-          podman --version
-          podman compose version
+      - name: Prepare E2E Podman runtime
+        run: go run ./test/cmd/toolbootstrap podman-e2e
 
       - name: Start dev stack
         run: make up
@@ -188,11 +122,13 @@ jobs:
 
       - name: Stop dev stack
         if: always()
-        run: make down || true
+        continue-on-error: true
+        run: make down
 
       - name: Report AppArmor denials
         if: always()
-        run: sudo dmesg | grep 'apparmor="DENIED"' || true
+        continue-on-error: true
+        run: go run ./test/cmd/toolbootstrap apparmor-denials
 
       - name: Upload nightly E2E artifacts
         if: always()
@@ -215,42 +151,8 @@ jobs:
         with:
           go-version: "1.27.3"
 
-      - name: Install Podman runtime
-        run: go run ./test/cmd/toolbootstrap podman-runtime
-
-      # Ubuntu 26.04 labels Podman "podman", but the pasta AppArmor profile
-      # accepts signals only from unconfined peers, so rootless network
-      # teardown fails (LP: #2154379, Debian #1100135).
-      - name: Allow pasta to receive Podman signals
-        run: |
-          abstraction=/etc/apparmor.d/abstractions/pasta
-          if [ -f "${abstraction}" ] && ! grep -qF 'peer=podman' "${abstraction}"; then
-            echo '  signal (receive) peer=podman,' | sudo tee -a "${abstraction}" >/dev/null
-            sudo apparmor_parser -r /etc/apparmor.d/usr.bin.pasta
-          fi
-
-      - name: Start Podman API socket
-        run: |
-          export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-          socket="${XDG_RUNTIME_DIR}/podman/podman.sock"
-          install -d -m 0700 "${XDG_RUNTIME_DIR}" "$(dirname "${socket}")"
-          if [ ! -S "${socket}" ]; then
-            podman system service --time=0 "unix://${socket}" \
-              >podman-system-service.log 2>&1 &
-            for _ in $(seq 1 20); do
-              [ -S "${socket}" ] && break
-              sleep 1
-            done
-          fi
-          test -S "${socket}"
-          {
-            echo "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}"
-            echo "CONTAINER_HOST=unix://${socket}"
-            echo "PODMAN_HOST=unix://${socket}"
-            echo "PODMAN_SOCKET_PATH=${socket}"
-          } >> "$GITHUB_ENV"
-          podman --version
-          podman compose version
+      - name: Prepare E2E Podman runtime
+        run: go run ./test/cmd/toolbootstrap podman-e2e
 
       - name: Start dev stack
         run: make up
@@ -260,11 +162,13 @@ jobs:
 
       - name: Stop dev stack
         if: always()
-        run: make down || true
+        continue-on-error: true
+        run: make down
 
       - name: Report AppArmor denials
         if: always()
-        run: sudo dmesg | grep 'apparmor="DENIED"' || true
+        continue-on-error: true
+        run: go run ./test/cmd/toolbootstrap apparmor-denials
 
       - name: Upload vendor E2E artifacts
         if: always()
