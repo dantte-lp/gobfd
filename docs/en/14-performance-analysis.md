@@ -379,6 +379,17 @@ profile; the controller passes fault direction and loss flags explicitly.
 
 ### Down-journal completeness
 
+The daemon and workload owner reserve raw and per-subscriber queues with the
+same `WithNotificationPopulation` policy: `min(65536, 64 + 3*N)` entries.
+The daemon counts enabled configured producer cohorts, including unsolicited
+capacity; `bfdload` uses its owner manifest. A 1000-session manifest reserves
+3064 entries in each queue. This bounded startup reserve covers registration
+and two state changes per producer, through 21824 producers before saturation.
+Each subscriber allocates its own queue; API/reload growth and sustained churn
+can still overflow it. The legacy channel and an unconfigured manager stay at
+64 entries. Raw overflow recovery, subscriber GAPs and strict completeness
+checks remain active. Source tests do not establish native scale acceptance.
+
 `RunOwner` records initial/final real collector snapshots, sampled resource
 peaks, means for the first/final six-hour RSS windows, runtime histogram
 deltas and a bounded Down journal. At the cutoff, `down_journal` captures the

@@ -13,6 +13,21 @@ duration completion does not establish packet accounting or latency acceptance.
 
 ## Decision
 
+Use one bounded notification policy in the daemon and workload owner:
+`Q = min(65536, 64 + 3*N)` entries for the raw queue and each subscription.
+Count configured Control sessions, enabled Echo/VXLAN/Geneve peers, enabled
+Micro-BFD member links and the enabled unsolicited session limit. Shared claims
+may conservatively overcount producers. Add cohorts with checked arithmetic.
+The reserve covers registration and two state changes per producer while the
+dispatcher or subscriber is paused; it does not guarantee lossless sustained
+churn. The full reserve fits through `N=21824`; larger populations saturate.
+Each subscription has its own `O(Q)` storage, with no global subscriber budget.
+Construction without a population option and the legacy channel retain 64
+entries. API/reload growth does not resize queues or change admission.
+Over-budget raw loss still emits a recovery GAP; a slow subscriber retains its
+own GAP. Journal completeness continues to reject either loss. Apply this shared
+fix to both sides before comparing thread pinning.
+
 Reuse the Go-owned production-core workload and independent peer model. After
 the owner reaches Up and independent peer traffic is ready, publish one future
 native monotonic epoch. Each role checks

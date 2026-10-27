@@ -692,6 +692,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reserve bounded raw and subscriber notification queues from configured producer
+  populations in both the daemon and `bfdload`, preserving startup lifecycle
+  bursts. Keep legacy capacity, over-budget GAP recovery and strict journal
+  completeness; native scale qualification remains separate.
+
 - Normalize surrounding whitespace in VXLAN/Geneve backend selection consistently
   between configuration validation and network constructors. Reserved backends
   remain unavailable.

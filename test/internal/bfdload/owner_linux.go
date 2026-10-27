@@ -138,12 +138,16 @@ func StartOwner(ctx context.Context, cfg OwnerConfig, logger *slog.Logger) (*Own
 	if logger == nil {
 		return nil, fmt.Errorf("owner logger is nil: %w", errOwnerConfig)
 	}
+	notifications, err := bfd.WithNotificationPopulation(len(cfg.Sessions))
+	if err != nil {
+		return nil, fmt.Errorf("owner notification population: %w", err)
+	}
 	runCtx, cancel := context.WithCancel(ctx)
 	registry := prometheus.NewRegistry()
 	collector := bfdmetrics.NewCollector(registry)
 	owner := &Owner{
 		echo: cfg.Echo,
-		manager: bfd.NewManager(logger, bfd.WithManagerMetrics(collector),
+		manager: bfd.NewManager(logger, notifications, bfd.WithManagerMetrics(collector),
 			bfd.WithSessionInterfaceResolver(netio.ResolveSessionIfIndex)),
 		registry: registry, ports: netio.NewSourcePortAllocator(), logger: logger, cancel: cancel, done: make(chan struct{}),
 	}

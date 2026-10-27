@@ -933,7 +933,7 @@ func (m *Manager) SubscribeStateChanges(ctx context.Context) (<-chan StateChange
 		return nil, ErrManagerClosed
 	}
 
-	ch := make(chan StateChange, notifyChSize)
+	ch := make(chan StateChange, m.notificationCapacity)
 
 	m.subMu.Lock()
 	m.subscribers[ch] = &subscriber{}
