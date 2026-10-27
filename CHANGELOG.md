@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Prepare an isolated Control/Echo candidate without permanent per-session OS
+  thread pinning. Native A/B qualification remains pending; dev retains its
+  existing pinning until that evidence is accepted.
+
 - Add read-only `bfdload assess OWNER_JSON PEER_JSON` with conditional numeric
   pass/fail/incomplete reports. Native and release qualification remain separate.
 
