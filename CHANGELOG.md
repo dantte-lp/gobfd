@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Remove legacy Stop/drain before Control and Echo detection timer resets under
+  the pinned Go 1.27.3 synchronous timer-channel contract.
+
 - Oracle Linux 10 OCI images and their release aliases are excluded from v1.
   OCI releases use Debian trixie; generic RPM packages remain available.
   The package lifecycle gate covers Debian DEB; historical v0.6 artifacts

@@ -78,6 +78,13 @@ scale and final qualification remain open under the parent.
 
 ## Timer observation boundary
 
+Control and Echo receive handlers reset their detection timers directly. The
+pinned [Go 1.27.3 timer contract](https://github.com/golang/go/blob/go1.27.3/src/time/sleep.go#L130-L136)
+guarantees that subsequent reads cannot return a tick from the previous settings.
+The [Go 1.27 release notes](https://go.dev/doc/go1.27#runtime) remove
+`asynctimerchan` permanently. The existing owner retains each timer and its
+deadline calculation; this cleanup provides no scheduling or scale qualification.
+
 Control and Echo owner loops retain the actual `time.Timer.C` timestamp.
 Go's [sendTime](https://github.com/golang/go/blob/master/src/time/sleep.go)
 adjusts a delayed channel delivery back to its scheduled firing time. Normal

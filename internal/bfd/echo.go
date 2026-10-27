@@ -404,9 +404,6 @@ func (es *EchoSession) handleEchoRecv(ctx context.Context, detectTimer *time.Tim
 	es.metrics.IncPacketsReceived(es.peerAddr, es.localAddr)
 
 	// Reset detection timer on every echo return.
-	if !detectTimer.Stop() {
-		drainTimer(detectTimer)
-	}
 	detectTimer.Reset(es.DetectionTime())
 
 	if es.State() == StateDown {

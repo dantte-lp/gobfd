@@ -381,18 +381,7 @@ func (s *Session) scheduleTxTimer(txTimer *time.Timer, previousSend time.Time) {
 // Uses cached state for hot-path performance.
 func (s *Session) resetDetectTimer(detectTimer *time.Timer) {
 	detectTime := s.calcDetectionTimeHot()
-	if !detectTimer.Stop() {
-		drainTimer(detectTimer)
-	}
 	detectTimer.Reset(detectTime)
-}
-
-// drainTimer non-blockingly drains the timer channel.
-func drainTimer(t *time.Timer) {
-	select {
-	case <-t.C:
-	default:
-	}
 }
 
 // -------------------------------------------------------------------------
