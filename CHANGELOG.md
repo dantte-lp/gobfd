@@ -729,6 +729,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bound all five observability test image builds to 2 CPUs and 2 GiB without
+  additional swap; limit GoBFD compiler concurrency and its heap target.
+
 - Select exact JSON session states for FRR readiness and GoBFD Up/Down/recovery
   checks; diagnostic text and unrelated sessions cannot satisfy the gate.
 

@@ -322,6 +322,12 @@ make int-observability-down   # Очистка
 Для неё используйте `make int-observability-testcontainers` либо ограниченный
 [проверочный сценарий](16-production-runbooks.md#проверка-оповещений-prometheus).
 
+Исполнитель testcontainers ограничивает каждую из пяти сборок образов:
+2 CPU, 2 GiB RAM без дополнительного swap. Компилятор GoBFD использует
+`GOMAXPROCS=2`, `GOMEMLIMIT=1500MiB` и `GOFLAGS=-p=1`. Ограничения сборки
+действуют отдельно от лимитов runtime-контейнеров и не подтверждают
+production capacity.
+
 ---
 
 ## Anycast через ExaBGP

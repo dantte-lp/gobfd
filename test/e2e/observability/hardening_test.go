@@ -5,6 +5,7 @@ package observability_test
 import (
 	"context"
 	"errors"
+	"io"
 	"net/netip"
 	"os"
 	"os/exec" //nolint:depguard // Contract regression executes the current test binary with an isolated helper mode.
@@ -19,6 +20,45 @@ import (
 	"github.com/moby/moby/api/types/network"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 )
+
+func TestObservabilityBuildRequestLimits(t *testing.T) {
+	t.Setenv("DOCKER_CONFIG", t.TempDir())
+	buildContext := t.TempDir()
+	if err := os.WriteFile(filepath.Join(buildContext, "Containerfile"), []byte("FROM scratch\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	request := observabilityBuildRequest(buildContext, "localhost/gobfd-observability-fixture", "owned")
+	options, err := request.BuildOptions()
+	if err != nil {
+		t.Fatalf("construct actual image-build request: %v", err)
+	}
+	if closer, ok := options.Context.(io.Closer); ok {
+		t.Cleanup(func() {
+			if closeErr := closer.Close(); closeErr != nil {
+				t.Errorf("close image-build context: %v", closeErr)
+			}
+		})
+	}
+	if _, err := io.Copy(io.Discard, options.Context); err != nil {
+		t.Fatalf("consume image-build context: %v", err)
+	}
+	for _, limit := range []struct {
+		name string
+		got  int64
+		want int64
+	}{
+		{"cpu-period", options.CPUPeriod, 100000},
+		{"cpu-quota", options.CPUQuota, 200000},
+		{"memory", options.Memory, 2147483648},
+		{"memory-with-swap", options.MemorySwap, 2147483648},
+	} {
+		t.Run(limit.name, func(t *testing.T) {
+			if limit.got != limit.want {
+				t.Errorf("build %s = %d, want %d", limit.name, limit.got, limit.want)
+			}
+		})
+	}
+}
 
 type inspectOnlyContainer struct {
 	testcontainers.Container

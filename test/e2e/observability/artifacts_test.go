@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/moby/moby/client"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 
 	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
@@ -64,12 +65,7 @@ func buildOwnedImage(
 			provider.Close(),
 		)
 	}
-	//nolint:modernize // ContainerRequest implements ImageBuildInfo in testcontainers v0.44.
-	_, buildErr := dockerProvider.BuildImage(ctx, &testcontainers.ContainerRequest{
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context: buildContext, Dockerfile: "Containerfile", Repo: repository, Tag: tag, KeepImage: true,
-		},
-	})
+	_, buildErr := dockerProvider.BuildImage(ctx, observabilityBuildRequest(buildContext, repository, tag))
 	if buildErr != nil {
 		return "", fmt.Errorf(
 			"build bounded test-owned image %s: %w", imageName,
@@ -87,6 +83,21 @@ func buildOwnedImage(
 		return "", fmt.Errorf("inspect exact built image tag %s: %w", imageName, err)
 	}
 	return imageName, nil
+}
+
+func observabilityBuildRequest(buildContext, repository, tag string) *testcontainers.ContainerRequest {
+	return &testcontainers.ContainerRequest{
+		//nolint:modernize // ContainerRequest implements ImageBuildInfo in testcontainers v0.44.
+		FromDockerfile: testcontainers.FromDockerfile{
+			Context: buildContext, Dockerfile: "Containerfile", Repo: repository, Tag: tag, KeepImage: true,
+			BuildOptionsModifier: func(options *client.ImageBuildOptions) {
+				options.CPUPeriod = 100000
+				options.CPUQuota = 200000
+				options.Memory = 2 << 30
+				options.MemorySwap = 2 << 30
+			},
+		},
+	}
 }
 
 func validateSHA256ContentID(imageID string) error {

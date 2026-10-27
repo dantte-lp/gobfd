@@ -322,6 +322,11 @@ as warnings; it is not an assertion-based alert gate. Use
 `make int-observability-testcontainers` for that gate, or follow the bounded
 [alert drill](16-production-runbooks.md#prometheus-alert-validation).
 
+The testcontainers builder limits each of the five image builds to 2 CPUs,
+2 GiB RAM and no additional swap. Its GoBFD compiler uses `GOMAXPROCS=2`,
+`GOMEMLIMIT=1500MiB` and `GOFLAGS=-p=1`. These build limits are separate from
+the runtime container limits and do not qualify production capacity.
+
 ---
 
 ## ExaBGP Anycast
