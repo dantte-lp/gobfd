@@ -407,10 +407,9 @@ func (c *Client) ImageMetadata(ctx context.Context, image string) (ImageMetadata
 	return ImageMetadata{ID: inspection.ID, Labels: inspection.Config.Labels}, nil
 }
 
-// RemoveImage removes an image owned by a test without forcing removal of
-// images that still have consumers.
+// RemoveImage removes a test-owned image without forcing removal or pruning parents.
 func (c *Client) RemoveImage(ctx context.Context, image string) error {
-	resp, err := c.do(ctx, http.MethodDelete, "/images/"+url.PathEscape(image)+"?force=false")
+	resp, err := c.do(ctx, http.MethodDelete, "/images/"+url.PathEscape(image)+"?force=false&noprune=true")
 	if err != nil {
 		return fmt.Errorf("remove image %s: %w", image, err)
 	}

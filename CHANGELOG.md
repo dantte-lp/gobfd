@@ -729,6 +729,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve dangling parent images during shared Podman API test-image cleanup;
+  keep forced removal disabled and propagate conflicts.
+
 - Bound all six observability runtime containers and reject missing or changed
   CPU, memory, swap and PID limits in the actual container inspection.
 

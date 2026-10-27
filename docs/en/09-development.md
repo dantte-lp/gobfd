@@ -204,6 +204,10 @@ and the tracked runner follow-up are in [Integrations](11-integrations.md).
 Their raw Compose `-down` targets remove volumes and orphans; inspect ownership
 and obtain the required deletion approval before cleanup.
 
+The shared Podman API image cleanup sends `force=false&noprune=true`:
+it preserves images with consumers and does not prune dangling parents.
+Remove separately verified owned builder residues by exact image ID.
+
 #### Quality
 
 | Target | Description |
