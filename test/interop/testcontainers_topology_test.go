@@ -242,31 +242,7 @@ func startFourPeerTopology(
 		networkName, labels, resources)
 	resources.tshark = startFourPeerTshark(ctx, t, tsharkImage, gobfd, labels, resources)
 
-	frr := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
-		Image:    frrImage,
-		Name:     "frr-interop",
-		Labels:   labels,
-		Networks: []string{networkName},
-		Files: []testcontainers.ContainerFile{
-			{
-				HostFilePath:      filepath.Join(root, "test/interop/frr/daemons"),
-				ContainerFilePath: "/etc/frr/daemons",
-				FileMode:          0o644,
-			},
-			{
-				HostFilePath:      filepath.Join(root, "test/interop/frr/frr.conf"),
-				ContainerFilePath: "/etc/frr/frr.conf",
-				FileMode:          0o644,
-			},
-		},
-		WaitingFor: wait.ForExec([]string{"vtysh", "-c", "show version"}).WithStartupTimeout(30 * time.Second),
-		HostConfigModifier: func(hostConfig *container.HostConfig) {
-			addFourPeerCapabilities(hostConfig)
-			hostConfig.CapAdd = append(hostConfig.CapAdd, "SYS_ADMIN")
-		},
-		EndpointSettingsModifier: staticFourPeerIP(networkName, frrIP),
-	})
-	resources.containerIDs = append(resources.containerIDs, frr.GetContainerID())
+	startFourPeerFRR(ctx, t, root, frrImage, networkName, labels, resources)
 
 	bird := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
 		Image:    birdImage,
@@ -323,6 +299,30 @@ func startFourPeerNetwork(
 		t.Fatalf("create %s Podman network: %v", purpose, err)
 	}
 	return networkName, map[string]string{fourPeerProjectLabel: projectName, "io.gobfd.test": purpose}
+}
+
+func startFourPeerFRR(
+	ctx context.Context, t *testing.T, root, image, networkName string,
+	labels map[string]string, resources *fourPeerResources,
+) {
+	t.Helper()
+	frr := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
+		Image: image, Name: "frr-interop", Labels: labels, Networks: []string{networkName},
+		Files: []testcontainers.ContainerFile{{
+			HostFilePath:      filepath.Join(root, "test/interop/frr/daemons"),
+			ContainerFilePath: "/etc/frr/daemons", FileMode: 0o644,
+		}, {
+			HostFilePath:      filepath.Join(root, "test/interop/frr/frr.conf"),
+			ContainerFilePath: "/etc/frr/frr.conf", FileMode: 0o644,
+		}},
+		WaitingFor: wait.ForExec([]string{"vtysh", "-c", "show version"}).WithStartupTimeout(30 * time.Second),
+		HostConfigModifier: func(hostConfig *container.HostConfig) {
+			addFourPeerCapabilities(hostConfig)
+			hostConfig.CapAdd = append(hostConfig.CapAdd, "SYS_ADMIN")
+		},
+		EndpointSettingsModifier: staticFourPeerIP(networkName, frrIP),
+	})
+	resources.containerIDs = append(resources.containerIDs, frr.GetContainerID())
 }
 
 func startFourPeerGoBFD(

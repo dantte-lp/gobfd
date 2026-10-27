@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add a scoped FRR-only same-key replacement wire fixture with API conflict,
+  daemon-owned UDP socket lifetime, old/new packet epochs and peer recovery
+  evidence. An actual exact-candidate runtime receipt remains required.
+
 - Classify joined workload Down witnesses against bounded historical peer
   omissions, run identity and owner commit/deadline evidence. Record explicit
   conditional assumptions and false/unresolved outcomes; retain unknown reference

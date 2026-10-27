@@ -166,6 +166,14 @@ admissible while the old key drains. No registry/ownership/lifecycle lock spans
 drain or cleanup callbacks. Actual peer behavior remains a separate wire gate
 in `gobfd-qj0.8.2.1.3.12`.
 
+The [scoped FRR wire fixture](../../../test/interop/same_key_topology_test.go)
+starts with no declarative claims. It retains the API conflict while the old
+UDP socket inode is still owned by the daemon, observes socket closure before
+retry, and correlates old AdminDown and new discriminator epochs with packet
+capture and FRR state. The fixture requires an actual passing receipt on the
+exact candidate; source tests alone do not close the wire gate. Peer Down
+during deletion/recreation is allowed; no hitless replacement is promised.
+
 Overlay scope preflight is pure and covers one complete VXLAN or Geneve source
 before any backend open or `SetScopes`. Unequal scopes sharing a wire identity
 with a live/draining lease, including a VXLAN local-MAC change, require explicit
