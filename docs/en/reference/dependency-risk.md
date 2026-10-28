@@ -7,6 +7,16 @@ Pins come from [`go.mod`](../../../go.mod); advisory acceptance comes from
 and its Beads owner. This register does not replace fresh scans of the final
 runtime/tool graphs or establish the current upstream maintainer count.
 
+## x/net/html — Fixed advisories
+
+The runtime and tools module graphs select `golang.org/x/net v0.62.0`, the
+fixed version for [GO-2026-6860](https://vuln.go.dev/ID/GO-2026-6860)
+and [GO-2026-6866](https://vuln.go.dev/ID/GO-2026-6866).
+Both advisories were published on 2026-10-27. Neither has an allowlist entry.
+The update also changes IPv4 transport code used by the interoperability peer;
+retain its transport tests alongside the fresh final-candidate security scan.
+Release acceptance remains tracked in Beads `gobfd-qj0.8.4.1`.
+
 ## reeflective/console — Medium Risk
 
 | Field | Value |
