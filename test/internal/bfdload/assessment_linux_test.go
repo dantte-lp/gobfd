@@ -12,6 +12,79 @@ import (
 	"github.com/dantte-lp/gobfd/internal/bfd"
 )
 
+func TestAssessmentWindowAcceptsProducerLifecycleEvidence(t *testing.T) {
+	profile, err := DefaultProfile("fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile.Sessions, profile.Duration = 1, 400*time.Millisecond
+	owner, peers := runControlledWorkload(t, profile, 0)
+	if !matchingClassificationPhases(owner.Phase, peers.Phase) {
+		t.Fatal("actual producers did not retain one measurement phase")
+	}
+	if !peers.StartedAtUTC.Before(owner.StartedAtUTC) {
+		t.Fatal("peer lifecycle did not begin before the common measurement epoch")
+	}
+	if !assessmentWindowEvidence(owner, peers) {
+		t.Fatalf("actual peer lifecycle does not satisfy measurement evidence: owner_start=%s peer_start=%s peer_elapsed=%d",
+			owner.StartedAtUTC, peers.StartedAtUTC, peers.ElapsedNS)
+	}
+}
+
+func TestAssessmentWindowRejectsIncompleteLifecycleEvidence(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, time.October, 28, 20, 0, 0, 0, time.UTC)
+	owner := OwnerWorkloadObservation{
+		Config:       PeerConfig{Profile: Profile{Duration: 2 * time.Second}},
+		StartedAtUTC: at, ElapsedNS: int64(2 * time.Second), SamplePeriodNS: int64(time.Second),
+	}
+	peers := PeerObservation{StartedAtUTC: at.Add(-time.Second), ElapsedNS: int64(3 * time.Second)}
+	if !assessmentWindowEvidence(owner, peers) {
+		t.Fatal("peer lifecycle covering the complete measurement interval was rejected")
+	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(*OwnerWorkloadObservation, *PeerObservation)
+	}{
+		{"peer starts after measurement", func(o *OwnerWorkloadObservation, p *PeerObservation) {
+			p.StartedAtUTC = o.StartedAtUTC.Add(time.Nanosecond)
+		}},
+		{"peer ends before cutoff", func(_ *OwnerWorkloadObservation, p *PeerObservation) {
+			p.ElapsedNS = int64(3*time.Second - time.Nanosecond)
+		}},
+		{"owner duration incomplete", func(o *OwnerWorkloadObservation, _ *PeerObservation) {
+			o.ElapsedNS = int64(2*time.Second - time.Nanosecond)
+		}},
+		{"peer duration incomplete", func(_ *OwnerWorkloadObservation, p *PeerObservation) {
+			p.ElapsedNS = int64(2*time.Second - time.Nanosecond)
+		}},
+		{"sample period differs", func(o *OwnerWorkloadObservation, _ *PeerObservation) {
+			o.SamplePeriodNS = int64(250 * time.Millisecond)
+		}},
+		{"owner epoch unavailable", func(o *OwnerWorkloadObservation, _ *PeerObservation) {
+			o.StartedAtUTC = time.Time{}
+		}},
+		{"peer epoch unavailable", func(_ *OwnerWorkloadObservation, p *PeerObservation) {
+			p.StartedAtUTC = time.Time{}
+		}},
+		{"zero duration", func(o *OwnerWorkloadObservation, _ *PeerObservation) {
+			o.Config.Profile.Duration = 0
+		}},
+		{"negative duration", func(o *OwnerWorkloadObservation, _ *PeerObservation) {
+			o.Config.Profile.Duration = -time.Second
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			o, p := owner, peers
+			tc.mutate(&o, &p)
+			if assessmentWindowEvidence(o, p) {
+				t.Fatal("incomplete lifecycle evidence satisfied the measurement window")
+			}
+		})
+	}
+}
+
 func TestAssessmentReviewCurrentLeaf(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{"memory_high_tightened", "pids_limit_below_current", "running_tasks_not_recharged"} {

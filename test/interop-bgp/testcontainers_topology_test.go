@@ -391,7 +391,7 @@ func verifyBGPTestVersions(ctx context.Context, t *testing.T, resources *bgpTest
 		},
 		{
 			name: "ExaBGP", container: findBGPTestContainer(ctx, t, resources, "exabgp-interop"),
-			command: []string{"python3", "-m", "exabgp", "version"}, version: "5.0.13",
+			command: []string{"python3", "-m", "exabgp", "version"}, version: "5.0.15",
 		},
 	}
 	for _, check := range checks {

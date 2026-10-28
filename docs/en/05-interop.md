@@ -517,13 +517,16 @@ while the recorded qualification used the Go 1.27.2 builder and is repeated unde
 serves `/apipb.GobgpApi` and v4 serves `/api.GoBgpService`; the two are
 wire-incompatible, so `dev` GoBFD requires a GoBGP v4 daemon. GoBGP v4 native
 BFD is disabled by default, and no repository GoBGP configuration enables it.
-External ExaBGP 5.0.13 uses trixie's system
+External ExaBGP 5.0.15 uses trixie's system
 Python and its native `python3 -m exabgp` entrypoint, without pip, uv, a custom
 launcher or repository-owned Python source. Its
-[pinned upstream manifest](https://github.com/Exa-Networks/exabgp/blob/edf249571174449f80c72d75eb6933dcabd67f92/pyproject.toml)
+[pinned upstream manifest](https://github.com/Exa-Networks/exabgp/blob/b70054ffdf210e3a6001e1dd282d08309d4552dd/pyproject.toml)
 declares no runtime package dependencies. Both source archives are SHA-256
 pinned. This narrowly scoped ExaBGP runtime exception does not permit Python
 development tooling.
+
+The ExaBGP 5.0.15 source pin requires fresh BGP and anycast qualification;
+the dated runtime receipts below cover earlier source pins.
 
 With GoBGP v3.37.0 on linux/amd64, manual Compose and the complete
 testcontainers gate passed on 2026-09-08; the latter took 200.07 seconds.
@@ -561,7 +564,7 @@ make interop-bgp
 ```
 
 The Go lifecycle creates the static network, both GoBFD instances, GoBGP
-v4.10.0, FRR 10.7.1, BIRD 3.4.0, ExaBGP 5.0.13, and tshark directly through
+v4.10.0, FRR 10.7.1, BIRD 3.4.0, ExaBGP 5.0.15, and tshark directly through
 the Podman provider. It runs the same establish, failure, route-withdrawal, and
 recovery assertions, saves a non-empty packet capture, and proves removal of
 all test-owned containers, network, and locally built images.

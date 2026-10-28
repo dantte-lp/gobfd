@@ -403,6 +403,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Align SonarQube pull-request branches with the CI/Security policy:
+  `master`, `main` and `release/v*`; `dev` integration uses local checks.
+- Align pending dependency updates with `dev`: ExaBGP 5.0.15 from verified
+  upstream source, CodeQL Action 4.39.1 across all six workflow steps, and
+  current Koanf, libovsdb and Prometheus dependency graphs. Keep the shared
+  runtime recipes, version contracts and dependency inventory synchronized.
+- Reconcile issue #88 with the current HAProxy bridge and Beads: service
+  health-to-VIP coupling remains P2/after-v1; distinguish the RFC 4786
+  recommendation from the issue's required recovery hold-down.
+
 - Build a fresh Containerlab controller in the pinned socket-free SDK for all
   five Make entrypoints, including test-only and cleanup. Compile the frozen
   race-enabled suite separately and execute its exact hashed artifacts in a
@@ -738,6 +748,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   all three P1 maintenance-review findings in Beads.
 
 ### Fixed
+
+- Validate that the peer lifecycle covers the complete owner measurement window
+  instead of requiring their different start timestamps to match. Preserve
+  shared native phase identity and reject missing or incomplete intervals.
+
+- Restore the subprocess umask before coverage shutdown in the secure-file
+  test. Decode Compose YAML from stdout only and retain stderr diagnostics,
+  so provider warnings cannot corrupt the storage and benchmark contracts.
 
 - Refresh the shared Debian trixie-slim base to the age-qualified
   `trixie-20261020-slim` digest with liblzma5 `5.8.1-1+deb13u2` for

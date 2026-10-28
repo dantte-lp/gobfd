@@ -10,7 +10,7 @@
 These are operator procedures for the current `dev` source, not fresh execution
 receipts or stable-release acceptance. Run drills only against an admitted,
 owned lab and retain the exact source/image identities and observed results.
-The current documentation work is local-only; publication remains on hold.
+Source integration into `dev` is authorized; release publication remains on hold.
 
 ---
 
@@ -125,22 +125,13 @@ Confirm BFD Up and route `10.20.0.0/24` present before the failure drill.
 The commands below display observations; `make int-bgp-failover` performs the
 separate assertion-based withdrawal/restoration gate.
 
-Failure drill:
-
-Confirm that the fixed container names below are the owned Compose topology.
-The subshell restores the paused peer on exit, including a failed RIB query.
-These fixed waits display observations; they do not assert a timing bound.
+Use the Go-owned assertion-based lifecycle for the failure drill. Stop the
+separately started demo first to release its fixed names; the test creates
+an owned topology and checks route withdrawal and recovery:
 
 ```bash
-(
-  set -eu
-  trap 'podman unpause frr-bgp-failover' EXIT
-  podman pause frr-bgp-failover
-  sleep 2
-  podman exec gobgp-bgp-failover gobgp global rib
-)
-sleep 5
-podman exec gobgp-bgp-failover gobgp global rib
+make int-bgp-failover-down
+make int-bgp-failover
 ```
 
 Expected result:
@@ -154,7 +145,7 @@ Expected result:
 Use an isolated host: this lab publishes host ports 9090/3000 and has default
 Grafana credentials, as described in [Integrations](11-integrations.md#observability).
 The drill below is a local procedure; this documentation edit does not record
-a new execution. It requires `curl`, `jq`, `timeout` and a shell.
+a new execution. The inspection commands require `curl`.
 
 Start the observability stack:
 
@@ -169,37 +160,25 @@ curl -fsS http://localhost:9090/api/v1/targets
 curl -fsS http://localhost:9090/api/v1/rules
 ```
 
-Confirm that the GoBFD target is healthy, the FRR session is Up and at least two
-successful scrapes are recorded before the drill. The configured scrape and
-evaluation intervals are both 15 seconds. Trigger a down transition and poll
-the specific alert for at most 60 seconds; HTTP 200 alone is insufficient:
+Use the Go-owned testcontainers lifecycle for assertions. Stop the inspection
+demo first; the test creates an owned topology, verifies healthy scraping,
+fails the FRR path, requires a firing transition alert and verifies recovery:
 
 ```bash
-(
-  set -eu
-  trap 'podman start frr-observability' EXIT
-  podman stop frr-observability
-  timeout 60s sh -c '
-    until curl --max-time 3 -fsS http://localhost:9090/api/v1/alerts |
-      jq -e '\''any(.data.alerts[]; .labels.alertname == "BFDSessionDownTransition" and .state == "firing")'\''
-    do
-      sleep 2
-    done
-  '
-)
+make int-observability-down
+make int-observability-testcontainers
 ```
 
-Exit 0 confirms an observed firing alert; timeout is a failed drill. The trap
-restarts the peer on both outcomes. Recheck BFD Up and healthy targets after
-restart, then confirm alert clearance after the one-minute increase window
-and a subsequent evaluation. Response fields follow the Prometheus
+Exit 0 requires BFD recovery, a healthy scrape target and an inactive transition
+alert after the failure phase. HTTP 200 alone is insufficient. The lifecycle
+retains evidence and cleans its owned resources. Response fields follow the Prometheus
 [alerts API](https://prometheus.io/docs/prometheus/latest/querying/api/#alerts).
 
 Alert intent:
 
 | Alert | Meaning |
 |---|---|
-| `BFDNoActiveSessions` | No active session objects; the shipped rule misses fresh-empty exporters (`gobfd-qj0.8.2.8.7.2.8`). |
+| `BFDNoActiveSessions` | Healthy exporter with no active Control sessions, including a fresh-empty exporter. |
 | `BFDSessionDownTransition` | A session transitioned from Up to Down. |
 | `BFDSessionFlapping` | A session changed state more than 3 times in 5 minutes. |
 | `BFDAuthFailures` | RFC 5880 authentication verification failed. |

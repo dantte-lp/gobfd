@@ -428,8 +428,10 @@ make int-exabgp-anycast-up     # Capped build and start without implicit builds
 make int-exabgp-anycast-down   # Cleanup
 ```
 
-GoBGP v4.10.0 and ExaBGP 5.0.13 use the shared Debian trixie recipes; the
+GoBGP v4.10.0 and ExaBGP 5.0.15 use the shared Debian trixie recipes; the
 anycast image adds `gobfd-exabgp-bridge` to the same pinned ExaBGP runtime.
+The 5.0.15 source pin requires fresh route announce/withdraw/recovery qualification;
+the dated receipt below covers an earlier source pin.
 Every container is limited to 1 CPU, 256 MiB and 128 PIDs; builds run
 sequentially with 2 CPUs and 2 GiB through the ownership-checked project
 controller. The gate fails unless the route is announced, withdrawn after the

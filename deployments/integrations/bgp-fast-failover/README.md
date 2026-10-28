@@ -98,29 +98,16 @@ The Go testcontainers gate performs this sequence:
 6. Require the exact route to disappear from the GoBGP RIB within the test's 20-second bound.
 7. Unpause FRR and verify route restoration.
 
-Run the same checks manually when debugging:
-
 The gate directly asserts GoBGP neighbor/RIB state; it does not directly query
 GoBFD Down or measure a 900 ms detection bound. Packet capture retention also
 does not establish forwarding continuity or the full RFC matrix. Source:
 [`testcontainers_test.go`](../../../test/e2e/bgp-failover/testcontainers_test.go).
-The following fixed waits display observations only. Confirm that all names
-belong to the owned manual topology; the exit trap restores a paused FRR after
-a failed query.
+Use the existing Go-owned lifecycle for the failure sequence. Stop the
+verified owned manual topology first to release its fixed names:
 
 ```bash
-(
-  set -eu
-  trap 'podman unpause frr-bgp-failover' EXIT
-  podman pause frr-bgp-failover
-  sleep 5
-  podman exec gobfd-bgp-failover gobfdctl session list
-  podman exec gobgp-bgp-failover gobgp neighbor
-  podman exec gobgp-bgp-failover gobgp global rib
-)
-sleep 15
-podman exec gobgp-bgp-failover gobgp neighbor
-podman exec gobgp-bgp-failover gobgp global rib
+make int-bgp-failover-down
+make int-bgp-failover
 ```
 
 ## Packet Verification

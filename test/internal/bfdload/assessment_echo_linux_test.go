@@ -28,9 +28,10 @@ func TestAssessmentBindsEchoModeAcrossCanonicalRoles(t *testing.T) {
 		cfg.ControlDirectory = "/fixture"
 		baseline, _ := classificationFixture(t)
 		phase := baseline.Phase
+		at := time.Date(2026, time.October, 28, 20, 0, 0, 0, time.UTC)
 		owner := OwnerWorkloadObservation{
 			Scope: "production-core-owner-workload", Completed: true, Config: cfg, Phase: phase,
-			ElapsedNS: int64(profile.Duration), SamplePeriodNS: int64(ownerSamplePeriod),
+			StartedAtUTC: at, ElapsedNS: int64(profile.Duration), SamplePeriodNS: int64(ownerSamplePeriod),
 			Initial: OwnerObservation{
 				Scope: "production-core-owner-component", Echo: echo,
 				Sessions: make([]OwnerSessionObservation, profile.Sessions),
@@ -40,7 +41,8 @@ func TestAssessmentBindsEchoModeAcrossCanonicalRoles(t *testing.T) {
 		}
 		peers := PeerObservation{
 			Scope: "udp-peer-generator", Profile: profile, Phase: phase, Completed: true, Stopped: true,
-			ElapsedNS: int64(profile.Duration), Peers: make([]PeerSessionObservation, profile.Sessions),
+			StartedAtUTC: at.Add(-time.Second), ElapsedNS: int64(profile.Duration + time.Second),
+			Peers: make([]PeerSessionObservation, profile.Sessions),
 		}
 		if err := assessmentInputs(owner, peers); err != nil {
 			t.Fatalf("canonical mode echo=%t rejected: %v", echo, err)

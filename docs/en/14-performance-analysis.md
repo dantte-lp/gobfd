@@ -168,7 +168,7 @@ supported load remain separate gates in Beads.
 Snapshots retain `pids.current` and `pids.max` as task counts. Before named
 owner profiles create sessions, admission checks additional headroom of
 `sessions + 64` at every visible ancestor: 1,064 tasks for reference and 5,064
-for engineering. This conservative policy covers the currently pinned Control
+for engineering. This conservative policy covers the previous pinned Control
 baseline, not a measured upper bound. The report retains the budget even on
 refusal; it does not reserve capacity or relax the separate CPU, memory,
 thread-pin A/B and runtime qualification gates. See [ADR-0007](./adr/0007-workload-phase-accounting.md).
@@ -570,6 +570,9 @@ remain compatible. JSON input cannot reconstruct process-local monotonic proof.
 The typed [assessor](../../test/internal/bfdload/assessment_linux.go) checks the
 canonical reference/engineering profile, admission, common phase, settled packet
 ledger, complete causal Down evidence, resource peaks and measured pressure.
+Peer UTC timestamps include setup and drain; owner timestamps begin at the
+measurement epoch. The shared native phase must match, and the peer lifecycle
+must cover the complete required owner window; their starts need not be equal.
 Requested GC, scheduler and churn variants require actual joined activity;
 one passing run does not complete the required variant matrix. A missing,
 unknown or inconsistent conditional conversion bound makes the result incomplete.

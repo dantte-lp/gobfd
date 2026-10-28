@@ -66,12 +66,12 @@ log:
 socket:
   read_buffer_size: 4194304
   write_buffer_size: 4194304
-  ipv4_dscp: 48              # CS6; set 0 for best effort.
-  ipv6_traffic_class: 192    # Complete octet, CS6 with ECN=0; 0 = best effort.
-  priority: 0               # Linux local queue policy, independent of DSCP.
-  mark: 0                   # No SO_MARK call; nonzero values need capabilities.
+  ipv4_dscp: 48 # CS6; set 0 for best effort.
+  ipv6_traffic_class: 192 # Complete octet, CS6 with ECN=0; 0 = best effort.
+  priority: 0 # Linux local queue policy, independent of DSCP.
+  mark: 0 # No SO_MARK call; nonzero values need capabilities.
   priority_required: true
-  mark_required: true        # False permits sending without the requested routing mark.
+  mark_required: true # False permits sending without the requested routing mark.
 
 bfd:
   # Default BFD session parameters (can be overridden per session via gRPC).

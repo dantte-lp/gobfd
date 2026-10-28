@@ -4,7 +4,17 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
-## Local source integration — 2026-10-28
+## Authorized source delivery — 2026-10-28
+
+The maintainer authorized reviewing issue #88, integrating the accumulated
+source and open pull requests into `dev`, and retiring merged topic branches.
+Beads `gobfd-3e4` records this bounded authorization and its measured outcome.
+The earlier source/Dolt publication hold below is superseded for this operation;
+hosted workflow dispatch and release publication remain outside its scope.
+Validation stays local to conserve Actions minutes. Stable branches, tags and
+backup refs remain preserved. Issue #88 stays P2/after-v1 under `gobfd-5w0`.
+
+## Earlier local source integration — 2026-10-28
 
 Local consolidation is complete at
 `dev@b3ebbf91da2c26b076a37014ea826a19234b33c3`: 41 reviewed branch heads and
@@ -1398,12 +1408,14 @@ and the RFC texts named below.
 |---|---|---|---|
 | [#86](https://github.com/dantte-lp/gobfd/issues/86) GoBGP v4 peer control | `gobfd-qj0.8.2.4.6` (P1), parent `.8.2.4` | Done; issue closed. v4.10.0 client, preflights, v4-only policy and docs, action retries, failover e2e on GoBGP v4.10.0, GoBGP metrics and the `gobfd.gobgp` health check (`2a4afb1`) | No release contains v4 support yet |
 | [#87](https://github.com/dantte-lp/gobfd/issues/87) secure listen defaults | `gobfd-qj0.8.2.3.4` (P0), with `gobfd-330` and `.8.2.3.2` | API `:50051` and metrics `:9100` on all addresses; default `gobgp.addr` `127.0.0.1:50051` uses the same port; packages install `configs/gobfd.example.yml` as `/etc/gobfd/gobfd.yml` with the same wildcard binds; the HAProxy agent binds every address | `.8.2.3.4` done (`ff2d70f`, `0314466`): API `127.0.0.1:50052` and metrics `127.0.0.1:9100` by default, agent `listen_addr`, startup warning, side-by-side port test; Done; issue closed. `gobfd-330.1`–`.4`: Unix socket with peer-UID principals, mTLS, socket-only defaults with anonymous loopback reads only (`319d2bb`), principal-scoped claims and mTLS roles (`0d949dd`) |
-| [#88](https://github.com/dantte-lp/gobfd/issues/88) anycast VIP and HAProxy health | `gobfd-5w0` (P2), blocked by `.8.2.3` and `.8.2.5.2` | not started | Design spec first |
+| [#88](https://github.com/dantte-lp/gobfd/issues/88) anycast VIP and HAProxy health | `gobfd-5w0` (P2, `after-v1`), blocked by `.8.2.3`; dependency `.8.2.5.2` completed | not started | Design spec first |
 
 Architecture notes for `gobfd-5w0`:
 
-- RFC 4786 Section 4.4.1 couples advertisement to service availability and
-  asks for a minimum delay before re-advertisement.
+- [RFC 4786 Section 4.4.1](https://www.rfc-editor.org/rfc/rfc4786.html#section-4.4.1)
+  recommends coupling advertisement to service availability and avoiding rapid
+  oscillations; a minimum delay before re-advertisement is an example.
+  Configurable recovery hold-down is an acceptance requirement of #88.
 - BFD AdminDown is not a reliable withdrawal trigger: RFC 5882 Section 3.2
   says a system SHOULD NOT report a connectivity failure for AdminDown to a
   client with its own liveness detection, which BGP has. `bfd.v1` also has no
@@ -1416,8 +1428,13 @@ Architecture notes for `gobfd-5w0`:
   module: health source, hold-down state machine, GoBGP path owner, drain
   command, metrics.
 
-`gobfd-5w0` waits for its blockers and a design review. Priority changes
-are recorded with the 2026-10-15 retrospective above.
+Source qualification 2026-10-28 at
+`dev@d44773c559d103fda4698baf1f2ed319bf1f3932`: GitHub #88 remains open;
+`bd show gobfd-5w0` confirms P2/`after-v1`, `.8.2.3` open and `.8.2.5.2`
+closed. `cmd/gobfd-haproxy-agent/main.go` implements BFD-to-agent-check;
+`internal/gobgp/strategy/strategy.go` marks route withdrawal unimplemented.
+Service-health-to-VIP acceptance remains unverified; no runtime checks were run.
+`gobfd-5w0` waits for `.8.2.3` and design review outside the v1 critical path.
 
 ## Remaining work before v1.0.0
 

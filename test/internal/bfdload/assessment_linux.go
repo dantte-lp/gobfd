@@ -136,9 +136,14 @@ func assessmentInputs(owner OwnerWorkloadObservation, peers PeerObservation) err
 }
 
 func assessmentWindowEvidence(owner OwnerWorkloadObservation, peers PeerObservation) bool {
-	return owner.ElapsedNS >= int64(owner.Config.Profile.Duration) &&
-		peers.ElapsedNS >= int64(owner.Config.Profile.Duration) && owner.StartedAtUTC.Equal(peers.StartedAtUTC) &&
-		owner.SamplePeriodNS == int64(ownerSamplePeriod)
+	duration := owner.Config.Profile.Duration
+	if duration <= 0 || owner.StartedAtUTC.IsZero() || peers.StartedAtUTC.IsZero() {
+		return false
+	}
+	// Peer lifetime surrounds measurement; shared native phase is validated separately.
+	return owner.ElapsedNS >= int64(duration) && peers.ElapsedNS >= int64(duration) &&
+		owner.SamplePeriodNS == int64(ownerSamplePeriod) && !peers.StartedAtUTC.After(owner.StartedAtUTC) &&
+		!peers.StartedAtUTC.Add(time.Duration(peers.ElapsedNS)).Before(owner.StartedAtUTC.Add(duration))
 }
 
 func assessmentRoleSnapshots(owner OwnerWorkloadObservation, peers PeerObservation) bool {

@@ -298,8 +298,8 @@ func TestBGPTopologyContract(t *testing.T) {
 			})
 		} else {
 			assertContainsAll(t, peer+" source runtime", recipe, []string{
-				"https://codeload.github.com/Exa-Networks/exabgp/tar.gz/edf249571174449f80c72d75eb6933dcabd67f92",
-				"ADD --checksum=sha256:dbf1f3789e28d5c06d123c154c1d4432da9378bbd251699bf7932c5b5f880302",
+				"https://codeload.github.com/Exa-Networks/exabgp/tar.gz/b70054ffdf210e3a6001e1dd282d08309d4552dd",
+				"ADD --checksum=sha256:d257c151ee3b3479d70c46c0de1561747b6e02d11d65d2abf0ea6f0acb93ce84",
 				"PYTHONPATH=/opt/exabgp/src", `"python3", "iproute2", "dumb-init"`,
 				`ENTRYPOINT ["/usr/bin/dumb-init", "--", "python3", "-m", "exabgp"]`,
 				"exabgp_daemon_user=exa", "exabgp_daemon_daemonize=false",
@@ -933,9 +933,11 @@ func TestInteropCaptureStorageContract(t *testing.T) {
 			)
 			render.Dir = root
 			render.Env = append(os.Environ(), "PODMAN_COMPOSE_WARNING_LOGS=false")
-			rendered, renderErr := render.CombinedOutput()
+			var stderr bytes.Buffer
+			render.Stderr = &stderr
+			rendered, renderErr := render.Output()
 			if renderErr != nil {
-				t.Fatalf("render Compose topology: %v\n%s", renderErr, rendered)
+				t.Fatalf("render Compose topology: %v\nstderr: %s\nstdout: %s", renderErr, &stderr, rendered)
 			}
 			var renderedRaw composeRaw
 			if decodeErr := yaml.Unmarshal(rendered, &renderedRaw); decodeErr != nil {
@@ -1597,9 +1599,11 @@ func TestBenchmarkResultMountContract(t *testing.T) {
 	assertEqual(t, "default rendered benchmark result source", defaultSource, filepath.Join(root, "bench-results"))
 	render := benchmarkComposeConfigCommand(t.Context(), root)
 	render.Env = append(render.Env, "BENCH_RESULTS_DIR="+defaultSource)
-	rendered, err := render.CombinedOutput()
+	var stderr bytes.Buffer
+	render.Stderr = &stderr
+	rendered, err := render.Output()
 	if err != nil {
-		t.Fatalf("render benchmark Compose: %v\n%s", err, rendered)
+		t.Fatalf("render benchmark Compose: %v\nstderr: %s\nstdout: %s", err, &stderr, rendered)
 	}
 	type renderedBind struct {
 		SELinux string `yaml:"selinux"`
