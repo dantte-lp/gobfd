@@ -350,6 +350,8 @@ go run ./test/cmd/cictl package-lifecycle  # needs the Podman API socket
 `release.yml` (`go run github.com/goreleaser/goreleaser/v2@v2.18.2`) without
 publish, announce, validate, sign, SBOM and image stages, then
 `tools/cmd/packagefinalize` for the native RPM lifecycle programs. It sets the
+complete uncompressed CPIO size, including archive headers and alignment.
+The command sets the
 test version `v0.0.0` and needs a Git checkout. Before building, it rejects
 missing or mismatched UPX through the same bound-executable version verifier
 as `cictl release-upx`. The nightly job runs that bootstrap first. For a local

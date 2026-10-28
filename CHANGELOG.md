@@ -206,6 +206,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (GoReleaser v2.18.2, then RPM lifecycle finalization) as version 0.0.0 and
   rejects missing or mismatched pinned UPX before building. The nightly job
   installs that prerequisite with the existing verified bootstrap.
+  RPM finalization records the complete CPIO archive size so `rpm2cpio`
+  accepts the payload length.
   `cictl package-lifecycle` installs the DEB into a systemd container built from
   the pinned Debian 13 release base. Oracle Linux 10 is excluded from v1 OCI
   products and lifecycle qualification; generic RPM generation is retained.

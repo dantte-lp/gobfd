@@ -4,7 +4,10 @@ go 1.27
 
 toolchain go1.27.3
 
-require github.com/google/rpmpack v0.7.1
+require (
+	github.com/cavaliergopher/cpio v1.0.1
+	github.com/google/rpmpack v0.7.1
+)
 
 require (
 	4d63.com/gocheckcompilerdirectives v1.4.0 // indirect
@@ -57,7 +60,6 @@ require (
 	github.com/butuzov/ireturn v0.4.1 // indirect
 	github.com/butuzov/mirror v1.3.3 // indirect
 	github.com/catenacyber/perfsprint v0.10.1 // indirect
-	github.com/cavaliergopher/cpio v1.0.1 // indirect
 	github.com/ccojocar/zxcvbn-go v1.0.4 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charithe/durationcheck v0.0.11 // indirect

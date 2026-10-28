@@ -2,9 +2,13 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -40,6 +44,7 @@ func TestWriteRPMUsesNativeLifecyclePrograms(t *testing.T) {
 		t.Fatalf("writeRPM() error = %v", err)
 	}
 	data := output.Bytes()
+	assertRPMArchiveSize(t, data)
 	for _, want := range [][]byte{
 		[]byte("/usr/libexec/gobfd-postinstall"),
 		[]byte("/usr/libexec/gobfd-preremove"),
@@ -50,6 +55,44 @@ func TestWriteRPMUsesNativeLifecyclePrograms(t *testing.T) {
 	}
 	if bytes.Contains(data, []byte("/bin/sh")) {
 		t.Error("RPM retains /bin/sh scriptlet program")
+	}
+}
+
+func assertRPMArchiveSize(t *testing.T, data []byte) {
+	t.Helper()
+	const leadSize, headerSize, indexSize, alignment, payloadSizeTag = 96, 16, 16, 8, 1007
+	signature := data[leadSize:]
+	entries := int(binary.BigEndian.Uint32(signature[8:12]))
+	storeSize := int(binary.BigEndian.Uint32(signature[12:headerSize]))
+	store := signature[headerSize+entries*indexSize:]
+	var declared uint32
+	found := false
+	for index := range entries {
+		entry := signature[headerSize+index*indexSize:][:indexSize]
+		if binary.BigEndian.Uint32(entry) == payloadSizeTag {
+			offset := binary.BigEndian.Uint32(entry[8:12])
+			declared = binary.BigEndian.Uint32(store[offset:])
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("RPM signature has no uncompressed payload size")
+	}
+	length := headerSize + entries*indexSize + storeSize
+	headerOffset := leadSize + (length+alignment-1)/alignment*alignment
+	header := data[headerOffset:]
+	payloadOffset := headerOffset + headerSize + int(binary.BigEndian.Uint32(header[8:12]))*indexSize +
+		int(binary.BigEndian.Uint32(header[12:headerSize]))
+	payload, err := gzip.NewReader(bytes.NewReader(data[payloadOffset:]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, readErr := io.Copy(io.Discard, payload)
+	if err := errors.Join(readErr, payload.Close()); err != nil {
+		t.Fatal(err)
+	}
+	if actual != int64(declared) {
+		t.Fatalf("RPM uncompressed archive size = %d, declared %d", actual, declared)
 	}
 }
 

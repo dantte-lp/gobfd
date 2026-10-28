@@ -15,12 +15,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cavaliergopher/cpio"
 	"github.com/google/rpmpack"
 )
 
 const (
 	stableVersionParts    = 3
-	maxRPMTime            = int64(1<<32 - 1)
+	maxRPMUint32          = int64(1<<32 - 1)
 	postInstallProgramTag = 1086
 	preRemoveProgramTag   = 1087
 	postInstallProgram    = "/usr/libexec/gobfd-postinstall"
@@ -154,23 +155,25 @@ func writeRPM(output io.Writer, root, version, arch string) error {
 }
 
 func addRPMContents(packageRPM *rpmpack.RPM, root, target string) error {
+	counter := &rpmArchiveCounter{}
+	archive := cpio.NewWriter(counter)
 	publicBinaries := [...]string{"gobfd", "gobfdctl", "gobfd-haproxy-agent", "gobfd-exabgp-bridge"}
 	for _, binary := range publicBinaries {
-		if err := addRPMFile(packageRPM, filepath.Join(root, "dist", binary+"_"+target, binary),
+		if err := addRPMFile(packageRPM, archive, filepath.Join(root, "dist", binary+"_"+target, binary),
 			"/usr/local/bin/"+binary, 0o755, rpmpack.GenericFile); err != nil {
 			return err
 		}
 	}
 	helper := filepath.Join(root, "dist", "gobfd-package-lifecycle_"+target, "gobfd-package-lifecycle")
 	for _, destination := range []string{postInstallProgram, preRemoveProgram} {
-		if err := addRPMFile(packageRPM, helper, destination, 0o755, rpmpack.GenericFile); err != nil {
+		if err := addRPMFile(packageRPM, archive, helper, destination, 0o755, rpmpack.GenericFile); err != nil {
 			return err
 		}
 	}
 	files := []struct {
 		source      string
 		destination string
-		mode        uint
+		mode        cpio.FileMode
 		kind        rpmpack.FileType
 	}{
 		{"configs/gobfd.example.yml", "/etc/gobfd/gobfd.yml", 0o644, rpmpack.ConfigFile | rpmpack.NoReplaceFile},
@@ -180,15 +183,33 @@ func addRPMContents(packageRPM *rpmpack.RPM, root, target string) error {
 	}
 	for _, file := range files {
 		if err := addRPMFile(
-			packageRPM, filepath.Join(root, file.source), file.destination, file.mode, file.kind,
+			packageRPM, archive, filepath.Join(root, file.source), file.destination, file.mode, file.kind,
 		); err != nil {
 			return err
 		}
 	}
+	if err := archive.Close(); err != nil {
+		return fmt.Errorf("close RPM size archive: %w", err)
+	}
+	if counter.size > uint64(maxRPMUint32) {
+		return fmt.Errorf("%w: RPM archive exceeds the 32-bit size limit", errInvalidPackageInput)
+	}
+	// rpmpack v0.7.1 records file bytes here; RPM requires the complete CPIO size.
+	const payloadSizeSignature = 1007
+	packageRPM.AddCustomSig(payloadSizeSignature, rpmpack.EntryUint32([]uint32{uint32(counter.size)}))
 	return nil
 }
 
-func addRPMFile(rpm *rpmpack.RPM, source, destination string, mode uint, kind rpmpack.FileType) error {
+type rpmArchiveCounter struct{ size uint64 }
+
+func (counter *rpmArchiveCounter) Write(data []byte) (int, error) {
+	counter.size += uint64(len(data))
+	return len(data), nil
+}
+
+func addRPMFile(
+	rpm *rpmpack.RPM, archive *cpio.Writer, source, destination string, mode cpio.FileMode, kind rpmpack.FileType,
+) error {
 	data, err := os.ReadFile(source)
 	if err != nil {
 		return fmt.Errorf("read RPM input %s: %w", source, err)
@@ -198,13 +219,21 @@ func addRPMFile(rpm *rpmpack.RPM, source, destination string, mode uint, kind rp
 		return fmt.Errorf("stat RPM input %s: %w", source, err)
 	}
 	timestamp := info.ModTime().Unix()
-	if timestamp < 0 || timestamp > maxRPMTime {
+	if timestamp < 0 || timestamp > maxRPMUint32 {
 		return fmt.Errorf("%w: RPM input %s modification time is out of range", errInvalidPackageInput, source)
 	}
 	rpm.AddFile(rpmpack.RPMFile{
-		Name: destination, Body: data, Mode: mode, MTime: uint32(timestamp),
+		Name: destination, Body: data, Mode: uint(mode), MTime: uint32(timestamp),
 		Owner: "root", Group: "root", Type: kind,
 	})
+	if err := archive.WriteHeader(&cpio.Header{
+		Name: destination, Mode: mode | cpio.TypeReg, Size: int64(len(data)), Links: 1,
+	}); err != nil {
+		return fmt.Errorf("write RPM size header for %s: %w", destination, err)
+	}
+	if _, err := archive.Write(data); err != nil {
+		return fmt.Errorf("count RPM payload for %s: %w", destination, err)
+	}
 	return nil
 }
 
