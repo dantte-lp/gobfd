@@ -4,6 +4,66 @@
 только в Beads. Эта страница содержит датированные сводки и историю;
 актуальную работу определяют `bd show gobfd-qj0.8` и `bd ready`.
 
+## Сопоставление плана и факта — 2026-10-23
+
+Исходные планы проекта появились 20.02.2026 в
+`5e8ffdc85adf63bf0d41c243bff4a8c53c522e2a`, production-контракт v1 —
+19.08.2026 в `88b07ee0e1e272fe6017a9ce0125c2bf8b0c8713`. Интегрированная
+база этой сводки — `dev` на `7a97d91fdb2f0c6027a40f3d7f9d524717f3651e`.
+Workload checkpoints `52d2e3657a4a92b07ba6da63201a8de752e909d2` и
+`8d36ef5175f1456dcc72bacceb745a29c9de2e75` с последующими рабочими изменениями
+отделены от интегрированного `dev` и stable-поставки.
+
+Граф `gobfd-qj0.8.2` содержит 416 потомков: 292 closed и 124 незавершённых,
+включая родителей. Из 316 листьев закрыты 237; остаются 79: 8 P0, 46 P1,
+24 P2 и 1 P3. Это числа задач, не процент готовности релиза и не трудозатраты.
+54 незавершённых листа P0/P1 не заменяют критерии активных родителей и
+отдельные финальные security/compatibility gates.
+
+| Область контракта | Реализованный факт | Остаток приёмки |
+|---|---|---|
+| RFC core | Codec/FSM/authentication, Poll/Final, диагностика, typed delivery receipts и wire-сценарии | Матрица финального кандидата и deployment RTT envelope |
+| Ownership | Canonical claims, leases, source-scoped reconciliation, поколения и pending receipts | Политика same-key и typed replace; `gobfd-qj0.8.2.2.7` сохраняет паузу maintainer |
+| Management | Unix UID/mTLS principals, loopback metrics, защищённый debug, component readiness и package lifecycle | Сверка критериев parent с доказательствами, финальные migration/packaging gates |
+| GoBGP и companions | GoBGP v4.10.0, cause-aware convergence, native-BFD conflict checks, восстановление HAProxy/ExaBGP; implementation children закрыты | Parent acceptance, финальные security/compatibility и combined consumer qualification |
+| Preview | Micro-BFD explicit opt-in и fail-closed admission реализованы | Echo admission/readiness и bounded capability status выделены в `gobfd-qj0.8.2.1.8.2` и `gobfd-qj0.8.2.1.8.3`; graduation не подтверждён |
+| Измерения и масштаб | Kernel RX/drop samples, owner-commit timing, timer effects, environment snapshots и независимая модель UDP peer | Общие фазы и полный terminal accounting, независимая валидность часов, blocking regression policy, thread-pin A/B и нагрузочная квалификация |
+
+Февральская архитектура daemon/API/CLI/companions дополнена августовским
+production-контрактом, ownership и протокольными транзакциями августа–сентября,
+октябрьскими security/consumer convergence и текущей инфраструктурой измерений.
+Исторические строки остатка от 20 октября не означают отсутствия позднее
+реализованных readiness, systemd и wire tests.
+
+От исходного commit до текущего `dev`: 756 последующих commits, 807 файлов,
+235236 добавленных и 2987 удалённых строк. От production-v1 контракта:
+621 commit, 705 файлов, +131563/-16772. В последнем срезе +94490 строк
+относятся к tests/harness/CI, +16271 — runtime/API; остальные — документация,
+generated protobuf и build/deployment. Это endpoint diff совместной работы,
+а не индивидуальное авторство или накопленный churn.
+
+Обязательный reference остаётся неизменным: 8 vCPU/8 GiB, GOMAXPROCS 8,
+1000 mixed IPv4/IPv6 сессий, 24 часа, 100 ms/multiplier 3, 80% фоновой CPU
+нагрузки, seeded 0,1% потерь и секундный blackhole каждые 30 минут.
+Engineering gate 5000 сессий/300 ms/30 минут проверяется отдельно. Постоянные
+Control/Echo `LockOSThread` ещё требуют удаления по результату A/B.
+Принятой финальной 24-часовой квалификации в tracker нет.
+
+Security следует уже утверждённой 21 октября Option C: fixed-source provenance,
+свежий module-only symbol scan финального кандидата, owner/review metadata и
+удаление exception после появления исправленного диапазона в Go advisory.
+Module-only record не считается безусловно чистым scan. Oracle Linux product
+scope и same-key policy остаются явными решениями maintainer; Kubernetes
+qualification требует настроенного доступного cluster context.
+
+Незакоммиченная реализация общих фаз не принята: первая actual UDP проверка
+не завершила terminal ledger; корректируется receive-bind synchronization.
+Новые compiler runs требуют свежего допуска ресурсов. Raw evidence:
+`reports/retro-plan-fact-20261023/`; workload evidence — в его worktree.
+Последний опубликованный релиз по GitHub API — v0.6.4. Source/Dolt uploads,
+Actions dispatch и подготовка релиза остаются на паузе. Исполнимый порядок
+сохраняется только в Beads.
+
 ## Приоритет выпуска 1.0.0 — 2026-10-20
 
 Выпуск v1.0.0 имеет приоритет перед остальными работами. Это заменяет

@@ -25,7 +25,8 @@ const (
 	maxClockBracket = time.Millisecond
 )
 
-type runControl struct{ root *os.Root }
+// Control owns a shared directory for the isolated workload's phase protocol.
+type Control struct{ root *os.Root }
 
 type phaseStart struct {
 	NativeStartNS   int64
@@ -34,15 +35,41 @@ type phaseStart struct {
 	goStart         time.Time
 }
 
-func openRunControl(directory string) (*runControl, error) {
+// Phase reports a common monotonic epoch; it is not an RX uncertainty bound.
+type Phase struct {
+	NativeStartNS   int64  `json:"native_start_ns"`
+	TimeNamespaceID uint64 `json:"time_namespace_id"`
+	BracketNS       int64  `json:"bracket_ns"`
+}
+
+func openRunControl(directory string) (*Control, error) {
+	info, statErr := os.Lstat(directory)
+	if statErr != nil {
+		return nil, fmt.Errorf("inspect control directory: %w", statErr)
+	}
+	var native unix.Stat_t
+	if err := unix.Lstat(directory, &native); err != nil {
+		return nil, fmt.Errorf("inspect control owner: %w", err)
+	}
+	if !info.IsDir() || info.Mode().Perm()&0o077 != 0 || int(native.Uid) != os.Geteuid() {
+		return nil, fmt.Errorf("control directory must be private and owned by the process: %w", ErrControl)
+	}
 	root, err := os.OpenRoot(directory)
 	if err != nil {
 		return nil, fmt.Errorf("open workload control directory: %w", err)
 	}
-	return &runControl{root: root}, nil
+	opened, openedErr := root.Stat(".")
+	if openedErr != nil || !os.SameFile(info, opened) {
+		return nil, errors.Join(ErrControl, openedErr, root.Close())
+	}
+	return &Control{root: root}, nil
 }
 
-func (c *runControl) Close() error {
+// OpenControl opens an already-created private workload control directory.
+func OpenControl(directory string) (*Control, error) { return openRunControl(directory) }
+
+// Close releases the directory descriptor without deleting phase evidence.
+func (c *Control) Close() error {
 	if err := c.root.Close(); err != nil {
 		return fmt.Errorf("close workload control directory: %w", err)
 	}
@@ -50,7 +77,7 @@ func (c *runControl) Close() error {
 }
 
 // publish exposes complete bytes once; linking refuses an existing destination.
-func (c *runControl) publish(name, value string) (resultErr error) {
+func (c *Control) publish(name, value string) (resultErr error) {
 	if name == "" || strings.ContainsAny(name, "/\\") || strings.HasPrefix(name, ".") ||
 		len(name) > maxControlBytes || len(value) > maxControlBytes {
 		return fmt.Errorf("control name or value outside bound: %w", ErrControl)
@@ -75,7 +102,7 @@ func (c *runControl) publish(name, value string) (resultErr error) {
 	return nil
 }
 
-func (c *runControl) read(ctx context.Context, name string) ([]byte, bool, error) {
+func (c *Control) read(ctx context.Context, name string) ([]byte, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, false, fmt.Errorf("read workload control: %w", err)
 	}
@@ -100,7 +127,7 @@ func (c *runControl) read(ctx context.Context, name string) ([]byte, bool, error
 	return data, true, nil
 }
 
-func (c *runControl) readStart(ctx context.Context) (*phaseStart, bool, error) {
+func (c *Control) readStart(ctx context.Context) (*phaseStart, bool, error) {
 	data, found, err := c.read(ctx, "start")
 	if err != nil || !found {
 		return nil, found, err

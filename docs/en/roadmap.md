@@ -4,6 +4,71 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## Plan/fact retrospective — 2026-10-23
+
+The original project plans entered Git on 2026-02-20 at
+`5e8ffdc85adf63bf0d41c243bff4a8c53c522e2a`. The approved production-v1
+contract entered on 2026-08-19 at `88b07ee0e1e272fe6017a9ce0125c2bf8b0c8713`.
+The integrated development baseline for this projection is
+`7a97d91fdb2f0c6027a40f3d7f9d524717f3651e`. Workload checkpoints
+`52d2e3657a4a92b07ba6da63201a8de752e909d2` and
+`8d36ef5175f1456dcc72bacceb745a29c9de2e75`, plus subsequent working changes,
+remain separate from integrated `dev` and stable delivery.
+
+The current parent graph contains 416 descendants of `gobfd-qj0.8.2`:
+292 closed and 124 unfinished, including parents. Its 316 leaves contain
+237 closed and 79 unfinished tasks: 8 P0, 46 P1, 24 P2 and 1 P3. These are
+tracker counts, not release-completion percentages or effort estimates. The
+54 unfinished P0/P1 leaves do not replace acceptance owned by active parents
+or the separate final security and compatibility gates.
+
+| Contract area | Implemented fact | Remaining acceptance |
+|---|---|---|
+| RFC core | Codec/FSM/authentication, Poll/Final transactions, diagnostics, typed delivery receipts and retained wire scenarios | Final-candidate protocol matrix and deployment RTT envelope |
+| Ownership | Canonical claims, leases, source-scoped reconciliation, generations and pending receipts | Same-key mutation policy and typed replacement; `gobfd-qj0.8.2.2.7` retains the maintainer pause |
+| Management | Unix UID and mTLS principals, loopback metrics, protected debug, component readiness and package lifecycle implementation | Parent criterion-to-evidence reconciliation and final migration/packaging gates |
+| GoBGP and companions | GoBGP v4.10.0, cause-aware convergence, native-BFD conflict checks, HAProxy/ExaBGP recovery; implementation children closed | Parent acceptance, final security/compatibility and combined consumer qualification |
+| Preview | Micro-BFD explicit opt-in and fail-closed admission implemented | Echo admission/readiness and bounded capability status now explicitly owned by `gobfd-qj0.8.2.1.8.2` and `gobfd-qj0.8.2.1.8.3`; no preview graduation claim |
+| Measurement and scale | Kernel RX/drop samples, owner-commit timing, timer effects, environment snapshots and independent UDP peer model | Shared phases and complete terminal accounting, independent clock validity, blocking regression policy, thread-pin A/B and scale qualification |
+
+The implementation progressed from the February daemon/API/CLI/companion
+architecture to the August production contract, August–September ownership and
+protocol transactions, October security and consumer convergence, and the
+current measurement infrastructure. Historical October 20 remaining-work rows
+must not be read as proof that later readiness, systemd or wire-test changes are
+still missing.
+
+The endpoint diff from the initial project commit to this `dev` is 807 files,
+235,236 added and 2,987 deleted lines across 756 subsequent commits. Since the
+production-v1 contract it is 705 files, 131,563 added and 16,772 deleted lines
+across 621 commits. Of the latter additions, 94,490 are tests/harness/CI and
+16,271 are runtime/API; documentation, generated protobuf and build/deployment
+files account for the rest. These include shared work and are not individual
+authorship or cumulative churn measurements.
+
+The next accepted workload must establish the unchanged 8-vCPU/8-GiB,
+GOMAXPROCS 8, 1,000 mixed-session reference for 24 hours at 100 ms/multiplier 3,
+80% background CPU, seeded 0.1% loss and one-second blackholes every 30 minutes.
+The 5,000-session/300-ms/30-minute engineering gate remains separate. Permanent
+Control/Echo `LockOSThread` calls still require the prescribed A/B removal.
+No accepted final-candidate 24-hour qualification exists in the tracker.
+
+Stable security follows the already approved October 21 Option C amendment:
+fixed-source provenance, a fresh final-candidate module-only symbol scan,
+named owner/review metadata and removal of the exception when the Go advisory
+fixed range becomes available. A module-only record is not silently treated
+as an unconditionally clean scan. Oracle Linux product scope and same-key
+mutation policy remain explicit maintainer decisions; Kubernetes qualification
+still needs a configured usable cluster context.
+
+The uncommitted common-phase implementation is not accepted: the first actual
+UDP check did not settle its terminal ledger; receive-bind synchronization is
+under correction. Subsequent compiler runs require fresh resource admission.
+Raw audit evidence is in `reports/retro-plan-fact-20261023/`; current workload
+evidence stays in its worktree. The latest published release observed through
+GitHub API is v0.6.4. Source/Dolt uploads, Actions dispatch and release
+preparation remain on hold. All executable ordering stays in Beads.
+
 ## Release-first priority — 2026-10-20
 
 The maintainer prioritizes delivery of v1.0.0 over all other work. This replaces

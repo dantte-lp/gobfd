@@ -17,7 +17,7 @@ import (
 
 func TestControlStartPreservesClockDomainAndPublication(t *testing.T) {
 	t.Parallel()
-	control, err := openRunControl(t.TempDir())
+	control, err := openRunControl(privateControlDirectory(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestControlRejectsForeignEpochAndMalformedInput(t *testing.T) {
 		fmt.Sprintf("%d %d", namespace, now-int64(time.Second)),
 		fmt.Sprintf("%d %d", namespace, now+int64(2*maxStartDelay)),
 	} {
-		directory := t.TempDir()
+		directory := privateControlDirectory(t)
 		if err := os.WriteFile(filepath.Join(directory, "start"), []byte(value), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -93,7 +93,7 @@ func TestControlRejectsForeignEpochAndMalformedInput(t *testing.T) {
 
 func TestControlRejectsSpecialFilesAndCanceledReads(t *testing.T) {
 	t.Parallel()
-	directory := t.TempDir()
+	directory := privateControlDirectory(t)
 	control, err := openRunControl(directory)
 	if err != nil {
 		t.Fatal(err)
@@ -119,4 +119,13 @@ func TestControlRejectsSpecialFilesAndCanceledReads(t *testing.T) {
 			t.Fatalf("invalid publication name accepted %q: %v", name, err)
 		}
 	}
+}
+
+func privateControlDirectory(t *testing.T) string {
+	t.Helper()
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return directory
 }

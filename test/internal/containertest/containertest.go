@@ -20,6 +20,10 @@ import (
 
 const rootfulPodmanSocket = "/run/podman/podman.sock"
 
+// DebianImage is the shared immutable trixie runtime for copied Go test binaries.
+const DebianImage = "docker.io/library/debian:trixie-slim@sha256:" +
+	"a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f"
+
 // RequirePodman configures testcontainers for the local Podman API socket.
 // Missing Podman skips optional local tests and fails required CI/test targets.
 func RequirePodman(tb testing.TB) string {
