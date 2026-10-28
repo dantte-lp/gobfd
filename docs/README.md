@@ -1,29 +1,31 @@
-# GoBFD Documentation / Документация GoBFD
+# GoBFD documentation
 
-| Language / Язык | Index / Оглавление |
-|---|---|
-| English — source documentation | [English](en/README.md) |
-| Русский — перевод английской документации | [Русский](ru/README.md) |
+| Language | Manual |
+|:---|:---|
+| English — canonical | [Operator and developer manual](en/README.md) |
+| Русский — перевод | [Руководство оператора и разработчика](ru/README.md) |
 
-Documentation in this checkout describes its branch and source commit.
-`dev` is the next product line; `master` and `release/v0.6` retain the accepted
-stable line. Read documentation from the same commit as the deployed binary.
-RFC coverage and qualification are stated separately from implementation.
+Use documentation from the binary's commit. These pages describe `dev`;
+the accepted stable line has its own configuration and compatibility
+contract. Consult the [RFC matrix](en/08-rfc-compliance.md) before selecting
+a profile and the [vendor reference guide](en/reference/vendor-bfd.md)
+before configuring an equipment peer.
 
-Документация описывает ветку и commit этого checkout. `dev` содержит следующую
-продуктовую линию; `master` и `release/v0.6` — принятую стабильную линию.
-Используйте документацию commit развёрнутого бинарника. Соответствие RFC и
-квалификация указаны отдельно от наличия реализации.
+Используйте документацию commit развёрнутого бинарника. Эти страницы описывают
+`dev`; принятая стабильная линия имеет собственный контракт конфигурации и
+совместимости. Выберите профиль по [матрице RFC](ru/08-rfc-compliance.md),
+параметры оборудования — по [документам производителей](ru/reference/vendor-bfd.md).
 
-Decisions / решения: [EN](en/adr/README.md), [RU](ru/adr/README.md).
-Dated status / датированный статус: [EN](en/roadmap.md), [RU](ru/roadmap.md).
-Normative source texts / нормативные тексты: [RFC](rfc/).
-The executable plan lives only in Beads / исполняемый план хранится только в Beads.
+## Sources and records
 
-Files under `superpowers/specs/` retain dated design inputs and their original
-implementation baselines. Current behavior belongs in the EN/RU guides and
-ADRs; a design's approval does not establish implementation or qualification.
+| Material | Purpose |
+|:---|:---|
+| [RFC texts](rfc/) | Verbatim normative inputs; file presence does not imply implementation |
+| [ADRs EN](en/adr/README.md), [ADR RU](ru/adr/README.md) | Decisions, constraints and acceptance boundaries |
+| [Status EN](en/roadmap.md), [Статус RU](ru/roadmap.md) | Dated qualification boundaries |
+| `superpowers/specs/` | Dated design inputs; retain original baselines and evidence |
+| `en/audits/`, `ru/audits/` | Dated audit evidence; not a live support matrix |
 
-Файлы `superpowers/specs/` сохраняют датированные проектные решения и исходное
-состояние реализации. Текущее поведение описывают руководства EN/RU и ADR;
-одобрение проекта не подтверждает реализацию или квалификацию.
+Historical design, audit and release records retain their factual content.
+Current operational procedures belong in the manual; qualification claims
+require evidence for the exact candidate and deployment profile.

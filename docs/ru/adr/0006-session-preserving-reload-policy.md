@@ -1,335 +1,111 @@
 # ADR-0006: Политика reload с сохранением сессии
 
 | Поле | Значение |
-|---|---|
-| Статус | Accepted |
-| Дата | 2026-10-24 |
-| Квалификация | Принятая политика; implqual-local; проверка реальных пакетов открыта |
+|:---|:---|
+| Status | Accepted |
+| Date | 2026-10-24 |
+| Qualification | Accepted policy; implqual-local; actual-wire qualification remains open |
 
 ## Контекст
 
-Перезагрузка конфигурации не должна заменять установленную BFD-сессию лишь
-потому, что меняется поддерживаемый действующий параметр. Замена меняет
-дискриминатор и протокольное состояние и может влиять на клиентов маршрутизации.
-Сохранение локального экземпляра не доказывает непрерывность состояния пира
-или пересылки трафика.
-
-RFC 5880 разделяет согласование таймеров, изменение Detect Multiplier,
-аутентификацию и административное управление. RFC 5882 связывает обработку
-AdminDown и graceful restart с независимым обнаружением жизнеспособности клиента
-и общей судьбой плоскости управления. Общей гарантии бесшовной перезагрузки нет.
+Replacement established session меняет discriminator, protocol state и client observations. Сохранение local object не доказывает peer continuity либо forwarding. Timer/auth/admin procedures RFC 5880 и client policies RFC 5882 не дают общего hitless-reload guarantee.
 
 ## Решение
 
-Сохранять существующую базовую сессию при стабильной канонической протокольной
-идентичности, единственном владельце декларативной конфигурации и поддержке
-полного предлагаемого кортежа. Сохранять экземпляр, дискриминатор, аренду
-отправителя, состояние защиты от повторов, счётчики и владение. Общую сессию
-нельзя изменять ради одного владельца; несовместимое предложение отклоняется.
+Сохраняются instance, discriminator, sender lease, auth replay state, counters и claims для stable canonical base identity с одним config owner и поддерживаемым complete tuple. Несовместимые shared-owner changes отклоняются. Unsupported update не преобразуется неявно в delete/recreate.
 
-| Изменение | Требуемое поведение |
-|---|---|
-| Интервалы желаемого TX / требуемого RX | Сохранить действующие правила транзакций Poll/Final RFC 5880 §6.8.3 |
-| Detect Multiplier | Объявить новое ненулевое значение в следующем Control без Poll в Async; при Demand пира применить требования Poll §6.6 |
-| Минимальный TTL multihop | Применить локальный порог приёма 255 − N под Session.mu без замены или Poll, включая Demand пира; это политика GoBFD, не требование RFC 5883 |
-| Размер дополненного PDU | Допускать только переходы между положительными размерами в Async на подготовленном к DF отправителе, с прежней аутентификацией и единственным владельцем конфигурации; неподдерживаемые базовые кандидаты отклонять до принятия поколения |
-| Неподдерживаемый переход аутентификации | Отклонить весь кандидат до принятия поколения; сохранить старую конфигурацию |
-| Неквалифицированная смена протокольной идентичности или другой неподдерживаемый переход | Без неявной замены; прерывающая замена требует отдельного явного намерения оператора |
+### Five-field transaction
 
-Квалификация порога приёма multihop использует стартовый аутентифицированный
-профиль UDP/4784 существующей топологии программируемого пира. Пир останавливается
-перед перезагрузкой; повтор его последнего принятого подписанного пакета
-с допустимым TTL должен отклоняться до новой граничной пробы. Этот намеренный
-повтор даёт ровно одну ошибку аутентификации и ноль принятых входов; сама
-перезагрузка не добавляет ошибок или переходов. Начальная база идентичности/
-счётчиков охватывает все перезагрузки и вход в Demand пира. Для каждой границы
-за подписанным Poll ниже `255 - N` следует идентичный пакет с той же
-последовательностью на пороге. Только второй может учитываться принятым или
-вызывать Final; отказ не продвигает состояние аутентификации RX. Одна контрольная
-точка захвата/аутентификации сохраняется между перезагрузками и входом в Demand.
-Пробы завершаются в пределах действующего Detection Time, чтобы истечение
-защиты от повторов не подменяло непрерывность. Тесты исходников не закрывают
-реальную проверку ядра/захвата `gobfd-qj0.8.2.2.7.5.4.3`. Профиль не квалифицирует
-маршрутизируемые/облачные пути или общую работу Demand.
+| Field/change | Обязательный эффект | Ограничение |
+|:---|:---|:---|
+| TX increase / RX decrease в Up | Прежний protected local effect до relevant Final | Existing Poll contract |
+| TX decrease / RX increase в Up | Применить при activation proposal | Existing Poll contract |
+| Non-Up TX/RX proposal | Immediate local effects при promotion | Poll/separation сериализуют confirmation |
+| DetectMult в Async | Применить и объявить next Control без Poll | Nonzero; пересчитать jitter при crossing 1 |
+| DetectMult при обоих peers Up и remote Demand | Poll/Final confirmation | Не квалифицирует general Demand |
+| MinTTL | Local multihop floor `255−N` под mutex без Poll, включая remote Demand | GoBFD product policy |
+| PaddedPduSize | Positive→positive, прежний auth, Async, constructor-proven `PaddingPrepared` | Без zero transition, unknown/unprepared sender и shared base owner |
 
-Локальная пакетная квалификация TTL прошла на
-`task/ttl-wire-20261024@491b2214994f07e017eb93ab67a29a95378c619e`:
-стандартный профиль программируемого пира — 162.94 с, аутентифицированный
-multihop — 81.98 с. Семь граничных/повторных окон сохраняют идентичность,
-аренду источника и семантику поколений. Доказательства:
-`reports/ttl-wire-20261024/`. Это квалифицирует только TTL; обязательная
-объединённая проверка пяти полей финального кандидата
-`gobfd-qj0.8.2.2.7.5.5` сохраняется.
+Tuple содержит TX, RX, DetectMult, MinTTL, PaddedPduSize. Один active proposal сохраняет advertised tuple; хранится последний waiting proposal, включая RX=0. Final подтверждает только после successful Poll transmission. Crossed Final-only reply не подтверждает local Poll. Следующая транзакция ждёт measured exchange duration после Final. Expiry переводит receipt в failed без отмены advertised values.
 
-Увеличение TX и уменьшение RX сохраняют защищённый старый локальный эффект до
-соответствующего Final; обратные направления — немедленный эффект. Активный Poll
-сохраняет объявленный кортеж, последующее предложение ожидает согласно
-действующему контракту транзакций. Добавление Detect Multiplier, TTL или
-дополнения не ослабляет таймерные правила. Исключение для Demand пира не
-квалифицирует общую работу Demand.
+Desired, advertised, effective и confirmed values/revisions различаются. MinTTL не передаётся по wire. Pending admission/advertisement не означает completion. Same-generation/revision reapply не создаёт replacement, Poll либо duplicate side effect; stale completion не перезаписывает новый intent.
 
-Политика пакетов v1 расширяет кортеж, ссылки и квитанции подтверждённых/
-действующих значений до TX, RX, DetectMult, MinTTL и PaddedPduSize. Координатор
-передаёт только `candidate.base` в `Manager.AdmitSessionReload`, проверяющий
-стабильные поля/владение до локального принятия поколения и сохраняющий
-описанные ниже проверки принятой/действующей аутентификации. Дополнение требует
-неизменяемого подтверждения конструктора `PaddingPrepared`, а не запрошенной
-опции или утверждения работоспособности сокета. Переходы через ноль, неизвестные/
-неподготовленные отправители, Demand пира и изменение базового дополнения при
-совместном владении отклоняются. Micro-BFD/оверлеи вне квалифицированного профиля;
-полей padding/minTTL в их конфигурации нет. Изменения других источников сохраняют
-прежние конфликты/устаревание каждого источника; общей проверки пяти источников
-не добавляется. Политика проверяется до сокращений по равенству, включая возврат
-к подтверждённому размеру при Demand. Владелец отклоняет весь ожидающий кортеж
-до фиксации любого поля, если Demand включился во время ожидания.
+Полный tuple проверяется и готовится до owner field commit. Координатор передаёт только `candidate.base` в `Manager.AdmitSessionReload`. Micro-BFD/overlay не получают padding/MinTTL fields и остаются вне qualified profile. Other-source conflict/stale behavior не становится five-source atomicity.
 
-Рост ёмкости готовит один заменяемый ожидающий буфер при допуске управления;
-владелец меняет его до фиксации полей. Выделение памяти для роста не откладывается
-до активации владельцем или передачи. Размер считает полезную нагрузку без
-IP/UDP-заголовков; передача использует максимум объявленного PDU и размера,
-поэтому аутентификация не усекается. Дополнение нулевое и вне существующей
-MAC-области. Прежние минимум 26 для аутентификации и стандартный DF при нулевом
-размере сохраняются. Включение/отключение дополнения и динамическая подготовка
-DF — отдельная P2-задача после v1 `gobfd-ebu`.
+Padding policy проверяется до equality shortcut, включая возврат к confirmed target при Demand. Перед promotion queued tuple перепроверяется; newly active Demand отклоняет весь tuple до field commit. Capacity growth готовит один replaceable waiting buffer при control admission; owner выполняет swap до commit. Promotion и packet send не выполняют growth allocation.
 
-Проверять полный кандидат, включая переходы той же сессии и владение, до принятия
-желаемого поколения. Применять обновление через протокольного владельца одной
-согласованной транзакцией: поле не должно оставаться изменённым после отказа
-проверки или подготовки другого. Намеренно разделённые желаемые, объявленные
-и действующие значения записываются ожидающими, а не завершёнными.
+Padding target считает transport payload без IP/UDP. Send length равен `max(actual PDU, target)`, сохраняя auth. Padding нулевой и вне authentication domain. Auth minimum 26 и zero-target DF defaults сохраняются. Enable/disable/dynamic DF — вне принятого reload profile.
 
-Повтор поколения/редакции идемпотентен: без новой сессии, замены, Poll или
-повторного побочного действия. Устаревшее завершение не перезаписывает новую
-желаемую редакцию. Квитанции различают желаемые, объявленные и действующие
-значения полей, имеющих представление на проводе; минимальный TTL остаётся
-локальным значением допуска. Статус различает ожидание, фиксацию и ошибку.
-Допуск или объявление не доказывают действующее завершение или готовность.
-Это политика транзакции одной сессии, а не атомарная фиксация всех источников.
+Источники: [owner transaction](../../../internal/bfd/session_update.go), [tests](../../../internal/bfd/session_update_test.go), [packet construction](../../../internal/bfd/session_packet.go), [timer transaction specification](../../superpowers/specs/2026-09-08-gobfd-timer-update-transactions-design.md).
 
-Алгоритм аутентификации, её включение/отключение и неквалифицированные смены
-ключей отклоняются до принятия поколения, включая сочетание с поддерживаемыми
-полями. Не допускаются скрытые удаление/создание или сброс последовательности/
-защиты от повторов. RFC 5880 §6.7 оставляет координацию за пределами BFD;
-хранилище ключей не квалифицирует протокол ротации.
+### Authentication admission
 
-Допуск сравнивает неизменяемые отпечатки с сохранённым принятым желаемым набором
-base, включая отсутствующие в среде записи, и реестром Manager без исключения
-API/совместных владельцев. Сравнение включает включение, алгоритм, ID/материал,
-выбранный TX-ключ и набор RX-ключей. Стартовая аутентификация, новые/удаляемые
-идентичности и новые хранилища прежней семантики допустимы.
+Same-identity enable/disable, algorithm и unqualified key transitions отклоняются до desired generation acceptance, включая combined update. Sequence/replay state не сбрасывается; replacement fallback запрещён.
 
-Порядок блокировок: жизненный цикл Manager, владение, реестр. Снять блокировку
-реестра до короткого локального принятия; сериализовать владение до публикации
-поколения, затем освободить до callbacks настроенных пиров или применения
-слушателей/отправителей. Отказ предшествует изменениям поколения, уровня
-журналирования и готовности, сохраняя старую конфигурацию и сессии. Поздние
-права проходят обычное согласование Manager с отказом при неопределённости.
-Эта граница допуска не является атомарной транзакцией всего источника или
-гарантией бесшовного отката.
+Immutable semantic fingerprints сравниваются с retained accepted base intent, включая отсутствующие runtime entries, и live registry независимо от API/shared ownership. Fingerprint включает enablement, algorithm, key IDs/material, TX key и receive-key set. Startup/new/removed identities и fresh stores с прежней семантикой допустимы.
 
-Опциональная согласованная ротация ID ключа внутри одного алгоритма — отдельная
-P2-задача после v1 `gobfd-khr`. Повышение зрелости требует квалификации перекрытия
-приёма, переключения TX, вывода старого ключа, непрерывности последовательности/
-защиты от повторов и совместимости с пирами. ADR не включает эту возможность.
+Порядок locks: lifecycle→ownership→registry. Registry освобождается до короткого local acceptance; ownership удерживается до generation publication и освобождается до configured-peer callbacks/resource application. Отказ предшествует generation, log/readiness и resource mutation. Поздние claims проходят ordinary reconciliation. Это admission protection, а не whole-source atomicity либо seamless rollback.
 
-Прерывающая замена отдельно от обычного reload указывает нужную идентичность/
-переход и влияние на клиентов. Ошибка подготовки до видимого пиру переключения
-должна откатывать подготовку. После видимых пиру состояния или пакетов бесшовный
-откат не гарантирован. Административные сигналы следуют RFC 5880 §6.8.16 и
-применимой политике клиентов RFC 5882; AdminDown не обещает неизменность BGP
-или пересылки во всех случаях.
+Coordinated same-algorithm key-ID rotation не квалифицирована: нужны receive overlap, TX cutover, old-key retirement, replay continuity и peer interop. Key store не включает rotation. Источники: [admission](../../../internal/bfd/manager_auth_reload.go), [tests](../../../internal/bfd/manager_auth_reload_test.go), [RFC 5880 §6.7](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.7).
 
-Источник получает/готовит желаемые ресурсы до снятия старых прав. Только нулевые
-`Failed` и `ResourcePending` разрешают снятие; согласование таймеров отдельно.
-Фатальная подготовка откатывает новые права; допустимые непересекающиеся могут
-сохраниться для повтора. Занятый ключ приёма допускает подготовленную замену
-SingleHop/MultiHop лишь для базовых сессий без интерфейса, одного владельца
-конфигурации, старого ключа вне желаемого набора и неизменных остальных полей.
-Другие коллизии отклоняются до фабрики отправителя, для base reload — и до
-принятия поколения. Отмена до публикации сохраняет старую идентичность;
-подготовленные аренда/дискриминатор освобождаются один раз. После публикации
-старая захваченная сессия фиксирует AdminDown и выполняет drain вне блокировок
-Manager/жизненного цикла, удерживая ресурсы до завершения или типизированной
-ошибки неполного завершения, затем очищается.
+### Source reconciliation и replacement
 
-Точный канонический ключ завершаемой сессии остаётся в частной резервации до
-завершения владельца, освобождения аренды/дискриминатора и очистки метрик,
-включая ошибочные исходы. Совпадающее новое право или обратная смена типа
-отклоняется до фабрики отправителя с `ErrDuplicateSession` (`AlreadyExists` в API).
-Явный повтор после завершения Delete может создать следующую сессию;
-автоматический повтор не добавляется. Разрешённая замена SingleHop/MultiHop
-использует другой точный ключ и допускается во время drain старого ключа.
-Блокировки registry/ownership/жизненного цикла не охватывают drain или callbacks
-очистки. Фактическое поведение пира остаётся отдельной пакетной проверкой
-`gobfd-qj0.8.2.1.3.12`.
+Desired resources готовятся/claim до stale release. Old claims освобождаются только при Failed=0 и ResourcePending=0; TimerPending отдельно. Fatal preparation откатывает new claims; valid disjoint claims могут оставаться до resource-pending retry.
 
-[Изолированная пакетная проверка FRR](../../../test/interop/same_key_topology_test.go)
-запускается без декларативных прав. Она сохраняет конфликт API, пока inode
-старого UDP-сокета принадлежит демону, наблюдает закрытие сокета до повтора
-и сопоставляет старый AdminDown с эпохой нового дискриминатора по capture
-и состоянию FRR. Требуется фактический успешный результат на точном кандидате;
-исходные тесты сами по себе не закрывают пакетную проверку. Переход пира в Down
-при удалении и повторном создании допускается; замена без перерыва не обещается.
+Receive-key collision разрешает prepared SingleHop/MultiHop swap только для interface-empty base identity, одного config owner, отсутствия old key в desired и неизменных остальных identity fields. Другие collisions отказывают до sender factory и, для base admission, generation acceptance. Cancellation до publication сохраняет old identity и освобождает prepared lease/discriminator один раз.
 
-Чистая проверка областей всего VXLAN/Geneve предшествует открытию backend или
-`SetScopes`. Разные области одной идентичности действующей/завершаемой аренды,
-включая смену VXLAN MAC, требуют отдельного явного удаления/создания.
-Дубликаты желаемых идентичностей запрещены; никогда не зафиксированная
-неиспользованная заготовка допускает новую область той же идентичности. После
-успешной проверки устаревшие неиспользованные заготовки удаляются до новых прав.
-Сохраняется пересечение существующих областей с текущим желаемым набором,
-объединённое с положительными физическими ссылками `SenderLease`. Фактическая
-фабрика увеличивает ссылку; зарегистрированная физическая сессия удерживает её
-через drain до идемпотентного закрытия аренды. Неиспользованная/неопубликованная
-аренда очищается однократно без drain, включая ошибку создания и отмену.
-Действующие/завершаемые точные области переживают ошибочное поколение.
-Неполное получение возвращает Pending/Failed до применения/освобождения Manager
-источника, сохраняя действующие/завершаемые области/backend; желаемые заготовки
-могут остаться для повтора. Это не общий допуск оверлеев до поколения или
-атомарность всех источников.
+После publication captured old session фиксирует AdminDown и выполняет drain вне mutation locks. Lease/discriminator сохраняются до completion либо typed incomplete failure и освобождаются один раз. Retiring exact key зарезервирован до owner join, lease/discriminator release и metrics cleanup, включая errors. Add/reverse rekey возвращает `ErrDuplicateSession`/`AlreadyExists` до factory; явный retry после Delete создаёт следующую incarnation. Automatic retry не добавляется.
+
+Disruptive replacement требует отдельного explicit intent с identity/transition и client impact. До peer visibility failure откатывает preparation. После cutover seamless rollback не гарантируется. AdminDown не обещает сохранение BGP/forwarding. [Same-key FRR fixture](../../../test/interop/same_key_topology_test.go) проверяет conflict при занятом old UDP inode, closure до retry и old/new discriminator epochs. Peer Down допустим. Passing same-key wire receipt обязателен на exact candidate.
+
+Источники: [replacement](../../../internal/bfd/manager_replace.go), [reconciliation](../../../cmd/gobfd/reconciliation.go), [RFC 5880 §6.8.16](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.16), [RFC 5882 §§3.2, 4.3](https://www.rfc-editor.org/rfc/rfc5882.html#section-3.2).
+
+### Overlay resource ownership
+
+Pure preflight охватывает весь VXLAN/Geneve source до backend open/`SetScopes`. Duplicate desired wire identities недопустимы. Unequal scopes одного live/draining wire, включая VXLAN local-MAC change, требуют отдельного removal/recreation. Unused never-committed preparation может быть заменена.
+
+После успешного preflight удаляются obsolete unused preparations до claims. Сохраняются existing scopes в current desired union positive physical SenderLease refs. Actual factory увеличивает ref; registered session держит его через drain до idempotent lease close. Unused/unpublished leases имеют once-only cleanup без drain.
+
+Incomplete acquisition возвращает Pending/Failed до Manager apply/release source, сохраняя live/draining exact scopes/backends. Desired preparations могут остаться для retry. Это source-local protection, а не global pre-generation admission либо all-source atomicity. Источник: [overlay owner](../../../cmd/gobfd/overlay_owner.go).
+
+### Availability и receipts
+
+Receipts содержат bounded presence flags interface/address classes без resource identity/raw errors. Смена class обновляет status при прежнем pending count; identical receipts deduplicate, convergence очищает flags. Timer pending и permanent failures имеют отдельные retry/accounting.
+
+Availability проверяет listeners, outer overlay endpoints и bound interfaces. Потеря адреса сохраняет desired generation/claims, задаёт pending и health not ready; recovery повторяет ту же generation. Двухсекундная проверка охватывает пять sources без monitor events. Inventory error задаёт failed и требует явный SIGHUP. Источник: [coordinator](../../../cmd/gobfd/reconciliation.go).
 
 ## Последствия
 
-Результаты поколения сохраняют фиксированные признаки классов недоступного
-интерфейса и адреса без идентификаторов ресурсов и текста ошибок. Смена класса
-меняет статус при прежнем числе pending; одинаковые результаты не дублируются.
-Сходимость очищает признаки. Согласование таймеров и постоянные отказы сохраняют
-отдельный учёт и политику повторных попыток.
+Поддерживаемые changes сохраняют local identity. Peer timing, padding acceptance и forwarding требуют измерений. RFC 9764 §4.1 допускает Down прежней Up session, если peer не принимает padded Control. Cloud/hardware limits, Async/Echo и graceful restart требуют target profiles; RFC 7419 intervals не подтверждают acceptance.
 
-Проверки доступности Linux охватывают адреса действующих слушателей и внешние
-endpoint оверлеев наряду с привязками интерфейсов. Потеря адреса сохраняет
-желаемое поколение и права владения, переводит источник в pending и снимает
-готовность health; возврат ресурса повторяет то же поколение. Общая проверка
-раз в 2 с охватывает все пять источников даже без событий монитора. Ошибка
-чтения списка адресов даёт отказ источника и требует явного SIGHUP согласно
-существующей политике отказавших источников. См.
-[результаты согласования конфигурации](../03-configuration.md),
-`gobfd-qj0.8.2.2.6.8.1` и `gobfd-qj0.8.2.2.6.8.2`.
+### Qualification contract
 
-Поддерживаемые изменения сохраняют локальную идентичность и исключают
-ненужный перезапуск. Поведение пира, время, приём дополнения и непрерывность
-пересылки требуют измеренной квалификации. RFC 9764 §4.1 явно допускает
-переход существующей Up-сессии в Down, если пир не принимает дополненный Control.
+Используйте existing actual-wire harness; generation JSON не доказывает wire Poll/Final. Scenario-selected receipt expectations независимы от capture validation: immediate update сходится сразу либо после owner queueing; existing Poll phases требуют pending-before-applied.
 
-Облачные и аппаратные требования остаются отдельными целевыми профилями.
-Пределы таймеров, Async/Echo и политика graceful restart проверяются для
-конкретного провайдера и соединения; общие интервалы RFC 7419 не доказывают
-облачную приёмку. Прежнее сравнение источников записано в
-`reports/reload-policy-20261024/sources.txt`. Его исторический статус обсуждения
-не подтверждает одобрение решения или квалификацию реализации. ADR не
-утверждает совместимость с рабочей средой конкретного провайдера.
+- DetectMult: authenticated Async 1→5→3 и remote-Demand 5→3 при negotiated 300 мс. Expected jitter mean: 247,5 мс при multiplier 1, иначе 262,5 мс. Local multiplier не меняет local RX D, использующий received multiplier. Crafted remote-Demand 5×500 мс задаёт derived Poll bound; peer не имеет detection timer. Responsive Finals/quiet window не квалифицируют missing-Final expiry/general Demand. Один old in-flight Control допустим только первым после receipt внутри slack; new Control приходит за один TX плюс slack.
+- TTL: authenticated UDP/4784 startup; peer останавливается до reload. Replay последнего accepted payload при допустимом TTL даёт ровно один auth failure и ноль accepted input. Затем signed Poll ниже floor и identical payload/sequence на floor; только второй принимается либо вызывает Final. Общий identity/counter/auth/capture baseline охватывает семь boundaries и remote-Demand entry; probes завершаются внутри прежнего D, исключая подмену continuity replay expiry.
+- Padding: один capture cursor/auth RX state на направление для resize/rejections; failed/incomplete evaluation не продвигает их. Local 128→192→128 не меняет peer target и не доказывает bidirectional MTU. DF, UDP payload, BFD Length, zero padding и MAC domain проверяются отдельно. Auth5 — startup-only profile отдельно от auth4. Aggregate/named BFD health проверяются через owned container management Unix socket тем же compiled interop executable; TCP остаётся loopback-only.
+- Final gate: ограничивайте TShark results после display filtering; `-c` не доказывает absence. Отсутствие обязательного initial-state/expiry evidence даёт failure. До test-image cleanup сохраните immutable image IDs и требуемые OCI source/base annotations. Runner paths не становятся engine-host bind paths.
 
-Реализация и квалификация принадлежат родительской задаче Beads `gobfd-qj0.8.2.2.7`.
-Detect Multiplier `gobfd-qj0.8.2.2.7.1` и допуск аутентификации
-`gobfd-qj0.8.2.2.7.3` закрыты на dev. Дочерняя задача политики пакетов
-`gobfd-qj0.8.2.2.7.2` закрыта на dev. Интеграция согласования/смены идентичности
-`gobfd-qj0.8.2.2.7.4`, `gobfd-qj0.8.2.2.7.4.1` и
-`gobfd-qj0.8.2.2.7.4.2` реализованы и прошли ограниченную локальную
-Go-квалификацию; доказательства интеграции и закрытия задач хранятся в Beads.
-Доказательства — `reports/rekey-lifecycle-20261024/`. Critical01 содержит
-1049 top-level PASS, ноль FAIL, пять пакетов и два прежних environment skips;
-quality04 — ноль issues, vet01 и оба benchmark-прогона завершились с exit 0.
-Все 27 выбранных allocation budgets совпадают с базой; 577 source-inventory
-checks совпадают с frozen critical input. Это не all-wire, scale или stable acceptance.
-Overlay lease-ref/preparation cleanup `gobfd-qj0.8.2.2.7.4.2.1` входит в эту квалификацию.
-`gobfd-qj0.8.2.2.7.5` владеет обязательной P0-проверкой реальных пакетов с явной
-зависимостью от `gobfd-qj0.8.2.2.7.4`. Существующий wire gate должен до v1
-квалифицировать все пять reload fields, включая RFC 9764 peer/MTU behavior.
-Модульные тесты не подтверждают совместимость; политика не вводит новый стенд.
-Пакетная квалификация выбирает ожидаемую семантику receipts по сценарию независимо
-от проверки capture. Немедленные изменения допускают прямую сходимость или
-ожидание owner; прежние Poll-фазы сохраняют pending-before-applied evidence.
-Этот порядок задаёт текущий owner/coordinator contract, не требования RFC к JSON.
-Ни один режим сам по себе не доказывает наличие или отсутствие wire Poll/Final.
-Подготовка общего validator ведётся в `gobfd-qj0.8.2.2.7.5.1`.
+### Датированные local receipts
 
-Пакетная квалификация Detect Multiplier (`gobfd-qj0.8.2.2.7.5.2`) расширяет
-существующие аутентифицированные Async-фазы последовательностью 1→5→3,
-remote-Demand — 5→3. При согласованном интервале 300 ms множитель 1 имеет
-jitter 75–90% и ожидаемое среднее 247.5 ms; остальные проверяемые множители —
-75–100% и 262.5 ms (RFC 5880 §6.8.7). Изменение локального множителя сохраняет
-зависимость receive Detection Time GoBFD от принятого множителя peer.
-Async Detection Time соседа вычисляется, но не измеряется этими фазами.
-Для crafted remote-Demand peer значение 5×500 ms задаёт расчётную границу
-локального Poll; у этого peer нет detection timer. Ответы Final и quiet window
-не квалифицируют missing-Final expiry или общую поддержку Demand. Capture
-проверяет непрерывность discriminator, UDP source port/length, типа/key/sequence
-аутентификации, timer tuple и state независимо от generation receipts.
-Для закрытия wire-задачи обязательны фактические captures кандидата.
-Async capture допускает один старый in-flight Control только первым локальным
-post-receipt пакетом в пределах существующего timer slack; первый новый Control
-обязателен за один negotiated TX плюс slack. Поздний старый множитель отклоняется.
-Runtime discovery использует запросы registry по префиксам и точное сравнение
-первого столбца; полный registry не буферизуется в race runner.
+Результаты относятся к указанному input и не являются fresh validation либо final acceptance.
 
-Локальная DetectMult wire-квалификация прошла на
-`task/detect-wire-20261024@d9e67064e51012c0d25a1a22dc9bd469600d8469`:
-шесть аутентифицированных Async-фаз и две crafted remote-Demand фазы; captures
-и receipts — в `reports/detect-wire-20261024/`. Задачи `.5.2` и `.5.2.1`
-закрыты локально. Prepared padding, фактический TTL admission и unified
-exact-candidate gate остаются P0; stable acceptance не подтверждается.
+| Slice | Exact source | Сохранённый результат | Evidence |
+|:---|:---|:---|:---|
+| Lifecycle | Frozen input указан в receipt | 1049 PASS, 0 FAIL; 5 packages, 2 environment skips; 27 budgets, 577 inventory hashes совпадают | `reports/rekey-lifecycle-20261024/` |
+| DetectMult | `d9e67064e51012c0d25a1a22dc9bd469600d8469` | 6 Async + 2 crafted remote-Demand phases | `reports/detect-wire-20261024/` |
+| TTL | `491b2214994f07e017eb93ab67a29a95378c619e` | Default 162,94 с, multihop 81,98 с; 7 boundary/replay windows | `reports/ttl-wire-20261024/` |
+| Padding | `b97729458a696aee21023ba147af51417ed9ff7b` | 8 resize + 7 rejection phases, 17 peer windows; health SERVING | `reports/padding-wire-20261024/` |
+| Default qualifier correction | `e4e79a8eee8e7c38bfc78321bdc5e9030909c214` | Local acceptance corrected qualifier | Общая квалификация пяти полей |
 
-Квалификация prepared padding (`gobfd-qj0.8.2.2.7.5.3`) сохраняет capture cursor
-и receive authentication state каждого направления на всей цепочке resize
-и отклонённых кандидатов. Повторная оценка транзакционна: ошибка или неполное
-evidence не продвигают cursor и replay state. Независимый peer сохраняет
-собственный размер PDU; локальная цель 128→192→128 не доказывает двусторонний
-MTU. DF, declared BFD Length, UDP payload, нулевой padding и граница MAC
-проверяются отдельно. Meticulous SHA1 задаётся только при старте того же
-FourPeer lifecycle; default keyed SHA1 квалифицируется отдельно. Runtime auth
-rotation остаётся вне v1. Aggregate и named BFD readiness проверяются через
-существующий management Unix socket внутри собственного контейнера демона
-тем же собранным interop-бинарником. Он копируется существующим механизмом
-container files; пути runner не передаются host engine как bind paths.
-TCP listener остаётся loopback-only.
-Контракты исходников не закрывают эту задачу проверки реальных пакетов.
+Lifecycle receipt также сохраняет zero lint issues, vet/два benchmark exits zero и overlay lease cleanup qualification. Три padding runs сохраняют cap 512 MiB, zero max/OOM/swap, 853 source matches и 675 sidecar matches.
 
-Локальная prepared-padding квалификация прошла на
-`task/padding-wire-20261024@b97729458a696aee21023ba147af51417ed9ff7b`:
-default auth4 и meticulous auth5 FourPeer profiles, а также отклонение resize
-при crafted remote Demand; captures и receipts — в `reports/padding-wire-20261024/`.
-Восемь resize-фаз и семь отклонённых кандидатов охватывают семнадцать peer windows;
-aggregate и named BFD health остаются SERVING. Лимит runner 512 MiB сохранён,
-max/OOM events и swap трёх прогонов — 0. Проверки целостности подтверждают
-853 файла исходников и 675 sidecar. Это закрывает локальный padding-срез,
-но не actual TTL, unified final-candidate, forwarding, general Demand или
-квалификацию stable release.
-
-Исполняемые планы, приоритеты, зависимости и доказательства приёмки
-ведутся в Beads. Принятие политики не означает приёмку реализации,
-совместимости или стабильного релиза.
-
-Окончательная проверка пяти полей ограничивает результат TShark после фильтра
-отображения; предел прочитанных пакетов `-c` не доказывает отсутствие кадра BFD.
-Отсутствие обязательных initial-state или detection-expiry evidence завершает
-квалификацию ошибкой. До очистки тестовых образов общий сборщик сохраняет
-неизменяемые ID образов и только обязательные аннотации OCI source/base.
-Эти записи связывают тестовую среду с candidate, но не заменяют product OCI,
-scale, security или stable-release qualification. Окончательная проверка
-принадлежит Beads `gobfd-qj0.8.2.2.7.5.5`.
-Исправленный default qualifier локально принят на
-`e4e79a8eee8e7c38bfc78321bdc5e9030909c214`; окончательные четыре профиля
-следуют после оставшихся production Session/Echo thread и scale изменений.
-Позднейшее изменение рабочего кода не наследует квитанцию разработки как
-окончательную квалификацию.
+Receipts DetectMult, packet policy, authentication admission и lifecycle подтверждают source slices, а не stable acceptance. Обязательная actual-wire qualification зависит от завершённой lifecycle work. Final four-profile/five-field gate выполняется после production Session/Echo thread/scale work и квалифицирует exact candidate до v1. Позднее production change не наследует прежние receipts.
 
 ## Источники
 
-- [Принятие поколения и квитанции источников](../../../cmd/gobfd/reconciliation.go)
-- [Допуск перезагрузки по принятому/действующему состоянию](../../../internal/bfd/manager_auth_reload.go)
-- [Транзакции таймеров и политики пакетов владельца](../../../internal/bfd/session_update.go)
-- [Жизненный цикл подготовленной замены](../../../internal/bfd/manager_replace.go)
-- [Владение областью оверлея и физической арендой](../../../cmd/gobfd/overlay_owner.go)
-- [RFC 5880 §6.6: Demand mode](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.6)
-- [RFC 5880 §6.7: Authentication](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.7)
-- [RFC 5880 §6.8.3: Timer manipulation](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.3)
-- [RFC 5880 §6.8.12: Detect Multiplier change](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.12)
-- [RFC 5880 §6.8.16: Administrative control](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.16)
-- [RFC 5882 §3.2: AdminDown state](https://www.rfc-editor.org/rfc/rfc5882.html#section-3.2)
-- [RFC 5882 §4.3: Graceful restart interactions](https://www.rfc-editor.org/rfc/rfc5882.html#section-4.3)
-- [RFC 7419: Common interval support](https://www.rfc-editor.org/rfc/rfc7419.html)
-- [RFC 9764 §§3–4.1: Large packets и peer compatibility](https://www.rfc-editor.org/rfc/rfc9764.html#section-3)
-- [AWS Direct Connect BGP/BFD settings](https://docs.aws.amazon.com/directconnect/latest/UserGuide/bgp-specific-settings.html)
-- [Google Cloud Router BFD profile](https://docs.cloud.google.com/network-connectivity/docs/router/concepts/bfd)
-- [Azure ExpressRoute BFD profile](https://learn.microsoft.com/en-us/azure/expressroute/expressroute-bfd)
-- [Действующий timer transaction contract](../../superpowers/specs/2026-09-08-gobfd-timer-update-transactions-design.md)
+- [Configuration/receipt reference](../03-configuration.md).
+- [Interop](../05-interop.md), [RFC coverage](../08-rfc-compliance.md).
+- [RFC 5880 §§6.6, 6.8.3, 6.8.12](../../rfc/rfc5880.txt), [RFC 9764 §§3–4.1](../../rfc/rfc9764.txt).
+- [Target peer references](../reference/vendor-bfd.md).

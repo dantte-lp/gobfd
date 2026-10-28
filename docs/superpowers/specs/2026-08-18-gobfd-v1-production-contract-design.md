@@ -1,7 +1,7 @@
 # GoBFD v1.0 Production Contract Design
 
 **Status:** Implementation in progress; execution state reconciled on
-2026-10-20 in Beads and the [roadmap](../../en/roadmap.md). Local development
+2026-10-20 in the [roadmap](../../en/roadmap.md). Local development
 acceptance does not establish stable release qualification.
 
 **Compatibility decision:** preserve `bfd.v1` and the current YAML schema;
@@ -17,14 +17,14 @@ lists no fixed v4 range on 2026-10-20:
 
 **2026-10-13 amendment (GoBGP target):** the maintainer selected GoBGP
 v4.10.0, the latest release (published 2026-10-04), in place of v4.8.0
-(Beads `gobfd-qj0.8.4`). GoBGP v3 `/apipb.GobgpApi` and v4
+. GoBGP v3 `/apipb.GobgpApi` and v4
 `/api.GoBgpService` are wire-incompatible, so `dev` requires a GoBGP v4
 daemon; `release/v0.6` keeps GoBGP v3.37.0. The `GO-2026-4736` allowlist
 entry on `dev` is `ModuleOnly` for `github.com/osrg/gobgp/v4` and expires on
 2026-12-31; see the GoBGP v4 actuator section.
 
 **2026-10-21 amendment (stable GoBGP advisory gate):** by maintainer decision
-(Beads `gobfd-qj0.8.4.1`, option C), stable v1.0.0 may ship GoBGP v4.10.0 with
+(option C), stable v1.0.0 may ship GoBGP v4.10.0 with
 the module-only `GO-2026-4736` entry. This replaces the original "does not
 report `GO-2026-4736`" stable condition; the four conditions are in the GoBGP
 v4 actuator section.
@@ -207,8 +207,7 @@ Up state.
 
 The [timer transaction addendum](2026-09-08-gobfd-timer-update-transactions-design.md)
 records the approved one-active/one-latest-waiting queue and cancellation
-policy and the approved expiry, recovery and receipt rules from Beads
-`gobfd-qj0.8.2.1.1.1.4.1`. Runtime implementation and local validation are
+policy and the approved expiry, recovery and receipt rules from the accepted timer decision. Runtime implementation and local validation are
 recorded in `.4.2`; live peer qualification remains `.4.3`. Design approval
 and local checks do not replace that wire evidence.
 
@@ -339,8 +338,7 @@ blocked until a compatible GoBGP v4 release no longer reported the advisory;
 the 2026-10-21 amendment below replaces that condition. Renewing or
 broadening the exception requires a separate explicit maintainer decision.
 
-**2026-10-13 amendment:** the maintainer selected GoBGP v4.10.0 (Beads
-`gobfd-qj0.8.4`); the client builds against it instead of v4.8.0. GoBGP v3
+**2026-10-13 amendment:** the maintainer selected GoBGP v4.10.0; the client builds against it instead of v4.8.0. GoBGP v3
 serves `/apipb.GobgpApi` and v4 serves `/api.GoBgpService`; the two are
 wire-incompatible, so a GoBFD built from `dev` requires a GoBGP v4 daemon.
 GoBGP v4 native BFD is disabled by default, and no repository GoBGP
@@ -355,7 +353,7 @@ expires on 2026-12-31. This amendment does not lift the stable v1.0.0
 condition above.
 
 **2026-10-21 amendment (stable GoBGP advisory gate):** by maintainer decision
-(Beads `gobfd-qj0.8.4.1`, option C), stable v1.0.0 may ship GoBGP v4.10.0 with
+(option C), stable v1.0.0 may ship GoBGP v4.10.0 with
 the `ModuleOnly` `GO-2026-4736` entry while all four conditions hold:
 
 1. GHSA-4p9m-8gc4-rw2h and its OSV record list a fixed version (4.4.0) at or

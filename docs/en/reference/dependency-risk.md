@@ -1,168 +1,59 @@
-# Dependency Risk Register
+# Dependency risk and exceptions
 
-This document tracks external dependencies that carry non-trivial risk due to maintenance status, single-maintainer projects, or upstream changes. Each entry includes a risk assessment and mitigation strategy.
+Selected versions belong to [go.mod](../../../go.mod), [tools/go.mod](../../../tools/go.mod) and the separate [Smallstep profile](../../../test/stepca/README.md). The authoritative runtime/tools exception implementation is [vuln-audit.go](../../../scripts/vuln-audit.go). This register records source policy; current advisory databases and the final selected graph require a fresh scan.
 
-Pins come from [`go.mod`](../../../go.mod); advisory acceptance comes from
-[`scripts/vuln-audit.go`](../../../scripts/vuln-audit.go)
-and its Beads owner. This register does not replace fresh scans of the final
-runtime/tool graphs or establish the current upstream maintainer count.
+## Graph ownership
 
-## x/net/html — Fixed advisories
+| Graph | Purpose | Acceptance boundary |
+|:---|:---|:---|
+| Runtime | Daemon, CLI, bridges and test helpers | Runtime package/symbol reachability |
+| Tools | Isolated development/scanning/generation tools | Separate selected tool graph |
+| Smallstep qualification | Full external test provider | Independent build/scan/link/runtime receipts |
 
-The runtime and tools module graphs select `golang.org/x/net v0.62.0`, the
-fixed version for [GO-2026-6860](https://vuln.go.dev/ID/GO-2026-6860)
-and [GO-2026-6866](https://vuln.go.dev/ID/GO-2026-6866).
-Both advisories were published on 2026-10-27. Neither has an allowlist entry.
-The [isolated step-ca qualification profile](../../../test/stepca/README.md)
-selects the same fixed version and has its own repeated provider qualification.
-The update also changes IPv4 transport code used by the interoperability peer;
-retain its transport tests alongside the fresh final-candidate security scan.
-Release acceptance remains tracked in Beads `gobfd-qj0.8.4.1`.
+Inventory success does not establish security. A module finding, imported affected package and reachable symbol are different results.
 
-## reeflective/console — Medium Risk
+## Controlled exceptions
 
-| Field | Value |
-|-------|-------|
-| **Module** | `github.com/reeflective/console v0.5.0` |
-| **Used in** | `cmd/gobfdctl/commands/shell.go` — interactive REPL shell |
-| **Risk level** | Medium |
-| **Reason** | Pre-1.0 API and external maintenance dependency |
+| Advisory | Exact module | Owner / expiry | Permitted scope |
+|:---|:---|:---|:---|
+| GO-2026-4736 | github.com/osrg/gobgp/v4 | @dantte-lp; 2026-12-31 | Module-only findings, exact scanner/package match |
+| GO-2026-5932 | golang.org/x/crypto | maintainers; 2026-12-31 | Module-only inventory; no affected openpgp import |
 
-### Description
+Reachable findings, affected imported packages, module mismatch, unknown scanner, additional advisory, expiry and an exception with no corresponding finding fail the controlled audit. Do not broaden an exception to make a scan green.
 
-The `reeflective/console` library provides the interactive shell for `gobfdctl`. It wraps Cobra commands into a readline-based REPL with tab completion, history, and prompt customization.
+### GoBGP
 
-### Risk Factors
+The dev pin is github.com/osrg/gobgp/v4 v4.10.0; handwritten integration imports its API package. The recorded exception concerns GO-2026-4736/CVE-2026-30405/GHSA-4p9m-8gc4-rw2h and the upstream server path. The source rationale records patched v4.4.0 and missing fixed-v4 data in the Go database; that rationale is not a live database query.
 
-- **Pre-1.0 API**: The library has not reached v1.0, meaning breaking API changes are possible between minor versions.
-- **External maintenance**: Upstream staffing and release activity require a fresh review before an upgrade.
-- **Transitive dependencies**: Pulls in readline, completion, and terminal UI modules.
-- **No stdlib alternative**: Go's standard library does not include a Cobra-compatible REPL framework.
+Stable-v1 acceptance requires GHSA/OSV to identify a fix at or below the pin and final-candidate govulncheck to retain module-only scope. Keep GoBGP on loopback/trusted management networks. Remove the exception once the scanner no longer produces its matching inventory finding.
 
-### Mitigation
+The v0.6 line retains GoBGP v3.37.0 and its separately accepted support boundary until 2026-12-31. Verify delivery on that supported branch separately. Dev acceptance does not transfer to that line. The v3/v4 RPC service contracts differ; use the matching daemon.
 
-1. **Pin version**: The dependency is pinned to `v0.5.0` in `go.mod`.
-   [The dependency-refresh design](../../superpowers/specs/2026-08-18-v0.6.2-dependency-refresh-design.md#go-module-closure)
-   records the `v0.1.25` to `v0.5.0` migration; that historical record does not
-   replace CLI/race qualification of the final candidate.
-2. **Vendoring**: If the project becomes unmaintained, vendor the source into `internal/console/`.
-3. **Runtime scope**: Non-interactive commands do not start the REPL. The CLI
-   binary still depends on the module at build time; it is not an optional build dependency.
-4. **Bounded scope**: Product integration is in `shell.go`; the daemon and
-   protocol implementation do not import the console package.
+### OpenPGP
 
----
+The selected indirect crypto module is v0.58.0. The exception permits only exact-module inventory findings for GO-2026-5932. Confirm the final build graph excludes golang.org/x/crypto/openpgp. Any affected import or reachable symbol invalidates the disposition.
 
-## osrg/gobgp — High Risk
+## Other retained dependencies
 
-| Field | Value |
-|-------|-------|
-| **Module on `dev`** | `github.com/osrg/gobgp/v4 v4.10.0`; only `github.com/osrg/gobgp/v4/api` is imported |
-| **Module on `release/v0.6`** | `github.com/osrg/gobgp/v3 v3.37.0` |
-| **Used in** | `internal/gobgp/` — optional GoBGP integration |
-| **Known advisory** | `GO-2026-4736` / `CVE-2026-30405` / `GHSA-4p9m-8gc4-rw2h` |
-| **Risk level** | High |
-| **Allowlist owner** | `@dantte-lp` |
-| **Expiry (review) date** | `2026-12-31` |
+| Dependency | Product use | Required check |
+|:---|:---|:---|
+| reeflective/console v0.5.0 | gobfdctl interactive shell | CLI/race compatibility; fresh upstream review before upgrade |
+| go.yaml.in/yaml/v3 v3.0.5 | First-party YAML | Preserve decoding/output compatibility |
+| gopkg.in/yaml.v3 v3.0.1 | Transitive legacy graph | Recheck exact go mod why chain; no new first-party imports |
+| golang.org/x/net v0.62.0 | Transport and selected graphs | Fresh security scan and IPv4 transport regression checks |
 
-### Description
+Console is a build dependency of the CLI even when noninteractive commands do not start the REPL. Its integration point is [shell.go](../../../cmd/gobfdctl/commands/shell.go); this register does not establish upstream staffing or maintenance status.
 
-The acceptance rationale recorded in [`scripts/vuln-audit.go`](../../../scripts/vuln-audit.go)
-and [SECURITY.md](../../../SECURITY.md) concerns the BGP NEXT_HOP denial-of-service
-advisory. It records GHSA-4p9m-8gc4-rw2h's patched v4.4.0 (upstream commit
-`583080a`) and the Go vulnerability database's missing fixed v4 version, scoped
-to `fsmHandler.recvMessageloop` in `github.com/osrg/gobgp/v4/pkg/server`.
-GoBFD imports the API package instead. The recorded `dev` acceptance covers
-module-only govulncheck and OSV findings; a fresh final-candidate scan must
-confirm that boundary. This register does not establish current database contents.
+The YAML migration records a historical upstream-path decision. Current archival/release status is not inferred from it. Remove the transitive path only when the final graph permits it; do not vendor another implementation pre-emptively.
 
-GoBGP v3 serves `/apipb.GobgpApi` and v4 serves `/api.GoBgpService`; the two
-are wire-incompatible. GoBFD on `dev` requires a GoBGP v4 daemon. The v0.6
-acceptance below records the v3.37.0 exposure; it does not establish whether
-upstream has since published a fix.
+The retained x/net update addresses [GO-2026-6860](https://vuln.go.dev/ID/GO-2026-6860) and [GO-2026-6866](https://vuln.go.dev/ID/GO-2026-6866), without an allowlist entry. The separate Smallstep profile also selects v0.62.0. A pin is not proof that current scanner data is unchanged.
 
-### Mitigation
+## Validate a candidate
 
-1. **Bounded exposure**: The GoBGP path is optional and should connect only to a
-   GoBGP gRPC endpoint on localhost or a trusted management network.
-2. **Controlled CI allowlist on `dev` and stable v1**: by maintainer decisions
-   of 2026-10-13 and 2026-10-21 (stable v1, `gobfd-qj0.8.4.1`), the
-   `GO-2026-4736` entry is `ModuleOnly` for the exact
-   `github.com/osrg/gobgp/v4` module and includes owner `@dantte-lp`, expiry
-   (review) date 2026-12-31, reason, and mitigation. Stable v1 also requires
-   GHSA/OSV to list a fixed version at or below the pin and the final
-   candidate's govulncheck to report the advisory only at module level. A
-   reachable symbol, imported affected package, package mismatch, unknown
-   scanner, additional advisory, expired entry, or stale entry without a
-   matching finding fails CI.
-3. **`release/v0.6` risk acceptance**: by maintainer decision of 2026-10-13,
-   the v0.6 line accepts the GoBGP v3.37.0 risk until 2026-12-31 as a support
-   boundary, with the GoBGP API on localhost or a trusted management network
-   only. Delivery to the stable branch is tracked by Beads
-   `gobfd-qj0.8.1.16.4`.
-4. **Removal trigger**: remove the allowlist entry when the Go vulnerability
-   database records a fixed GoBGP v4 version (golang/vulndb#5035, #6562). The
-   audit then fails on the entry because it matches no scanner finding.
+1. Record exact runtime/tools/provider graph identities.
+2. Run make dependency-inventory-check and the controlled make vulncheck in the pinned environment.
+3. Inspect raw scanner results, reachability and exact exception matches.
+4. Run impacted transport/CLI/API regressions and provider qualification where applicable.
+5. Retain scanner version/data time, source SHA, findings and disposition. Keep supported-line and release acceptance separate.
 
----
-
-## x/crypto/openpgp — Module-only Advisory
-
-| Field | Value |
-|-------|-------|
-| **Module** | `golang.org/x/crypto v0.58.0` (indirect) |
-| **Affected package** | `golang.org/x/crypto/openpgp` (absent from the build graph) |
-| **Known advisory** | `GO-2026-5932` |
-| **Allowlist mode** | Exact-module inventory findings only |
-| **Expiry (review) date** | `2026-12-31` |
-
-### Mitigation
-
-1. **No affected import**: `go list -deps ./...` must not contain
-   `golang.org/x/crypto/openpgp`.
-2. **Fail-closed reachability**: the audit accepts only non-reachable findings
-   for the exact `golang.org/x/crypto` module from `govulncheck` or
-   `osv-scanner`. A reachable symbol, affected subpackage, package mismatch, or
-   unknown scanner fails CI even when the advisory ID matches.
-3. **Removal trigger**: remove the exception when the module no longer produces
-   the inventory finding; never introduce an `openpgp` import.
-
----
-
-## YAML v3 module-path transition — Low Risk
-
-| Field | Value |
-|-------|-------|
-| **First-party module** | `go.yaml.in/yaml/v3 v3.0.5` (direct) |
-| **Legacy module** | `gopkg.in/yaml.v3 v3.0.1` (transitive only) |
-| **Used by** | CLI output, HAProxy configuration, integration tests, and transitive console code |
-| **Risk level** | Low |
-
-### Description
-
-The [dependency-refresh design](../../superpowers/specs/2026-08-18-v0.6.2-dependency-refresh-design.md#go-module-closure)
-records archival of `gopkg.in/yaml.v3` as the reason for migration.
-GoBFD-owned imports use `go.yaml.in/yaml/v3`; the legacy path remains in the
-transitive graph. Recheck upstream maintenance and API compatibility before
-an upgrade; the migration record does not establish current upstream status.
-
-### Risk Factors
-
-- **Recorded archival**: The legacy path carries an external maintenance risk;
-  the migration record is not a promise about future upstream releases.
-- **Transitive migration pending**: GoBFD cannot remove the legacy module from
-  the complete MVS graph until console/Carapace migrate their internal imports.
-
-### Mitigation
-
-1. **First-party migration complete**: GoBFD code imports only
-   `go.yaml.in/yaml/v3`. Re-run `go mod why gopkg.in/yaml.v3` against the
-   final module graph before attributing the transitive path to an upstream.
-2. **Monitor upstream**: Remove the transitive legacy module when
-   console/Carapace complete their migration and `go mod tidy` permits it.
-3. **Regression gate**: New first-party imports of `gopkg.in/yaml.v3` are not
-   permitted.
-4. **Security review**: Scan both exact module graphs before qualification;
-   archival status and the successor pin do not establish absence of advisories.
-
-*Reviewed against `dev` source: 2026-10-25 (`706991db9433b13cec47e0bb8ea2549b01e948d9`); upstream status and final-candidate scanner results require separate evidence.*
+[Development](../09-development.md), [automation](automation.md), [security policy](../../../SECURITY.md), [supply-chain inventory](../../supply-chain/dependency-inventory.json).

@@ -1,7 +1,7 @@
 # GoBFD Final Recommendations Audit
 
 **Status:** Reconciled against `dev` on 2026-08-27; independent-review
-remediation locally gated and release priorities tracked in Beads
+remediation locally gated and release priorities recorded separately
 
 **Source:** secret Gist `66675b88a5fe0a66f270240f45307e0f`, revision
 `9f2ed3b80ee05205e2104356ee7f07d4fa887992`, fetched 2026-08-19
@@ -21,7 +21,7 @@ current attachment model.
 
 This status pass compared the Gist baseline `20eaaacd87f7a27ae446674ffec11dbce8177dc4`
 with `dev` at `0376e0f5cd90b8692010586b83854d8d4dc36b51`. It inspected the current
-implementation and tests, the Beads graph, the GitHub release and vulnerability
+implementation and tests, the recorded dependency graph, the GitHub release and vulnerability
 state, and the byte-for-byte local RFC corpus. The original Gist remains source
 evidence; this section is the current delivery status.
 

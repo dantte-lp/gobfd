@@ -3,8 +3,8 @@
 Status: queue ordering and cancellation policy approved by the maintainer on
 2026-09-08; independent document review passed and the maintainer approved
 continuation into implementation after reviewing this written contract.
-Owner: Beads `gobfd-qj0.8.2.1.1.1.4.1`. Implementation and peer qualification
-remain `.4.2` and `.4.3`; this document is not evidence of runtime support.
+Implementation and peer qualification remain separate from approval;
+this document is not evidence of runtime support.
 
 ## Scope and existing path
 

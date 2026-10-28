@@ -2,7 +2,7 @@
 
 - **Date:** 2026-08-27
 - **Status:** Implemented; v0.6.4 published
-- **Beads:** `gobfd-qj0.8.1.15`
+- **Historical record:** `gobfd-qj0.8.1.15`
 
 **Scope:** v0.6 maintenance line and reusable release-branch policy
 
@@ -118,7 +118,7 @@ normal reviewed path before a tag is created.
    restrict creation, so a new SemVer tag can be created once and cannot then
    be moved, deleted, or reused.
 5. Create `release/v0.6` at the exact accepted v0.6.2 release commit. Record the
-   commit SHA in Beads and release evidence, then verify that the pre-existing
+   commit SHA in the release evidence, then verify that the pre-existing
    ruleset applies to the new branch.
 6. Run the bounded local release preflight against that exact commit. Confirm
    the changelog contains a dated `0.6.2` section and that generated release
@@ -184,8 +184,7 @@ After a v0.6 fix is accepted, assess whether the defect exists on `master` or
   accepted stable state;
 - if present on `dev`, forward-port it through a separate reviewed pull
   request;
-- if absent or structurally replaced, record that conclusion in the Beads
-  issue and do not create a no-op port;
+- if absent or structurally replaced, record that conclusion in the release record and do not create a no-op port;
 - never merge future v1 work backward into `release/v0.6`.
 
 This makes the release branch authoritative for v0.6 without allowing it to
@@ -273,7 +272,7 @@ Implementation updates:
 - GoReleaser and the release workflow: draft, attach, verify, then publish;
 - repository rulesets/settings: protect `release/v*` branches and `v*` tags and
   enable immutable releases;
-- Beads: keep release qualification and branch-policy evidence in
+- Keep release qualification and branch-policy evidence in
   `gobfd-qj0.8.1.15` and its relevant milestone dependencies.
 
 ## Validation
@@ -300,8 +299,8 @@ The implementation is accepted only with evidence that:
    images to the recovery tag and expected immutable digests, while v0.6.2 and
    v0.6.3 remain unchanged as failed cuts.
 9. the accepted stable history and both changelogs are present on `master`, and
-   applicable fixes are independently present on `dev`, before Beads release
-   tracking is closed.
+   applicable fixes are independently present on `dev`, before release
+   acceptance is closed.
 
 Go specification and gopls checks remain mandatory when Go source or build
 constraints change. This branch-policy slice does not invent a Go-language

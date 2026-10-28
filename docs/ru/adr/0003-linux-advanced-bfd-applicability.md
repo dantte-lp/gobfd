@@ -1,183 +1,77 @@
 # ADR-0003: Применимость Micro-BFD, VXLAN BFD и Geneve BFD в Linux
 
 | Поле | Значение |
-|---|---|
-| Статус | Accepted |
-| Дата | 2026-05-01 |
+|:---|:---|
+| Status | Accepted |
+| Date | 2026-05-01 |
 
 ## Контекст
 
-GoBFD поставляет пути Micro-BFD в пространстве пользователя и неполные
-предварительные реализации BFD для VXLAN по RFC 8971 и Geneve по RFC 9521.
-У каждого режима свои ограничения владения в Linux: kernel bonding, OVS, OVN,
-NetworkManager, Cilium, Calico и NSX могут уже владеть
-соответствующим устройством или сокетом. Единое декларативное описание
-применимости и требуемого владения предотвращает ошибки настройки и
-неверные заявления о готовности к рабочей эксплуатации.
+Advanced modes используют Linux resources, которыми владеют bonding, OVS, OVN, NetworkManager либо overlay dataplane. Protocol detection не разрешает второму controller менять эти ресурсы.
 
 ## Решение
 
-GoBFD — BFD-движок в пространстве пользователя. Он определяет состояние BFD и
-применяет его через явно настроенные backend. Это не универсальный контроллер
-плоскости передачи Linux. У каждого расширенного
-режима фиксированная применимость и фиксированный набор
-эксплуатационных ограничений, перечисленных в этой записи.
+GoBFD — userspace BFD engine с явно выбранными enforcement adapters. Каждый mode имеет собственную ownership boundary.
 
-Общий Linux UDP sender требует фиксированный исходный порт в 49152-65535,
-включая вызовы Micro-BFD и Echo; ограничение Echo — политика продукта,
-а не дополнительное требование RFC. TTL/Hop Limit и индексы интерфейса
-packet-info используют native byte order Linux ancillary, адреса назначения
-сохраняют сетевой порядок. Заявленные `linux/amd64` и `linux/arm64` требуют
-свидетельств настоящего ядра каждой архитектуры (`gobfd-qj0.8.2.1.16.2`)
-отдельно от исправления исходников (`gobfd-qj0.8.2.1.16.1`) и cross-compilation.
+| Mode | Реализованный profile | Deployment boundary |
+|:---|:---|:---|
+| Micro-BFD | Member sessions, aggregate state, API/CLI preview, guarded actuators | Dedicated member-wire/MAC и actual-owner qualification обязательны |
+| VXLAN BFD | Exact IPv4 `userspace-udp` | Lab/isolated endpoint с UDP/4789 |
+| Geneve BFD | Exact IPv4 Format A `userspace-udp` | Lab/isolated VAP endpoint с UDP/6081 |
 
-## Последствия
-
-### Матрица состояния
-
-| Режим | Применимость в Linux | Текущее состояние GoBFD | Ограничение рабочей эксплуатации |
-|---|---:|---:|---|
-| Micro-BFD | Высокая | Сессии участников, агрегатное состояние, предварительные API/CLI и backend применения состояния | Квалификация выделенного multicast MAC и пакетов на участниках, совместимость владельца с backend |
-| VXLAN BFD | Только лаборатория или изолированный endpoint | Предварительный `userspace-udp` с точным IPv4 Format A | Интеграции с владельцами kernel/OVS/OVN/Cilium/Calico/NSX |
-| Geneve BFD | Только лаборатория или изолированный endpoint | Предварительный `userspace-udp` с точным IPv4 Format A | Интеграции с владельцами плоскости передачи и политика частоты пакетов |
+Shared Linux sender требует fixed source port 49152–65535, включая Echo как product policy. TTL/Hop Limit и interface indices используют native Linux ancillary byte order; destination IP — network order. Intended linux/amd64 и linux/arm64 требуют native kernel evidence отдельно от source correction и cross-compilation. Источники: [sender](../../../internal/netio/sender.go), [raw sockets](../../../internal/netio/rawsock.go).
 
 ### Micro-BFD в Linux
 
-RFC 7130 определяет одну независимую BFD-сессию на каждый линк-участник
-LAG. GoBFD реализует:
+Каждый configured member/family имеет Control session UDP/6784 и member-device binding. `MicroBFDGroup` считает Up-member threshold. Режимы actuator: disabled, dry-run, enforce; каждый вызов выполняется вне Manager locks с context пять секунд.
 
-- одну сессию на каждый настроенный линк-участник;
-- UDP-порт назначения 6784;
-- `SO_BINDTODEVICE` на интерфейсе-участнике;
-- агрегатный учёт состояния через `MicroBFDGroup`;
-- снимки сессий для API/CLI/мониторинга;
-- ограниченную проверками политику actuator с режимами `disabled`, `dry-run` и `enforce`;
-- backend kernel-bond через sysfs;
-- нативный OVSDB backend объединённого порта;
-- NetworkManager D-Bus backend для bond-профилей под управлением NM;
-- резервный тип OVS CLI для диагностики.
+| Backend | Mutation | Required authority |
+|:---|:---|:---|
+| Kernel bond | Запись `-member`/`+member` в bonding sysfs | Явная policy `allow-external` |
+| OVS | Native OVSDB mutation `Port.interfaces` | Явная OVS owner policy |
+| NetworkManager | Deactivate/reactivate bond port profiles по D-Bus | Явная policy `networkmanager-dbus` |
+| OVS CLI fallback | Явно создаваемый diagnostic/fallback adapter | Не выбирается daemon configuration |
 
-Эксплуатационные ограничения:
+Ownership models backends различаются. Restart reconciliation учитывает manual changes. Teamd и другие switching stacks остаются future integrations. Источники: [actuator selection](../../../internal/netio/lag_backend.go), [member wiring](../../../cmd/gobfd/micro_bfd.go), [OVSDB](../../../internal/netio/lag_ovsdb.go), [NetworkManager](../../../internal/netio/lag_networkmanager.go).
 
-1. Применение состояния требует явного backend и `owner_policy`.
-2. Модели владения kernel bonding, OVS и NetworkManager различаются.
-3. Ручные изменения оператора требуют согласования состояния при перезапуске
-   демона.
-4. Teamd и дополнительные switching-стеки остаются будущими
-   интеграциями.
-5. В Linux установка соединения и ожидание ответов на чтение свойств
-   NetworkManager используют контекст вызывающей стороны. Manager задаёт
-   контекст на 5 с для каждого вызова actuator. Connector использует
-   `net.Dialer.DialContext` до передачи владения godbus, затем сохраняет
-   аутентификацию, Hello и согласование Unix FD godbus. Одного `WithContext`
-   недостаточно для отмены первоначального подключения транспорта godbus.
-   Выбор адреса соответствует godbus v5.2.4: только ошибки транспорта допускают
-   следующий адрес; аутентификация и Hello не повторяются с другим peer.
-   `godbus_no_tcp` отключает TCP и nonce-TCP до DNS. Nonce требует доверенный
-   локальный обычный файл размером ровно 16 байт; ограниченное чтение и
-   неблокирующий open отклоняют некорректные файлы и pipes, но не ограничивают
-   обращения к зависшей файловой системе. Локальные проверки отмены с частной
-   шиной не квалифицируют настоящего владельца интерфейса или пакеты участников.
-6. Пути активного и кэшированного профилей NetworkManager служат подсказками,
-   но не доказательством владения. Повторно читать настройки перед deactivate,
-   active no-op и cached activate; принимать только порт требуемого bond.
-   Отклонять неверные типы, противоречивые aliases и перепрофилированные или
-   удалённые соединения из кеша. Необязательная привязка интерфейса порта
-   проверяется относительно явно разрешённого устройства. UUID controller
-   разрешается через `GetConnectionByUuid` с проверкой bond-профиля и имени
-   требуемого интерфейса, включая устаревшее поле bond-setting. Controller без
-   привязки требует настоящего соответствия активного профиля на требуемом
-   bond-устройстве. Новый decoder ответа UUID требует один object path,
-   отличный от корневого, и сохраняет remote/context ошибки; `Store` допускает
-   преобразование чисел и строк. Проверка ответов учитывается отдельно в
-   `gobfd-qj0.8.2.2.11`: все используемые RPC-адаптеры разделяют строгую
-   проверку типа и числа значений, свойства сохраняют оболочку Variant,
-   пути доступных профилей отклоняют корень; sentinel неактивного свойства
-   и пустой список доступных профилей остаются допустимыми. Деактивация
-   требует пустого ответа. Типизированные remote/context ошибки сохраняются,
-   некорректные значения возвращают `ErrNetworkManagerSettingsInvalid`.
-   Проверка ответа не отменяет уже обработанное peer изменение.
-   Чтение и изменение выполняются
-   разными D-Bus вызовами; параллельные правки администратора требуют внешнего
-   согласования. Локальные fixtures не квалифицируют настоящее владение
-   NetworkManager или применение состояния на проводе участников.
+### Граница доверия NetworkManager
 
-### VXLAN BFD в Linux
+Connection setup и property replies подчиняются caller cancellation. Connector использует `DialContext` до godbus authentication, Hello и Unix FD negotiation. Другой address пробуется только при transport failure; authentication/Hello не повторяются на другом peer. `godbus_no_tcp` отклоняет TCP/nonce-TCP до DNS.
 
-RFC 8971 определяет BFD поверх VXLAN с Management VNI для проверок
-доступности VTEP/NVE. GoBFD реализует:
+Nonce input должен быть trusted local regular file ровно 16 байт. Bounded reads и nonblocking open отклоняют malformed files/pipes; filesystem calls на stalled mount остаются неограниченными.
 
-- внешний UDP-порт 4789;
-- валидацию VXLAN-заголовка и сравнение Management VNI;
-- сборку внутренних Ethernet/IPv4/UDP/BFD пакетов;
-- локальное демультиплексирование через `OverlayReceiver`;
-- явный `vxlan.backend: userspace-udp`.
+Active/cached profile paths — hints. Повторно загрузите settings до deactivate, active no-op либо cached activate. Принимайте только requested bond port; отклоняйте malformed/conflicting aliases и deleted/reprofiled cached connections. Проверяйте optional interface binding против resolved device. UUID controllers разрешаются через `GetConnectionByUuid` с требованием requested bond interface и сохранением deprecated bond-setting fallback. Unbound controller требует actual active-profile binding на этом bond device.
 
-Эксплуатационные ограничения:
+Все используемые RPC replies требуют exact type/arity. Property replies сохраняют Variant envelope; UUID lookup требует один nonroot object path; available-profile list не допускает root, но может быть пустым; inactive sentinel допустим; deactivate требует empty reply. Typed remote/context errors сохраняются; malformed values возвращают `ErrNetworkManagerSettingsInvalid`.
 
-1. `userspace-udp` владеет локальным сокетом UDP 4789.
-2. Kernel VXLAN, OVS, OVN, Cilium, Calico или другая плоскость передачи может
-   уже владеть UDP 4789 в целевом сетевом пространстве имён.
-3. Зарезервированные имена backend владельца должны отклоняться до
-   появления реализации и подтверждённой совместимости.
-4. Стартовая диагностика должна сообщать о конфликтах владения сокетом
-   ошибками, позволяющими выбрать действие.
-5. Идентичность поддерживаемого IPv4 Format A проверяется точно; путь остаётся
-   неквалифицированным из-за незавершённой интеграции с владельцем плоскости передачи.
+Checks и mutations — отдельные вызовы. Concurrent administrator edits требуют координации; invalid reply detection не отменяет уже выполненную remote mutation. Local private-bus fixtures не квалифицируют actual ownership либо member-wire enforcement. Reply-shape и real-owner qualification отдельны. Источники: [D-Bus adapter](../../../internal/netio/lag_networkmanager.go), [tests](../../../internal/netio/lag_networkmanager_test.go).
 
-### Geneve BFD в Linux
+### VXLAN и Geneve в Linux
 
-RFC 9521 определяет BFD для Geneve-туннелей типа точка-точка. GoBFD
-реализует:
+| Свойство | VXLAN | Geneve |
+|:---|:---|:---|
+| Outer UDP destination | 4789 | 6081 |
+| Envelope | VXLAN I flag, Management VNI | Version 0, O=1, C=0, Protocol `0x6558` |
+| Inner profile | Ethernet/IPv4/UDP/BFD, exact endpoint/MAC scope | Ethernet/IPv4 Format A, explicit exact VAP IP/MAC |
+| Ownership | Local socket принадлежит GoBFD | Local socket принадлежит GoBFD |
+| Unsupported owners | Kernel/OVS/OVN/Cilium/Calico/NSX names fail closed | Те же reserved names fail closed |
 
-- внешний UDP-порт 6081;
-- бит `O` установлен, бит `C` сброшен;
-- Protocol Type `0x6558`;
-- валидацию VNI;
-- сборку внутренних Ethernet/IPv4/UDP/BFD пакетов;
-- явный `geneve.backend: userspace-udp`.
+Kernel/vendor overlay с тем же local address/port/namespace находится вне userspace profile. Missing/special-use Geneve VAP identity, IPv6 inner payload и Format B отклоняются. RFC 9521 traffic требует controlled/provisioned rates; congestion может создавать false failures. Источники: [backend admission](../../../internal/netio/overlay_backend.go), [inner framing](../../../internal/netio/overlay_inner.go), [RFC 8971](../../rfc/rfc8971.txt), [RFC 9521](../../rfc/rfc9521.txt).
 
-Эксплуатационные ограничения:
+## Последствия
 
-1. `userspace-udp` владеет локальным сокетом UDP 6081.
-2. OVS, OVN, NSX или другая плоскость передачи Geneve может уже владеть тем же
-   сокетом.
-3. RFC 9521 требует контролируемых условий трафика или заранее обеспеченной
-   частоты BFD, чтобы избежать ложных отказов из-за перегрузки.
-4. Backend конкретных владельцев требуют отдельной реализации и
-   тестов совместимости.
-5. Требуется явная идентичность VAP IPv4 Format A с точным совпадением;
-   неподдерживаемые форматы отклоняются, интеграция с владельцем не завершена.
+| Сценарий | Применимость | Обязательное условие |
+|:---|:---|:---|
+| Linux router/NFV LACP uplink | Candidate Micro-BFD profile | Явное kernel/OVS/NM ownership и qualified actuator |
+| Bare-metal Kubernetes | Условная | Host namespace и явная host-interface authority |
+| EVPN/VXLAN validation | Lab endpoint | Изолированные Management VNI/socket |
+| OVN/NSX/Geneve gateway | Lab endpoint | Явная IPv4 VAP identity и isolated socket |
+| Generic application host | Ограниченная | External routing/device BFD — отдельная integration |
 
-### Матрица применимости
-
-| Сценарий | Применимость | Требуемое владение |
-|---|---:|---|
-| Linux-маршрутизатор или NFV-устройство с LACP uplink | Высокая | Backend kernel bonding, OVS или NetworkManager выбран явно |
-| Узел Kubernetes на физическом сервере | Средняя | `hostNetwork` и политика владения интерфейсами хоста |
-| Endpoint проверки EVPN/VXLAN | Только лаборатория | Изолированный endpoint Management VNI до появления интеграции с владельцем плоскости передачи |
-| Шлюз OVN/NSX/Geneve | Только лаборатория | Явная идентичность VAP Format A и изолированное владение сокетом |
-| Лаборатория совместимости с EOS/FRR/Linux | Высокая | Явное владение пространством имён, сокетом и интерфейсом |
-| Прикладной хост общего назначения без владения LAG/overlay | Низкая | Предпочтителен внешний демон маршрутизации или BFD сетевого устройства |
+Ни один mode не является универсальным Linux dataplane controller. Local implementation, vendor documentation и socket ownership не заменяют actual path/owner qualification. Проверьте выбранный [vendor profile](../reference/vendor-bfd.md).
 
 ## Источники
 
-- [Конфигурация Micro-BFD и подключение сессий участников](../../../cmd/gobfd/micro_bfd.go)
-- [Проверки владения backend actuator](../../../internal/netio/lag_backend.go)
-- [Допуск оверлейного backend](../../../internal/netio/overlay_backend.go)
-- [Точный поддерживаемый профиль внутреннего пакета](../../../internal/netio/overlay_inner.go)
-- RFC 7130: <https://datatracker.ietf.org/doc/html/rfc7130>
-- RFC 8971: <https://datatracker.ietf.org/doc/html/rfc8971>
-- RFC 9521: <https://datatracker.ietf.org/doc/html/rfc9521>
-- Linux `netlink(7)`: <https://man7.org/linux/man-pages/man7/netlink.7.html>
-- Linux `rtnetlink(7)`:
-  <https://man7.org/linux/man-pages/man7/rtnetlink.7.html>
-- Документация bonding ядра Linux:
-  <https://docs.kernel.org/networking/bonding.html>
-- Справочник OVSDB Open vSwitch:
-  <https://docs.openvswitch.org/en/stable/ref/ovsdb.7/>
-- NetworkManager D-Bus API:
-  <https://networkmanager.dev/docs/api/latest/spec.html>
-- Настройки профилей NetworkManager и UUID lookup:
-  <https://networkmanager.dev/docs/api/latest/nm-settings-dbus.html>,
-  <https://networkmanager.dev/docs/api/latest/gdbus-org.freedesktop.NetworkManager.Settings.html>
+- [RFC 7130](../../rfc/rfc7130.txt), [RFC 8971](../../rfc/rfc8971.txt), [RFC 9521](../../rfc/rfc9521.txt).
+- [NetworkManager D-Bus API](https://networkmanager.dev/docs/api/latest/spec.html).
+- [RFC coverage](../08-rfc-compliance.md).

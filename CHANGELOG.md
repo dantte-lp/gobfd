@@ -403,13 +403,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Rebuild the English technical manual and Russian translation from current
+  code, with declarative contracts, operational procedures, Mermaid diagrams,
+  RFC sections and scoped Cisco/Arista/Juniper/Huawei references.
+- Remove internal execution-tracker details from public documentation.
 - Align SonarQube pull-request branches with the CI/Security policy:
   `master`, `main` and `release/v*`; `dev` integration uses local checks.
 - Align pending dependency updates with `dev`: ExaBGP 5.0.15 from verified
   upstream source, CodeQL Action 4.39.1 across all six workflow steps, and
   current Koanf, libovsdb and Prometheus dependency graphs. Keep the shared
   runtime recipes, version contracts and dependency inventory synchronized.
-- Reconcile issue #88 with the current HAProxy bridge and Beads: service
+- Reconcile issue #88 with the current HAProxy bridge: service
   health-to-VIP coupling remains P2/after-v1; distinguish the RFC 4786
   recommendation from the issue's required recovery hold-down.
 
@@ -745,7 +749,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matrix, and uploads it to the draft only after validation.
 - Reconciled the public roadmap, release-branch design, and executable plan
   with the published immutable v0.6.4 evidence after resolving and accepting
-  all three P1 maintenance-review findings in Beads.
+  all three P1 maintenance-review findings.
 
 ### Fixed
 
@@ -1346,7 +1350,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Quick Start uses the tracked `configs/gobfd.example.yml`, and the EN/RU
-  roadmap remains In progress as a dated projection of Beads. The legacy S12
+  roadmap remains In progress as a dated qualification snapshot. The legacy S12
   status was reconciled to record the delivered Echo/Micro CRUD and absent
   Overlay API instead of reporting the whole sprint as pending.
 - Graceful-shutdown documentation now matches the fixed two-second drain in

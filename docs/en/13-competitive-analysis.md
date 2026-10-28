@@ -1,82 +1,45 @@
-# Comparing BFD Implementations
+# Comparing BFD implementations
 
-Compare a specific implementation, release and deployment profile. RFC support,
-wire interoperability, operational integration and performance are separate
-properties. GoBFD's current boundary is the [RFC matrix](08-rfc-compliance.md),
-not a blanket feature ranking.
+A comparison identifies implementation, release, platform, enabled procedure and evidence. Protocol coverage, operational integration and performance require different checks. GoBFD's supported boundary is the [RFC matrix](08-rfc-compliance.md); vendor documentation is indexed separately in [vendor BFD reference](reference/vendor-bfd.md).
 
-## What this repository measures
+## Evidence classes
 
-| Evidence | What it establishes | What it does not establish |
-|---|---|---|
-| Go micro-benchmarks | Cost and allocations of the named Go benchmark body | UDP throughput, timer accuracy or supported session scale |
-| Local C-model benchmarks | Cost of repository-owned model operations | Performance of upstream FRR/BIRD daemons or a language ranking |
-| Base four-peer topology | Protocol interactions with the configured FRR, BIRD3, Holo and Thoro peers | Every extension, vendor NOS or deployment environment |
-| BGP coupling topology | The tested GoBGP, FRR, BIRD3 and ExaBGP interactions | Route continuity under untested outages or reloads |
-| Vendor NOS topology | Behavior of the selected image and scenario when actually run | All platforms, releases, address families or hardware offload |
-| Production-core workload fixture | Observed owner/peer packet accounting and cleanup | Reference-load or full-daemon acceptance |
+| Source | Established scope | Exclusion |
+|:---|:---|:---|
+| Go component benchmarks | Named body time and allocations | UDP throughput, timer precision, scale |
+| Repository C models | Local replica operations | Upstream FRR/BIRD performance or language ranking |
+| Base peer tests | Configured FRR/BIRD3/Holo/Thoro interactions | Every extension or release |
+| BGP tests | Selected GoBGP/FRR/BIRD3/ExaBGP coupling | Untested failure/reload continuity |
+| Containerlab source | Defined owned FRR scenario | Native acceptance without a run |
+| Vendor manual | Documented feature for the named product/release | GoBFD interoperability or hardware acceptance |
+| Workload fixture | Observed ledger and cleanup for its inputs | Reference/full-daemon acceptance |
 
-Peer source pins and topology definitions live under
-[`test/interop/`](../../test/interop/),
-[`test/interop-bgp/`](../../test/interop-bgp/) and
-[`test/interop-clab/`](../../test/interop-clab/).
-[Interoperability](05-interop.md) states their qualification scope. Keep the
-exact image identity, source SHA and test evidence when making a comparison.
+## Select a deployment
 
-## Software comparison method
+1. Identify required address families, single/multihop paths, authentication, Echo and forwarding-plane ownership.
+2. Check the exact peer manual and GoBFD procedure boundary.
+3. Select common intervals and Detect Multiplier; retain actual negotiated values.
+4. Run the relevant [interop scenario](05-interop.md) with packet evidence.
+5. Qualify the actual failure path and routing/actuator response under deployment load.
 
-Use the same session count, address families, authentication, packet size,
-negotiated intervals, Detect Multiplier, loss input and CPU/memory limits.
-Separate protocol load from routing-table updates and management traffic.
-Record the peer implementation's actual configured behavior, rather than
-assuming that a default in another release applies.
+[Vendor reference](reference/vendor-bfd.md) links official EOS, NX-OS, Junos and Huawei material. Feature presence in that source does not admit retained-unavailable lab images or qualify this repository against those platforms. Hardware offload, timer floors, capacity and fate sharing remain exact-model/release/service questions.
 
-FRR/BIRD C files in [`bench/c/`](../../bench/c/) are local replicas of selected
-operations. They are not linked upstream daemon code. Their validation,
-lookup, scheduling and iteration boundaries differ from the Go benchmark
-bodies. See [Performance analysis](14-performance-analysis.md#component-comparison-boundary).
-Do not derive upstream throughput, per-session RSS, restart behavior or
-relative language speed from those tables.
+## Compare software measurements
 
-GoBFD runs Control and Echo owners in separate goroutines; both currently
-pin an OS thread. Goroutine ownership alone supplies no CPU reservation,
-scheduling isolation or supported-scale bound. Current reference runtime
-qualification remains incomplete.
+Keep session count, address families, authentication, padding, negotiated intervals, loss, CPU/memory/PID limits and measurement duration equivalent. Separate BFD load, route updates and management activity. Record actual peer behavior and build/source identities.
 
-## Hardware and cloud profiles
+Local [C models](../../bench/c/) are separately compiled repository programs. Their validation, lookup and scheduling differ from Go bodies. C uses CLOCK_MONOTONIC, fixed iteration counts (default ten million; creation 10000) and six repetitions; Go uses adaptive iterations. Sequential benchmark-cross does not make those bodies equivalent.
 
-Hardware offload, minimum timers, session capacity, address-family support,
-Echo support and control-plane fate sharing belong to the exact vendor model,
-software release and connection service. This repository does not qualify a
-hardware platform or cloud provider merely by listing it as a peer or providing
-a lab topology.
+Current Control/Echo owner goroutines have no permanent per-session thread pins. Neither goroutine ownership nor the removal of pins reserves CPU or establishes scale; matched native A/B and full workload acceptance remain open. See [runtime boundaries](14-performance-analysis.md).
 
-For a target deployment, obtain its primary documentation, select mutually
-supported procedures and intervals, then measure the actual path. Retain the
-provider's failure-detection and graceful-restart policies separately from
-GoBFD's configured reaction. RFC 7419 common intervals do not establish
-provider support, timer accuracy or forwarding continuity.
+## Interpret timers and packet rates
 
-## Timer and load interpretation
+For Asynchronous Control, local Detection Time is received Detect Multiplier × max(local RequiredMinRxInterval,remote DesiredMinTxInterval). Nominal TX uses max(local DesiredMinTxInterval,remote RequiredMinRxInterval) before jitter; non-Up/held slow-start policy raises the local floor to at least one second. Zero remote RX, remote Demand and Poll transactions alter periodic sending. Source: [session_packet.go](../../internal/bfd/session_packet.go) and [protocol](02-protocol.md).
 
-For Asynchronous BFD, local Detection Time is the received Detect Multiplier
-multiplied by `max(local RequiredMinRxInterval, remote DesiredMinTxInterval)`.
-For an Up session without a held slow-start floor, the nominal transmit interval is
-`max(local DesiredMinTxInterval, remote RequiredMinRxInterval)` before jitter.
-A non-Up state or held floor raises local TX to at least one second before
-negotiation. See [`calcTxIntervalHot`](../../internal/bfd/session_packet.go).
-A zero remote receive interval, remote Demand and Poll transactions affect
-periodic transmission; see [Protocol](02-protocol.md).
+At 1000 sessions and nominal 100 ms, 10000 packets/s in one direction is arithmetic before jitter/suppression. It is not a measured supported rate. Compare actual wire arrivals, committed packets, loss and timer distributions under a complete ledger.
 
-At 1,000 sessions and a nominal 100 ms interval, 10,000 packets/s per direction
-is arithmetic before jitter, suppression and protocol effects, not a measured
-supported rate. Tighter timers require measured scheduling and loss headroom.
-[Runtime measurement boundaries](14-performance-analysis.md) explain the required
-denominators, clock evidence and qualification limits.
+## Report a comparison
 
-## Related documents
+Record source/binary/image identities, topology, effective limits, common measurement phase, actual writes/receipts/commits, clock model, distributions, test skips and cleanup. State unresolved native or release gates. Avoid blanket fastest, zero-GC, production-grade, full-RFC or all-vendor conclusions from component data.
 
-- [Benchmark guide](12-benchmarks.md) — commands and statistical interpretation.
-- [Benchmark snapshots](../../testdata/benchmarks/) — retained raw historical results.
-- [RFC compliance](08-rfc-compliance.md) — implemented and incomplete procedures.
-- [Roadmap](roadmap.md) — dated acceptance state; Beads owns execution.
+[Benchmarks](12-benchmarks.md), [runtime measurement](14-performance-analysis.md), [retained raw samples](../../testdata/benchmarks/).

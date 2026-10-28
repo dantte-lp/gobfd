@@ -1,11 +1,9 @@
-# Reference Material
+# Technical reference
 
-Living technical references for GoBFD. Each entry in this directory is
-maintained as the codebase evolves; entries are not point-in-time
-snapshots.
+References state implementation boundaries and source contracts. Procedures are indexed in [Development](../09-development.md) and [Interoperability](../05-interop.md).
 
-## Index
-
-| Document | Description |
-|---|---|
-| [`dependency-risk.md`](./dependency-risk.md) | Dependency pins, module boundaries, advisory exceptions and mitigation policy. |
+| Reference | Content |
+|:---|:---|
+| [Dependency risk](dependency-risk.md) | Graph ownership, exact advisory exceptions and candidate checks |
+| [CI and release automation](automation.md) | Go-owned commands, artifacts, verification and publication boundaries |
+| [Vendor BFD](vendor-bfd.md) | Official vendor configuration sources; separate GoBFD lab acceptance |

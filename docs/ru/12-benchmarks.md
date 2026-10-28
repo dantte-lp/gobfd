@@ -1,211 +1,124 @@
-# Руководство по бенчмаркам
+# Бенчмарки
 
-Микробенчмарки измеряют указанные операции. Они не подтверждают пропускную
-способность UDP, потери, точность таймеров, невосприимчивость к GC или
-поддерживаемый масштаб. [Анализ производительности](14-performance-analysis.md)
-описывает отдельные границы измерений работающей системы и квалификации.
+Микробенчмарк измеряет одну именованную операцию. Он не определяет скорость обработки пакетов, поддерживаемое число сессий, точность таймеров, потери и отсутствие пауз GC. [Измерения runtime](14-performance-analysis.md) задают дополнительные границы owner, UDP, часов и нагрузки.
 
-## Запуск бенчмарков
+## Сбор снимка
 
-Перечисленные ниже команды выполняются в закреплённом окружении разработки
-Podman. Сначала выполните `make up`. Ограничения начальной подготовки на хосте
-и отдельной цели `benchmark-report` описаны в
-[Разработке](09-development.md) и разделе отчётов ниже.
+1. Подготовьте [закреплённую среду разработки](09-development.md).
+2. Выберите новый идентификатор снимка; сохраните прежние исходные измерения.
+3. Выполните нужный сбор и сравнение:
 
-| Команда | Вход и выход |
-|---|---|
-| `make benchmark` | `internal/bfd`, шесть запусков с `-benchmem`; stdout и `benchmark.txt` |
-| `make benchmark-all` | Все пакеты, шесть запусков с `-benchmem`; stdout и `benchmark.txt` |
-| `make benchmark-save BENCH_VERSION=local-doc-audit` | Измерения BFD/netio и метаданные в `testdata/benchmarks/local-doc-audit/` |
-| `make benchmark-compare OLD=v0.4.0 NEW=local-doc-audit` | Сравнение `benchstat` и HTML в `reports/benchmarks/` |
-| `make profile` | Профили CPU и памяти BFD: `cpu.prof` и `mem.prof` |
-| `make benchmark-cross` | Go-операции и локальные C-модели последовательно; `bench-results/` |
+```bash title="Снимок Go benchmarks"
+make up
+make benchmark-save BENCH_VERSION=local-doc-audit
+make benchmark-compare OLD=v0.4.0 NEW=local-doc-audit
+```
 
-Используйте новый идентификатор снимка, сохраняя предыдущие измерения; он не
-создаёт тег релиза. `benchmark-save` отдельно запускает BFD и netio с
-`-bench=. -benchmem -count=6 -run='^$' -timeout=120s`.
-`benchmark` и `benchmark-all` не включают race detector и не записывают профили
-CPU или памяти. Проверка гонок относится к тестам; профилирование выполняется отдельно.
+4. Требуйте успешного exit и полных samples до использования metadata и reports. Сохраните частичный вывод отказа для диагностики.
+5. Сравнивайте одинаковые benchmark bodies, compiler, architecture, limits и environment. Проверьте uncertainty и конкуренцию нагрузки до отнесения результата к коду.
 
-Цели `benchmark`, `benchmark-all`, `benchmark-save` и `benchmark-compare`
-требуют Bash на хосте и используют `errexit` вместе с `pipefail`. Ошибка
-бенчмарка, `benchstat` или `tee` завершает цель с ошибкой; последующая запись
-метаданных и HTML не выполняется. `benchmark-save` также останавливается при
-ошибке чтения версии Go. Уже записанный вывод сохраняется для диагностики.
-После неуспешного повторного запуска старые метаданные или HTML могут остаться
-рядом с новыми неполными измерениями: используйте новый идентификатор снимка
-и перед приёмкой требуйте успешного завершения цели и полноты ожидаемых
-измерений. Отдельные исполнители CI и релизов на Go сохраняют обработку отказов.
+| Цель | Сбор и output |
+|:---|:---|
+| `benchmark` | Пакет BFD, шесть non-race benchmem runs; stdout и benchmark.txt |
+| `benchmark-all` | Все пакеты, шесть non-race benchmem runs; stdout и benchmark.txt |
+| `benchmark-save` | BFD/netio отдельно, шесть runs, package timeout 120 секунд |
+| `benchmark-compare` | benchstat text и HTML в reports/benchmarks |
+| `profile` | Отдельные BFD CPU/heap profiles: cpu.prof и mem.prof |
+| `benchmark-cross` | Последовательные C-модели и Go samples в bench-results |
+| `benchmark-report` | Legacy direct Go generator; запускается в закреплённый контейнер |
+| `test-report`, `report-all` | Race JUnit/HTML; дополнительно снимок и comparison |
+
+Снимок содержит `benchmark-bfd.txt`, `benchmark-netio.txt`, объединённый `benchmark.txt` и `meta.json` с version/commit/date/Go/count. Make pipelines используют Bash errexit/pipefail; ошибка Go, benchstat или tee завершает цель ошибкой. Неуспешный повтор может оставить прежние metadata/HTML рядом с частичными samples. Новый identifier и успешный полный запуск исключают принятие такой смеси.
 
 ### Парное сравнение в CI
 
-Задание CI использует `cictl benchmark-pair --old old.txt --new new.txt`
-с прежними входами `BENCH_REGEX`, `GITHUB_BASE_REF` и `RUNNER_TEMP`. Десять
-пар чередуют порядок base/head и head/base. Каждый запуск собирает одно
-измерение без race detector с `-benchtime=100ms` и прежними ограничениями
-пакетов и таймаута. В каждом результате группа package/name должна иметь
-ровно десять корректных записей; неполный или повреждённый набор отклоняется
-до нормализации и отчёта. Рабочее дерево base создаётся один раз и удаляется
-с ограниченной очисткой, устойчивой к отмене. Исходный вывод неуспешного
-запуска сохраняется как диагностическое свидетельство.
+CI `cictl benchmark-pair --old old.txt --new new.txt` использует десять чередующихся base/head и head/base-пар. Каждый Go invocation выдаёт один non-race sample длительностью 100 мс; каждая package/name требует ровно десяти valid records на сторону. Invalid/empty/incomplete output отклоняется до report. Один detached base worktree имеет bounded cancellation-safe cleanup. BENCH_REGEX, GITHUB_BASE_REF и RUNNER_TEMP определены в [automation](reference/automation.md).
 
-Закреплённое [руководство benchstat](https://github.com/golang/perf/blob/19be9d8e6c701dc8ccabaad34bf705f773fd398b/cmd/benchstat/main.go#L363)
-рекомендует минимум десять повторов, предпочтительно двадцать, с чередованием
-before/after. Фиксированный бюджет CI в десять пар не разрешает повторять
-измерения до желаемого p-value. Проверяйте неопределённость и примечания
-инструмента; прежняя политика только предупреждений о регрессиях сохранена.
-Эти компонентные измерения не квалифицируют задержки UDP, поддерживаемый
-масштаб или финальную нагрузку релиза.
+Шесть Make/release runs и самостоятельные benchmark-run/base остаются последовательной диагностикой. Сохраняйте фиксированный бюджет; не повторяйте сбор ради желаемого статистического результата.
 
-Снимки Make/release и отдельные команды `benchmark-run`/`benchmark-base`
-сохраняют шесть диагностических запусков без чередования. Они не эквивалентны
-этому парному сравнению CI.
-
-### Файлы снимка
-
-| Файл снимка | Содержание |
-|---|---|
-| `benchmark-bfd.txt` | Измерения бенчмарков BFD |
-| `benchmark-netio.txt` | Измерения сетевых кодеков и обработки метаданных |
-| `benchmark.txt` | Объединённые измерения |
-| `meta.json` | Идентификатор снимка, commit, дата, версия Go, число запусков |
-
-## Чтение вывода
+## Интерпретация результата
 
 ```text
 BenchmarkControlPacketMarshal-8    195605820    5.869 ns/op    0 B/op    0 allocs/op
 ```
 
-| Поле | Значение |
-|---|---|
-| `-8` | Фактический `GOMAXPROCS` бенчмарка |
-| `195605820` | Адаптивное число итераций; сравнивайте время операции, а не только их количество |
-| `ns/op` | Длительность одной операции |
-| `B/op`, `allocs/op` | Учтённые байты кучи и выделения памяти на одну операцию |
-
-Сохраняйте исходные измерения. Повторение само по себе не устраняет конкуренцию
-за ресурсы хоста, ограничение CPU, влияние кеша или шум таймеров. Сравнивайте
-одинаковые тела бенчмарков, компилятор, архитектуру, лимиты и окружение; оцените
-статистическую неопределённость до объяснения результата изменением исходников.
-Запуски с race detector и без него не являются одинаковой нагрузкой.
+Исторический формат показывает GOMAXPROCS 8, adaptive iteration count, time/op и heap allocation/op. Значение не является текущим обещанием производительности. [Go testing](https://pkg.go.dev/testing#hdr-Benchmarks) определяет интерфейс измерения. Construction B/op не равно retained RSS; ноль allocs/op относится только к телу бенчмарка. Profiling и race-тесты — отдельные нагрузки.
 
 ## Границы операций
 
-| Семейство бенчмарков | Измеряемая работа | Исключение или ограничение |
-|---|---|---|
-| Control marshal | Сериализация пакета в переданный буфер | Вариант с аутентификацией записывает готовую секцию аутентификации, но не вычисляет подпись |
-| Control unmarshal | Разбор и проверка полей пакета | Метаданные аутентификации и ограниченный payload принадлежат пакету по значению |
-| `BenchmarkAuthentication` | Встроенные `Sign` и `VerifyKnownSequence` с неизменяемым статическим хранилищем ключей | Verify использует разобранный подписанный wire и сбрасывает предыдущее sequence; без сокетов, копирования сохраняемого wire и фиксации владельцем |
-| FSM | Индексный поиск перехода | Без цикла владельца, сокета, таймера и уведомления |
-| Jitter и расчёт интервала | Указанное вычисление | Без пробуждения таймера и задержки планировщика |
-| `RecvDecodeLookupEnqueue` | Декодирование, поиск дискриминатора, попытка записи в буферизованную очередь | Запись в очередь не является обработкой пакета или фиксацией владельцем |
-| `RecvDecodeFSM` | Декодирование и переход FSM без состояния | Без состояния работающего владельца и транспорта |
-| `ReceiveOwnerCollector` | Фактическая фиксация владельцем с реальным сборщиком метрик | Синтетическое время; без UDP, разбора пакета и аутентификации |
-| `ReceiveOwnerCollectorAuthentication` | Sign, marshal, decode, demux, Verify и фиксация владельцем с реальными метриками | Wire повторно используется после фиксации; handshake до Up предшествует измерению; без сокетов и kernel RX |
-| `TxMarshalJitter` | Сериализация и расчёт джиттера | Без отправки в сокет или доставки соседу |
-| Create/reconcile | Жизненный цикл сессий | B/op не является полным удерживаемым RSS на сессию |
-| `BuildInnerPacketInto` | Сборка внутреннего пакета в памяти вызывающего кода | Рабочий путь передачи оверлея |
-| `BuildInnerPacket` | Обёртка совместимости с выделением памяти | Отдельные стоимость и владение |
-| Метаданные/таймер/метрики | Указанный разбор или наблюдение | Без полного пути обработки пакета или гарантии масштаба |
+| Семейство | Включено | Исключено |
+|:---|:---|:---|
+| Marshal | Запись в supplied storage; auth section уже готова | Подпись и отправка |
+| Unmarshal | Decode/validate; bounded auth metadata по значению | Hash verification и retained immutable wire |
+| Authentication | Sign или VerifyKnownSequence, immutable key store, controlled prior sequence | Socket, retained-wire copies, фиксация пакета владельцем сессии |
+| FSM | Indexed transition lookup | Owner loop, transport, timers, notification |
+| Jitter/interval | Именованное вычисление | Планирование/пробуждение timer |
+| RecvDecodeLookupEnqueue | Decode, discriminator lookup, попытка запись в буферизованную очередь | Обработка пакета и фиксация пакета владельцем сессии |
+| RecvDecodeFSM | Decode и stateless transition | Живой owner и transport |
+| ReceiveOwnerCollector | Commit реальным owner с real collector | UDP, decode, auth; синтетическое время |
+| ReceiveOwnerCollectorAuthentication | Sign/marshal/decode/demux/verify/commit, real metrics, steady Up fixture | Socket/kernel RX, retained-wire allocation; синтетические часы |
+| TxMarshalJitter | Marshal и jitter | Socket send и peer arrival |
+| Create/reconcile | Lifecycle state | Retained process RSS |
+| BuildInnerPacketInto | Production assembly во внешнем буфере | Storage allocation |
+| BuildInnerPacket | Allocating compatibility wrapper | Production caller-буфер ownership |
 
-Определения находятся в [`internal/bfd/`](../../internal/bfd/),
-[`internal/netio/`](../../internal/netio/) и
-[`internal/metrics/`](../../internal/metrics/). При изменении имени или границ
-проверяйте тело бенчмарка. Не фиксируйте число бенчмарков в документации.
+Читайте тела в [BFD benchmarks](../../internal/bfd/bench_test.go), [scaling fixtures](../../internal/bfd/bench_scaling_test.go), [Micro-BFD dispatch](../../internal/bfd/manager_micro_bench_test.go) [netio benchmarks](../../internal/netio/bench_test.go) и [измерения owner с реальным collector](../../internal/metrics/receive_timing_test.go). Не фиксируйте число бенчмарков при изменении names.
 
-## Политика выделений памяти
+## Сохранённые измерения выделений
 
-Выбранные операции кодека, FSM, таймеров, поиска и записи в переданный буфер
-имеют цель нулевых выделений памяти, включая разбор с аутентификацией и
-метаданными по значению. Ограниченный payload копируется в пакет; hash
-verification отдельно требует сохранённого неизменяемого wire.
-[ADR-0011](adr/0011-bfd-auth-inline-payload.md) фиксирует владение пакетом
-и wire. Обёртка совместимости сборки внутреннего пакета выделяет
-возвращаемый срез. Создание и согласование сессий выделяют данные жизненного
-цикла. Нулевой результат одного тела не доказывает отсутствие выделений во
-всех горячих путях и не ограничивает паузы GC.
+Следующие датированные результаты являются сохранёнными наблюдениями, а не новым выполнением при обновлении документации. Квалификация финальный кандидат остаётся отдельной.
 
 ### Методы аутентификации — 2026-10-26
 
-Изменение результата digest в `972946c59bbe8d9bc36fbe51edb9f6c82f3bfc33`
-зафиксировало исторические измерения linux/amd64: закреплённый компилятор, три серии
-по 200000 итераций и 16-байтовый ключ. Возврат общего digest фиксированным
-массивом устраняет одно выделение памяти без изменения wire и владения payload.
+В `972946c59bbe8d9bc36fbe51edb9f6c82f3bfc33`: linux/amd64, закреплённый компилятор, ключ 16 bytes, три runs по 200000 iterations:
 
-| Режимы | Sign до, B/op и allocs/op | Sign после, B/op и allocs/op | Verify до, B/op и allocs/op | Verify после, B/op и allocs/op |
-|---|---|---|---|---|
-| Simple Password | 16 / 1 | 16 / 1 | 0 / 0 | 0 / 0 |
-| Keyed MD5, Meticulous Keyed MD5 | 48 / 3 | 32 / 2 | 16 / 1 | 0 / 0 |
-| Keyed SHA1, Meticulous Keyed SHA1 | 72 / 3 | 48 / 2 | 24 / 1 | 0 / 0 |
+| Режим | Sign до → после B/op; allocs/op | Verify до → после B/op; allocs/op |
+|:---|:---|:---|
+| Simple Password | 16;1 → 16;1 | 0;0 → 0;0 |
+| Keyed/Meticulous MD5 | 48;3 → 32;2 | 16;1 → 0;0 |
+| Keyed/Meticulous SHA1 | 72;3 → 48;2 | 24;1 → 0;0 |
 
-Это измерения выделений памяти успешных методов, а не статистическое сравнение
-задержек. В той ревизии подпись ещё выделяла payload во владение вызывающего
-кода. Изменение digest принято в `gobfd-qj0.8.2.8.6.3.2.1`.
+Fixed-array digest убирает одно выделение digest. Эта revision ещё выделяет signing payloads. Это результаты методов, а не статистическое сравнение задержки.
 
 ### Встроенный payload — 2026-10-26
 
-Кандидат ADR-0011 в `gobfd-qj0.8.2.8.6.3.2.2` использует встроенный payload
-20 байт и независимую логическую длину. Локальные измерения linux/amd64 дают
-0 B/op и 0 allocs/op для всех пяти встроенных Sign и Verify: три серии
-по 200000 итераций с 16-байтовым ключом.
+[ADR-0011](adr/0011-bfd-auth-inline-payload.md) использует inline storage 20 bytes с отдельной logical length. Сохранённая linux/amd64 matrix использует ключ 16 bytes и три runs по 200000 iterations. Все пять built-in Sign/Verify modes и ReceiveOwnerCollectorAuthentication дают 0 B/op и 0 allocs/op.
 
-`ReceiveOwnerCollectorAuthentication` также даёт 0 B/op и 0 allocs/op в той же
-матрице измерений. Каждый пакет подписывается, сериализуется, разбирается,
-ставится в очередь и проверяется; затем ожидается фиксация владельцем с реальным
-сборщиком метрик. Fixture достигает Up до измерения и сверяет точные счётчики
-приёма/фиксации; wire повторно используется после фиксации. Вход часов
-синтетический. Приём сокетом, выделение сохраняемого wire, kernel timestamps,
-потери, поддерживаемый масштаб и распределения задержек квалифицируются отдельно;
-полное сравнение `gobfd-qj0.8.2.8.6.3.2` этими измерениями не закрывается.
+Owner fixture достигает Up до timing, проверяет точные receives/commits и переиспользует wire только после commit. Socket receive, retained-wire allocation, kernel timestamps, loss, scale и распределения задержек исключены. Результат allocations не завершает общее runtime comparison.
 
-Локальные размеры пакета/auth-секции меняются с 64/32 на 60/28 байт.
-Элемент очереди приёма сохраняет 160 байт из-за выравнивания. Одинаковые
-проверочные сборки linux/amd64 с отключённым CGO, trimpath и без release ldflags
-меняют размер демона с 31445503 на 31434427 байт; остальные три бинарника
-сохранены. Это размеры проверочных бинарников, а не release assets или
-удерживаемого RSS. Обычный in-memory RX сохраняет 128 B/op и 1 alloc/op.
+| Наблюдение | Сохранённое значение |
+|:---|:---|
+| Packet/auth-section layout | 64/32 → 60/28 bytes |
+| Receive queue element | 160 bytes; alignment сохраняет размер |
+| Validation daemon size | 31445503 → 31434427 bytes |
+| Остальные три binaries | Без изменений |
+| Plain in-memory RX fixture | 128 B/op; 1 alloc/op |
+
+Размеры binaries получены одинаковой linux/amd64 сборкой: CGO disabled, trimpath, без release ldflags. Это validation builds, не артефакты выпуска или RSS.
 
 ### Логирование Micro-BFD dispatch — 2026-10-26
 
-Матрица до изменения фиксирует 11 allocs/op без actuator и 15 с noop-actuator
-до и после inline-хранения аутентификации. Типизированные вызовы `LogAttrs`
-устраняют упаковку атрибутов логирования, сохраняя уровни, поля и доставку
-состояния. Локальные измерения linux/amd64, три серии по 200000 итераций,
-дают 0 B/op и 0 allocs/op без actuator, включая включённое JSON-кодирование
-после заполнения старой очереди уведомлений. Fixture сохраняет 64 группы
-и чередует переходы участника Up/Down.
+До typed LogAttrs no-actuator/noop-actuator samples дают 11 и 15 allocs/op соответственно, до и после inline auth. Три linux/amd64 runs по 200000 iterations с 64 retained groups и чередованием Up/Down дают:
 
-Путь с noop-actuator даёт 272 B/op и 4 allocs/op. Allocation profiles
-связывают оставшиеся четыре выделения с новым ограниченным контекстом и
-таймером; пятисекундный deadline, отмена и порядок dispatch сохранены.
-Изменение логирования учитывает `gobfd-qj0.8.2.8.6.3.2.3.1`;
-полная цель нулевых выделений остаётся открытой в `gobfd-qj0.8.2.8.6.3.2.3`.
-Эти измерения не квалифицируют I/O backend actuator, поддерживаемый масштаб
-или распределения задержек и не закрывают общий allocation gate.
+| Путь | Результат | Граница |
+|:---|:---|:---|
+| Без actuator, включая enabled JSON после заполнения legacy queue | 0 B/op; 0 allocs/op | Только log/dispatch fixture |
+| Noop actuator | 272 B/op; 4 allocs/op | Сохраняется новый контекст с ограниченным временем/timer |
 
-Исторические измерения Go 1.26 сохранены в
-[`testdata/benchmarks/v0.4.0/`](../../testdata/benchmarks/v0.4.0/).
-Их ns/op не являются приёмкой Go 1.27.3; их нельзя отмечать как выполнение
-постороннего порога. [BENCHMARKS.md](../../BENCHMARKS.md) ссылается на
-сохранённые измерения и более новые ограниченные наблюдения владельца.
+Пятисекундный deadline, cancellation и ordered dispatch сохраняются. Actuator path сохраняет четыре измеренных выделения. Samples не квалифицируют backend I/O и scale.
 
-## Политика CI и отчёты
+### Owner collector — 2026-10-22
 
-Текущий отчёт выдаёт предупреждение для регрессий времени операции от 10%
-включительно, классифицированных как critical; само предупреждение не завершает
-задание ошибкой. Калиброванная блокирующая политика регрессий остаётся в Beads
-`gobfd-qj0.8.2.1.6.4`. Сохраняйте отказы при некорректном выводе и не называйте
-предупреждение условием приёмки производительности релиза.
+Локальная запись `reports/collector-owner-20261022/` содержит 16 B/op и 2 allocs/op до кеша active peer/local packet-counter handles, затем 0 B/op и 0 allocs/op в трёх runs. Reference counts ограничивают кеш активными registrations; historical CounterVec series сохраняют прежний lifetime. Fixture исключает UDP/decode/auth и использует синтетическое время. Она не квалифицирует lifetime metric cardinality.
 
-`make test-report` запускает тесты с race detector и создаёт JUnit/HTML в
-`reports/tests/`; `make report-all` также сохраняет и сравнивает бенчмарки Go.
-`benchmark-report` — старая цель Make с прямым вызовом `go run`;
-запускайте генератор в закреплённом контейнере без Go на хосте.
-Интерфейсы анализа должны слушать loopback. Профили могут содержать чувствительные данные.
+## Исторические и сравнительные источники
 
-## Связанные документы
+[v0.4.0 samples](../../testdata/benchmarks/v0.4.0/benchmark.txt) и [metadata](../../testdata/benchmarks/v0.4.0/meta.json) сохраняют Go 1.26.0, шесть runs, source identifier 48eb954, дату 2026-02-24. Это не квалификация Go 1.27.3.
 
-- [Разработка](09-development.md) — закреплённые инструменты и порядок проверок.
-- [Сравнения](13-competitive-analysis.md) — ограничения C-моделей и развёртывания.
-- [Производительность](14-performance-analysis.md) — телеметрия, нагрузка и ресурсы.
-- [ADR нагрузки](adr/0007-workload-phase-accounting.md) — политика фаз и учёта.
+[C-модели](../../bench/c/) принадлежат репозиторию. Fixed C iterations и validation отличаются от adaptive Go bodies; по ним нельзя ранжировать FRR/BIRD daemons и языки. См. [метод сравнения](13-competitive-analysis.md).
+
+## Политика регрессии
+
+[Классификатор отчёта](../../test/internal/cirunner/benchmark_report.go) считает увеличение time/op от 10% критическим только для указанного в коде набора benchmarks, когда base или head достигает 100 ns/op. Остальные изменения такого процента входят в отчёт при base или head от 1 ns/op. Критическая классификация создаёт CI warning. Само warning не завершает CI ошибкой; malformed collection завершает. Calibrated blocking policy остаётся неквалифицированной. Держите profiles и analysis UIs на loopback; защищайте operational data.
+
+[Корневой индекс](../../BENCHMARKS.md), [измерения runtime](14-performance-analysis.md), [учёт нагрузки](adr/0007-workload-phase-accounting.md).

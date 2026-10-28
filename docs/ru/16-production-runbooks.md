@@ -1,246 +1,162 @@
-# Эксплуатационные инструкции для интеграций
+# Регламент: перечитывание конфигурации (Linux systemd)
 
-![Linux](https://img.shields.io/badge/Linux-Hosts-FCC624?style=for-the-badge&logo=linux&logoColor=black)
-![Kubernetes](https://img.shields.io/badge/Kubernetes-DaemonSet-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
-![BGP](https://img.shields.io/badge/BGP-Fast_Failover-00ADD8?style=for-the-badge)
-![Overlay](https://img.shields.io/badge/Overlay-Lab_Only-ea4335?style=for-the-badge)
+Процедура заменяет декларативную конфигурацию одного управляемого Linux host с поставляемым `gobfd.service` и выведена из кода. Production execution/elapsed-time receipt отсутствует. Предпосылки: принятые binaries/unit, root shell, исправный service, защищённый кандидат `/etc/gobfd/gobfd.candidate.yml` и независимый доступ восстановления.
 
-> Инструкции по развёртыванию и проверке GoBFD в Linux, Kubernetes, BGP и оверлейных сетях.
+## 0. Правила без исключений
 
-Это операторские процедуры для текущих исходников `dev`, а не новые
-квитанции запуска или приёмка стабильного релиза. Выполняйте проверки только
-в допущенной лаборатории с подтверждённым владением ресурсами; сохраняйте
-точные идентификаторы исходников и образов и наблюдённые результаты.
-Интеграция исходников в `dev` разрешена; публикация релиза остаётся заблокированной.
+1. Согласовать один host и явный набор peers/consumers. Перед routing/auth changes обеспечить независимую консоль/доступ.
+2. Записать точные binary/source identities и принятую config до apply. Не помещать secrets в logs/shared artifacts.
+3. Классифицировать поля по [startup contract](03-configuration.md#перечитывание-sighup). Auth сохранённой сессии и startup fields требуют maintenance restart.
+4. Сохранить принятый binary/package для полного rollback; здесь меняется только config.
+5. Остановиться при rejected candidate, pending reconciliation, peer divergence или consumer forwarding failure. Успешная отправка сигнала не доказывает приёмку.
 
----
+## 1. Предварительные проверки
 
-## База проверки
+Выполнять в одном root shell; последующие блоки используют `backup_dir`.
 
-- RFC 5880: в асинхронном режиме время обнаружения равно удалённому Detect Mult,
-  умноженному на согласованный интервал приёма.
-- RFC 5881: одношаговый BFD использует UDP-порт назначения 3784, порт источника
-  из динамического диапазона и TTL/Hop Limit 255.
-- RFC 7130: Micro-BFD создаёт независимые сессии для каждого участника LAG и
-  использует UDP-порт 6784.
-- RFC 8971: VXLAN BFD использует Management VNI, внутренний UDP-порт назначения
-  3784 и внутренний TTL/Hop Limit 255.
-- RFC 9521: Geneve BFD работает для туннелей Geneve типа точка-точка с внутренним
-  TTL/Hop Limit 255 и требованиями к управлению частотой трафика.
-- Пути VXLAN/Geneve IPv4 Format A в пространстве пользователя имеют локальные проверки пакетов
-  и идентичности. Ограниченные результаты проверки на проводе не квалифицируют
-  интеграцию с владельцем плоскости передачи, пересылку вендора или рабочее развёртывание.
-  Это неполные предварительные реализации с явным включением; см.
-  [Разработку](09-development.md#проверка-overlay-на-проводе) и
-  [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go).
-- Pod Kubernetes в сетевом пространстве узла требуют `dnsPolicy: ClusterFirstWithHostNet`
-  при `hostNetwork: true`.
-- Примеры для оборудования остаются необязательными и требуют ссылок на публичную документацию производителя.
-
-## Профили развёртывания
-
-| Профиль | Сценарий | Артефакты |
-|---|---|---|
-| Переключение BGP | Linux-маршрутизатор или лабораторная пара FRR/GoBGP | `deployments/integrations/bgp-fast-failover/` |
-| Демон Kubernetes | Один экземпляр GoBFD на узел в его сетевом пространстве | `deployments/integrations/kubernetes/` |
-| Наблюдаемость | Оповещения Prometheus и панель Grafana | `deployments/integrations/observability/` |
-| Оверлейная лаборатория | Только изолированная проверка VXLAN/Geneve | [ADR-0003](./adr/0003-linux-advanced-bfd-applicability.md) |
-
-## Демон Kubernetes в сетевом пространстве узла
-
-Используйте этот вариант, когда BFD-пиры достижимы из сетевого пространства узла.
-Универсальный DaemonSet не задаёт топологию площадки, частные адреса или
-допущения для конкретного производителя.
-
-Обязательные свойства:
-
-- `hostNetwork: true`
-- `dnsPolicy: ClusterFirstWithHostNet`
-- только узлы Linux
-- `NET_RAW` для пакетных сокетов BFD
-- `NET_ADMIN` для включённых опций сокетов и операций с интерфейсами
-- проверка готовности через запуск `gobfdctl` и Unix-сокет; проверка работоспособности через TCP-порт метрик
-
-До применения манифестов поместите `gobfd:local` и `gobgp:local` в хранилище
-образов каждого подходящего узла: манифест задаёт `imagePullPolicy: Never`.
-Пример исполнителя импортирует образы только в локальное хранилище k3s и сохраняет
-несовпадение меток pod и устаревшие проверки (`gobfd-qj0.8.2.8.7.1.4.1`). Это
-отдельные ограничения исполнителя, а не приведённых ниже команд применения манифестов.
-
-Развёртывание:
-
-```bash
-kubectl apply -f deployments/integrations/kubernetes/manifests/
-kubectl -n gobfd rollout status daemonset/gobfd --timeout=120s
-kubectl -n gobfd get pods -o wide
+```sh title="reload-baseline.sh" showLineNumbers
+backup_dir=$(mktemp -d /var/backups/gobfd.XXXXXXXX)
+chmod 0700 "$backup_dir"
+install -m 0600 /etc/gobfd/gobfd.yml "$backup_dir/gobfd.yml"
+cmp /etc/gobfd/gobfd.yml "$backup_dir/gobfd.yml"
+gobfd -version
+gobfdctl version
+systemctl show gobfd -p ActiveState -p SubState -p MainPID -p NRestarts
+systemctl cat gobfd
+stat -c '%a %U %G %n' /run/gobfd/gobfd.sock
+gobfdctl --format json session list > "$backup_dir/sessions-before.json"
+gobfdctl --format json capabilities > "$backup_dir/capabilities-before.json"
+journalctl -u gobfd --since '-2 min' --no-pager
+test -s /etc/gobfd/gobfd.candidate.yml
+test -s "$backup_dir/gobfd.yml"
+printf '%s\n' "$backup_dir"
 ```
 
-Проверка сетевого режима узла и проверок состояния:
+Продолжить только после успешного сравнения backup, active/running service, исправных ожидаемых sessions/consumers, корректных прав socket и принадлежности candidate этой операции. Flag `-check` отсутствует. До apply проверить полный YAML/default/environment effect; сравнивать secrets только в защищённом процессе. Сохранить backup path в закрытом change record.
 
-```bash
-kubectl -n gobfd describe daemonset/gobfd
-kubectl -n gobfd get endpoints gobfd
-kubectl -n gobfd logs -l app.kubernetes.io/name=gobfd -c gobfd --tail=100
+## 2. Установка и перечитывание
+
+### 2.1 Перечитываемая конфигурация
+
+```sh title="reload-apply.sh"
+install -o root -g gobfd -m 0640 /etc/gobfd/gobfd.candidate.yml /etc/gobfd/gobfd.yml && \
+  cmp /etc/gobfd/gobfd.candidate.yml /etc/gobfd/gobfd.yml && \
+  systemctl reload gobfd
+journalctl -u gobfd --since '-2 min' --no-pager
+gobfdctl --format json session list > "$backup_dir/sessions-after.json"
 ```
 
-Эксплуатационные замечания:
+Продолжить только при совпадении файла, converged reconciliation без rejected/pending resources и ожидаемом состоянии затронутых sessions. Совместимое изменение таймера сохраняет discriminator; снятие config claim может оставить API-owned сессию.
 
-- Для статических окружений фиксируйте BFD-сессии в `configmap-gobfd.yml`.
-- Для динамических окружений создавайте сессии через `gobfdctl` или контроллер
-  после обнаружения узлов и пиров.
-- Сохраняйте Unix-сокет по умолчанию. Удалённое управление через TCP требует
-  mTLS; доверенная сеть не разрешает незашифрованный слушатель вне loopback.
-- Поставляемый ConfigMap открывает метрики без аутентификации по `:9100` в
-  сети хоста. До использования примера ограничьте доступность на границе узла.
-- Сайдкар GoBGP привязывает API к `127.0.0.1:50051`. Обе probes GoBGP
-  выполняют поставляемую команду `gobgp global` против этого loopback API
-  с таймаутом три секунды. Незашифрованный доступ к API с узла сохраняется.
-  Проверьте probes, счётчики OOM и перезапуски при объявленных лимитах ресурсов;
-  `gobfd-qj0.8.2.8.7.1.4.1.1` сохраняет квалификацию работающего кластера.
+### 2.2 Startup-owned изменения
 
-Импорт образов Kubernetes и квалификация на работающем кластере не завершены.
-Эти манифесты и проверки являются примерами, а не принятым развёртыванием
-кластера. Готовность подтверждает доступ к управлению, но не установление
-сессий или сходимость маршрутов.
+Использовать согласованный maintenance interval с ожидаемым перерывом sessions. Сначала выполнить раздел 1. При включённой интеграции GoBGP сохранить administrative states и журнал, доказывающий, какие peers отключил GoBFD. Ownership map хранится в памяти и теряется при restart. Не перезапускать во время отказа без принятого решения восстановления peers.
 
-## Проверка быстрого переключения BGP
-
-Запуск универсальной FRR/GoBGP-интеграции:
-
-```bash
-make int-bgp-failover-up
-# При необходимости смотрите логи в отдельном терминале.
-# make int-bgp-failover-logs
+```sh title="gobgp-restart-baseline.sh"
+gobgp neighbor > "$backup_dir/gobgp-before.txt"
+journalctl -u gobfd --since '-1 hour' --no-pager > "$backup_dir/daemon-before.log"
+gobgp neighbor 192.0.2.2
 ```
 
-Полная документация примера:
-[`deployments/integrations/bgp-fast-failover/README.md`](../../deployments/integrations/bgp-fast-failover/README.md).
+Адрес соответствует примеру конфигурации; подставить согласованного соседа. Administrative Down сам по себе не доказывает ownership GoBFD. До enable сохранить отдельное намерение оператора.
 
-Исходные проверки:
-
-```bash
-podman exec gobgp-bgp-failover gobgp neighbor
-podman exec gobgp-bgp-failover gobgp global rib
-podman exec gobfd-bgp-failover gobfdctl session list
-podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd
+```sh title="restart-apply.sh"
+install -o root -g gobfd -m 0640 /etc/gobfd/gobfd.candidate.yml /etc/gobfd/gobfd.yml && \
+  cmp /etc/gobfd/gobfd.candidate.yml /etc/gobfd/gobfd.yml && \
+  systemctl restart gobfd
+systemctl show gobfd -p ActiveState -p SubState -p MainPID -p NRestarts
+journalctl -u gobfd --since '-2 min' --no-pager
+gobfdctl session list
 ```
 
-До имитации отказа подтвердите BFD Up и наличие маршрута `10.20.0.0/24`.
-Команды ниже показывают наблюдения; отдельная проверка с утверждениями об
-отзыве и восстановлении запускается через `make int-bgp-failover`.
+Продолжить после запуска нового процесса, сходимости и восстановления peers/consumers. `daemon-reload` нужен при изменении unit/drop-in; он не перечитывает YAML демона и не перезапускает процесс. Источники: [ExecReload](../../deployments/systemd/gobfd.service), [systemctl manual](https://www.freedesktop.org/software/systemd/man/latest/systemctl.html).
 
-Используйте существующий жизненный цикл на Go с проверками отказа.
-Сначала остановите отдельно запущенный пример, освободив фиксированные имена;
-тест создаёт собственную топологию и проверяет отзыв и восстановление маршрута:
+Если после BFD Up согласованный peer остаётся administratively disabled, доказать, что его отключил GoBFD и более поздняя операция не требует сохранить disable. Только после этого явно восстановить этот peer:
 
-```bash
-make int-bgp-failover-down
-make int-bgp-failover
+```sh title="gobgp-owned-peer-recovery.sh"
+gobgp neighbor 192.0.2.2 enable
+gobgp neighbor 192.0.2.2
+gobgp global rib
 ```
 
-Ожидаемый результат:
+Требуются Established, нужные routes и независимый forwarding probe. Не включать массово все disabled neighbors. Источники: [ownership в памяти](../../internal/gobgp/handler.go), [официальный GoBGP CLI](https://github.com/osrg/gobgp/blob/master/docs/sources/cli-operations.md).
 
-- BFD переходит из Up в Down до истечения обычного таймера удержания BGP.
-- GoBGP отключает затронутого пира.
-- Маршрут `10.20.0.0/24` возвращается в GoBGP RIB после BFD Up; пересылка трафика проверяется отдельно.
+## 3. Итоговая проверка
 
-## Проверка оповещений Prometheus
-
-Используйте изолированный хост: лаборатория публикует порты хоста 9090/3000 и
-использует стандартные учётные данные Grafana; см. [Интеграции](11-integrations.md#наблюдаемость).
-Ниже приведена локальная процедура; эта правка документации не фиксирует новый
-прогон. Команды просмотра требуют `curl`.
-
-Запустите стек наблюдаемости:
-
-```bash
-make int-observability-up
+```sh title="reload-postcheck.sh"
+gobfdctl --format json session list
+gobfdctl --format json capabilities
+systemctl show gobfd -p ActiveState -p SubState -p MainPID -p NRestarts
+journalctl -u gobfd --since '-2 min' --no-pager
 ```
 
-Проверьте цели сбора метрик и правила:
+Сравнить закрытые before/after inventories: peer/local/interface, discriminator, state, diagnostics, negotiated timers. Проверить writer/read-only policy и доступность metrics. Измерить consumer route/backend behavior и независимый forwarding/application probe; management access недостаточно.
 
-```bash
-curl -fsS http://localhost:9090/api/v1/targets
-curl -fsS http://localhost:9090/api/v1/rules
+| Gate | Требуемый результат | Evidence |
+| :--- | :--- | :--- |
+| Конфигурация | Принята нужная генерация, нет pending resources | Закрытая выдержка journal |
+| Сохранённая сессия | Ожидаемые identity/discriminator/negotiated state | Before/after JSON |
+| Consumer | Нужное route/backend действие и восстановление | Consumer readback |
+| Пересылка | Probe успешен на нужном пути | Внешний probe с временем |
+| Ресурсы | Нет неожиданного restart/OOM, соблюдён budget | Service/cgroup/host measurement |
+
+Отдельный BGP gate для управляемой disposable FRR topology:
+
+```sh
+make int-bgp-failover-testcontainers
 ```
 
-Для проверки используйте существующий жизненный цикл testcontainers на Go.
-Сначала остановите пример для просмотра. Тест создаёт собственную топологию,
-проверяет сбор метрик, вызывает отказ пути FRR, требует оповещение в состоянии
-`firing` и проверяет восстановление:
+Он проверяет withdrawal в пределах 20 секунд и restoration, не гарантирует 900 мс или production forwarding. Observability counterpart — `make int-observability-testcontainers` со scraping, alert firing и recovery. Не запускать пересекающиеся fixed-name manual labs одновременно. См. [квалификацию интеграций](11-integrations.md).
 
-```bash
-make int-observability-down
-make int-observability-testcontainers
+## 4. Откат
+
+Восстановить backup в том же shell; при потере shell подставить записанный закрытый backup path.
+
+```sh title="reload-rollback.sh"
+test -s "$backup_dir/gobfd.yml" && \
+  install -o root -g gobfd -m 0640 "$backup_dir/gobfd.yml" /etc/gobfd/gobfd.yml && \
+  cmp "$backup_dir/gobfd.yml" /etc/gobfd/gobfd.yml && \
+  systemctl reload gobfd
+journalctl -u gobfd --since '-2 min' --no-pager
+gobfdctl session list
 ```
 
-Код 0 требует восстановления BFD, работоспособности цели и состояния оповещения
-`inactive` после фазы отказа. Одного HTTP 200 недостаточно. Жизненный цикл
-сохраняет evidence и очищает собственные ресурсы. Поля ответа определяет Prometheus
-[alerts API](https://prometheus.io/docs/prometheus/latest/querying/api/#alerts).
+Для startup-owned rollback заменить reload на `systemctl restart gobfd` и повторить раздел 3. После binary/package upgrade сначала восстановить точный принятый artifact по его процедуре.
 
-Назначение оповещений:
+Rollback восстанавливает desired config, но не uptime, прежний discriminator после recreation, transient withdrawals или историю consumer. API claims могут требовать owner-specific provisioning после restart. Сохранить evidence/backup до закрытия приёмки; cleanup — отдельная согласованная операция.
 
-| Оповещение | Значение |
-|---|---|
-| `BFDNoActiveSessions` | Работающий экспортёр без активных Control-сессий, включая экспортёр, ещё не создавший сессий. |
-| `BFDSessionDownTransition` | Сессия перешла из Up в Down. |
-| `BFDSessionFlapping` | Сессия изменила состояние более 3 раз за 5 минут. |
-| `BFDAuthFailures` | Проверка аутентификации по RFC 5880 завершилась ошибкой. |
-| `BFDPacketDrops` | Выросло число отброшенных пакетов допущенных пиров; результаты разбора и демультиплексирования до сессии учитывает отдельный журнал доставки. |
+## 5. Типовые препятствия
 
-## Проверка пакетов
+Процедура не выполнена на production host. Ниже — определённые кодом failure checks, не вымышленные наблюдения инцидента.
 
-Проверяйте поведение на проводе по захваченным пакетам, а не только по логам:
+| Симптом | Причина | Проверка/исправление |
+| :--- | :--- | :--- |
+| Reload успешен, настройки прежние | Rejected candidate/startup-field change | Прочитать поля отказа; восстановить или назначить restart |
+| Сессия отсутствует | Pending address/interface/listener | Прочитать source receipt; восстановить binding и подтвердить сходимость |
+| CLI не пишет по TCP | Anonymous/read-only principal | Использовать разрешённый socket/mTLS |
+| BGP не действует | Несколько base sessions/native owner/API mismatch | Обеспечить одного owner и совместимый GoBGP |
+| Удаление оставляет wire | Остался чужой principal/config claim | Освободить только нужного владельца |
 
-```bash
-podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd \
-  -T fields \
-  -e frame.time_relative \
-  -e ip.src \
-  -e ip.dst \
-  -e udp.srcport \
-  -e udp.dstport \
-  -e ip.ttl \
-  -e bfd.sta \
-  -e bfd.detect_time_multiplier \
-  -E header=y \
-  -E separator=,
+## 6. Краткий справочник команд
+
+```sh title="reload-cheat-sheet.sh"
+# Read current session state.
+gobfdctl session list
+# Read preview maturity and local readiness.
+gobfdctl capabilities
+# Request reload of reloadable YAML.
+systemctl reload gobfd
+# Inspect daemon acceptance/rejection.
+journalctl -u gobfd --since '-2 min' --no-pager
+# Read service process state.
+systemctl show gobfd -p ActiveState -p MainPID -p NRestarts
 ```
 
-Ожидаемые значения для одного перехода:
+## Ссылки
 
-| Поле | Ожидаемо |
-|---|---|
-| UDP-порт назначения | 3784 |
-| UDP-порт источника | 49152-65535 |
-| TTL/Hop Limit | 255 |
-| Версия BFD | 1 |
-| Последовательность состояний | Down -> Init -> Up |
-
-## Публичные заметки по оборудованию
-
-Примеры GoBFD не зависят от производителя. Фрагменты конфигурации оборудования
-требуют первичной документации производителя.
-
-Опубликованные дополнительные заметки:
-
-- [Проверка BFD в Arista EOS](../../deployments/integrations/bgp-fast-failover/vendor-notes/arista-eos.md)
-
-Используйте первичные ссылки заметки для точного релиза и профиля оборудования.
-Дополнительный пример команды производителя не подтверждает аппаратную
-обработку, применение состояния Micro-BFD к участнику LAG или непрерывность
-пересылки в GoBFD.
-
-## Оставшиеся ограничения рабочей эксплуатации
-
-| Ограничение | Статус |
-|---|---|
-| Создание Echo и Micro-BFD через API/CLI | Предварительная реализация; квалификация транспорта, владельца и RFC остаётся отдельной |
-| Отдельные API/CLI создания VXLAN/Geneve | Не реализованы; используются явно включаемые декларативные профили |
-| Оверлейные backend ядра/OVS/OVN/Cilium/Calico/NSX помимо `userspace-udp` | Будущая работа |
-| OCI SBOM/provenance и контрольные суммы релиза | Процесс реализован; точный кандидат проверяется до публикации; шаг подписи не настроен |
-
----
-
-*Сверено с исходниками `dev`: 2026-10-25; команды проверены по коду, но не выполнялись.*
+- [Конфигурация](03-configuration.md): defaults, поля и restart boundary.
+- [Развёртывание](06-deployment.md): artifacts, sandbox и Kubernetes.
+- [Мониторинг](07-monitoring.md): знаменатели сигналов и alerts.
+- [Безопасность](15-security.md): identity, secrets и actuator permissions.
+- [BGP example](../../deployments/integrations/bgp-fast-failover/README.md): точная disposable topology/gate.
+- [Vendor references](reference/vendor-bfd.md): Cisco, Arista, Juniper, Huawei и platform boundaries.

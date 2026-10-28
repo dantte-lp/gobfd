@@ -1,39 +1,28 @@
-# Архитектурные решения (ADR)
+# Архитектурные решения
 
-Действующие записи решений GoBFD. Каждая запись фиксирует контекст,
-решение и последствия. Поле даты (`Date` в английском оригинале) устанавливается при переходе в
-статус `Accepted` и далее не меняется. Заменённые записи остаются на
-месте с прямой ссылкой на замену.
+ADR фиксируют архитектурную политику и последствия. Принятие ADR не подтверждает реализацию, runtime qualification либо stable delivery.
 
-## Формат
+## Контракт записи
 
-```markdown
-# ADR-NNNN: Название
+Сохраняйте ID, filename и дату принятия. Установите Date при переходе в Accepted; оставьте superseded record и ссылку на замену. Используйте Status, Date, контекст, решение, последствия и источники. Добавьте qualification field, когда policy acceptance и runtime acceptance различаются.
 
-| Поле | Значение |
-|---|---|
-| Статус | Одно из: Proposed, Accepted, Superseded by ADR-NNNN, Deprecated |
-| Дата | YYYY-MM-DD |
+Справочная часть содержит факты в настоящем времени со ссылками на исходники. Процедуры используют повелительное наклонение. Измерения оформляйте датированными receipts с их input; прежний receipt не подтверждает более поздний candidate.
 
-## Контекст
-## Решение
-## Последствия
-## Источники
-```
+## Указатель
 
-## Индекс
+| ID | Решение | Status |
+|:---|:---|:---|
+| [0001](0001-link-state-rtnetlink.md) | Мониторинг link/address через rtnetlink | Accepted |
+| [0002](0002-ovs-backend-ovsdb.md) | Native OVSDB LAG backend | Accepted |
+| [0003](0003-linux-advanced-bfd-applicability.md) | Linux ownership и applicability advanced modes | Accepted |
+| [0004](0004-overlay-backend-vocabulary.md) | Общий словарь overlay backends | Accepted |
+| [0005](0005-smallstep-management-certificates.md) | Внешнее Smallstep certificate renewal | Accepted |
+| [0006](0006-session-preserving-reload-policy.md) | Reload с сохранением сессии | Принятая policy; qualification отдельно |
+| [0007](0007-workload-phase-accounting.md) | Фазы workload и terminal accounting | Принятая policy; qualification отдельно |
+| [0008](0008-experimental-prerelease-boundary.md) | Experimental prerelease channel | Proposed; публикация не разрешена |
+| [0009](0009-echo-principal-claims.md) | Principal claims общего Echo wire | Принятая policy; local qualification отдельно |
+| [0010](0010-bfd-auth-value-ownership.md) | Value auth metadata с borrowed payload | Superseded by ADR-0011 |
+| [0011](0011-bfd-auth-inline-payload.md) | Inline authentication payload | Принятая policy; source/runtime qualification отдельно |
+| [0012](0012-owner-down-transition-witness.md) | Owner-monotonic Down evidence | Принятая policy; classification/release qualification отдельно |
 
-| ID | Заголовок | Статус |
-|---|---|---|
-| [0001](./0001-link-state-rtnetlink.md) | Мониторинг состояния линков через rtnetlink | Accepted |
-| [0002](./0002-ovs-backend-ovsdb.md) | Нативный OVSDB-клиент для OVS LAG backend | Accepted |
-| [0003](./0003-linux-advanced-bfd-applicability.md) | Применимость Micro-BFD, VXLAN BFD и Geneve BFD в Linux | Accepted |
-| [0004](./0004-overlay-backend-vocabulary.md) | Единый словарь overlay backend | Accepted |
-| [0005](./0005-smallstep-management-certificates.md) | Внешняя Smallstep CA для сертификатов управления | Accepted |
-| [0006](./0006-session-preserving-reload-policy.md) | Политика перезагрузки с сохранением сессии | Принятая политика; квалификация отдельно |
-| [0007](./0007-workload-phase-accounting.md) | Фазы нагрузки и конечный учёт пакетов | Принятая политика; квалификация отдельно |
-| [0008](./0008-experimental-prerelease-boundary.md) | Граница экспериментального prerelease | Proposed; публикация не разрешена |
-| [0009](./0009-echo-principal-claims.md) | Права субъектов на общую Echo-сессию | Принятая политика; локальная квалификация отдельно |
-| [0010](./0010-bfd-auth-value-ownership.md) | Владение метаданными аутентификации BFD по значению | Superseded by ADR-0011 |
-| [0011](./0011-bfd-auth-inline-payload.md) | Владение встроенным payload аутентификации BFD | Принятая политика; исходники и runtime квалифицируются отдельно |
-| [0012](./0012-owner-down-transition-witness.md) | Монотонные данные о переходе владельца в Down | Принятая политика; причинная классификация и релизная квалификация отдельно |
+Границы реализации и peers заданы в [архитектуре](../01-architecture.md), [RFC coverage](../08-rfc-compliance.md), [vendor references](../reference/vendor-bfd.md).

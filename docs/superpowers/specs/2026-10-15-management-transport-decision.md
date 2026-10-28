@@ -1,6 +1,6 @@
 # Management API transport and authentication decision
 
-Date: 2026-10-15. Beads: `gobfd-330` (parent `gobfd-qj0.8.2.3`). GitHub:
+Date: 2026-10-15. GitHub:
 [#87](https://github.com/dantte-lp/gobfd/issues/87). Status: decided by
 research; implements the approved
 [v1 design](./2026-08-18-gobfd-v1-production-contract-design.md) sections

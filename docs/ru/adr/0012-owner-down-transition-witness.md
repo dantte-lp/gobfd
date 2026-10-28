@@ -1,218 +1,84 @@
-# ADR-0012: Монотонные данные о переходе владельца в Down
+# ADR-0012: Монотонные данные owner о переходе в Down
 
 | Поле | Значение |
-|---|---|
-| Статус | Accepted |
-| Дата | 2026-10-26 |
+|:---|:---|
+| Status | Accepted |
+| Date | 2026-10-26 |
 
 ## Контекст
 
-RFC 5880 Section 6.8.4 определяет Detection Time независимо для каждого
-направления. Эталонная нагрузка разрешает Down только при намеренных blackhole.
-Классификация требует фактического перехода владельца и истории валидного
-приёма независимо от расписания пропусков peer.
-
-`LastPacketReceived` содержит Unix-время. `Timestamp` уведомления формируется
-после логирования и обновления метрик. Ни одно из этих полей не доказывает
-монотонную границу commit. Значение Go `time.Time` сохраняет монотонную часть
-при копировании; преобразование в UTC и сериализация её удаляют. Преобразование
-времени ядра в календарное не заменяет отсутствующие данные владельца.
+Directional Detection Time и actual owner transition нужны для оценки intentional blackhole. Unix-time LastPacketReceived и notification timestamp после logging/metrics не ограничивают commit. Serialization удаляет Go monotonic time; wall-clock conversion не создаёт отсутствующий witness.
 
 ## Решение
 
-Сохранять необязательное значение-наблюдение только для реального перехода
-`Up` в `Down`. Владелец копирует время последнего валидного приёма,
-согласованный Detection Time и фактический deadline при диспетчеризации
-таймера обнаружения до применения ожидающего изменения RX при прерывании
-таймеров. Прерывание сохраняет прежнее положение перед commit; затем вызов
-`commitObservation` ограничивается двумя монотонными метками. Значение связывается с полученным
-`ObservationVersion` и хранится под существующим mutex сессии. Публикация
-уведомления копирует его только при совпадении версии с явно публикуемым
-наблюдением. Публикации без соответствующей захваченной версии не имеют
-таких данных; отсутствие данных означает неизвестность.
+Optional value witness фиксируется только для actual Up→Down. Под existing observation mutex сохраняются last validated owner receive time, прежний negotiated D и actual dispatched detection deadline до применения pending RX при timer interruption. Порядок interruption сохраняется; два monotonic timestamps ограничивают `commitObservation`. Witness связывается с returned ObservationVersion.
 
-Интервал содержит локальный commit наблюдения. Логирование, доставка
-уведомления и задержки actuator происходят после него и не смещают границы.
-Последний валидный приём обозначает обработку владельцем после проверки
-пакета, а не поступление в ядро или конец обработки. Эти значения отделены
-от измерений задержки UDP-to-owner.
+Publication копирует witness только для exact version. Missing, stripped, inconsistent/mismatched evidence остаётся unknown. Bracket содержит local observation commit; logging/delivery/actuator delays следуют после него. ValidatedAt — owner processing после validation, а не kernel arrival либо конец processing.
 
-Значение проходит через существующий ограниченный журнал Down. Относительные
-интервалы общей фазы вычисляются, пока `time.Time` сохраняет монотонную часть;
-сериализуются числовые смещения и явная доступность данных. Отсутствующие,
-лишённые монотонной части, несогласованные метки и несовпадение версии
-сохраняют неизвестность. Требования полноты источника и подписчика действуют
-независимо.
+| Evidence | Правило хранения | Граница |
+|:---|:---|:---|
+| Down witness | Frozen cause, remote facts, endpoint, discriminator, version | Без SessionRef в lifetime array |
+| Relative phase | Вычислить до потери monotonic time.Time, сохранить offsets/availability | Unknown остаётся unknown |
+| Source journal | Все delivered witnesses через setup/drain | down_events/cutoff сохраняют notification-time meaning |
+| Remote discriminator | Старый scalar до timeout reset; ValidatedRemoteDiscriminator | Ноль — unknown; protocol reset order прежний |
 
-`down_witnesses` сохраняет каждый доставленный переход источника, включая
-запуск и drain. Существующие `down_events` и счётчики границы измерения
-сохраняют семантику времени уведомления. Задержанное уведомление не удаляет
-потенциально подходящие данные commit до причинной классификации окна.
+Источники: [Control commit](../../../internal/bfd/session_observation.go), [timer handler](../../../internal/bfd/session_loop.go), [witness projection](../../../test/internal/bfdload/down_witness_linux.go), [RFC 5880 §6.8.4](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.4).
 
-Сохраняются зафиксированные причина, удалённое наблюдение, endpoint,
-discriminator и версия наблюдения. Массив событий за весь прогон не хранит
-указатели `SessionRef`: иначе завершённые сессии оставались бы живыми при
-churn.
+### Incarnation identity
 
-Поле `incarnation` каждой строки связывает фиксированные `slot`, `generation`
-и полный `endpoint` манифеста с явными полями `known` и `error`. Активная таблица
-инициализируется из существующего inventory владельца после подписки и до
-начала churn. Проверяется согласованность ссылок уведомления и status, версий,
-tuple, типа, интерфейса и discriminator. Задержанное уведомление использует
-зафиксированную физическую идентичность, а не позднюю изменяемую версию наблюдения.
+Row связан с fixed manifest slot, generation и полным endpoint, с known/error. Inventory seed снимается после subscription до churn. Сопоставляются captured physical reference, version, tuple, type, interface, discriminator; delayed notification использует captured identity.
 
-Поколение слота увеличивает только совпадающий `Deleted` с последующим `Added`.
-Повторный `Added` для той же активной физической сессии идемпотентен. Отсутствие
-начальных данных, gaps, несогласованные уведомления жизненного цикла и
-переполнение поколения нарушают историю идентичности; поздние снимки её не
-восстанавливают. Удаление, нарушение истории и завершение потребителя освобождают
-активные ссылки. Фиксированный манифест и активная таблица ограничены числом
-сессий; строки за весь прогон хранят только скаляры, без нового ID ядра или
-наблюдателя на каждый пакет.
+Только matching Deleted→Added увеличивает generation. Repeated Added прежней active identity idempotent. Missing seed, GAP, unmatched lifecycle, inconsistent history либо overflow необратимо нарушают identity; последующий snapshot её не восстанавливает. Active refs удаляются при deletion/invalidation/collector stop. Manifest/active table ограничены session count; lifetime rows содержат scalars без нового core ID/per-packet observer.
 
-`down_journal.incarnations_complete` требует начальных данных, непрерывной
-истории идентичности и нормального закрытия подписки. `incarnation_error`
-регистрирует ошибку независимо от существующей сверки исходных счётчиков
-`complete`. Классификация должна требовать обе проверки и известную идентичность
-каждой подходящей строки. Ни один флаг отдельно не доказывает причинность или
-приёмку.
+`incarnations_complete` требует seeded uninterrupted history и normal closure; `incarnation_error` независим от source-count `complete`. Classification требует оба признака и known identity каждого eligible row. Источник: [incarnation tracking](../../../test/internal/bfdload/down_incarnation_linux.go).
 
-### Условная классификация управляемой модели (2026-10-27)
+### Conditional Control classification
 
-Истечение таймера очищает wire discriminator peer перед commit FSM.
-Предыдущее скалярное значение проходит через существующее наблюдение таймера в
-`ValidatedRemoteDiscriminator`, затем в `validated_remote_discriminator` той же
-записи с привязкой к версии. Ноль сохраняет неизвестность. Порядок очистки
-discriminator и протокольных действий сохраняется.
+Actual direction-specific blackhole windows содержат wire-identity segments, omission offsets и decision sequences. TX valid означает codec verification несостоявшегося packet; RX discard предшествует acceptance и не квалифицирован. Packet/auth slices/retired sessions не сохраняются. Bounds: 256 windows/peer, 16 segments и 128 combined directional omission times/window. Overflow увеличивает omitted evidence и запрещает completion, включая cancellation races.
 
-Фактические окна blackhole хранят ограниченные сегменты wire identity по
-направлениям, каждое смещение пропуска и последовательность решений. TX `valid`
-означает только проверку codec для неотправленного пакета. RX отбрасывается до
-acceptance и остаётся неквалифицированным. Срезы packet/Auth и ссылки на
-завершённые сессии не сохраняются. Лимиты: 256 окон каждого peer, не более
-16 сегментов идентичности и суммарно 128 временных точек TX/RX каждого окна.
-Переполнение увеличивает учёт пропусков и запрещает completion, даже если
-отмена теряет ошибку worker.
+Reports связываются с actual boot ID, private control-directory device/inode, native start и time namespace. Offset x с bracket B означает [x,x+B]; commit — [commit_start,commit_end+Bowner]. Используются checked arithmetic и bracket_known, включая measured zero. Пересечение boundaries остаётся unresolved; delivery time не задаёт measurement denominator.
 
-Оба отчёта связываются с фактическими boot ID, device/inode приватного каталога
-control, native start и time namespace. Смещение `x` с conversion bracket `B`
-обозначает условный интервал `[x,x+B]`; commit владельца обозначает
-`[commit_start_ns,commit_end_ns+Bowner]`. Арифметика проверяется. Пересечение
-commit с границей измерения или отказа остаётся unresolved; время доставки
-уведомления не определяет знаменатель измерения.
-Явный флаг `bracket_known` отличает измеренный нулевой conversion bracket от
-отсутствующих данных.
+Требуются settled source counts, scalar incarnation history, complete omissions и consistent TX schedule/write results/RX dispositions. Directional omission sequence возрастает между segments/windows и ограничена actual Scheduled/Read totals; interwindow gaps допустимы. Invalid arithmetic/accounting оставляет Down unresolved.
 
-`ClassifyDowns` независимо проверяет сверку source counters, историю скалярных
-incarnation и полноту пропусков. Несогласованные суммы планирования TX,
-результатов записи и исходов RX отклоняются; сложение проверяется на переполнение.
-Sequence пропусков каждого направления ограничен фактическим Scheduled/Read
-и возрастает между сегментами и окнами, с допустимыми межоконными разрывами.
-Некорректный учёт оставляет Down unresolved. Условный `intentional` требует timeout cause,
-предыдущего remote Up, фактического старого deadline, полного commit внутри
-окна измерения/отказа и совпадающих валидных пакетов Up. Последовательные
-фактические решения TX должны покрыть старую модель receive-to-deadline:
-не меньше согласованного multiplier, первая попытка не позже одного
-согласованного интервала после validated receive, без большего фактического
-промежутка попыток, последний интервал покрывает actual due. Старый
-направленный Detection Time совпадает с их wire inputs и фиксированным
-интервалом RX нагрузки. Повтор discriminator, неизвестная фаза или идентичность,
-пересечение границ, недостаточный прогресс и Down от peer остаются unresolved.
-Один пропуск или совпадение с плановым окном не устанавливают намеренность.
-Известная дополнительная terminal loss, сброс счётчика или отсутствие commit
-progress в любом месте измерения также запрещают положительную атрибуцию:
-суммарные снимки не устанавливают точное время этих отказов.
+Intentional verdict требует timeout cause, prior remote Up, old actual deadline, commit целиком внутри measurement/fault window и matching valid Up packets. Минимум negotiated multiplier consecutive actual TX decisions покрывают receive→deadline: первая в течение interval, каждый gap не больше interval, final interval покрывает due. Old D совпадает с wire inputs и fixed workload RX.
 
-Положительный вердикт предполагает, что неизменный транспорт доставил бы
-неотправленные пакеты владельцу до due и независимый скрытый отказ не совпал
-по времени. Предпосылки сериализуются явно. `passing` относится только к этой
-условной модели; любой false/unresolved подходящий Down запрещает его.
-Полная погрешность времени остаётся неизвестной, `reference_qualified` остаётся
-false. Только для fixture вариант `--tx-only-blackhole` проверяет этот предикат
-отдельно от сохранённого двунаправленного stress-теста; именованные профили
-квалификации его отклоняют.
+Reused discriminator, unknown phase/identity, boundary overlap, отсутствие progress и peer-originated Down остаются unresolved. Одна omission/window overlap недостаточна. Дополнительная known terminal loss, counter reset либо отсутствие commit progress запрещают positive attribution; aggregate loss counters не задают exact fault time.
 
-### Данные Echo-владельца (2026-10-27)
+Positive attribution предполагает доставку omitted packets неизменным transport до due и отсутствие independent hidden fault. Эти assumptions сериализуются. Passing относится только к conditional model; false/unresolved eligible Down запрещает pass. Total uncertainty unknown, reference_qualified false. Fixture-only TX-only blackhole проверяет predicate отдельно; named profiles запрещают selector.
 
-Использовать `TransitionTiming` для фактического commit Echo `Up` в `Down`
-под существующим mutex наблюдений Echo, с той же проверкой версии при публикации.
-В этом preview-пути `ValidatedAt` обозначает последний возврат, обработанный
-Echo-владельцем; поле не доказывает проверку возврата или аутентификацию по
-RFC 9747. Detection Time задан локально. Копировать фактический deadline
-диспетчеризуемого `TimerEchoDetection`; прямой вызов обработчика без такой
-диспетчеризации оставляет deadline неизвестным. Discriminator peer остаётся
-нулевым, удалённое состояние неизвестным: возврат Echo не является Control FSM peer.
+Источники: [classifier](../../../test/internal/bfdload/down_classification_linux.go), [regressions](../../../test/internal/bfdload/down_classification_linux_test.go).
 
-Захват не добавляет callback при приёме, wire-поле или отдельного наблюдателя.
-Сохраняются существующие FSM, forwarding, receiver и закрепление потоков Echo.
-Предикаты remote Up и discriminator потребителя Control не квалифицируют Echo.
-Фактический Echo UDP-драйвер сохраняет независимые возвраты и типизированную
-идентичность экземпляра. Типизированный численный и причинный потребитель
-использует модель ниже. Native qualification остаётся обязательной в Beads
-`gobfd-qj0.8.2.1.7.1`. Эти данные сами по себе не
-квалифицируют Echo-нагрузку и не разрешают интеграцию изолированного кандидата unpin.
+### Echo owner witness
 
-### Интеграция исходников по поручению владельца (2026-10-28)
+TransitionTiming используется под Echo observation mutex/version fence для actual Up→Down. ValidatedAt означает last return, обработанный preview owner, без заявления RFC 9747 validation/authentication. D задаётся локально. Копируется actual TimerEchoDetection deadline; direct handler без dispatch оставляет его unknown. Remote discriminator нулевой, remote state unknown.
 
-Поручение владельца объединить локальные ветки отдельно разрешает интеграцию
-исходников unpin. Датированная квалификация witness выше сохраняет свою
-исходную область. До стабильной приёмки по-прежнему необходимы native A/B
-на 1 000 Control/Echo-сессиях и критерии ресурсов/таймеров из
-`gobfd-qj0.8.2.1.7` и `gobfd-qj0.8.2.1.7.1`.
-Сохраняются консервативный PID budget ADR-0007 и закрепление потока workers,
-измеряющих `CLOCK_THREAD_CPUTIME_ID`. Сопоставимая пара с общими security pins
-фиксируется при фактическом admission runner; изменения документации не
-требуют пересоздания этой пары.
+Capture не добавляет callback/wire field/observer и сохраняет Echo FSM, forwarding, receiver и scheduling policy. Control remote-Up/discriminator predicates не квалифицируют Echo. Actual Echo UDP workload требует независимых returns и typed incarnation identity.
 
-### Классификация старого deadline Echo (2026-10-27)
+Local consolidation instruction от 2026-10-28 отдельно разрешает integration с удалением permanent Control/Echo owner thread pins. Witness не квалифицирует это изменение. Native 1000-session Control/Echo A/B, resource/timer criteria и final stable gates обязательны. PID headroom ADR-0007 и pressure-worker pin для CLOCK_THREAD_CPUTIME_ID сохраняются. Comparable secured inputs связываются при actual runner admission; documentation-only commits не требуют новых пар.
 
-Критерий Control сохраняется. Для Echo требуются локально заданный
-`D = interval * detect_multiplier` с проверкой целочисленного переполнения,
-фактический старый deadline `d`, последний принятый возврат `r`, совпадающие
-экземпляр/версия и `DiagEchoFailed`. Удалённые Control state и discriminator
-остаются неизвестными.
+Источники: [Echo owner](../../../internal/bfd/echo.go), [Echo observations](../../../internal/bfd/echo_observation.go), [Echo workload](../../../test/internal/bfdload/owner_echo_linux.go).
 
-Объединять RX- и return-TX-пропуски по фактическим `received_sequences`, а не по
-разным счётчикам решений. Требовать уникальных возрастающих индексов между
-окнами и неубывающих времён входа. В выбранном окне требуются не менее
-`detect_multiplier` последовательных индексов принятых пакетов с проверенной
-wire-идентичностью поколения владельца. Каждое выбранное время `p` должно
-удовлетворять `p > r + owner_bracket` и `p + peer_bracket < d`. Весь commit
-владельца должен следовать после `d` и находиться внутри того же blackhole-окна.
-Пределы журнала сохраняются; сортировка ограниченного набора ссылок на входы
-не изменяет порядок исходных отчётов.
+### Echo old-deadline classification
 
-При явно записанном допущении, что эти фактически удержанные входы вернулись бы
-и были обработаны до `d`, они сбросили бы старый таймер. Условный вердикт относится
-к конкретному старому deadline, а не к отсутствию любого более позднего timeout
-в контрфактическом выполнении. Фактические входы Echo не требуют предполагать
-непрерывное расписание TX peer; Control сохраняет критерий покрытия разрывов
-интервала. Отсутствующие или повторные индексы, пересечения границ, недостаточное
-число входов, несовпадение wire-параметров либо наблюдаемые независимые потери
-дают unresolved и incomplete при оценке профиля Echo. Kernel drops пира или
-некорректные drop samples также блокируют квалификацию: счётчики за всё время
-без фазовой привязки нельзя отнести к постороннему интервалу. Программный
-возвратчик не квалифицирует forwarding plane или
-аутентификацию RFC 9747.
+Control predicate сохраняется. Echo требует checked `D=interval*detect_multiplier`, actual old deadline d, last accepted return r, matching incarnation/version и diagnostic EchoFailed. Remote Control state/discriminator unknown.
 
-## Следствия
+RX/return-TX omissions объединяются по actual received_sequences, а не отдельным decision counters. Read indices уникальны/возрастают между windows, input times не убывают. В выбранном window минимум detect_multiplier consecutive received indices должны совпадать с owner wire generation. Каждый p удовлетворяет `p>r+owner_bracket` и `p+peer_bracket<d`. Полный commit bracket следует после d внутри того же window. Journal bounds прежние; сортировка bounded references не меняет reports.
 
-Значение добавляет ограниченное хранилище каждой сессии и уведомлению.
-Захват требует двух чтений часов и одного обновления под mutex на реальный
-переход в Down без callback на каждый пакет, выделений в куче или изменения
-wire. До приёмки исходников требуются измерения аллокаций и размера
-уведомления; решение не заявляет улучшения RSS или задержки.
+Явное assumption: выбранные withheld inputs вернулись бы и были committed до old deadline. Вывод относится к нему, а не любому later counterfactual timeout. Actual Echo inputs не требуют вымышленного непрерывного TX schedule.
 
-Данные сами по себе не являются результатом классификации. Независимый
-потребитель требует фактических пропусков peer, идентичности экземпляра сессии,
-границ общей фазы и условной причинной проверки. Решение не
-устанавливает полную неопределённость меток ядра и не квалифицирует
-эталонную, инженерную, нативную wire-нагрузку или 24-часовой релизный прогон.
+Missing/replayed read indices, boundary intersection, мало inputs, mismatch wire inputs и independent observed losses остаются unresolved и делают Echo assessment incomplete. Peer kernel drops/invalid samples блокируют qualification; unphased lifetime counters не относятся к произвольному window. Software returner не квалифицирует forwarding plane либо RFC 9747 authentication.
+
+Источники: [Echo omission model](../../../test/internal/bfdload/echo_omission_linux.go), [classification tests](../../../test/internal/bfdload/echo_classification_linux_test.go), [RFC 9747 §2](https://www.rfc-editor.org/rfc/rfc9747.html#section-2).
+
+## Последствия
+
+Witness storage ограничено на session/notification. Capture использует два clock reads и mutex update на actual Down без per-packet callback/wire change. Source acceptance требует allocation/notification-size measurements; решение не заявляет RSS/latency improvement.
+
+Witness сам по себе не causal verdict. Independent peer omissions, incarnation identity, phase brackets и conditional validation обязательны. Native environment/clocks, total kernel uncertainty, reference/engineering workloads, final wire и 24-hour release qualification отдельны.
 
 ## Источники
 
-- [RFC 5880 Section 6.8.4](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.4).
-- [RFC 9747 Section 2](https://www.rfc-editor.org/rfc/rfc9747.html#section-2).
-- [Семантика времени закреплённого Go toolchain](https://github.com/golang/go/blob/go1.27.3/src/time/time.go).
-- Beads `gobfd-qj0.8.2.1.6.3.4.3.6.2`, `gobfd-qj0.8.2.1.6.3.4.3.6.2.1`
-  и `gobfd-qj0.8.2.1.6.3.4.3.6.2.2`.
+- [Workload phase/accounting contract](0007-workload-phase-accounting.md).
+- [Witness tests](../../../test/internal/bfdload/down_witness_linux_test.go).
+- [Incarnation tests](../../../test/internal/bfdload/down_incarnation_linux_test.go).
+- [Echo assessment tests](../../../test/internal/bfdload/assessment_echo_linux_test.go).

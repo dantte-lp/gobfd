@@ -1,487 +1,120 @@
 # Мониторинг
 
-![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?style=for-the-badge&logo=prometheus)
-![Grafana](https://img.shields.io/badge/Grafana-Dashboard-F46800?style=for-the-badge&logo=grafana)
-![slog](https://img.shields.io/badge/log%2Fslog-Structured-00ADD8?style=for-the-badge)
-![FlightRecorder](https://img.shields.io/badge/Flight_Recorder-Go_1.27-34a853?style=for-the-badge)
+Default endpoint — `http://127.0.0.1:9100/metrics` без аутентификации. Открывать вне loopback только с явной сетевой политикой. Metrics listener не содержит debug handlers. Источники: [config](../../internal/config/config.go), [collector](../../internal/metrics/collector.go).
 
-> Метрики Prometheus, дашборд Grafana, структурированное логирование и runtime flight recorder для наблюдаемости в production.
+## Границы сигналов
 
----
+`gobfd_bfd_sessions` считает зарегистрированные Control и Echo, включая типы Control Micro-BFD, VXLAN, Geneve. Регистрация не означает Up. Echo создаёт собственную series `session_type` и добавляет packet/transition increments в общие families. Peer/local packet counters не имеют discriminator/interface/type: одинаковые пары адресов агрегируются между wires. Для отдельной сессии использовать API snapshot. Источники: [регистрация Echo](../../internal/bfd/manager_echo.go), [прямое подключение collector](../../cmd/gobfd/factory.go).
 
-## Содержание
+```mermaid
+flowchart LR
+  rx["Приём UDP"]:::srv --> parser["Разбор и demux"]:::srv
+  parser --> queue["Очередь допуска"]:::srv
+  queue --> owner["Владелец сессии"]:::srv
+  owner -.-> watch["Revisioned Watch"]:::mgt
+  owner --> action["Управление GoBGP"]:::brt
+  rx -.-> metrics["Сбор метрик"]:::mgt
+  parser -.-> metrics
+  queue -.-> metrics
+  owner -.-> metrics
+  classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
+  classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
+  classDef brt fill:#fff3e0,stroke:#bf360c,color:#000
+```
 
-- [Метрики Prometheus](#метрики-prometheus)
-- [Дашборд Grafana](#дашборд-grafana)
-- [Правила алертинга](#правила-алертинга)
-- [Структурированное логирование](#структурированное-логирование)
-- [Flight Recorder](#flight-recorder)
-- [Точки доступа](#точки-доступа)
+## Справочник метрик
 
-### Метрики Prometheus
+| Метрика | Тип | Labels | Значение |
+| :--- | :--- | :--- | :--- |
+| `gobfd_bfd_sessions` | gauge | `peer_addr,local_addr,session_type` | Зарегистрированные Control и Echo |
+| `gobfd_bfd_packets_sent_total` | counter | `peer_addr,local_addr` | Успешные отправки Control/Echo |
+| `gobfd_bfd_packets_received_total` | counter | `peer_addr,local_addr` | Проверенные владельцем Control/Echo receives |
+| `gobfd_bfd_packets_dropped_total` | counter | `peer_addr,local_addr` | Отказы/abandonment допущенной identity |
+| `gobfd_bfd_state_transitions_total` | counter | `peer_addr,local_addr,from_state,to_state` | Переходы FSM |
+| `gobfd_bfd_auth_failures_total` | counter | `peer_addr,local_addr` | Подмножество auth refusals |
+| `gobfd_bfd_delivery_outcomes_total` | counter | `source,outcome` | Фиксированные решения pipeline/notification |
+| `gobfd_bfd_control_rx_timing_total` | counter | `outcome` | Owner commits по достоверности времени |
+| `gobfd_bfd_control_rx_commit_seconds` | histogram | нет | Software kernel RX до завершения owner |
+| `gobfd_bfd_timer_events_total` | counter | `timer,event` | Dispatch и terminal timer observations |
+| `gobfd_bfd_timer_delay_seconds` | histogram | `timer,stage` | Достоверная dispatch/effect delay |
+| `gobfd_bfd_socket_drop_samples_total` | counter | `kind,outcome` | Достоверность socket-drop sample |
+| `gobfd_bfd_socket_drops_total` | counter | `kind` | Наблюдаемые упорядоченные drop increments |
+| `gobfd_gobgp_rpc_errors_total` | counter | `rpc` | Ошибки GoBGP API/preflight |
+| `gobfd_gobgp_endpoint_compatible` | gauge | нет | 1 после compatibility preflight |
+| `gobfd_gobgp_dampening_penalty` | gauge | `peer_addr` | Decayed penalty при scrape |
+| `gobfd_gobgp_dampening_suppressed` | gauge | `peer_addr` | Восстановление удерживается |
+| `gobfd_gobgp_dampening_suppression_deadline_seconds` | gauge | `peer_addr` | Максимальный Unix deadline подавления, иначе 0 |
+| `gobfd_gobgp_pending_action` | gauge | `peer_addr,action` | Неприменённый `up`/`down` intent |
+| `gobfd_gobgp_pending_action_deadline_seconds` | gauge | `peer_addr,action` | Unix deadline retry/recheck, иначе 0 |
 
-GoBFD предоставляет метрики Prometheus по настроенному адресу (по умолчанию `127.0.0.1:9100/metrics`). Метрики используют namespace `gobfd_`.
+Источники: [base](../../internal/metrics/collector.go), [проверка/учёт Control](../../internal/bfd/session_packet.go), [принятые Echo returns](../../internal/bfd/echo.go), [receive timing](../../internal/metrics/receive_timing.go), [таймеры](../../internal/metrics/timer.go), [socket drops](../../internal/metrics/socket_drops.go), [GoBGP](../../internal/metrics/gobgp.go).
 
-Для Control-сессии `gobfd_bfd_packets_dropped_total` учитывает отказы полной
-или закрытой очереди, нулевой TX и отказы аутентификации у владельца сессии,
-а также незавершённую обработку при остановке. `gobfd_bfd_auth_failures_total`
-составляет подмножество потерь, связанных с аутентификацией. Отказы парсера,
-проверки TTL, неизвестного пира и unsolicited до создания сессии входят только
-в реестр `gobfd_bfd_delivery_outcomes_total{source,outcome}`, накопленный за время
-жизни процесса, без меток пира. Все поддерживаемые пары заранее имеют нулевую
-серию. Каждая стадия имеет отдельный знаменатель: `queued` не подтверждает
-`committed` у владельца, сумма стадий не является количеством пакетов.
-`read_error` не доказывает потерю пакета. ListSessions возвращает те же
-фиксированные строки `delivery_counters`, в том числе после удаления последней
-сессии; ревизия не охватывает атомарное чтение счётчиков. Protobuf JSON может
-опускать нулевое значение счётчика.
-Источник `demux` учитывает отказы после выбора сессии: `scope_mismatch` для
-пакета другого транспортного класса (multihop listener 4784 против single-hop
-сессии и наоборот) или другого интерфейса приёма single-hop сессии;
-`ttl_rejected` для multihop пакета с TTL ниже `255 - multihop_max_hops` или
-single-hop пакета с TTL, отличным от 255.
+### Ledger доставки
 
-Echo использует отдельные источники `echo_read`, `echo_parse`, `echo_ttl`,
-`echo_demux`, `echo_admission` и `echo_owner`. Нулевой дискриминатор учитывается
-один раз как отказ парсера без попытки демультиплексирования. Обычное чтение
-из закрытого сокета или при отмене не считается ошибкой чтения. Отказы очереди
-Echo и незавершённая обработка у владельца также входят в существующую метрику
-потерь пакетов для принятой идентичности.
+Отказы parser/TTL/unknown-peer не создают peer labels. Process-lifetime ledger заранее создаёт поддерживаемые source/outcome pairs и сохраняется после удаления последней сессии. Знаменатели стадий различаются: `queued` не равно `committed`; сумма стадий не измеряет packet loss.
 
-`control_notification`, `unsolicited_notification` и `echo_notification`
-учитывают каждую фактическую попытку постановки исходного события в очередь.
-`notification_dispatch` различает принятые, устаревшие и оставшиеся без обработки
-при остановке исходные события. `watch_recipient`
-учитывает исходное событие для каждого получателя как `queued` или `gapped`,
-включая повторное переполнение при уже поставленном единственном маркере GAP.
-Маркер не считается успешно доставленным исходным событием.
-`legacy_notification` учитывает попытки постановки и отказы полной очереди;
-пропущенные Added, закрытые каналы и получатели nil не являются попытками.
-Потеря уведомления не увеличивает счётчики потерь Control-пакетов.
-Необработанные исходные события при остановке учитываются после завершения всех
-производителей и рабочих горутин Manager. Наблюдения ядра `SO_RXQ_OVFL`
-используют отдельные метрики потерь сокетов ниже; реестр не квалифицирует
-транспорт или безопасность Echo. Жизненный цикл Echo Watch реализован отдельно
-в `gobfd-qj0.8.2.1.3.10`: зафиксированные строки содержат фактические счётчики и
-временные метки Echo без увеличения версии наблюдения только из-за счётчиков.
-Поля потерь и аутентификации, которыми Echo не владеет, равны нулю; они не
-заменяют реестр доставки и не доказывают отсутствие потерь. Исходное событие
-`queue_full` публичного Control/Echo делает активные подписки с ревизиями
-недействительными через объединённый GAP и повторное получение полного снимка.
-Маркеры восстановления не добавляют исходов `notification_dispatch`,
-`watch_recipient` или `legacy_notification`; каждое исходное событие, поставленное
-в очередь, сохраняет один результат: принято, устарело или осталось без обработки.
-Приватные ошибки unsolicited служат только очистке. Legacy-доставка остаётся
-без гарантии; отмена диспетчеризации не обещает перезапуск или продолжение.
+Control demux выдаёт `scope_mismatch` для другого transport/interface и `ttl_rejected` при отказе hop policy. Echo использует `echo_read`, `echo_parse`, `echo_ttl`, `echo_demux`, `echo_admission`, `echo_owner`. Нулевой Echo discriminator отклоняет parser. Обычные canceled/closed reads не являются read errors.
 
-| Метрика | Тип | Метки | Описание |
-|---|---|---|---|
-| `gobfd_bfd_sessions` | Gauge | `peer_addr`, `local_addr`, `session_type` | Текущее количество активных BFD-сессий |
-| `gobfd_bfd_packets_sent_total` | Counter | `peer_addr`, `local_addr` | Отправленные BFD Control и Echo пакеты |
-| `gobfd_bfd_packets_received_total` | Counter | `peer_addr`, `local_addr` | Полученные BFD Control и Echo пакеты |
-| `gobfd_bfd_packets_dropped_total` | Counter | `peer_addr`, `local_addr` | Отброшенные пакеты (ошибки валидации/буфера) |
-| `gobfd_bfd_state_transitions_total` | Counter | `peer_addr`, `local_addr`, `from_state`, `to_state` | Переходы состояний FSM |
-| `gobfd_bfd_auth_failures_total` | Counter | `peer_addr`, `local_addr` | Ошибки аутентификации |
-| `gobfd_bfd_control_rx_timing_total` | Counter | `outcome` | Завершённые Control-пакеты по шести фиксированным исходам валидности часов |
-| `gobfd_bfd_control_rx_commit_seconds` | Histogram | нет | От программной метки приёма ядра до штатного завершения у владельца; только валидные измерения |
-| `gobfd_bfd_timer_events_total` | Counter | `timer`, `event` | Фиксированные исходы диспетчеризации, эффекта, отсутствия эффекта и невалидного времени Control/Echo |
-| `gobfd_bfd_timer_delay_seconds` | Histogram | `timer`, `stage` | От запланированного срабатывания таймера до диспетчеризации или квалифицированного эффекта у владельца; только валидные измерения |
-| `gobfd_bfd_socket_drop_samples_total` | Counter | `kind`, `outcome` | Прочитанные датаграммы по фиксированным исходам валидности измерений потерь сокетов Control/Echo |
-| `gobfd_bfd_socket_drops_total` | Counter | `kind` | Наблюдаемые прямые приращения потерь сокета в одной эпохе счётчика |
-| `gobfd_bfd_delivery_outcomes_total` | Counter | `source`, `outcome` | Фиксированные решения стадий Control, Echo и уведомлений, сохраняемые после удаления сессии |
-| `gobfd_gobgp_rpc_errors_total` | Counter | `rpc` | Неудачные вызовы API GoBGP: `DisablePeer`, `EnablePeer`, `CheckCompatibility` (preflight) |
-| `gobfd_gobgp_endpoint_compatible` | Gauge | -- | 1 после успешного preflight совместимости с GoBGP v4, иначе 0 |
-| `gobfd_gobgp_dampening_penalty` | Gauge | `peer_addr` | Эффективный flap penalty с decay на момент scrape |
-| `gobfd_gobgp_dampening_suppressed` | Gauge | `peer_addr` | 1, если dampening ещё удерживает восстановление |
-| `gobfd_gobgp_dampening_suppression_deadline_seconds` | Gauge | `peer_addr` | Unix timestamp максимальной границы текущего suppression; 0 без suppression |
-| `gobfd_gobgp_pending_action` | Gauge | `peer_addr`, `action` | 1 для неприменённого желаемого действия (`up` или `down`); иначе 0 |
-| `gobfd_gobgp_pending_action_deadline_seconds` | Gauge | `peer_addr`, `action` | Unix timestamp следующего retry или suppression recheck; 0 при отсутствии действия |
+Notification attempts используют `control_notification`, `unsolicited_notification`, `echo_notification`. Dispatch различает accepted, stale, shutdown-abandoned raw events. `watch_recipient` отмечает исходное событие queued/gapped; coalesced GAP marker не является дополнительным исходным событием. Переполнение публичной Control/Echo raw queue инвалидирует revisioned subscribers, которым нужен resnapshot. Legacy delivery — best effort. Notification loss не увеличивает packet-drop counters. ListSessions выдаёт sampled `delivery_counters`; revision snapshot не версионирует их атомарно. Источник: [delivery model](../../internal/bfd/delivery.go).
 
-`gobfd_bfd_sessions` учитывает зарегистрированные Control-сессии, включая
-Micro-BFD, VXLAN и Geneve; отдельный реестр Echo в него не входит. Значение
-не означает, что сессии находятся в Up. При этом Echo увеличивает счётчики
-передачи, приёма, потерь и переходов в тех же семействах метрик. У счётчиков
-нет меток интерфейса, дискриминатора или типа сессии, поэтому одинаковые пары
-peer/local суммируются между физическими сессиями и режимами. Для отдельных
-сессий используйте статус API, а для различения стадий Control и Echo —
-фиксированный реестр доставки. См. [`Collector`](../../internal/metrics/collector.go),
-[`manager_echo.go`](../../internal/bfd/manager_echo.go) и
-[`echo.go`](../../internal/bfd/echo.go).
+### Время и socket loss
 
-Исходы измерения времени: `valid`, `unavailable`, `invalid`, `before_calibration`,
-`future`, `clock_step`. Отсутствие измерения не означает нулевую задержку.
-Отклонённые и поставленные в очередь пакеты не подтверждают завершение обработки
-у владельца. Пути overlay и legacy без временных меток ядра остаются недоступными
-для измерений; отзыв калибровки сохраняется до пересоздания listener.
-См. [границу измерения](14-performance-analysis.md#граница-телеметрии-приёма-linux).
+| Наблюдение | Фиксированные значения | Значение |
+| :--- | :--- | :--- |
+| Receive outcome | `valid`, `unavailable`, `invalid`, `before_calibration`, `future`, `clock_step` | Histogram принимает только valid commits |
+| Timer | `control_tx`, `control_detection`, `echo_tx`, `echo_detection` | Наблюдения владельцев |
+| Timer event | `dispatch`, `effect`, `no_effect`, `invalid_dispatch`, `invalid_effect` | Histogram содержит valid dispatch/effect |
+| Socket kind | `control`, `echo` | Раздельные потоки consumed datagrams |
+| Socket outcome | `initial`, `sample`, `unavailable`, `invalid`, `ambiguous` | Только упорядоченные samples дают drop delta |
 
-Виды таймеров: `control_tx`, `control_detection`, `echo_tx`, `echo_detection`.
-Фиксированные события: `dispatch`, `effect`, `no_effect`, `invalid_dispatch`,
-`invalid_effect`. Гистограмма содержит только валидные стадии `dispatch` и
-`effect`. Эффект TX означает успешный возврат транспорта, а не доставку пиру.
-Эффект обнаружения — публикация Down по тайм-ауту до записи в лог, уведомлений
-и отправки объявления. Подавленная или неуспешная отправка и обнаружение при
-уже установленном Down/AdminDown дают `no_effect`; panic или незавершённый
-обработчик могут оставить диспетчеризацию без конечного события.
-Непосредственные действия вне таймерных событий сюда не входят.
-См. [границу таймерных измерений](14-performance-analysis.md#граница-таймерных-измерений).
+Нет sample не означает нулевую latency/loss. Overlay/legacy без kernel timestamps возвращает unavailable. Clock revocation действует до пересоздания listener. TX effect означает успешный transport return, не доставку соседу. Detection effect — публикация timeout-caused Down до журнала/notifications. Panic/in-flight handler может оставить dispatch без terminal observation. Новый owned socket имеет известный ноль; existing/custom socket устанавливает baseline первым sample без вывода о прошлых потерях. См. [границы измерений](14-performance-analysis.md).
 
-Виды сокетов для измерения потерь: `control` и `echo`; исходы: `initial`,
-`sample`, `unavailable`, `invalid`, `ambiguous`. Новые сокеты демона используют
-известную нулевую базу момента создания. Существующие или пользовательские
-транспорты устанавливают базу по первому известному измерению; потери до него
-не вычисляются. Отклонённые датаграммы сохраняют телеметрию, обычные ошибки
-ввода-вывода и тайм-ауты не дают измерения. Недоступные и невалидные данные не
-доказывают отсутствие потерь. Переполнение, сброс, порядок и конечные маркеры
-описаны в [границе измерений потерь сокета](14-performance-analysis.md#граница-измерений-потерь-сокета).
+### Состояние GoBGP
 
-Регистрация Control-сессии публикует четыре нулевых счётчика пакетов и
-аутентификации и сохраняет их дескрипторы для активных пар peer/local.
-Совместные регистрации удерживают дескрипторы до снятия последней регистрации.
-Исторические счётчики сохраняются после удаления сессии; кеш активных
-дескрипторов не удерживает завершённые пары. Сброс или удаление серий вектора
-при активных дескрипторах не поддерживаются.
+Per-peer gauges существуют только при включённой интеграции для accepted declarative `sessions`. API/unsolicited input не создаёт labels. Reload меняет allowlist; удалённый peer исчезает при следующем scrape. IPv4-mapped адреса нормализуются/дедуплицируются. Peer выдаёт семь samples пяти gauges, включая оба idle action.
 
-Метрики GoBGP по отдельным пирам существуют только при включённой интеграции
-для пиров из последней валидной конфигурации `sessions`. Список разрешённых
-пиров меняется при принятой перезагрузке; удалённые пиры исчезают при следующем
-сборе метрик, отклонённый кандидат сохраняет прежний список. IPv4-mapped адреса
-приводятся к IPv4, дубликаты объединяются. Сессии API и unsolicited не создают
-новые метки метрик. Для каждого настроенного пира выдаются семь значений в пяти
-gauge-метриках, включая нулевые значения действий `up` и `down` при отсутствии
-ожидающего действия.
+Penalty/suppression оцениваются при scrape без изменения маршрутов. Максимальный срок подавления ограничивает eligibility, не RPC completion. Pending intent отражает последний завершённый handler step; deadline может быть в прошлом во время RPC. Success, cancellation, deletion и shutdown очищают intent. Источник: [GoBGP metrics](../../internal/metrics/gobgp.go).
 
-Штраф и подавление вычисляются на момент сбора метрик по `half_life`,
-`reuse_threshold` и `max_suppress_time`. После истечения подавления
-восстановления метрика штрафа равна нулю, как при снятии подавления обработчиком.
-Наблюдение не изменяет состояние маршрутизации и не регистрирует flap.
-Граница подавления равна `suppressed_since + max_suppress_time`; затухание
-может разрешить восстановление раньше. Эта граница определяет допустимость восстановления,
-а не завершение RPC.
+## Запросы и alerts
 
-Ожидающее действие и его срок отражают последнее завершённое событие или
-попытку обработчика: повтор после временной ошибки RPC или удерживаемое
-восстановление. Срок действия задаёт следующую запланированную попытку или
-проверку и может оказаться в прошлом во время выполнения RPC. Это не граница подавления и
-не гарантия успешного применения. Успешное применение, отмена, удаление сессии
-или остановка обработчика очищают ожидающее действие. AdminDown отменяет
-ожидающий Down; Up для включения ранее отключённого GoBFD пира сохраняется.
-
-#### Значения меток
-
-| Метка | Примеры значений |
-|---|---|
-| `peer_addr` | `10.0.0.1`, `192.168.1.1`, `fd00::1` |
-| `local_addr` | `10.0.0.2`, `192.168.1.2`, `fd00::2` |
-| `session_type` | `SingleHop`, `MultiHop`, `MicroBFD`, `VXLAN`, `Geneve` |
-| `from_state` | `AdminDown`, `Down`, `Init`, `Up` |
-| `to_state` | `AdminDown`, `Down`, `Init`, `Up` |
-
-#### Примеры запросов
-
-```promql
-# Общее количество активных сессий
+```promql title="bfd-observations.promql"
 sum(gobfd_bfd_sessions)
-
-# Flap-ы сессий (переходы Up -> Down за час)
-increase(gobfd_bfd_state_transitions_total{from_state="Up", to_state="Down"}[1h])
-
-# Частота отправки пакетов по пирам
-rate(gobfd_bfd_packets_sent_total[5m])
-
-# Частота ошибок аутентификации
+increase(gobfd_bfd_state_transitions_total{from_state="Up",to_state="Down"}[1m])
 rate(gobfd_bfd_auth_failures_total[5m])
-
-# Частота потерь пакетов
-rate(gobfd_bfd_packets_dropped_total[5m])
+rate(gobfd_bfd_delivery_outcomes_total[5m])
 ```
 
-Счётчики переходов не восстанавливают текущее число сессий в Up. Отдельной
-gauge-метрики состояния каждой сессии нет; читайте `local_state` из снимка CLI/API.
+Первый запрос считает регистрации, а не Up. Поставляемые [правила](../../deployments/integrations/observability/configs/prometheus/alert-rules.yml):
 
-### Дашборд Grafana
+| Alert | Условие | Удержание |
+| :--- | :--- | :--- |
+| `BFDNoActiveSessions` | Healthy exporter без положительной registration series | `10s` |
+| `BFDExporterUnavailable` | Failed/absent scrape target `gobfd` | `10s` |
+| `BFDSessionDownTransition` | Рост Up→Down за минуту | `0s` |
+| `BFDSessionFlapping` | Более 3 переходов за 5 минут | `1m` |
+| `BFDAuthFailures` | Положительная failure rate за 5 минут | `30s` |
+| `BFDPacketDrops` | Положительная admitted-peer drop rate за 5 минут | `1m` |
 
-Готовый дашборд расположен в:
+Exporter без сессий отличается от недоступного exporter. `BFDNoActiveSessions` проверяет все положительные registration series, включая Echo, хотя поставляемая annotation говорит «Control sessions»; это не Control-only и не Up-state test. Transition alert не доказывает текущее Down. Dashboard: [Grafana JSON](../../deployments/integrations/observability/configs/grafana/dashboards/bfd.json).
 
-```text
-deployments/compose/configs/grafana/dashboards/bfd.json
+### Проверка Prometheus
+
+В согласованном observability lab проверить опубликованный local API до внесения отказа:
+
+```sh title="prometheus-readback.sh"
+curl -fsS http://localhost:9090/api/v1/targets
+curl -fsS http://localhost:9090/api/v1/rules
+curl -fsS http://localhost:9090/api/v1/alerts
 ```
 
-Панели дашборда:
+Требовать нужный GoBFD target с health `up` без scrape error, загрузки всех ожидаемых rules, firing transition alert при согласованном отказе и inactive rule после восстановления. Пустой targets/rules response либо HTTP 200 недостаточны. [Prometheus HTTP API](https://prometheus.io/docs/prometheus/latest/querying/api/) определяет ответы; [Go-owned observability gate](11-integrations.md#наблюдаемость) содержит assertions и exact-owned lifecycle.
 
-| Панель | Описание |
-|---|---|
-| **Обзор сессий** | Активные сессии и активные сессии по пирам; не число пиров в Up |
-| **Скорость пакетов** | TX/RX по пирам |
-| **Переходы состояний** | Счётчики переходов выбранного временного окна |
-| **Ошибки** | Ошибки auth, отброшенные пакеты |
+## Журнал, health и traces
 
-Для импорта:
+`log/slog` выдаёт JSON/text на уровнях debug/info/warn/error. Фиксировать local/remote state, diagnostic, principal, generation сверки и pending resource errors по сценарию. Адреса peers и traces хранить внутри эксплуатационной evidence boundary.
 
-1. Запустите пример стека: `podman compose -f deployments/compose/compose.yml up -d`
-2. Откройте Grafana: `http://localhost:3000` и используйте учётные данные развёртывания
-3. Дашборд автоматически провизионируется из JSON-файла
+Management health отличается от BFD Up. Небезопасный anonymous loopback mutation mode устанавливает `gobfd.management` в `NOT_SERVING`. GoBGP ambiguity/incompatibility и reconciliation failure требуют собственных health checks; metrics scrape их не заменяет.
 
-### Правила алертинга
+`grpc.flight_recorder` включает `/debug/flightrecorder` только на management listener. Допускаются Unix principals и разрешённые mTLS identities; anonymous запрещён даже в unsafe mode. Trace хранится как чувствительный артефакт; analysis UI привязывается к loopback. Источники: [management debug](../../cmd/gobfd/shutdown.go), [безопасность](15-security.md), [регламент](16-production-runbooks.md).
 
-Рекомендуемые правила алертинга:
-
-```yaml
-groups:
-  - name: gobfd
-    rules:
-      # Алерт, когда нет настроенных или динамически активных Control-сессий.
-      - alert: BFDNoActiveSessions
-        expr: (up{job="gobfd"} == 1) unless on(job, instance) (gobfd_bfd_sessions{job="gobfd"} > 0)
-        for: 10s
-        labels:
-          severity: warning
-        annotations:
-          summary: "Нет активных BFD Control-сессий"
-
-      - alert: BFDExporterUnavailable
-        expr: (up{job="gobfd"} == 0) or absent(up{job="gobfd"})
-        for: 10s
-        labels:
-          severity: critical
-        annotations:
-          summary: "Exporter метрик BFD недоступен"
-
-      # Алерт при переходе сессии в Down.
-      - alert: BFDSessionDownTransition
-        expr: increase(gobfd_bfd_state_transitions_total{from_state="Up",to_state="Down"}[1m]) > 0
-        for: 0s
-        labels:
-          severity: critical
-        annotations:
-          summary: "BFD-сессия {{ $labels.local_addr }} -> {{ $labels.peer_addr }} перешла в Down"
-
-      # Алерт при чрезмерном flapping-е.
-      - alert: BFDSessionFlapping
-        expr: sum by (peer_addr, local_addr) (increase(gobfd_bfd_state_transitions_total[5m])) > 3
-        for: 1m
-        labels:
-          severity: warning
-        annotations:
-          summary: "BFD-сессия {{ $labels.local_addr }} -> {{ $labels.peer_addr }} flapping"
-
-      # Алерт при ошибках аутентификации
-      - alert: BFDAuthFailures
-        expr: rate(gobfd_bfd_auth_failures_total[5m]) > 0
-        for: 30s
-        labels:
-          severity: warning
-        annotations:
-          summary: "Ошибки BFD auth от {{ $labels.peer_addr }}"
-
-      # Алерт при высоком уровне потерь пакетов
-      - alert: BFDPacketDrops
-        expr: rate(gobfd_bfd_packets_dropped_total[5m]) > 0
-        for: 1m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Потери BFD-пакетов для {{ $labels.peer_addr }}"
-```
-
-`BFDNoActiveSessions` выбирает каждый успешно опрашиваемый target задания
-`gobfd`, у которого нет положительных серий Control-сессий, включая свежий демон
-или демон только с Echo. Сопоставление по `job, instance` не позволяет демону
-с сессиями скрыть пустой соседний демон; сохранённые серии с нулём не подавляют
-alert. Выдержка десять секунд начинается при появлении условия и сбрасывается
-при регистрации сессии. `BFDExporterUnavailable` отдельно сообщает о неудачном
-scrape или полном отсутствии scrape job `gobfd`. Удаление одного target из
-непустого job требует alert по инвентарю: его нельзя вывести только из отсутствия
-телеметрии. В федеративных развёртываниях добавляйте в сопоставление идентичность
-кластера или tenant, если `job, instance` не уникальны.
-См. справочники Prometheus по
-[операторам](https://prometheus.io/docs/prometheus/latest/querying/operators/)
-и [функциям](https://prometheus.io/docs/prometheus/latest/querying/functions/).
-Поставляемый лабораторный стенд использует эти выражения и проверяет общие
-fixtures с виртуальным временем закреплённым `promtool` до проверок runtime.
-
-### Структурированное логирование
-
-Структурированные логи демона используют `log/slog`. Вывод CLI и протокольный
-вывод bridge отделены от логирования.
-
-#### Уровни логирования
-
-| Уровень | Использование |
-|---|---|
-| `debug` | Отказы проверки аутентификации и завершение Poll |
-| `info` | Смена состояния сессии, старт/стоп демона, перезагрузка конфига |
-| `warn` | Неуспешная отправка пакетов и переполнение очереди уведомлений |
-| `error` | Ошибки кодирования/подписи пакетов и незавершённое согласование |
-
-#### Структурированные поля
-
-Пример записи об изменении состояния Control; переход в Down также использует INFO:
-
-```json
-{
-  "time": "2026-02-21T12:00:00.000Z",
-  "level": "INFO",
-  "msg": "session state changed",
-  "peer": "10.0.0.1",
-  "local_discr": 42,
-  "old_state": "Down",
-  "new_state": "Up",
-  "diag": "None"
-}
-```
-
-#### Изменение уровня лога в runtime
-
-Уровень лога можно изменить в runtime через SIGHUP без перезапуска:
-
-```bash
-# Изменить log.level: debug в конфиге
-sudo vim /etc/gobfd/gobfd.yml
-
-# Перезагрузить
-sudo systemctl reload gobfd
-```
-
-Для каждого валидного кандидата при запуске или SIGHUP координатор формирует
-одно общее структурированное событие: INFO `configuration reconciliation converged`
-только после согласования всех пяти источников или ERROR `configuration
-reconciliation incomplete` для устаревшего поколения. Настроенный порог
-логирования продолжает действовать, поэтому INFO о согласовании отфильтровывается
-при уровнях WARN и ERROR. Поля включают `desired_generation`,
-`applied_generation`, `stale`, общие `pending`/`failed`, а также отдельные
-`created`, `released`, `pending`, `failed`, фиксированные признаки
-`interface_pending`/`address_pending` и ограниченные счётчики кодов ошибок
-для каждого источника. Признаки описывают классы ресурсов, а не число или
-идентификаторы. Исходный текст ошибки может появиться только в этом
-непосредственном событии; он не сохраняется в снимке runtime и не используется
-как метка.
-
-События интерфейсов Linux обновляют эти же результаты без смены желаемого
-поколения. Недоступные зависимости делают готовность устаревшей, а источники
-ожидающими; успешная автоматическая повторная попытка может восстановить
-согласование. Переход от отсутствующего интерфейса к недоступному адресу
-публикует новый результат при прежнем числе pending. Сходимость очищает
-признаки; одинаковые результаты не создают повторных событий.
-Переполнение netlink записывает запрос полной сверки в журнал;
-заполненный канал сохраняет запрос до доставки. Размер очереди фиксирован и не
-зависит от количества событий. Та же повторная попытка открывает listener,
-интерфейс которого появился. Адресные события и полная сверка также повторяют
-применение источников, ожидающих назначения локального адреса, включая backend
-overlay, не меняя состояние сессий. Заглушка для других ОС не выполняет
-автоматических повторных попыток.
-
-### Flight Recorder
-
-`runtime/trace.FlightRecorder` захватывает скользящее окно трассировок выполнения для post-mortem отладки:
-
-| Параметр | Значение |
-|---|---|
-| Настроенный минимальный возраст (`MinAge`) | 500ms |
-| Настроенный целевой размер буфера (`MaxBytes`) | 2 MiB |
-
-`MaxBytes` имеет приоритет над `MinAge` и служит ориентиром, а не границей
-размера дампа или всей памяти регистратора.
-См. [`trace.FlightRecorderConfig`](https://pkg.go.dev/runtime/trace#FlightRecorderConfig).
-
-Flight recorder захватывает события планирования, создание горутин, паузы GC и сетевой I/O. При сбое BFD-сессии снимок трассировки может быть сохранён для анализа через `go tool trace`.
-
-HTTP-дамп по умолчанию выключен. С `grpc.flight_recorder: true` он доступен по
-`/debug/flightrecorder` на сервере управления только вызывающим с принципалом
-(Unix-сокет или mTLS-идентичность, разрешённая `grpc.mutating_identities`);
-анонимные клиенты на loopback TCP получают `403` даже при
-`grpc.unsafe_loopback_mutations`. Listener метрик не обслуживает endpoint
-отладки:
-
-```bash
-curl --unix-socket /run/gobfd/gobfd.sock -o trace.out http://localhost/debug/flightrecorder
-go tool trace -http=127.0.0.1:0 trace.out
-```
-
-Считайте файлы трассировки чувствительными данными: они могут содержать сведения
-о процессе и сети. HTTP-сервер анализа оставляйте на loopback.
-
-### Точки доступа
-
-| Точка доступа | Порт | Путь | Описание |
-|---|---|---|---|
-| Метрики Prometheus | `127.0.0.1:9100` | `/metrics` | Цель скрапинга Prometheus |
-| gRPC API | `unix:///run/gobfd/gobfd.sock` | -- | ConnectRPC/gRPC API; необязательный TCP через `grpc.addr` |
-| gRPC Health | `unix:///run/gobfd/gobfd.sock` | `/grpc.health.v1.Health/Check` | Пустое имя сервиса означает общую готовность dataplane; именованные сервисы `bfd.v1` выводятся из компонентов |
-
-Один агрегатор записывает статус сервиса с пустым именем и именованных сервисов
-`bfd.v1`. Каждый статус представляет логическое И нужных сервису компонентов:
-
-| Сервис | Компоненты |
-|---|---|
-| пустое имя сервиса | все компоненты ниже |
-| `bfd.v1.BfdService` | Источники согласования base, VXLAN и Geneve; рабочие горутины runtime; интерфейсы и локальные адреса Control listeners, включая права unsolicited и API |
-| `bfd.v1.EchoService` | Источник согласования Echo; рабочие горутины runtime; интерфейсы и локальные адреса Echo listeners |
-| `bfd.v1.MicroBFDService` | Источник Micro-BFD (группы вместе с сессиями участников); рабочие горутины runtime; интерфейсы и локальные адреса listeners линий участников |
-| `grpc.health.v1.Health` | нет; всегда `SERVING` как сигнал liveness |
-
-- Источник согласования готов, если в последнем желаемом поколении у него нет
-  записей pending или failed. Пустой агрегат и каждый зависящий от источника
-  сервис `bfd.v1` находятся в `NOT_SERVING` до первого согласованного поколения
-  этого источника и во время его применения. Готовность отправителя —
-  результат его создания, записанный в результате согласования источника.
-- Интерфейс listener с привязкой к устройству готов, пока он существует,
-  включён, имеет флаг running и сохраняет ifindex, определённый до последней
-  привязки. События линий и сверка списка интерфейсов проверяют его заново.
-  После down/up готовность восстанавливается. Интерфейс, удалённый и созданный заново с тем же именем,
-  находится в `NOT_SERVING`, пока владелец listeners при этой проверке не
-  перепривяжет тот же сокет к новому ifindex; неудачная перепривязка, например
-  без `CAP_NET_RAW`, остаётся в `NOT_SERVING` и повторяется
-  (`03-configuration.md`, Горячая перезагрузка (SIGHUP)). Listeners, закрытые
-  перезагрузкой, выходят из набора привязок.
-- Обязательные локальные адреса проверяются для всех принадлежащих демону
-  слушателей, включая слушатели без привязки к интерфейсу и созданные через API.
-  Отсутствующий, предварительный или не прошедший DAD адрес IPv6 переводит
-  затронутый компонент привязки в `NOT_SERVING`. Слушателям на всех адресах
-  не нужен один назначенный адрес. Внешние локальные адреса VXLAN и Geneve
-  проверяются через результаты согласования их источников. Слушатель только
-  с правами API может снять готовность привязки при сошедшихся источниках конфигурации.
-- Рабочие горутины runtime — цикл диспетчеризации BFD и приёмники Control, Echo,
-  Micro-BFD и overlay. Рабочая горутина, завершившаяся во время работы демона,
-  например приёмник с закрытым сокетом, переводит пустой агрегат и сервисы
-  `bfd.v1` в `NOT_SERVING`; демон дренирует сессии и завершается с ошибкой
-  (fail-stop) для systemd `Restart=on-failure`. Остановка снимает готовность
-  тех же сервисов; `grpc.health.v1.Health` остаётся `SERVING`, пока доступен
-  health endpoint.
-- События линков и адресов проверяют зависимости слушателей; периодическая
-  проверка раз в 2 с охватывает также все пять источников при отключённом
-  или остановленном мониторе. Ошибка чтения списка интерфейсов сохраняет
-  прежние признаки готовности привязок; ошибка чтения списка адресов снимает
-  готовность затронутой привязки и даёт отказ затронутого источника. После
-  устранения причины отказавшему источнику нужен явный корректный SIGHUP.
-
-Удаление действующего адреса IPv4/IPv6 переводит затронутый источник в pending
-и делает то же поколение устаревшим; возврат пригодного адреса автоматически
-восстанавливает сходимость. Во время потери applied может совпадать с desired;
-проверяйте `stale`, `pending`, `failed` и health вместе. См.
-[границу доступности при reload](03-configuration.md).
-Health и готовность systemd не доказывают доступность пира.
-
-`gobfd.management` находится в `NOT_SERVING`, пока
-`grpc.unsafe_loopback_mutations` включён, иначе `SERVING`. Требования к транспорту
-этой опции описаны в [Безопасности](15-security.md#connectrpc-api).
-При `gobgp.enabled` именованная проверка
-`gobfd.gobgp` находится в
-`NOT_SERVING` до успешного preflight GoBGP v4, а также после неудачного
-preflight или неудачного `DisablePeer`/`EnablePeer` до следующего успеха,
-а также после BFD Down для соседа с несколькими базовыми сессиями до следующего успеха
-(`03-configuration.md`, «Идентичность сессии»). `gobfd.gobgp` и
-`gobfd.management` не входят в сервис с пустым именем, а готовность LAG actuator не входит в
-`bfd.v1.MicroBFDService`.
-systemd `READY=1` продолжает описывать запуск процесса/listeners, а не
-согласование конфигурации.
-
-### Связанные документы
-
-- [03-configuration.md](./03-configuration.md) -- Конфигурация endpoint-а метрик
-- [06-deployment.md](./06-deployment.md) -- Пример стека с Prometheus + Grafana
-- [04-cli.md](./04-cli.md) -- Команда мониторинга CLI для живых событий
-
----
-
-*Сверено с исходниками `dev`: 2026-10-25 (`49d8954479a172b311a8a05adb5e0714528c4116`); известные ограничения готовности и результатов согласования указаны явно.*
+Справочник не фиксирует выполнение monitoring/production drill.

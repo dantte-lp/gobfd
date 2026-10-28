@@ -1,52 +1,34 @@
-# ADR-0004: Единый словарь overlay backend
+# ADR-0004: Общий словарь overlay backends
 
 | Поле | Значение |
-|---|---|
-| Статус | Accepted |
-| Дата | 2026-08-28 |
+|:---|:---|
+| Status | Accepted |
+| Date | 2026-08-28 |
 
 ## Контекст
 
-Пакеты конфигурации и сетевого I/O независимо определяли одинаковые семь
-названий backend для VXLAN и Geneve. Они также по-разному нормализовали ввод:
-валидация конфигурации удаляла окружающие пробелы, а конструктор backend
-требовал точное сохранённое значение. Поэтому значение с пробелами могло пройти
-проверку запуска и завершиться ошибкой позже, при создании сокета демона.
-
-Ни один из этих пакетов не подходит на роль владельца общего словаря. Импорт
-`internal/netio` из `internal/config` связал бы конфигурацию с Linux I/O, а
-импорт `internal/config` из `internal/netio` протащил бы политику конфигурации и
-зависимости Koanf в адаптер сокетов.
+Startup validation и network-I/O construction должны одинаково принимать spellings и normalization backend. Зависимость configuration от Linux I/O либо socket-кода от configuration loaders нарушает границы пакетов.
 
 ## Решение
 
-`internal/overlay` владеет типом backend, семью значениями конфигурации,
-нормализацией, распознаванием и статусом реализации. Это пакет без внутренних зависимостей,
-импортирующий только стандартную библиотеку Go. `internal/config` и
-`internal/netio` импортируют его и сохраняют прежние совместимые экспортируемые
-имена и собственные сигнальные ошибки пакетов.
+[`internal/overlay`](../../../internal/overlay/backend.go) владеет backend type, семью spellings, parser и implementation status. Он импортирует только standard library. Configuration и network I/O используют его, сохраняя compatibility aliases и package-specific sentinel errors.
 
-Общий разборщик сохраняет внешнее поведение конфигурации: удаляет окружающие
-пробелы, отображает пустое значение в `userspace-udp`, учитывает регистр и
-распознаёт шесть зарезервированных backend. Реализован только
-`userspace-udp`. Конструктор сетевого I/O теперь применяет ту же нормализацию,
-что и проверку запуска.
+| Input | Результат |
+|:---|:---|
+| Surrounding whitespace | Удаляется |
+| Пустое значение | `userspace-udp` |
+| Другая капитализация | Отказ; names case-sensitive |
+| `userspace-udp` | Распознан и реализован |
+| `kernel`, `ovs`, `ovn`, `cilium`, `calico`, `nsx` | Распознаны, не поддерживаются; fail closed |
+| Другое имя | Invalid |
 
 ## Последствия
 
-- Имена и значения полей YAML/окружения, стандартные значения и типы конфигурации не
-  меняются.
-- `config` по-прежнему различает неверные имена и распознанные, но
-  неподдерживаемые backend прежними ошибками.
-- `netio` сохраняет собственные ошибки invalid, unsupported и invalid-input,
-  а также контекст ошибок конструктора.
-- Новое имя backend или изменение статуса реализации правится в одном месте.
-- Решение не реализует зарезервированные backend и не меняет контракты
-  protobuf.
+YAML/environment field names, defaults, values и public configuration types сохраняются. Startup validation и backend construction используют один parser. Invalid, unsupported и invalid-input errors сохраняют package context. Добавление spelling либо implementation status имеет одного owner; recognition не создаёт dataplane backend и не меняет protobuf.
 
-## Ссылки
+## Источники
 
-- [Общий разборщик backend](../../../internal/overlay/backend.go)
-- [Допуск в конструкторе backend](../../../internal/netio/overlay_backend.go)
-- [Go 1.27 specification: Import declarations](https://go.dev/ref/spec#Import_declarations)
-- [ADR-0003: Применимость Micro-BFD, VXLAN BFD и Geneve BFD в Linux](./0003-linux-advanced-bfd-applicability.md)
+- [Общий parser](../../../internal/overlay/backend.go).
+- [Constructor admission](../../../internal/netio/overlay_backend.go).
+- [Configuration validation](../../../internal/config/config.go).
+- [Linux applicability](0003-linux-advanced-bfd-applicability.md).

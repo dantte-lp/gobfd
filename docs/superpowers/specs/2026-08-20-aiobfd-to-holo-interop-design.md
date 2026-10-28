@@ -2,7 +2,7 @@
 
 **Status:** Approved for implementation
 
-**Beads:** `gobfd-qj0.8.1.5.3`
+**Scope:** replacement-peer interoperability
 
 ## Goal
 

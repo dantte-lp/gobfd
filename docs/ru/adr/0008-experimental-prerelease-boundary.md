@@ -1,62 +1,30 @@
 # ADR-0008: Граница экспериментального prerelease
 
 | Поле | Значение |
-|---|---|
-| Статус | Proposed; публикация не разрешена |
-| Дата | — |
+|:---|:---|
+| Status | Proposed; no publication authorization |
+| Date | — |
 
 ## Контекст
 
-Запрошенная `v1.0.0-alpha.1` — экспериментальный этап поставки. До стабильного
-релиза остаются реализация и квалификация, помимо 24-часового прогона. Текущие
-preflight и примечания к релизу намеренно принимают только канонические
-стабильные теги; prerelease нельзя выпустить этим путём без изменения реализации.
+Experimental `v1.0.0-alpha.1` предполагает меньший advertised scope, чем stable acceptance. Существующие [release preflight](../../../test/internal/cirunner/release_preflight.go) и [notes validation](../../../test/internal/cirunner/release_notes.go) принимают canonical stable tags. Prerelease требует отдельного пути.
 
 ## Решение
 
-Предложить отдельный канал prerelease с явной экспериментальной областью и
-известными ограничениями. Статус prerelease не подтверждает поддерживаемый
-масштаб, совместимость стабильного API, полное покрытие RFC или готовность к
-рабочей эксплуатации. Ошибки функций и безопасности блокируют заявленную
-область альфы. Исполнимые критерии приёмки и план поставки принадлежат Beads
-`gobfd-qj0.8.2.6.4`; проверки стабильного релиза сохраняются в существующих задачах.
+Предлагается отдельный явно заданный prerelease channel. Stable validation и OCI alias promotion сохраняются. Будущий channel требует reviewed release branch, immutable tag ownership, проверенных draft assets и dedicated checks; stable aliases не продвигаются. Functional/security failures блокируют advertised scope.
 
-Сохранить проверку стабильных тегов и продвижение стабильных OCI aliases.
-Будущий путь prerelease должен явно определять канал, сохранять проверенную
-release branch и владение неизменяемым тегом, проверять артефакты черновика
-до публикации и не продвигать стабильные aliases. Продолжать разработку в `dev`
-до готовности кандидата альфы и его отдельных проверок. Запрет удалённой
-поставки сохраняется; это предложение не создаёт тег, черновик или артефакт.
+Разработка остаётся в `dev` до готовности candidate и checks. Existing remote-delivery hold действует. Этот Proposed record не разрешает tag, draft, asset либо publication. Prerelease acceptance/delivery и stable qualification остаются отдельными.
 
-Длительную квалификацию выполнять независимо от интерактивной SSH-сессии на
-собственной VM в разрешённом контуре `um-gate/netlab2`. Подготовка VM принадлежит
-`um-iac`: отдельный Pulumi stack и проверенный preview. До запуска нагрузки
-проверять фактические ресурсы гостя, часы, исходники и бинарник; одной ёмкости
-гипервизора недостаточно. Сохранять логи, конечный статус и доказательства после
-завершения. Финальная квалификация должна указывать точные исходники после
-исправлений; исходный прогон прежнего кандидата остаётся диагностическим свидетельством.
+Long qualification выполняется независимо от interactive SSH на owned VM в разрешённом контуре `um-gate/netlab2`. Provisioning принадлежит isolated `um-iac` Pulumi stack с reviewed preview. До workload проверьте actual guest resources, clocks, source и binary; сохраните logs, terminal result и evidence. Final qualification фиксирует exact post-fix source.
 
 ## Последствия
 
-Исходный pinned кандидат Control и Echo сохранял потоки ОС. Не менее 1000
-потоков Control не укладываются в эталонный предел стабильного релиза 48 потоков.
-Перенос этого кандидата на VM не устраняет пробел реализации. Альфа должна
-раскрывать сохранённые ограничения; fixture с CPU 25% не подтверждает
-утверждённую эталонную нагрузку 80% или 24-часовую приёмку.
+Prerelease status не доказывает supported scale, stable API compatibility, full RFC coverage либо production readiness. CPU fixture 25% не квалифицирует reference workload 80% либо 24-hour acceptance; hypervisor capacity не равна guest admission.
 
-### Локальная интеграция исходников — 2026-10-28
-
-Владелец поручил объединить локальные изменения в `dev`. При этой интеграции
-исходников удаляется постоянное закрепление владельцев Control/Echo. Native A/B,
-эталонная граница 48 потоков, 24-часовая работа и финальная wire qualification
-остаются открытыми в Beads. Консервативный PID budget baseline сохраняется.
+Исходный pinned Control/Echo candidate не мог выполнить reference bound 48 threads с 1000 owners. Local consolidation instruction владельца от 2026-10-28 отдельно разрешает source integration с удалением permanent owner pins. Она не закрывает native A/B, bound 48 threads, 24-hour operation и final wire gates. Conservative PID budget из [ADR-0007](0007-workload-phase-accounting.md) сохраняется до измеренного пересмотра.
 
 ## Источники
 
-- [Цикл владельца Control](../../../internal/bfd/session_loop.go)
-- [Цикл владельца Echo](../../../internal/bfd/echo.go)
-- [Preflight стабильного релиза](../../../test/internal/cirunner/release_preflight.go)
-- [Валидация примечаний стабильного релиза](../../../test/internal/cirunner/release_notes.go)
-- [Семантика prerelease в SemVer](https://semver.org/spec/v2.0.0.html#spec-item-9)
-- [Граница учёта нагрузки](./0007-workload-phase-accounting.md)
-- [Датированная сводка](../roadmap.md)
+- [Control owner](../../../internal/bfd/session_loop.go), [Echo owner](../../../internal/bfd/echo.go).
+- [Workload accounting](0007-workload-phase-accounting.md).
+- [Датированная roadmap projection](../roadmap.md).

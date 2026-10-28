@@ -145,12 +145,12 @@ an upstream image name alone is not an exception.
 
 ## Planning
 
-- Beads is the sole source of executable plans, priorities, dependencies,
+- The project issue tracker is the sole source of executable plans, priorities, dependencies,
   acceptance criteria, blockers and handoff/resume steps.
 - Do not create or maintain Markdown task/checklist plans. Files under
-  `docs/superpowers/plans/` are Beads entrypoints only; roadmaps are dated
+  `docs/superpowers/plans/` are historical entrypoints only; roadmaps are dated
   status projections, not task authority. Keep measured evidence separate.
-- Read and update the relevant Beads issue before implementation. A skill's
+- Read and update the relevant issue before implementation. A skill's
   Markdown-plan workflow does not override this repository requirement.
 
 ## Release branches
@@ -185,8 +185,25 @@ an upstream image name alone is not an exception.
   the immutable tag.
 
 ## Git
+- Commit messages and pull request titles/descriptions use English.
+- Documentation is English first under `docs/en/`, with complete Russian
+  counterparts under `docs/ru/`; conversation remains technical Russian.
 - Commits: NEVER add Co-Authored-By or any AI/Claude mentions in commit messages
 - Module: `github.com/dantte-lp/gobfd` — owner dantte-lp, NOT wolfguard
+
+## Documentation contract
+
+- State verified behavior declaratively; write procedures as imperative steps
+  with prerequisites, expected results and rollback where a change needs one.
+- Keep plain Markdown, existing document paths and useful link anchors.
+  Use compact tables for values and Mermaid for ownership, packet flow and
+  lifecycle; use the installed `um-docs` style and diagram skills.
+- Link technical claims to repository source, exact RFC sections and official
+  vendor manuals. Name the platform and NOS scope; a vendor document is not
+  a GoBFD interoperability receipt.
+- Preserve historical measurements, published changelog history, legal text,
+  verbatim RFCs and third-party material. Keep dated evidence separate from
+  current operational references and executable issue-tracker plans.
 
 ## Important: don't
 - NEVER modify generated files in `pkg/bfdpb/` — regenerate with `buf generate`

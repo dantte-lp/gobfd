@@ -7,8 +7,7 @@
 `dev@1c535f9ac1de7a12f7d85054a9d0fe81216f02c0`.
 Предыдущий аудит проверял `f9ed31bdd81425ba4efaf9688bb452ddea142266`.
 Область выпуска определяют [production contract](../../superpowers/specs/2026-08-18-gobfd-v1-production-contract-design.md)
-и принятые поправки. Исполнимые задачи, приоритеты, зависимости и оценки
-сохраняются в Beads. Документ фиксирует состояние на дату и не разрешает
+и принятые поправки. Исполнение и критерии приёмки учитываются отдельно. Документ фиксирует состояние на дату и не разрешает
 публикацию исходников, Dolt, Actions или релиза.
 
 Уточнение: запрос отдельного профиля YC снят. Программа runner создаёт только
@@ -23,7 +22,7 @@ Teleport/PVE и доставка образа остаются путём provis
 Шесть подтверждённых дефектов от 23 октября исправлены в принятых локальных
 исходниках:
 
-| Предыдущее нарушение | Текущая граница реализации | Beads |
+| Предыдущее нарушение | Текущая граница реализации | Историческая запись |
 |---|---|---|
 | TLS identity могла получить привилегии Unix UID | Типизированный transport principal разделяет Unix, TLS URI и TLS DNS | `gobfd-qj0.8.2.3.5` закрыта |
 | Unsafe loopback mutation policy пропущена в startup-only контракте reload | Startup contract включает `grpc.unsafe_loopback_mutations` | `gobfd-qj0.8.2.3.6` закрыта |
@@ -91,7 +90,7 @@ blackhole теперь имеет период 10 минут: два плано�
 `deployments/docker/Containerfile.debug` и
 `deployments/integrations/observability/configs/prometheus/alert-rules.yml`.
 
-Снимок Beads построен по реальным связям `parent` под `gobfd-qj0.8.2`, до
+Исторический срез исполнения построен по реальным связям `parent` под `gobfd-qj0.8.2`, до
 закрытия задачи самой ретроспективы. Включены отложенные работы и parents
 приёмки.
 
@@ -174,7 +173,7 @@ actuator allocations — технические риски A и D, не прин
 поздние lint-замечания добавляли повторную проверку; исторические receipts
 не квалифицировали окончательного кандидата.
 
-Исполнение остаётся в существующих Beads owners. A завершается одним сквозным
+Исполнение остаётся в назначенных технических владельцев. A завершается одним сквозным
 результатом с минимально необходимыми входными данными. Static checks идут
 перед дорогими критическими тестами; повторы нужны при изменении поведения или
 незакрытых findings. Общая свежесть зависимостей, широкие Q5 duplicate/wrapper
@@ -193,7 +192,7 @@ quality, OCI, wire и scale gates сохраняются.
 | Критические race-тесты identity leaf | 330 named PASS, 0 FAIL/SKIP | `down-incarnation-final01-tests.json` |
 | Scoped static identity leaf | 92 линтера, 0 issues; root/scoped vet, tidy, gopls, CLI build PASS | `down-incarnation-final01-*` |
 | Документация до новой ретроспективы | 102 MD, 1108 links без ошибок, 34 EN/RU pairs | `down-incarnation-final01-*` |
-| Сопоставление Beads | 523 descendants, реальные parent-связи | `retro-20261026-issues.json`, `retro-20261026-counts.json` |
+| Сопоставление записей исполнения | 523 descendants, реальные parent-связи | `retro-20261026-issues.json`, `retro-20261026-counts.json` |
 | Разность исходников после аудита | 386 файлов, +41 665/−8 562 | `retro-20261026-diff-stat.tsv` |
 | Очистка identity leaf | Owned SDK/cache и чистый интегрированный worktree удалены; branch/backup refs/reports сохранены | `down-incarnation-review.md`, cleanup receipts |
 

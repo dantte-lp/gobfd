@@ -1,336 +1,111 @@
 # ADR-0006: Session-preserving reload policy
 
 | Field | Value |
-|---|---|
+|:---|:---|
 | Status | Accepted |
 | Date | 2026-10-24 |
 | Qualification | Accepted policy; implqual-local; actual-wire qualification remains open |
 
 ## Context
 
-A configuration reload must not replace an established BFD session merely
-because a supported effective parameter changes. Replacement changes the
-discriminator and protocol state and can affect routing clients. Preserving a
-local session instance alone does not establish uninterrupted peer state or
-traffic forwarding.
-
-RFC 5880 separates timer negotiation, Detect Multiplier changes,
-authentication and administrative control. RFC 5882 further makes client
-handling of AdminDown and graceful restart depend on independent liveness
-detection and control-plane fate sharing. These mechanisms do not provide a
-general hitless-reload guarantee.
+Replacing an established session changes its discriminator, protocol state and client observations. Preserving the local object alone does not prove peer continuity or forwarding. RFC 5880 timer/auth/admin procedures and RFC 5882 client policies do not provide a general hitless-reload guarantee.
 
 ## Decision
 
-Preserve an existing base session when its canonical wire identity is stable,
-its sole owner is declarative configuration, and the complete proposed
-parameter tuple is supported. Preserve its instance, discriminator, sender
-lease, authentication replay state, counters and ownership. Shared sessions
-must not be mutated for one owner; an incompatible proposal is rejected.
+Preserve instance, discriminator, sender lease, auth replay state, counters and claims for a stable canonical base identity with one config owner and a supported complete tuple. Reject incompatible shared-owner changes. Never silently convert an unsupported update into delete/recreate.
 
-| Change | Required behavior |
-|---|---|
-| Desired TX / required RX intervals | Retain the existing Poll/Final transaction rules of RFC 5880 §6.8.3 |
-| Detect Multiplier | Advertise the new nonzero value in the next Control packet without Poll in Async; apply §6.6 Poll requirements when remote Demand is active |
-| Multihop minimum TTL | Apply the local 255 − N receive floor under Session.mu without replacement or Poll, including under remote Demand; this is GoBFD policy, not an RFC 5883 receive-TTL requirement |
-| Padded PDU target | Permit only positive-to-positive changes in Async on an already DF-prepared sender, with unchanged authentication and a sole config owner; reject unsupported base candidates before generation acceptance |
-| Unsupported authentication transition | Reject the complete candidate before accepting a new generation; retain the old configuration |
-| Unqualified wire-identity change or other unsupported transition | No implicit replacement; require separate explicit operator intent for disruptive replacement |
+### Five-field transaction
 
-Multihop receive-floor qualification uses an authenticated UDP/4784 startup
-profile of the existing crafted-peer topology. The peer pauses before reload;
-an admissible-TTL replay of its last accepted signed payload must be rejected
-before the fresh boundary probe. That deliberate replay accounts for exactly
-one auth failure and zero accepted inputs; reload itself adds neither auth
-failures nor state transitions. An initial identity/counter baseline spans
-all reloads and remote-Demand entry. For each boundary, a signed
-Poll below `255 - N` is followed by the identical payload and sequence at
-the floor. Only the latter may count as accepted input or elicit Final;
-rejected input must not advance receive authentication state. One persistent
-capture/authentication checkpoint spans reloads and remote-Demand entry.
-Probes complete within the existing Detection Time so replay-state expiry
-cannot substitute for continuity. Source tests alone do not close the actual
-kernel/capture gate `gobfd-qj0.8.2.2.7.5.4.3`. This profile does not qualify
-routed/cloud paths or general Demand operation.
+| Field/change | Required effect | Restriction |
+|:---|:---|:---|
+| TX increase / RX decrease in Up | Retain old protected local effect until relevant Final | Existing Poll contract |
+| TX decrease / RX increase in Up | Apply when proposal activates | Existing Poll contract |
+| Non-Up TX/RX proposal | Apply local effects immediately on promotion | Poll/separation still serialize confirmation |
+| DetectMult in Async | Apply and advertise next Control without Poll | Nonzero; reschedule jitter when crossing 1 |
+| DetectMult with both peers Up and remote Demand | Poll/Final confirmation | Does not qualify general Demand |
+| MinTTL | Update local multihop `255−N` floor under mutex without Poll, including remote Demand | GoBFD product policy |
+| PaddedPduSize | Positive→positive, unchanged auth, Async, constructor-proven `PaddingPrepared` | No zero transition, unknown/unprepared sender or shared base owner |
 
-Local TTL wire qualification passed on
-`task/ttl-wire-20261024@491b2214994f07e017eb93ab67a29a95378c619e`:
-the default crafted profile takes 162.94 s and authenticated multihop 81.98 s.
-Seven boundary/replay windows retain identity, source lease and generation
-semantics. Evidence: `reports/ttl-wire-20261024/`. This qualifies the TTL slice;
-unified five-field final-candidate gate `gobfd-qj0.8.2.2.7.5.5` remains mandatory.
+One tuple contains TX, RX, DetectMult, MinTTL and PaddedPduSize. One active proposal keeps its advertised tuple; retain only the latest waiting proposal, including RX=0. Final confirms only after successful Poll transmission. Crossed Final-only replies cannot confirm the local Poll. After Final, wait the measured exchange duration before a consecutive transaction. Expiry fails the receipt without undoing already advertised values.
 
-TX increases and RX decreases retain their protected old local effect until
-the relevant Final; the reverse directions retain their existing immediate
-effect. An active Poll keeps its advertised tuple, and a later proposal is
-queued according to the existing transaction contract. Adding Detect Multiplier,
-TTL or padding must not weaken those timer rules. The remote-Demand exception
-does not qualify general Demand-mode operation.
+Keep desired, advertised, effective and confirmed values/revisions distinct. Local MinTTL has no wire advertisement. Pending admission/advertisement is not completion. Same-generation/revision reapply creates no replacement, Poll or duplicate side effect; stale completion cannot overwrite a newer intent.
 
-The v1 packet-policy slice extends the tuple, references and confirmed/effective
-receipts to five fields: TX, RX, DetectMult, MinTTL and PaddedPduSize.
-The coordinator passes only `candidate.base` to `Manager.AdmitSessionReload`,
-which checks its stable-identity field and ownership policy before local
-generation acceptance, preserving the retained
-and live authentication checks below. Padding requires immutable constructor
-proof `PaddingPrepared`, not a requested option or a socket-liveness claim.
-Zero-to-positive and positive-to-zero transitions, unknown/unprepared senders,
-remote Demand and shared-owner base padding updates fail closed. Micro-BFD and
-overlay remain outside this qualified profile; their configuration gains no
-padding/minTTL fields. Other-source effective changes retain their existing
-per-source conflict/stale behavior; no new five-source preflight is implied.
-Policy is checked before equality shortcuts, including a return to a confirmed
-target while Demand is active. An owner recheck rejects the whole queued tuple
-before any field commit if Demand activates while it waits.
+Validate and prepare the complete tuple before any owner field commit. The coordinator guards only `candidate.base` through `Manager.AdmitSessionReload`. Micro-BFD/overlay gain no padding/MinTTL fields and remain outside this qualified profile. Other-source conflict/stale behavior does not become five-source atomicity.
 
-Capacity growth prepares one replaceable waiting buffer at control admission;
-the owner swaps it before committing fields. No growth allocation is deferred
-to owner promotion or packet transmission. The target counts transport payload
-bytes excluding IP/UDP headers; send length is the larger of the declared PDU
-and target, so authentication is never truncated. Padding is zero and lies
-outside the existing authentication MAC domain. Existing authenticated minimum
-26 and zero-target DF defaults remain unchanged. Padding enable/disable and
-dynamic DF preparation are separate after-v1 P2 work in `gobfd-ebu`.
+Padding policy is checked before equality shortcuts, including reversal to a confirmed target under Demand. Recheck a queued tuple before promotion; newly active Demand rejects the whole tuple before any field commit. Capacity growth prepares one replaceable waiting buffer during control admission; owner swaps it before field commit. Neither owner promotion nor packet send performs growth allocation.
 
-Validate the complete candidate, including same-session transitions and
-ownership, before accepting its desired generation. Apply a same-session
-update through its protocol owner as one coherent transaction: no field may
-be committed and then left behind when another field fails validation or
-preparation. Deliberate staged desired, advertised and effective values are
-recorded as pending rather than reported as a completed update.
+The padding target counts transport payload, excluding IP/UDP. Send length is `max(actual PDU, target)`, preserving auth. Padding is zero and outside the authentication domain. Authenticated minimum 26 and zero-target DF defaults remain unchanged. Enable/disable and dynamic DF stay outside the accepted reload profile.
 
-Reapplying the same generation/revision is idempotent: it creates no new
-session, replacement, Poll or duplicate side effect. Stale completion must
-not overwrite a newer desired revision. Receipts distinguish desired,
-advertised and effective values where a field has a wire representation;
-minimum TTL remains a local admission value. Receipt state distinguishes
-pending, committed and failed outcomes. Admission or advertisement alone
-does not establish effective completion or readiness. This is a same-session
-transaction policy, not a claim that all reload sources commit atomically.
+Sources: [owner transaction](../../../internal/bfd/session_update.go), [tests](../../../internal/bfd/session_update_test.go), [packet construction](../../../internal/bfd/session_packet.go), [timer transaction specification](../../superpowers/specs/2026-09-08-gobfd-timer-update-transactions-design.md).
 
-Authentication algorithm changes, authentication enable/disable and
-unqualified key changes are rejected before the new generation is accepted,
-even when combined with otherwise supported changes. They must not silently
-fall back to delete/recreate or reset sequence/replay protection. RFC 5880
-§6.7 leaves coordination outside BFD; the existence of a key store does not
-qualify a rotation protocol.
+### Authentication admission
 
-Admission compares immutable authentication fingerprints against both the
-retained accepted base desired set, including entries absent from runtime,
-and the live Manager registry without filtering API or shared owners. The
-comparison includes enablement, algorithm, key IDs/material, selected TX key
-and the receive-key set. Startup authentication, new or removed identities and
-fresh stores with identical semantics remain admissible.
+Reject same-identity enable/disable, algorithm and unqualified key transitions before accepting a desired generation, even in a combined otherwise-supported update. Never reset sequence/replay state or fall back to replacement.
 
-The lock order is Manager lifecycle, ownership, then registry. Release the
-registry lock before short local acceptance; retain ownership serialization
-through desired-generation publication, then release it before configured-peer
-callbacks or listener/sender resource application. Rejection precedes generation,
-log-level and readiness changes and preserves the old accepted configuration
-and sessions. Claims acquired after acceptance still pass normal fail-closed
-Manager reconciliation. This admission boundary is not a whole-source atomic
-transaction or a seamless-rollback guarantee.
+Compare immutable semantic fingerprints against retained accepted base intent, including absent runtime entries, and the live registry regardless of API/shared ownership. Fingerprints include enablement, algorithm, key IDs/material, selected TX key and receive-key set. Startup/new/removed identities and fresh stores with identical semantics remain admissible.
 
-Optional coordinated key-ID rotation within one authentication algorithm is
-separate after-v1 work in `gobfd-khr` at P2. It does not graduate until receive
-overlap, transmit cutover, old-key retirement, replay/sequence continuity and
-peer interoperability are qualified. This ADR does not enable that feature.
+Acquire lifecycle→ownership→registry. Release registry before short local acceptance; retain ownership serialization through generation publication, then release before configured-peer callbacks and resource application. Rejection precedes generation, log/readiness and resource mutation. Later claims still pass normal reconciliation. This is admission protection, not whole-source atomicity or seamless rollback.
 
-Disruptive replacement must identify the intended identity/transition and its
-client impact separately from ordinary reload. Preparations before a
-peer-visible cutover must roll back on failure. Once changed state or packets
-are visible to the peer, a seamless rollback is not guaranteed. Administrative
-signaling follows RFC 5880 §6.8.16 and the applicable RFC 5882 client policy;
-AdminDown is not a universal promise that BGP or forwarding remains unchanged.
+Coordinated same-algorithm key-ID rotation remains unqualified. It needs receive overlap, TX cutover, old-key retirement, replay continuity and peer interop. A key store alone does not enable rotation. Sources: [admission](../../../internal/bfd/manager_auth_reload.go), [admission tests](../../../internal/bfd/manager_auth_reload_test.go), [RFC 5880 §6.7](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.7).
 
-The source claims/prepares desired resources before stale-claim release. Only
-zero `Failed` and `ResourcePending` permit old release; timer negotiation is
-tracked separately. Fatal preparation rolls back newly created claims, while
-valid disjoint claims may remain on resource-pending retry. An occupied receive
-key permits a prepared SingleHop/MultiHop swap only for interface-empty base
-sessions with one config owner, no old key in desired and all other identity
-fields unchanged. Other collisions fail before the sender factory and, for
-base reload, before desired-generation acceptance. Cancellation before swap
-publication retains the old identity; prepared lease/discriminator cleanup is
-exactly once. After publication the old captured session commits AdminDown and
-drains outside Manager/lifecycle mutation locks, retaining its lease and
-discriminator until completion or typed incomplete failure before cleanup.
+### Source reconciliation and replacement
 
-The retiring exact canonical key remains privately reserved until owner join,
-lease/discriminator release and metrics cleanup finish, including error outcomes.
-A matching new claim or reverse rekey is rejected before the sender factory
-with `ErrDuplicateSession` (`AlreadyExists` over the API). An explicit retry
-after Delete completes may create the next session; no automatic retry is added.
-The qualified SingleHop/MultiHop swap uses a different exact key and remains
-admissible while the old key drains. No registry/ownership/lifecycle lock spans
-drain or cleanup callbacks. Actual peer behavior remains a separate wire gate
-in `gobfd-qj0.8.2.1.3.12`.
+Prepare/claim desired resources before stale release. Release old claims only at zero Failed and ResourcePending; TimerPending is separate. Fatal preparation rolls back new claims; valid disjoint claims may remain for resource-pending retry.
 
-The [scoped FRR wire fixture](../../../test/interop/same_key_topology_test.go)
-starts with no declarative claims. It retains the API conflict while the old
-UDP socket inode is still owned by the daemon, observes socket closure before
-retry, and correlates old AdminDown and new discriminator epochs with packet
-capture and FRR state. The fixture requires an actual passing receipt on the
-exact candidate; source tests alone do not close the wire gate. Peer Down
-during deletion/recreation is allowed; no hitless replacement is promised.
+A receive-key collision permits a prepared SingleHop/MultiHop swap only for interface-empty base identity, one config owner, old key absent from desired and unchanged remaining identity. Other collisions fail before sender factory and, for base admission, before generation acceptance. Before replacement publication, cancellation preserves the old identity and releases prepared lease/discriminator once.
 
-Overlay scope preflight is pure and covers one complete VXLAN or Geneve source
-before any backend open or `SetScopes`. Unequal scopes sharing a wire identity
-with a live/draining lease, including a VXLAN local-MAC change, require explicit
-separate removal/recreation. Duplicate desired wire identities remain invalid;
-a never-committed unused preparation may be superseded by a new same-wire scope.
-After successful preflight, obsolete unused preparations are pruned before
-further claims. The retained set is existing scopes intersected with current
-desired, union scopes with positive physical `SenderLease` refs. Each actual
-sender factory increments a ref. A registered physical session retains its ref
-through retirement drain; idempotent lease close then releases it. An unused or
-unpublished lease uses ordinary once-only cleanup without drain, including failed
-construction or cancellation. Active/draining exact scopes survive failed generations.
-An incomplete acquire returns Pending/Failed before that source's Manager apply
-or release, retaining its live/draining scopes/backends; currently desired
-preparations may remain for retry. This is neither global
-pre-generation overlay admission nor all-source atomicity.
+After publication, the captured old session commits AdminDown and drains outside mutation locks. Retain its lease and discriminator until drain completion or typed incomplete failure, then clean up once. The retiring exact key remains privately reserved through owner join, lease/discriminator release and metrics cleanup, including errors. Add/reverse rekey to it fails before factory with `ErrDuplicateSession`/`AlreadyExists`; explicit retry after Delete can create the next incarnation. No automatic retry is introduced.
+
+Disruptive replacement requires separate explicit identity/transition and client-impact intent. Before peer visibility, preparation must roll back on failure. After peer-visible cutover, seamless rollback is not guaranteed. AdminDown is not a promise that BGP or forwarding remains unchanged. The [same-key FRR fixture](../../../test/interop/same_key_topology_test.go) checks conflict while the old UDP inode is owned, closure before retry and old/new discriminator epochs. Peer Down is allowed. A passing same-key wire receipt remains required on the exact candidate.
+
+Sources: [replacement](../../../internal/bfd/manager_replace.go), [reconciliation](../../../cmd/gobfd/reconciliation.go), [RFC 5880 §6.8.16](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.16), [RFC 5882 §§3.2, 4.3](https://www.rfc-editor.org/rfc/rfc5882.html#section-3.2).
+
+### Overlay resource ownership
+
+Pure preflight covers a complete VXLAN or Geneve source before backend open/`SetScopes`. Duplicate desired wire identities are invalid. Unequal scopes sharing a live/draining wire identity, including VXLAN local-MAC changes, require separate removal/recreation. An unused never-committed preparation may be superseded.
+
+After successful preflight, prune obsolete unused preparations before claims. Retain existing scopes in current desired union positive physical SenderLease refs. Actual factory acquisition increments the ref; registered sessions retain it through drain until idempotent lease close. Unused/unpublished leases use once-only cleanup without drain.
+
+Incomplete acquisition returns Pending/Failed before that source's Manager apply/release, preserving live/draining exact scopes/backends. Desired preparations may remain for retry. This is source-local protection, not global pre-generation overlay admission or all-source atomicity. Source: [overlay owner](../../../cmd/gobfd/overlay_owner.go).
+
+### Availability and receipts
+
+Receipts retain bounded interface/address-class presence flags, never resource identity/raw errors. A class change updates status at the same pending count; identical receipts deduplicate and convergence clears flags. Timer pending and permanent failures keep separate retry/accounting.
+
+Availability covers listeners and outer overlay endpoints as well as bound interfaces. Address loss preserves desired generation/claims, marks source pending and health not ready; recovery retries the same generation. A two-second check covers five sources without monitor events. Inventory errors fail the source and require explicit SIGHUP. Source: [coordinator](../../../cmd/gobfd/reconciliation.go).
 
 ## Consequences
 
-Generation receipts retain fixed presence flags for unavailable interface and
-address classes, without resource identities or raw error strings. A class
-change is a status change at the same pending count; identical receipts remain
-deduplicated. Convergence clears the flags. Timer negotiation and permanent
-failures keep their separate accounting and retry policy.
+Supported changes preserve local identity. Peer timing, padding acceptance and forwarding require measurement. RFC 9764 §4.1 permits an Up session to go Down if its peer cannot receive padded Control. Cloud/hardware limits, Async/Echo and graceful restart require their own target profiles; RFC 7419 intervals do not establish acceptance.
 
-Linux availability checks cover active listener addresses and outer overlay
-endpoints as well as interface bindings. Address loss keeps the desired
-generation and existing claims, marks the source pending and health not ready;
-resource recovery retries that generation. The shared 2 s periodic check covers
-all five sources even without monitor events. Address-inventory errors fail
-the source and require explicit SIGHUP under the existing failed-source policy.
-See [configuration receipts](../03-configuration.md),
-`gobfd-qj0.8.2.2.6.8.1` and `gobfd-qj0.8.2.2.6.8.2`.
+### Qualification contract
 
-Supported changes preserve local session identity and avoid an unnecessary
-restart. Peer behavior, timing, padding acceptance and forwarding continuity
-still require measured qualification. RFC 9764 §4.1 explicitly permits the
-practical outcome that an existing Up session goes Down when its peer cannot
-receive padded Control packets.
+Use the existing actual-wire harness; do not infer wire Poll/Final from generation JSON alone. Scenario-selected receipt expectations are independent of capture validation: immediate updates may converge directly or after owner queueing; existing Poll phases require pending-before-applied.
 
-Cloud and hardware requirements remain separate target profiles. Timer
-limits, Async/Echo support and graceful-restart policy must be checked for the
-specific provider and connection; common intervals in RFC 7419 are not cloud
-acceptance evidence. The earlier source comparison is recorded at
-`reports/reload-policy-20261024/sources.txt`. Its historical discussion status
-does not establish this decision's approval or implementation qualification.
-No provider-specific runtime interoperability is asserted by this ADR.
+- DetectMult: authenticated Async 1→5→3 and remote-Demand 5→3 at negotiated 300 ms. Expected jitter mean is 247.5 ms for multiplier 1 and 262.5 ms otherwise. Local multiplier does not change local RX D, which uses the received multiplier. Crafted remote-Demand 5×500 ms gives a derived Poll bound; the peer has no detection timer. Responsive Finals/quiet window do not qualify missing-Final expiry or general Demand. Permit one old in-flight Control only as the first post-receipt packet within slack; new Control must arrive within one TX plus slack.
+- TTL: authenticated UDP/4784 startup; pause peer before reload. First replay the last accepted payload at admissible TTL: exactly one auth failure and zero accepted input. Then send one signed Poll below floor and identical payload/sequence at floor; only the latter may be accepted or return Final. One identity/counter/auth/capture baseline spans seven boundaries and remote-Demand entry; probes finish inside existing D so replay expiry cannot substitute for continuity.
+- Padding: one capture cursor/auth RX state per direction across resize/rejections. Failed/incomplete evaluation advances neither. Local 128→192→128 target does not change peer target or prove bidirectional MTU. Check DF, UDP payload, declared Length, zero padding and MAC domain separately. Auth5 is startup-only and separate from auth4. Probe aggregate/named BFD health through the owned container's management Unix socket using the same compiled interop executable; TCP stays loopback-only.
+- Final gate: limit TShark results after display filtering; `-c` is not absence evidence. Missing mandatory initial-state/expiry evidence fails. Before test-image cleanup retain immutable image IDs and required OCI source/base annotations. No runner path becomes an engine-host bind path.
 
-Implementation and qualification remain in Beads parent `gobfd-qj0.8.2.2.7`.
-Detect Multiplier `gobfd-qj0.8.2.2.7.1` and authentication admission
-`gobfd-qj0.8.2.2.7.3` are closed on dev. Packet-policy child
-`gobfd-qj0.8.2.2.7.2` is closed on dev. Reconciliation/rekey integration
-`gobfd-qj0.8.2.2.7.4`, `gobfd-qj0.8.2.2.7.4.1` and
-`gobfd-qj0.8.2.2.7.4.2` have completed lifecycle implementation and bounded
-local Go qualification; integration and closure receipts are maintained in Beads.
-Evidence is in `reports/rekey-lifecycle-20261024/`.
-Critical01 records 1049 top-level PASS, zero FAIL, five packages and two existing
-environment skips; quality04 has zero issues, vet01 and both benchmark runs
-exit 0. All 27 selected allocation budgets match baseline; 577 source-inventory
-checks match the frozen critical input. This is not all-wire, scale or stable acceptance.
-Overlay lease-ref/preparation cleanup `gobfd-qj0.8.2.2.7.4.2.1` is included in that qualification.
-`gobfd-qj0.8.2.2.7.5` owns the mandatory P0 actual-wire final gate, explicitly
-depending on `gobfd-qj0.8.2.2.7.4`. The existing wire gate must qualify all five
-reload fields, including RFC 9764 peer/MTU behavior, before v1. Source unit tests
-do not establish interoperability; no new harness is introduced by this policy.
-Wire qualification selects receipt expectations from the scenario, independently
-of capture validation. Immediate updates may converge directly or after owner
-queueing; existing Poll phases retain pending-before-applied evidence. That
-ordering is the current owner/coordinator contract, not an RFC JSON requirement.
-Neither mode alone proves the presence or absence of wire Poll/Final. Shared
-qualifier preparation is tracked in `gobfd-qj0.8.2.2.7.5.1`.
+### Dated local receipts
 
-Detect Multiplier wire qualification (`gobfd-qj0.8.2.2.7.5.2`) extends the
-existing authenticated Async phases with 1→5→3 and remote-Demand phases with
-5→3. At a 300 ms negotiated interval, multiplier 1 has 75–90% jitter and
-expected mean 247.5 ms; the other tested multipliers have 75–100% jitter and
-expected mean 262.5 ms (RFC 5880 §6.8.7). Changing the local multiplier leaves
-GoBFD's receive Detection Time based on the received peer multiplier.
-The peer's Async Detection Time is derived, not measured by these phases.
-For the crafted remote-Demand peer, 5×500 ms derives a local Poll bound;
-that peer has no detection timer. Responsive Finals and a quiet window do not
-qualify missing-Final expiry or graduate general Demand support. Capture checks
-retain discriminator, UDP source port/length, authentication type/key/sequence,
-timer tuple and state continuity independently of generation receipts. Actual
-candidate captures remain mandatory before closing the wire task.
-Async capture permits one old in-flight Control only as the first local
-post-receipt packet within the existing timer slack; the first new Control must
-arrive within one negotiated TX plus slack. Later old multipliers fail the gate.
-Runtime field discovery uses scoped registry queries and exact first-column
-matching; it does not buffer the full dissector registry in the race runner.
+These are retained results for their named inputs, not fresh validation or final acceptance.
 
-Local DetectMult wire qualification passed on
-`task/detect-wire-20261024@d9e67064e51012c0d25a1a22dc9bd469600d8469`:
-six authenticated Async phases and two crafted remote-Demand phases, with
-captures and receipts in `reports/detect-wire-20261024/`. Children `.5.2` and
-`.5.2.1` are closed locally. Prepared padding, actual TTL admission and the
-unified exact-candidate gate remain P0; no stable acceptance is implied.
+| Slice | Exact source | Retained result | Evidence |
+|:---|:---|:---|:---|
+| Lifecycle | Frozen input named in receipt | 1049 PASS, 0 FAIL; 5 packages, 2 environment skips; 27 budgets match; 577 inventory hashes match | `reports/rekey-lifecycle-20261024/` |
+| DetectMult | `d9e67064e51012c0d25a1a22dc9bd469600d8469` | 6 Async + 2 crafted remote-Demand phases | `reports/detect-wire-20261024/` |
+| TTL | `491b2214994f07e017eb93ab67a29a95378c619e` | Default 162.94 s, multihop 81.98 s; 7 boundary/replay windows | `reports/ttl-wire-20261024/` |
+| Padding | `b97729458a696aee21023ba147af51417ed9ff7b` | 8 resize + 7 rejection phases, 17 peer windows; health SERVING | `reports/padding-wire-20261024/` |
+| Default qualifier correction | `e4e79a8eee8e7c38bfc78321bdc5e9030909c214` | Local acceptance of corrected qualifier | Unified five-field qualification |
 
-Prepared-padding qualification (`gobfd-qj0.8.2.2.7.5.3`) retains one capture
-cursor and authentication receive state per direction across the whole resize
-and rejection sequence. Retry evaluation is transactional: failed or incomplete
-evidence cannot advance either state. The independent peer keeps its own PDU
-size; a local 128→192→128 target is not a bidirectional MTU claim. Verify DF,
-declared BFD Length, UDP payload, zero padding and the existing MAC boundary
-separately. Meticulous SHA1 is a startup-only profile of the same FourPeer
-lifecycle; default keyed SHA1 remains a separate qualification. Runtime auth
-rotation remains outside v1. Probe aggregate and named BFD readiness through
-the existing management Unix socket inside the owned daemon container, using
-the same compiled interop executable. Copy it through the existing container
-file mechanism; runner paths must not become host-engine bind paths.
-The TCP listener remains loopback-only.
-Source contracts alone do not close this actual-wire task.
+Lifecycle receipt also retains zero lint issues, vet/two benchmark exits zero and overlay lease cleanup qualification. Padding's three runs retain the 512 MiB cap, zero max/OOM/swap, 853 source matches and 675 sidecar matches.
 
-Local prepared-padding qualification passed on
-`task/padding-wire-20261024@b97729458a696aee21023ba147af51417ed9ff7b`:
-default auth4 and meticulous auth5 FourPeer profiles plus crafted remote-Demand
-rejection, with captures and receipts in `reports/padding-wire-20261024/`.
-Eight resize phases and seven rejected candidates cover seventeen peer windows;
-actual aggregate and named BFD health remain SERVING. The 512 MiB runner cap
-is unchanged; all three runs have zero max/OOM events and swap. Source and
-artifact integrity checks match 853 files and 675 sidecars. This closes the
-local padding slice, not actual TTL, unified final-candidate, forwarding,
-general Demand or stable-release qualification.
-
-Beads owns executable plans, priorities, dependencies and
-acceptance evidence. Acceptance of this policy is not implementation,
-interop or stable-release acceptance.
-
-The final five-field qualifier limits TShark results after display filtering;
-the packet-read limit `-c` cannot establish absence of a matching BFD frame.
-Missing mandatory initial-state or detection-expiry evidence fails qualification.
-Before test-owned image cleanup, the shared builder retains immutable image IDs
-and only required OCI source/base annotations. These records bind the test
-environment to the candidate; they do not replace product OCI, scale, security
-or stable-release qualification. Beads `gobfd-qj0.8.2.2.7.5.5` owns the final gate.
-The corrected default qualifier is locally accepted on
-`e4e79a8eee8e7c38bfc78321bdc5e9030909c214`; final four-profile qualification
-follows the remaining production Session/Echo thread and scale work. A later
-production change cannot inherit the development receipt as final acceptance.
+DetectMult, packet-policy, authentication-admission and lifecycle receipts are source slices, not stable acceptance. Mandatory actual-wire qualification depends on completed lifecycle work. The final four-profile/five-field gate follows production Session/Echo thread and scale work and must qualify the exact candidate before v1. Later production changes cannot inherit older receipts.
 
 ## References
 
-- [Generation acceptance and source receipts](../../../cmd/gobfd/reconciliation.go)
-- [Retained/live reload admission](../../../internal/bfd/manager_auth_reload.go)
-- [Owner timer and packet-policy transactions](../../../internal/bfd/session_update.go)
-- [Prepared replacement lifecycle](../../../internal/bfd/manager_replace.go)
-- [Overlay scope and physical-lease ownership](../../../cmd/gobfd/overlay_owner.go)
-- [RFC 5880 §6.6: Demand mode](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.6)
-- [RFC 5880 §6.7: Authentication](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.7)
-- [RFC 5880 §6.8.3: Timer manipulation](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.3)
-- [RFC 5880 §6.8.12: Detect Multiplier change](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.12)
-- [RFC 5880 §6.8.16: Administrative control](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.16)
-- [RFC 5882 §3.2: AdminDown state](https://www.rfc-editor.org/rfc/rfc5882.html#section-3.2)
-- [RFC 5882 §4.3: Graceful restart interactions](https://www.rfc-editor.org/rfc/rfc5882.html#section-4.3)
-- [RFC 7419: Common interval support](https://www.rfc-editor.org/rfc/rfc7419.html)
-- [RFC 9764 §§3–4.1: Large packets and peer compatibility](https://www.rfc-editor.org/rfc/rfc9764.html#section-3)
-- [AWS Direct Connect BGP/BFD settings](https://docs.aws.amazon.com/directconnect/latest/UserGuide/bgp-specific-settings.html)
-- [Google Cloud Router BFD profile](https://docs.cloud.google.com/network-connectivity/docs/router/concepts/bfd)
-- [Azure ExpressRoute BFD profile](https://learn.microsoft.com/en-us/azure/expressroute/expressroute-bfd)
-- [Existing timer transaction contract](../../superpowers/specs/2026-09-08-gobfd-timer-update-transactions-design.md)
+- [Configuration and receipt reference](../03-configuration.md).
+- [Interop](../05-interop.md), [RFC coverage](../08-rfc-compliance.md).
+- [RFC 5880 §§6.6, 6.8.3, 6.8.12](../../rfc/rfc5880.txt), [RFC 9764 §§3–4.1](../../rfc/rfc9764.txt).
+- [Target peer references](../reference/vendor-bfd.md).

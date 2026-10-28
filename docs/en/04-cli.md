@@ -1,501 +1,99 @@
-# CLI Reference
+# Command-line interface
 
-![Cobra](https://img.shields.io/badge/Cobra-CLI-1a73e8?style=for-the-badge)
-![reeflective/console](https://img.shields.io/badge/reeflective%2Fconsole-Interactive-34a853?style=for-the-badge)
-![ConnectRPC](https://img.shields.io/badge/ConnectRPC-gRPC-ea4335?style=for-the-badge)
-![Formats](https://img.shields.io/badge/Output-table%20%7C%20json%20%7C%20yaml-ffc107?style=for-the-badge)
+`gobfdctl` uses the daemon management API. Commands, flags and formatting are defined in [command sources](../../cmd/gobfdctl/commands/root.go); message fields are defined in [the protocol schema](../../api/bfd/v1/bfd.proto). List success proves management access, not forwarding health.
 
-> Complete reference for `gobfdctl` -- the CLI client for managing BFD sessions, monitoring events, and interacting with the gobfd daemon.
+## Global flags
 
----
+| Flag | Default | Contract |
+| :--- | :--- | :--- |
+| `--addr` | `unix:///run/gobfd/gobfd.sock` | Unix URL, bare `host:port`, `http://` or `https://` |
+| `--tls-ca` | empty | PEM CA for daemon certificate |
+| `--tls-cert` | empty | PEM client certificate |
+| `--tls-key` | empty | PEM client private key |
+| `--format` | `table` | `table`, `json`, `yaml` for structured output |
 
-## Table of Contents
+TLS files require HTTPS. Server-side transport policy controls writes. The CLI does not read daemon `GOBFD_*` overrides. Source: [endpoint transport](../../internal/apiclient/endpoint.go).
 
-- [Overview](#overview)
-- [Global Flags](#global-flags)
-- [Capabilities Command](#capabilities-command)
-- [Session Commands](#session-commands)
-- [Echo Commands](#echo-commands)
-- [Micro-BFD Commands](#micro-bfd-commands)
-- [Monitor Command](#monitor-command)
-- [Version Command](#version-command)
-- [Certificate Renewal](#certificate-renewal)
-- [Interactive Shell](#interactive-shell)
-- [Output Formats](#output-formats)
-
-### Overview
-
-`gobfdctl` communicates with the gobfd daemon via ConnectRPC (compatible with gRPC, Connect, and gRPC-Web protocols). It provides both non-interactive commands (via Cobra) and an interactive shell (via reeflective/console) with tab completion.
-
-```text
-gobfdctl [global flags] <command> [subcommand] [flags]
-```
-
-### Global Flags
-
-| Flag | Default | Description |
-|---|---|---|
-| `--addr` | `unix:///run/gobfd/gobfd.sock` | gobfd daemon endpoint: `host:port`, `http://host:port`, `https://host:port` or `unix:///path` (management socket) |
-| `--tls-ca` | `""` | CA file that signed the daemon certificate (`https://` endpoints) |
-| `--tls-cert` | `""` | Client certificate file for mTLS |
-| `--tls-key` | `""` | Client key file for mTLS |
-| `--format` | `table` | Output format: `table`, `json`, `yaml` |
-
-### Capabilities Command
-
-```bash
-gobfdctl capabilities
-gobfdctl capabilities --format json
-gobfdctl capabilities --format yaml
-```
-
-Calls the read-only `bfd.v1.CapabilityService.ListCapabilities` RPC. The daemon
-returns five ordered profiles: `unsolicited`, `echo`, `micro_bfd`, `vxlan`,
-`geneve`. The table columns are `CAPABILITY`, `RFC`, `MATURITY`, `ENABLEMENT`,
-`READINESS`; JSON and YAML return an array of objects with `kind`, `rfc`,
-`maturity`, `enablement`, `readiness` fields.
-
-| Field | Values and meaning |
-|---|---|
-| `maturity` | `preview`; runtime readiness does not graduate RFC qualification |
-| `enablement` | `disabled`, `enabled`, or `unknown` when runtime state is unavailable |
-| `readiness` | `not_ready`, `ready`, or `unknown` when runtime state is unavailable |
-
-Disabled profiles are `not_ready`. An absent runtime source preserves all five
-preview entries with `unknown` enablement and readiness. The CLI renders
-unspecified enum fields as `unknown`; it reports RPC errors without inventing
-a local catalog or inferring status from client flags.
-
-`ready` describes the necessary owned receive/backend path and local runtime,
-source and binding readiness. It does not prove peer health, RFC compliance or
-L2 actuator enforcement. An API-only Echo deployment may report `not_ready`
-until a later `echo add` claims its receive listener. The status RPC remains
-callable while forwarding runtime is not ready, under the management transport
-policy, and returns no peer addresses, endpoints or secrets.
-
-### Session Commands
-
-#### List all sessions
-
-```bash
+```sh title="management-readback.sh"
 gobfdctl session list
+gobfdctl --format json capabilities
+gobfdctl --addr https://bfd.example.net:50052 --tls-ca /etc/gobfd/tls/ca.pem --tls-cert /etc/gobfd/tls/client.pem --tls-key /etc/gobfd/tls/client.key session list
 ```
 
-The table shows peer/local identity, current state, type and discriminators.
-Use `session show` or structured JSON/YAML output for timer fields.
+## Commands
 
-#### Show a specific session
+| Command | Arguments/options | Result |
+| :--- | :--- | :--- |
+| `session list` | none | All Control sessions |
+| `session show IDENTIFIER` | Peer address or uint32 discriminator | One Control session |
+| `session add` | Flags below | Claim Control session |
+| `session delete DISCRIMINATOR` | uint32 | Release caller's Control claim |
+| `echo list` | none | All Echo sessions |
+| `echo add` | Flags below | Claim preview Echo session |
+| `echo delete DISCRIMINATOR` | uint32 | Release caller's Echo claim |
+| `micro list` | none | Micro-BFD groups |
+| `micro add` | Flags below | Claim preview LAG group |
+| `micro delete LAG` | LAG interface | Release caller's group claim |
+| `capabilities` | none | Daemon preview catalog |
+| `monitor` | `--current` defaults false | Stream Control and Echo events |
+| `certificate renew` | Four required flags below | Renew certificate independently of daemon RPC |
+| `version` | none | Local CLI build information |
+| `shell` | none | Interactive subset |
+| `help` | Optional command path | Usage |
 
-```bash
-# By peer address
-gobfdctl session show 10.0.0.1
+Prefer a discriminator when several sessions share one address. Delete releases a claim; other owners may retain the physical session. Configuration claims do not belong to the CLI principal. See [authorization](15-security.md#management-api).
 
-# By local discriminator
-gobfdctl session show 42
-```
+## Control creation
 
-A peer address that matches more than one session (for example the same
-peer on two interfaces) fails with `FAILED_PRECONDITION` and lists the local
-discriminators; show the session by discriminator instead.
+| Flag | Default | Contract |
+| :--- | :--- | :--- |
+| `--peer` | required | Peer IP |
+| `--local`, `--interface` | empty | Source IP and device binding |
+| `--type` | `single-hop` | `single-hop` or `multi-hop` |
+| `--tx-interval`, `--rx-interval` | `1s` each | Duration strings; RX may be zero |
+| `--detect-mult` | `3` | 1–255 after server validation |
+| `--padded-pdu-size` | `0` | Target bytes; zero disables request padding |
+| `--auth-type` | `none` | `none`, `simple-password`, `keyed-md5`, `meticulous-keyed-md5`, `keyed-sha1`, `meticulous-keyed-sha1` |
+| `--auth-key-id` | `0` | 0–255 |
+| `--auth-secret` | empty | Required with enabled authentication |
 
-#### Create a session
+Auth normalization accepts case differences and underscores/hyphens. Key material with disabled auth is rejected. No `--multihop-max-hops` flag or `AddSessionRequest` hop-policy field exists; use YAML for a nondefault hop policy. Server validation, binding admission and authorization still apply.
 
-```bash
-# Single-hop BFD session
-gobfdctl session add \
-  --peer 10.0.0.1 \
-  --local 10.0.0.2 \
-  --interface eth0 \
-  --type single-hop \
-  --tx-interval 100ms \
-  --rx-interval 100ms \
-  --detect-mult 3
-
-# Multihop session
-gobfdctl session add \
-  --peer 192.168.1.1 \
-  --local 192.168.2.1 \
-  --type multi-hop \
-  --tx-interval 300ms \
-  --detect-mult 5
-
-# Authenticated session
-gobfdctl session add \
-  --peer 10.0.0.1 \
-  --local 10.0.0.2 \
-  --auth-type keyed-sha1 \
-  --auth-key-id 7 \
-  --auth-secret api-auth-secret \
-  --padded-pdu-size 128
-```
-
-| Flag | Required | Default | Description |
-|---|---|---|---|
-| `--peer` | Yes | -- | Remote system IP address |
-| `--local` | No | -- | Local IP; specify it explicitly to qualify receive binding |
-| `--interface` | No | -- | Single-hop RX/TX device binding; rejected for `multi-hop` |
-| `--type` | No | `single-hop` | Session type: `single-hop` or `multi-hop` |
-| `--tx-interval` | No | `1s` | Desired Min TX Interval |
-| `--rx-interval` | No | `1s` | Required Min RX Interval |
-| `--detect-mult` | No | `3` | Detection Multiplier |
-| `--padded-pdu-size` | No | `0` | Target PDU size in bytes: 0 disables padding; 24-9000 without auth, 26-9000 with auth |
-| `--auth-type` | No | `none` | Auth type: `none`, `simple-password`, `keyed-md5`, `meticulous-keyed-md5`, `keyed-sha1`, `meticulous-keyed-sha1` |
-| `--auth-key-id` | No | `0` | RFC 5880 Auth Key ID, range 0-255; zero is valid |
-| `--auth-secret` | If auth enabled | -- | Auth secret: 1-16 bytes for Simple Password/MD5, 1-20 bytes for SHA1 |
-
-`AddSession` returns `InvalidArgument` for malformed protobuf TX/RX durations
-and client intervals rejected by core validation. Omitted intervals default to
-`1s`; an explicit required RX interval of zero remains valid.
-
-`session show` displays `Padded PDU Target` in bytes. JSON/YAML session output,
-including monitor rows, exposes integer `padded_pdu_size` as the configured
-target; an authenticated PDU may be larger. CLI/API `0` disables padding,
-whereas YAML session `0` inherits `bfd.default_padded_pdu_size`.
-
-#### Delete a session
-
-```bash
-# By local discriminator
-gobfdctl session delete 42
-```
-
-### Echo Commands
-
-RFC 9747 unaffiliated BFD echo sessions live under a separate command
-group because their timer model differs from RFC 5880 control sessions:
-TxInterval is locally provisioned and not negotiated with the peer.
-
-`echo add` requires the daemon's `echo.enabled: true` and a ready Echo receive
-path. Disabled preview, pending/failed reconciliation or lost runtime/binding
-readiness returns `FailedPrecondition` without opening a sender or creating a
-session. List/Delete remain available for cleanup. RFC 9747 remains preview.
-
-#### List echo sessions
-
-```bash
-gobfdctl echo list
-```
-
-#### Create an echo session
-
-```bash
-gobfdctl echo add \
-    --peer 10.0.0.1 \
-    --local 10.0.0.2 \
-    --tx-interval 50ms \
-    --detect-mult 3
-```
-
-| Flag | Required | Default | Description |
-|---|---|---|---|
-| `--peer` | Yes | -- | Echo target IP address |
-| `--local` | No | -- | Local IP; specify it explicitly to qualify receive binding |
-| `--interface` | No | -- | Optional `SO_BINDTODEVICE` binding for both the Echo receive listener and TX sender |
-| `--tx-interval` | No | `1s` | Locally provisioned Echo transmit interval (RFC 9747 Section 2) |
-| `--detect-mult` | No | `3` | Detection multiplier; `DetectionTime = mult * TxInterval` |
-
-`AddEchoSession` requires a structurally valid, positive `tx_interval` within
-the BFD wire interval bound; violations return `InvalidArgument`. The CLI
-supplies its `1s` default, but direct API requests must include the field.
-
-API-created Echo sends to UDP destination port 3785 and claims the receive
-listener for the requested local address and interface. Sender-creation
-failure releases the prepared receive claim and unused source port. Echo
-remains preview; local socket checks do not establish peer or full RFC 9747
-qualification.
-
-An admitted identical Echo Add by the same principal returns the existing
-discriminator without opening another sender. Compatible config and other API
-principals share the wire; conflicting parameters return `FailedPrecondition`.
-Delete releases only the caller's claim (`PermissionDenied` without one,
-`NotFound` for an absent discriminator). Only the final claim retires the wire;
-removing configuration keeps RX/TX for a surviving API claim.
-
-#### Delete an echo session
-
-```bash
-gobfdctl echo delete 42
-```
-
-### Micro-BFD Commands
-
-RFC 7130 micro-BFD uses one BFD session per LAG member link. The CLI manages
-the group resource; member-session creation is a separate operation.
-Creation requires the daemon's `micro_bfd.enabled: true`; otherwise it returns
-`FailedPrecondition`. The CLI has no member-session creation command; use the
-declarative group configuration to create the group and its members together.
-
-#### List micro-BFD groups
-
-```bash
-gobfdctl micro list
-```
-
-#### Create a micro-BFD group
-
-```bash
-gobfdctl micro add \
-    --lag bond0 \
-    --members eth0,eth1,eth2 \
-    --peer 10.0.0.1 \
-    --local 10.0.0.2 \
-    --tx-interval 300ms \
-    --rx-interval 300ms \
-    --detect-mult 3 \
-    --min-active 2
-```
-
-| Flag | Required | Default | Description |
-|---|---|---|---|
-| `--lag` | Yes | -- | LAG interface name (`bond0`, `team0`, `port-channel1`) |
-| `--members` | Yes | -- | Comma-separated member link names |
-| `--peer` | Yes | -- | Peer IP address shared by every member session |
-| `--local` | No | -- | Local IP address |
-| `--tx-interval` | No | `1s` | Desired minimum TX interval |
-| `--rx-interval` | No | `1s` | Required minimum RX interval |
-| `--detect-mult` | No | `3` | Detection multiplier (RFC 7130 Section 2.2) |
-| `--min-active` | No | `1` | Minimum active members for aggregate Up |
-
-The CLI rejects `--min-active` outside `[1, len(--members)]` before
-contacting the daemon.
-
-`AddMicroBFDGroup` returns `InvalidArgument` for malformed protobuf TX/RX
-durations, duplicate or empty member names, and member session values outside
-the RFC 5880 bounds (zero TX, negative or out-of-range TX/RX intervals, zero
-detect multiplier). Omitted intervals default to `1s`; an explicitly supplied
-zero RX interval is accepted. Micro-BFD group RPCs return:
-
-| Condition | Code |
-|---|---|
-| The caller already holds a claim on the group | `AlreadyExists` |
-| A group with the same `lag_interface` and a different configuration exists | `FailedPrecondition` |
-| A member link belongs to a group of another LAG | `FailedPrecondition` |
-| `DeleteMicroBFDGroup` for a group the caller does not own, such as a reload group | `FailedPrecondition` |
-| `DeleteMicroBFDGroup` for an unknown LAG | `NotFound` |
-
-#### Delete a micro-BFD group
-
-```bash
-gobfdctl micro delete bond0
-```
-
-### Monitor Command
-
-Stream live BFD events (state changes) from the daemon:
-
-```bash
-# Stream only new events
-gobfdctl monitor
-
-# Stream events with initial snapshot of all sessions
+```sh title="control-session.sh"
+gobfdctl session add --peer 192.0.2.2 --local 192.0.2.1 --interface eth0 --tx-interval 300ms --rx-interval 300ms --detect-mult 3
+gobfdctl session show 192.0.2.2
 gobfdctl monitor --current
 ```
 
-| Flag | Default | Description |
-|---|---|---|
-| `--current` | `false` | Include current session states before streaming |
+Runtime claims are not persisted to YAML. Auth flag values may appear in process arguments/history; use protected YAML or a controlled API client for production secrets. Source: [Control commands](../../cmd/gobfdctl/commands/session.go).
 
-The monitor uses server-side streaming. The table prints timestamp, event
-type, peer address, current and previous state, local discriminator and
-revision (`rev=`), increasing within one daemon process. JSON/YAML also
-exposes the session's diagnostic and cause through the CLI session view.
-It is a projection of the RPC message: Control/Watch packet counters and
-`ListSessions.delivery_counters` are not rendered. Use the API or Prometheus
-for those counters. See [`formatEvent`](../../cmd/gobfdctl/commands/format.go).
+## Echo and Micro-BFD creation
 
-A snapshot (`--current`) is a run of `SessionAdded` events closed by
-`SyncComplete`, which carries the revision the snapshot covers. If the
-monitor falls behind the daemon, it receives `Gap` followed by a fresh
-snapshot, with or without `--current`. Releasing the last owner of a wire
-session emits `SessionDeleted` with its identity, final state and revision;
-releasing a shared claim emits no deletion. Later snapshots omit the removed
-session. Removal cancels its pending GoBGP Down and Up actions; it does not
-enable a peer GoBFD previously disabled.
+| Command | Flags and defaults | Constraint |
+| :--- | :--- | :--- |
+| `echo add` | `--peer` required; `--local`/`--interface` empty; `--tx-interval=1s`, `--detect-mult=3` | Enabled preview; positive TX; multiplier 1–255 |
+| `micro add` | `--lag`/`--members`/`--peer` required; `--local` empty; `--tx-interval=1s`, `--rx-interval=1s`, `--detect-mult=3`, `--min-active=1` | Enabled preview; minimum active 1…member count |
 
-New Control and Echo sessions emit `SessionAdded` even if they remain Down.
-The RPC additions, changes and removals carry full API status sampled at publication;
-List samples telemetry independently. `ObservationVersion` covers the causal
-tuple, not each packet or counter change. Clients replace the entire row,
-including zero/false values and absent timestamps. Initial, GAP and reconnect
-snapshots include both registries at one revision boundary. Echo rows map
-their locally provisioned TX interval, detection settings, counters and
-timestamps; unowned remote/negotiated/drop/auth fields are zero, not loss
-evidence. Control List/Get and typed Echo commands retain their existing scope.
-Public Control/Echo raw notification loss also produces `Gap` and a fresh
-snapshot while dispatch runs, even if this monitor's own queue has room.
-No next owner edge or reconnect is needed. Shared Watch clients reject older
-queued observations after a newer snapshot; the CLI prints the revisioned
-event stream. Private cleanup and legacy subscribers retain their separate
-delivery boundaries.
+`--members` accepts comma-separated interfaces. Echo/Micro creation prints status lines; `--format` applies to their list output. Creation does not enable a profile or configure its actuator. Sources: [Echo](../../cmd/gobfdctl/commands/echo.go), [Micro-BFD](../../cmd/gobfdctl/commands/micro.go).
 
-Press `Ctrl+C` to stop monitoring.
+## Capabilities and events
 
-The CLI opens one stream and exits on a stream error; it does not reconnect
-automatically. The shared client library's reconnect behavior is not a CLI
-monitor guarantee.
+`capabilities` reports kind, RFC, maturity, enablement and local readiness. The read-only daemon catalog remains available when forwarding runtime is unready, subject to transport policy. No client fallback invents results. Disabled profiles are `not_ready`; unavailable runtime information is `unknown`. Enabled overlays without peers have no owned backend. API-only Echo may need an admitted claim before its receive listener exists. Readiness is not peer health or RFC qualification, and the catalog is not admission preflight.
 
-### Version Command
+`monitor --current` emits Control and Echo snapshots followed by events; `session list/show` remain Control-only and `echo list` reads Echo separately. JSON/YAML output is a sequence of events, not a session database. Controllers must reconcile after reconnect; see the [API source](../../api/bfd/v1/bfd.proto) and [combined Watch snapshot](../../internal/bfd/manager_session.go).
 
-All binaries support version display with commit hash and build date:
+## Certificate renewal
 
-```bash
-gobfd --version
-gobfdctl version
-gobfd-haproxy-agent --version
-gobfd-exabgp-bridge --version
+`certificate renew` contacts an external CA using an existing identity, validates the returned certificate and atomically replaces only the certificate. Enrollment, key rotation and scheduling are outside its scope.
+
+```sh
+gobfdctl certificate renew --ca-url https://ca.example.net --ca-root /etc/gobfd/tls/roots.pem --cert /etc/gobfd/tls/client.pem --key /etc/gobfd/tls/client.key
 ```
 
-Example output:
+All four flags are mandatory. Output is `certificate renewed` or `certificate unchanged`. A post-replacement error may represent a committed operation; inspect the certificate before retrying. Renewal/revocation is not immediate API-access removal. Sources: [command](../../cmd/gobfdctl/commands/certificate.go), [renewal client](../../internal/stepca/client.go), [ADR-0005](adr/0005-smallstep-management-certificates.md).
 
-```text
-gobfdctl v0.1.0
-  commit:  abc1234
-  built:   2026-02-22T12:00:00Z
-```
+## Interactive shell and exit behavior
 
-Version information is injected at build time via ldflags (see [09-development.md](./09-development.md)).
+The shell supports `session`, `capabilities`, `monitor`, `version`, `help`, `exit`/`quit`. Echo, Micro-BFD and certificate commands are noninteractive only. Select endpoint/format before entering the shell. Completion follows the shell command tree; Ctrl-D exits. Source: [shell](../../cmd/gobfdctl/commands/shell.go).
 
-### Certificate Renewal
-
-Renew an existing management identity through an explicitly trusted external
-Smallstep CA:
-
-```bash
-gobfdctl certificate renew \
-  --ca-url https://ca.example \
-  --ca-root /etc/gobfd/root.pem \
-  --cert /etc/gobfd/management.pem \
-  --key /etc/gobfd/management-key.pem
-```
-
-| Flag | Required | Description |
-|---|---|---|
-| `--ca-url` | Yes | HTTPS origin of the trusted CA |
-| `--ca-root` | Yes | Explicit PEM roots for the CA endpoint and returned chain |
-| `--cert` | Yes | Existing, currently valid certificate PEM file to replace |
-| `--key` | Yes | Existing matching private-key PEM file |
-
-These local flags have no environment fallback. This non-interactive command
-uses native mTLS `POST /renew`, a 10-second HTTP timeout and caller cancellation
-(including SIGINT/SIGTERM). It bypasses daemon RPC initialization; `--addr` and
-the management `--tls-*` flags do not configure CA access.
-
-The existing certificate must be valid for TLS client authentication to the
-CA. If its EKU extension restricts usage, it must permit `clientAuth`;
-`serverAuth` alone cannot authenticate this renewal request. A daemon
-certificate used for both serving management and renewal needs both usages.
-Renewal preserves the usage profile; it cannot add a missing usage. See the
-[Smallstep transport decision](adr/0005-smallstep-management-certificates.md).
-
-Use three distinct regular, single-link input files without final-component
-symlinks in trusted parent directories. The inputs and their immediate parent
-directories must not be group- or world-writable and must belong to root or the
-caller. The private key requires mode `0400` or `0600`.
-The JSON response must preserve the
-public key, subject, exact SAN and key-usage/EKU profile. A changed certificate
-must advance expiry; a verified identical chain is a no-op.
-
-Only the public certificate file is atomically replaced, preserving its mode
-and UID/GID; the private key is neither changed nor printed. Success prints
-`certificate renewed` or `certificate unchanged`, independently of `--format`.
-Errors before replacement preserve the previous certificate. An `ErrCommitted`
-error means replacement already occurred; durability may be uncertain, and
-rollback is not promised. This also marks an output error after replacement.
-
-Initial enrollment and unattended scheduling are outside this command. A
-trusted CA can issue identities selected by API role rules; issuance alone
-does not authorize API access. A bounded Linux qualification uses the actual
-CA with an isolated dependency profile; see the [test contract](../../test/stepca/README.md).
-See [deployment](06-deployment.md#management-certificate-renewal)
-for connection reload boundaries and [ADR-0005](adr/0005-smallstep-management-certificates.md).
-
-### Interactive Shell
-
-```bash
-gobfdctl shell
-```
-
-Launches an interactive shell with:
-- **Tab completion** for commands and subcommands
-- **Readline autocomplete** via reeflective/console (derived from Cobra command tree)
-- Session, monitor, capabilities and version commands without the `gobfdctl` prefix;
-  certificate renewal is available only through the non-interactive CLI
-
-Example session:
-
-```text
-gobfd> session list
-gobfd> session show 10.0.0.1
-gobfd> capabilities
-gobfd> monitor --current
-gobfd> exit
-```
-
-### Output Formats
-
-Session list/show/add, echo list, micro list, monitor and capabilities support
-three output formats via `--format`. Echo/micro add and delete, session delete,
-version and certificate renewal print text regardless of `--format`:
-
-| Format | Use Case |
-|---|---|
-| `table` | Human-readable terminal output (default) |
-| `json` | Machine-parseable, scripting, piping to `jq` |
-| `yaml` | Human-readable structured output |
-
-JSON field names and values form the machine-readable CLI contract. YAML keeps
-the same data model, but whitespace, indentation, and scalar presentation are
-not byte-stable across compatible serializer updates; automation should parse
-YAML rather than compare its rendered bytes.
-
-Control session detail reports `Packets Dropped` and `Auth Failures` from the
-same sampled session counters as Get/List and Control Watch. Auth failures are
-a subset of drops; admitted packets can still fail owner validation or be
-abandoned on stop. Process-lifetime stage totals, including unknown peers and
-deleted sessions, are available through API `ListSessions.delivery_counters`
-and `gobfd_bfd_delivery_outcomes_total`, not the session table. The fixed rows
-also distinguish Echo RX and raw/dispatch/recipient notification outcomes;
-notification loss is not a Control packet drop. See
-[monitoring](07-monitoring.md) for denominators and remaining queue boundaries.
-
-```bash
-# JSON output for scripting
-gobfdctl session list --format json
-
-# YAML output
-gobfdctl session list --format yaml
-
-# Pipe JSON to jq
-gobfdctl session list --format json | jq '.[].local_state'
-```
-
-### Examples
-
-```bash
-# Connect to remote daemon
-gobfdctl --addr https://gobfd.example.net:50052 \
-  --tls-ca /etc/gobfd/ca.crt --tls-cert /etc/gobfd/client.crt \
-  --tls-key /etc/gobfd/client.key session list
-
-# Quick session setup for testing
-gobfdctl session add --peer 10.0.0.1 --local 10.0.0.2 --interface eth0 \
-  --tx-interval 100ms --detect-mult 3
-
-# Watch for state changes in JSON
-gobfdctl --format json monitor --current
-
-# Scripted health check
-if gobfdctl session show 10.0.0.1 --format json | jq -e '.local_state == "Up"' > /dev/null; then
-  echo "BFD session is Up"
-fi
-```
-
-### Related Documents
-
-- [03-configuration.md](./03-configuration.md) -- Declarative session configuration
-- [07-monitoring.md](./07-monitoring.md) -- Prometheus metrics and Grafana dashboards
-- [01-architecture.md](./01-architecture.md) -- ConnectRPC server architecture
-
----
-
-*Reviewed against `dev` source: 2026-10-25 (`706991db9433b13cec47e0bb8ea2549b01e948d9`).*
+Failures print `Error: …` to stderr and exit 1. Local version output does not report the daemon build or session readiness.

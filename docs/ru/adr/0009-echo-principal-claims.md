@@ -1,88 +1,43 @@
-# ADR-0009: Права субъектов на общую Echo-сессию
+# ADR-0009: Principal claims общего Echo wire
 
 | Поле | Значение |
-|---|---|
-| Статус | Принятая политика; локальная квалификация отдельно |
-| Дата | 2026-10-25 |
+|:---|:---|
+| Status | Accepted policy; local qualification separate |
+| Date | 2026-10-25 |
 
 ## Контекст
 
-До введения прав владельцев исключительный флаг источника API/config в Echo
-не представлял совместное владение. Повторное создание через API выделяло новый
-дискриминатор и отправитель, а удаление только по дискриминатору могло удалить
-сессию другого субъекта. Для общей сессии также требуется сохранить приём после
-удаления её исходного декларативного источника.
+Общий Echo transport требует principal-scoped claims. Удаление по discriminator не различает owners; withdrawal конфигурации не должен удалять приём surviving API owner.
 
 ## Решение
 
-Использовать существующие `SessionOwner`, полученный из транспорта
-`apiOwnerFromContext` и сравнимый `SessionKey`. Идентичность Echo содержит адреса
-пира и локальной системы после unmap и точный интерфейс; зоны остаются частью
-адресов. Составной ключ исключает коллизии разделителей. Интервал TX и Detect
-Multiplier должны совпадать с действующей сессией до принятия дополнительного
-права владельца (claim).
+Используются `SessionOwner`, `apiOwnerFromContext` и comparable `SessionKey`. Echo key содержит unmapped peer/local addresses с zones и точный interface. TX interval и DetectMult должны совпадать до sharing. Один physical discriminator, sender lease и набор owner claims защищены serialization lifecycle→ownership→registry.
 
-При существующем порядке блокировок lifecycle/ownership/registry сохранять одну
-Echo-сессию и аренду отправителя на идентичность, с набором прав владельцев.
-Повторный допущенный вызов того же владельца ничего не меняет; совместимые
-владельцы конфигурации и API разделяют сессию. Несовместимый набор параметров
-возвращает `FailedPrecondition` до выделения ресурсов или изменений. Владельцы
-API определяются проверенным транспортом, а не полями запроса. Unix UID, TLS
-URI, TLS DNS и анонимный локальный владелец при явно включённом небезопасном
-режиме сохраняют существующие пространства имён субъектов. Наблюдение в режиме
-только чтения остаётся общим для всего демона.
+| Операция | Обязательный результат |
+|:---|:---|
+| Same-owner identical Add | Idempotent; без новой physical session, sender, discriminator либо protocol reset |
+| Compatible other-owner Add | Общий physical wire |
+| Parameter conflict | `FailedPrecondition` до sender acquisition либо claim mutation |
+| Delete wire без caller claim | `PermissionDenied` |
+| Delete отсутствующего discriminator | `NotFound` |
+| Final claim release/shutdown | Join Echo owner, затем release lease вне Manager locks |
 
-Удаление освобождает только право вызывающего. Вызывающий без права получает
-`PermissionDenied`; отсутствующий дискриминатор возвращает `NotFound`. Только
-освобождение последнего права завершает сессию. Освобождение и остановка ожидают
-завершения горутины владельца Echo перед закрытием аренды отправителя, вне
-блокировок Manager. Ошибки очистки остаются наблюдаемыми.
+Principal задаётся verified transport, а не request fields. Unix UID, TLS URI, TLS DNS и unsafe-opt-in local namespaces различаются. Observation остаётся daemon-wide. Preview enablement и RX readiness проверяются перед каждым Add, включая retry; unready retry может отказать, сохранив прежний claim. List/Delete сохраняют management authorization.
 
-Физическая аренда Echo удерживает приёмный слушатель независимо от того, какой
-источник создал его первым. Удаление конфигурации должно сохранить RX/TX для
-оставшегося владельца API. Освобождение последнего права закрывает принадлежащую
-сессии ссылку на RX; ссылки источника конфигурации сохраняют независимый
-жизненный цикл.
+Physical Echo lease держит RX независимо от creating source. Configuration withdrawal сохраняет TX/RX для API claims; final physical release закрывает этот RX ref, source refs сохраняют собственные lifetimes.
 
-Согласование проверяет полный желаемый набор относительно всех действующих
-владельцев, затем подготавливает новые права конфигурации до освобождения
-устаревших. Ошибка подготовки откатывает только права текущего прохода, сохраняет
-прежние права конфигурации и никогда не удаляет оставшиеся права API. Число прав
-и число физических сессий учитываются раздельно.
-
-Уже отменённое согласование возвращает ошибку жизненного цикла без изменения
-прав. Отмена, обнаруженная перед освобождением устаревших прав, сохраняет прежние
-права; новые права, уже опубликованные этим проходом, остаются установленными.
-Повтор с действующим контекстом использует эти сессии и сходится без повторного
-выделения аренды отправителя.
+Reconciliation проверяет весь desired set против всех owners, готовит новые config claims до stale release и откатывает при preparation failure только claims своего pass. Уже canceled pass ничего не меняет. Cancellation до stale release сохраняет old claims; опубликованные new claims остаются, live retry использует их повторно.
 
 ## Последствия
 
-- Повторный одинаковый Echo Add идемпотентен; List/Watch описывают одну сессию,
-  даже если её разделяют несколько владельцев. Изменение прав само по себе не
-  публикует события жизненного цикла сессии и не сбрасывает протокольное
-  состояние, дискриминатор или порт источника.
-- Проверка включения предварительного режима и готовности предшествует каждому
-  Add, включая повторы. При отсутствии готовности запрос может завершиться
-  ошибкой, сохранив действующее право; List/Delete доступны согласно политике
-  управления.
-- Совместимые Go-методы создания/удаления используют собственного владельца
-  совместимости и не могут освободить право конфигурации или другого субъекта API.
-- Авторизация субъектов относится к плоскости управления. Она не аутентифицирует
-  возвращённые Echo-пакеты и не квалифицирует межузловую пересылку, IPv6 link-local,
-  безопасность RFC 9747 или поддерживаемый масштаб. Echo остаётся предварительной
-  реализацией.
+Claim count отличается от physical-wire count. Claim-only changes не создают wire lifecycle event и сохраняют state, discriminator и source port. Compatibility methods имеют отдельного owner и не могут освободить config/API principals. Cleanup errors остаются наблюдаемыми.
+
+Management authorization не аутентифицирует Echo returns и не квалифицирует RFC 9747, interhost forwarding, IPv6 link-local либо scale. Echo остаётся preview. Claim lifecycle, returned-packet security и final release qualification требуют отдельных evidence.
 
 ## Источники
 
-- [Владение Echo и согласование](../../../internal/bfd/manager_echo.go)
-- [Общие типы идентичности и владельца](../../../internal/bfd/session_identity.go)
-- [Адаптер Echo API](../../../internal/server/echo.go)
-- [Пространства имён транспортного субъекта](../../../internal/server/mutation_guard.go)
-- [Аренда приёма декларативного Echo](../../../cmd/gobfd/reload.go)
-- [Владелец приёмных слушателей](../../../cmd/gobfd/listeners.go)
-- [Политика безопасности](../15-security.md)
-
-Исполнимые критерии приёмки принадлежат Beads `gobfd-qj0.8.2.2.8`; безопасность
-Echo по RFC остаётся отдельной в `gobfd-qj0.8.2.1.13`. Локальные проверки не
-закрывают финальную квалификацию релиза.
+- [Ownership и reconciliation](../../../internal/bfd/manager_echo.go).
+- [Key и owner types](../../../internal/bfd/session_identity.go).
+- [API admission](../../../internal/server/echo.go), [principal namespaces](../../../internal/server/mutation_guard.go).
+- [Receive ownership](../../../cmd/gobfd/listeners.go), [reload](../../../cmd/gobfd/reload.go).
+- [Security policy](../15-security.md), [граница RFC 9747](../08-rfc-compliance.md#rfc-9747-implementation-notes).

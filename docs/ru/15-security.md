@@ -1,196 +1,72 @@
-# Политика безопасности
+# Безопасность
 
-![Scorecard](https://img.shields.io/badge/OpenSSF-Scorecard-1a73e8?style=for-the-badge)
-![CodeQL](https://img.shields.io/badge/CodeQL-SAST-34a853?style=for-the-badge)
-![govulncheck](https://img.shields.io/badge/govulncheck-Required-ea4335?style=for-the-badge)
-![Capabilities](https://img.shields.io/badge/CAP__NET__RAW-Required-ffc107?style=for-the-badge)
+GoBFD обрабатывает недоверенный UDP, предоставляет API управления и открытые метрики, опционально управляет routing/LAG membership. Packet auth, management identity и dataplane ownership — отдельные границы.
 
-> Базовые требования безопасности к рабочим развёртываниям GoBFD. Каждый пункт описывает настройку демона, границу развёртывания или проверку.
+## API управления
 
----
+Default transport — `/run/gobfd/gobfd.sock` с правами `0660`. Unix principal использует UID ядра `SO_PEERCRED`. Пакетный пример задаёт `gobfd-admin`; группа демона читает secrets конфигурации. Давать операторам только admin group.
 
-## Область
+| Транспорт | Чтение | Изменение | Principal |
+| :--- | :--- | :--- | :--- |
+| Unix socket | Права сокета | Распознанные peer credentials | UID ядра |
+| Открытый loopback TCP | Анонимно | Запрещено по умолчанию | Нет |
+| Unsafe direct plaintext loopback | Анонимно | Разрешено; management health unready | Общий local owner |
+| mTLS | Проверенный client certificate | URI/DNS identity с учётом writer allowlist | Первый URI SAN, иначе `dns:` первый DNS SAN |
 
-У GoBFD четыре поверхности безопасности:
+Внешний/wildcard открытый listener отклоняется при запуске. Unsafe mutation требует оба прямых TCP endpoints на loopback без TLS; forwarded headers/URL не дают прав. Local proxy остаётся local process. CA-verified certificate без URI/DNS SAN не допускается к записи даже в unsafe mode.
 
-- обработка BFD-пакетов на UDP-портах 3784, 3785, 4784, 6784, 4789 и 6081;
-- API управления ConnectRPC на Unix-сокете по умолчанию и необязательном TCP-слушателе `grpc.addr`;
-- опциональная интеграция с GoBGP gRPC API и явно вызываемый клиент обновления
-  сертификатов внешнего Smallstep CA;
-- привилегии контейнера, systemd и Kubernetes для сырых сокетов и сетевой
-  привязки к интерфейсам.
+Непустой `grpc.mutating_identities` оставляет неперечисленные mTLS identities только для чтения. Пространства Unix, TLS URI, TLS DNS различаются; URI `uid:0` не становится Unix root. List/Get/Watch наблюдают весь daemon. Control/Echo/Micro claims принадлежат principal; чужой delete запрещён. Совместимые claims разделяют физическую сессию до последнего release.
 
-## Требования RFC
+Источники: [management transport](../../cmd/gobfd/management_socket.go), [principal/interceptors](../../internal/server), [конфигурация](03-configuration.md), [Echo ADR](adr/0009-echo-principal-claims.md).
 
-Требования безопасности RFC 5880 и RFC 5881 применяются ко всем BFD Control
-и Echo-пакетам. Используйте аутентификацию везде, где оба пира её
-поддерживают, особенно в сегментах множественного доступа, при мониторинге
-туннелей и в любой сети, где возможна подделка пакетов.
+## Сертификаты и renewal
 
-RFC 9468 unsolicited BFD остаётся выключенным по умолчанию. При включении GoBFD
-допускает сессию только из подсети локального адреса приёма, в пределах
-`allowed_prefixes`, ниже `max_sessions` (обязателен, >= 1) и только из
-одношаговых пакетов с TTL 255. Допуск использует глобальный token bucket с
-пополнением 10 сессий в секунду и burst 20: хост в сегменте, подделывающий адрес
-источника, может задержать допуск легитимных пиров; RFC 9468, раздел 6.1,
-допускает режим только там, где участники не анонимны. Задавайте
-`unsolicited.auth` (Meticulous Keyed SHA1),
-где стороны могут согласовать ключ: тогда пакет, создающий сессию,
-проверяется заранее. Не включайте unsolicited BFD в общем сегменте с
-анонимными участниками.
+Management mTLS требует server certificate, private key, client CA. Файлы перечитываются при каждом handshake. GoBFD проверяет chain/identity без CRL/OCSP. CA revocation запрещает renewal согласно CA policy, но не отменяет текущее API connection и не даёт немедленного отказа нового handshake. Использовать короткоживущие credentials и явную процедуру снятия доступа.
 
-Независимый Echo по RFC 9747 добавляет риск подделки возвращённых пакетов.
-Текущая предварительная реализация Echo не имеет настройки аутентификации и
-передаёт неаутентифицированные пакеты. Аутентификация Control-сессии его не
-защищает. Оставляйте Echo выключенным в недоверенных сегментах; явно включённый
-лабораторный профиль изолируйте.
+`gobfdctl certificate renew` — независимый outbound CA client. Требуются HTTPS origin без credentials/path/query, explicit roots, текущий certificate/key. Response/chain bounds, проверка возвращённой identity и atomic certificate replacement принадлежат [реализации](../../internal/stepca/client.go). Команда не выполняет enrollment, key rotation, scheduling и не меняет authorization GoBFD. [Disposable actual-provider profile](../../test/stepca/README.md) квалифицирует ограниченный renewal/negative cases, не production CA и все dependencies provider. См. [ADR-0005](adr/0005-smallstep-management-certificates.md).
 
-## ConnectRPC API
+## Граница BFD packets
 
-API управления может создавать и удалять сессии. Его граница следует
-[решению о транспорте](../superpowers/specs/2026-10-15-management-transport-decision.md)
-(`gobfd-330`):
+| Профиль | Поверхность | Решение deployment |
+| :--- | :--- | :--- |
+| Single-hop Control | UDP 3784, TTL/Hop Limit 255 | Согласовать peer/local/interface; shared-key auth при поддержке |
+| Multi-hop Control | UDP 4784, настроенная hop policy | Аутентифицировать недоверенный/routed path |
+| Echo preview | UDP 3785, нет auth setting | Отключить на недоверенных сегментах |
+| Micro-BFD preview | UDP 6784, LAG member ownership | Независимо проверить wire identity/native actuator |
+| VXLAN/Geneve preview | UDP 4789/6081, explicit Format A identity | Изолировать lab; проверить владельца порта/dataplane |
+| Unsolicited preview | Динамический допуск сессий | Ограничить participants, subnet/prefixes, count и auth |
 
-- по умолчанию демон обслуживает только Unix-сокет `/run/gobfd/gobfd.sock`
-  (права 0660). Конфигурация из пакета задаёт группу `gobfd-admin`; операторы
-  вступают в неё, а не в `gobfd`, которая читает `/etc/gobfd` с BFD-секретами.
-  Каждый запрос несёт UID клиента, полученный от ядра, как принципал (`principal=uid:<n>` в
-  логах RPC);
-- `grpc.addr` добавляет необязательный TCP-слушатель. Незашифрованный TCP допустим
-  только на loopback; с адресом вне loopback или на всех интерфейсах без TLS демон не запускается.
-  Анонимные клиенты на loopback могут читать, но не изменять, если не задан
-  `grpc.unsafe_loopback_mutations`; этот режим логируется при запуске и
-  переводит проверку готовности `gobfd.management` в `NOT_SERVING`;
-- `grpc.tls` превращает TCP-слушатель в mTLS (`RequireAndVerifyClientCert`) и
-  обязателен для адреса вне loopback. Принципал — URI SAN (SPIFFE) или DNS SAN
-  сертификата клиента. Файлы читаются при каждом рукопожатии; отзыв не
-  проверяется, поэтому используйте короткоживущие сертификаты.
+Ссылки: [RFC 5880 раздел 9](https://www.rfc-editor.org/rfc/rfc5880.html#section-9), [RFC 5881 раздел 5](https://www.rfc-editor.org/rfc/rfc5881.html#section-5), [RFC 5883 раздел 6](https://www.rfc-editor.org/rfc/rfc5883.html#section-6), [RFC 9468 раздел 6](https://www.rfc-editor.org/rfc/rfc9468.html#section-6), [RFC 9747](https://www.rfc-editor.org/rfc/rfc9747.html).
 
-Правила для рабочих развёртываний:
+Unsolicited требует `max_sessions >= 1`, подсеть принимающего local address, prefix restrictions и TTL 255. Общий limiter — 10 сессий/с, burst 20; spoofing может задержать легитимный допуск. При включённой unsolicited auth принимается только Meticulous Keyed SHA1. Источник: [допуск](../../internal/bfd/unsolicited.go).
 
-- оставляйте сокет по умолчанию и выдавайте доступ через `gobfd-admin`;
-- для доступа к API через границу хоста используйте mTLS, незашифрованный доступ не
-  публикуйте;
-- считайте `AddSession`, `DeleteSession`, `AddEchoSession`,
-  `DeleteEchoSession`, `AddMicroBFDGroup` и `DeleteMicroBFDGroup`
-  операциями изменения сетевого состояния, требующими контроля доступа;
-- оставляйте `grpc.unsafe_loopback_mutations` выключенным с mTLS, на общих хостах и с
-  Kubernetes `hostNetwork`, где loopback доступен всем процессам хоста.
+Control поддерживает Simple Password, keyed/meticulous MD5 и keyed/meticulous SHA1. Это механизмы совместимости протокола, не современное transport encryption. Хранить secrets в защищённом read-only config или контролируемом API provisioning; не помещать значения в Git, captures, logs, history. Reload отклоняет auth changes сохранённой identity. Согласовать изменение ключей с restart/recreation и перерывом; несколько внутренних ключей не доказывают live rotation. См. [ADR-0006](adr/0006-session-preserving-reload-policy.md).
 
-Права владения сессиями API принадлежат принципалу вызывающего: один принципал не может
-освободить сессию другого (`PermissionDenied`, с записью в лог), а
-непустой `grpc.mutating_identities` делает неперечисленные распознанные mTLS-идентичности
-доступными только для чтения. Клиенты с проверенным CA сертификатом без URI/DNS
-SAN не могут изменять состояние, в том числе при включённом небезопасном режиме.
-Этот режим требует прямого TCP-соединения без шифрования с обоими адресами на
-loopback; без подтверждения транспорта доступ запрещён. Заголовки не предоставляют
-прав, а локальные proxy остаются локальными процессами. См.
-[требования к транспорту](03-configuration.md#grpc----connectrpc-сервер).
-Права владения Control, Micro-BFD и Echo через API
-привязаны к принципалам. Совместимые владельцы Echo разделяют одну протокольную сессию с
-конфигурацией или другими принципалами; освобождение никогда не удаляет чужое
-право. Повторный допущенный одинаковый Echo Add идемпотентен. List/Watch остаются
-общим для всего демона наблюдением в режиме только чтения. См. [ADR-0009](adr/0009-echo-principal-claims.md);
-эти права управления не аутентифицируют возвращённые Echo-пакеты.
+## Routing и actuator credentials
 
-Источник аутентификации не зависит от отображаемой идентичности. URI сертификата
-`uid:0` остаётся TLS-идентичностью и проверяется по настроенному списку ролей.
-Владельцы Unix UID, TLS URI и TLS DNS занимают разные пространства имён;
-выдача сертификата не предоставляет привилегии Unix-сокета.
+GoBGP actuation требует совместимый v4 API и одного BFD owner на neighbor. `gobgp.tls.enabled` включает server-authenticated TLS; CA/name проверяют endpoint. Client-certificate config отсутствует. Внешний plaintext выдаёт warning; warning не ограничивает доступ. Оставить API на loopback либо защитить remote TLS/network controls. Источники: [client](../../internal/gobgp/client.go), [startup handler](../../cmd/gobfd/handlers.go).
 
-Дамп flight recorder (`grpc.flight_recorder`, по умолчанию выключен) доступен
-только на сервере управления принципалам Unix-сокета или mTLS-идентичностям,
-разрешённым `grpc.mutating_identities`; анонимные запросы отклоняются даже в
-небезопасном режиме. Слушатель метрик не обслуживает конечную точку отладки. Файлы
-трассировки содержат чувствительные сведения о процессе; HTTP-серверы анализа
-оставляйте на loopback.
+Micro-BFD enforce меняет native member state. Disabled/dry-run не квалифицируют enforcement. До `enforce` выбрать фактического kernel/OVS/NetworkManager owner и проверенные permissions. Kernel-bond drop-in добавляет широкий `CAP_DAC_OVERRIDE`; native-host qualification остаётся отдельной. Источник: [drop-in](../../deployments/systemd/gobfd-kernel-bond.conf).
 
-## Интеграция с GoBGP
+## Runtime и диагностика
 
-GoBFD подключается к GoBGP через `gobgp.addr`. Незашифрованный доступ допустим только для
-loopback или доверенной сети управления. Для удалённых конечных точек или адресов
-вне loopback включайте `gobgp.tls.enabled`.
+1. Сохранить только заявленные capabilities; не использовать privileged containers.
+2. Монтировать config/keys read-only; явно учитывать filesystem namespace management socket.
+3. Ограничить metrics/agent-check listeners: аутентификации нет.
+4. Рассматривать host networking как общую host-local trust boundary.
+5. Оставить Podman sockets в development вне application runtime.
+6. Считать traces, profiles, goroutine details чувствительными артефактами.
 
-[`scripts/vuln-audit.go`](../../scripts/vuln-audit.go) фиксирует исключение
-`GO-2026-4736` для точного модуля `github.com/osrg/gobgp/v4` с владельцем
-`@dantte-lp` и датой окончания действия (пересмотра) 2026-12-31. Решение для
-stable v1 от 2026-10-21 (`gobfd-qj0.8.4.1`) требует, чтобы GHSA/OSV указывали
-исправленную версию не выше закреплённой, а govulncheck финального кандидата
-сообщал находку только на уровне модуля, без импортированного затронутого
-пакета и достижимого символа. Репозиторий импортирует пакет GoBGP `api`; этот
-факт исходного кода сам по себе не устанавливает результат свежего сканирования.
-Просроченное, расширенное или устаревшее исключение завершает аудит ошибкой.
-Записанное основание, остальные исключения и условия удаления приведены в
-[реестре рисков зависимостей](reference/dependency-risk.md). Политика не
-устанавливает текущее содержимое баз уязвимостей или приёмку финального кандидата.
+`grpc.flight_recorder` по умолчанию отключён. Management-only endpoint требует Unix principal или mTLS identity, разрешённую writer policy; anonymous unsafe callers запрещены. Metrics не содержит debug handlers.
 
-Для успешно полученных и разобранных результатов сканеров аудит выводит все
-unallowed findings, даже если исключение просрочено или устарело. Ошибки
-allowlist сохраняют код завершения 2; при их отсутствии unallowed findings
-дают код 1. Оба пути ошибки не выводят сообщение об успехе. Ошибки запуска
-сканеров и разбора результатов по-прежнему завершают аудит отказом.
+## Dependency и release gates
 
-CI раздельно проверяет манифест рабочего модуля и манифест изолированного модуля
-инструментов. Исходные отчёты об уязвимостях и отдельные CycloneDX SBOM
-сохраняются в артефакте `dependency-security-reports`, поэтому находки только
-в инструментах не приписываются поставляемому демону.
+[Реестр рисков](reference/dependency-risk.md) и [Go-owned audit](../../scripts/vuln-audit.go) задают exact findings, owners, expiry и removal criteria. Raw reports/SBOM runtime и tools хранятся отдельно. Import или историческое исключение не доказывают актуальную недостижимость либо состояние advisory.
 
-## Обновление сертификатов управления
-
-`gobfdctl certificate renew` обновляет существующую идентичность; первичный
-выпуск, работа CA и автоматическое расписание не входят в его область.
-Команда использует явно заданный HTTPS origin CA, корни доверия и действующий
-сертификат с ключом, проверяет возвращённую идентичность и атомарно заменяет
-только сертификат. Это отдельный исходящий mTLS-клиент, а не RPC демона или
-предоставление прав API. [Профиль настоящего провайдера](../../test/stepca/README.md)
-квалифицирует ограниченные сценарии обновления и отказов с одноразовой CA;
-он не квалифицирует эксплуатацию рабочей CA или весь её граф зависимостей
-для развёртывания. См.
-[контракт CLI](04-cli.md#обновление-сертификата) и
-[`internal/stepca`](../../internal/stepca/client.go).
-
-Политика обновления CA и управление доступом GoBFD разделены. Пассивный отзыв
-Smallstep запрещает обновление, но не закрывает уже установленное
-TLS-соединение GoBFD. GoBFD не проверяет отзыв по CRL или OCSP, в том числе при
-новом рукопожатии. Обновление сертификата или его отзыв на CA сами по себе не
-являются механизмом немедленного прекращения доступа к API. См.
-[ADR-0005](adr/0005-smallstep-management-certificates.md).
-
-## Секреты
-
-Секреты аутентификации RFC 5880 можно передавать через YAML или gRPC `AddSession`.
-В рабочих развёртываниях рекомендуется монтировать YAML с секретами только для чтения и
-не включать реальные ключи в commit. Перезагрузка конфигурации отклоняет изменения аутентификации
-сессии с сохранённой идентичностью. Для смены действующих ключей нужен
-согласованный сервисный перезапуск или явное освобождение и повторное создание
-права владения с прерыванием сессии. Наличие нескольких сохранённых ключей не
-подтверждает квалификацию ротации без прерывания; см.
-[ADR-0006](adr/0006-session-preserving-reload-policy.md).
-
-## Граница контейнеров и Kubernetes
-
-GoBFD нужны сетевые привилегии для сырых сокетов, настройки их буферов и
-привязки к интерфейсу:
-
-- предпочитайте `NET_RAW` и `NET_ADMIN` вместо привилегированных контейнеров;
-- используйте `hostNetwork` только когда BFD-пиры достижимы из сетевого пространства
-  имён хоста, и документируйте это допущение;
-- монтируйте конфигурацию и ключи только для чтения;
-- сокет Podman нужен только контейнеру разработки и не является зависимостью
-  рабочего демона.
-
-## Проверки
-
-Перед релизом или развёртыванием в рабочей среде выполняйте:
-
-```bash
+```sh title="security-gates.sh"
 make verify
 make vulncheck
-make lint-commit MSG='docs(security): define production hardening policy'
+make lint-commit MSG='docs(security): define access boundaries'
 ```
 
-Все команды должны выполняться через Podman-цели проекта. Аудит уязвимостей
-может показывать находки с разрешёнными исключениями; любая находка без
-действующего исключения блокирует релиз.
-
-*Сверено с исходниками `dev`: 2026-10-25 (`706991db9433b13cec47e0bb8ea2549b01e948d9`).*
+Выполнять через repository development environment. Unallowed findings, expired/stale exceptions и scanner/parser failure блокируют приёмку. Audit сохраняет все разобранные unallowed findings; allowlist failures дают код 2, остальные unallowed — 1. Успешный локальный gate не квалифицирует vendor devices, production privileges или опубликованный release.

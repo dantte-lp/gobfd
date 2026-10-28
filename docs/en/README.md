@@ -1,52 +1,48 @@
-# GoBFD Documentation
+# GoBFD manual
 
-English is the source documentation; [Russian](../ru/README.md) mirrors it.
-These pages describe the current `dev` implementation. The accepted stable
-line on `master` and `release/v0.6` has different management defaults and GoBGP
-contracts. A feature described here is not automatically present in a published
-release. Use documentation from the same commit as the binary.
+English is canonical. [Russian](../ru/README.md) mirrors the technical
+contract. Use pages from the deployed binary's commit: `dev`, `master` and
+`release/v0.6` have different delivery and compatibility boundaries.
 
-## Read by task
+## Operator references
 
 | Task | Document |
-|---|---|
-| Understand component ownership and lifecycle | [Architecture](01-architecture.md) |
-| Understand packet handling, timers and authentication | [BFD protocol](02-protocol.md) |
-| Configure sessions, transports and reload | [Configuration](03-configuration.md) |
-| Operate the daemon and renew a management certificate | [CLI](04-cli.md) |
-| Run peer and wire qualification | [Interoperability](05-interop.md) |
-| Install a service, package or container | [Deployment](06-deployment.md) |
-| Interpret metrics and alerts | [Monitoring](07-monitoring.md) |
-| Check implemented procedures and unsupported RFC scope | [RFC compliance](08-rfc-compliance.md) |
-| Build, test, lint and contribute | [Development](09-development.md) |
-| Maintain changelogs and prepare a release | [Changelog and release guide](10-changelog.md) |
-| Use BGP, HAProxy, ExaBGP, observability and Kubernetes examples | [Integrations](11-integrations.md) |
-| Run and compare micro-benchmarks | [Benchmark guide](12-benchmarks.md) |
-| Assess comparisons with other implementations | [Comparison boundaries](13-competitive-analysis.md) |
-| Interpret receive telemetry and workload measurements | [Performance analysis](14-performance-analysis.md) |
-| Secure management, credentials and network access | [Security](15-security.md) |
-| Validate an isolated deployment and failure drill | [Operational runbooks](16-production-runbooks.md) |
+|:---|:---|
+| Identify components and state owners | [01 Architecture](01-architecture.md) |
+| Calculate timers and inspect packet processing | [02 Protocol](02-protocol.md) |
+| Configure sessions, credentials and reload | [03 Configuration](03-configuration.md) |
+| Inspect and modify managed resources | [04 CLI](04-cli.md) |
+| Select peer and packet qualification | [05 Interoperability](05-interop.md) |
+| Install packages, services and containers | [06 Deployment](06-deployment.md) |
+| Interpret metrics and alerts | [07 Monitoring](07-monitoring.md) |
+| Check implemented RFC procedures and exclusions | [08 RFC matrix](08-rfc-compliance.md) |
+| Connect routing and application clients | [11 Integrations](11-integrations.md) |
+| Secure management and credentials | [15 Security](15-security.md) |
+| Validate startup, failure and recovery | [16 Runbooks](16-production-runbooks.md) |
+| Configure equipment peers | [Cisco, Arista, Juniper and Huawei](reference/vendor-bfd.md) |
 
-## Decisions, sources and status
+## Engineering references
 
-| Material | Purpose |
-|---|---|
-| [ADRs](adr/README.md) | Accepted decisions and proposed changes; acceptance is separate from qualification |
-| [References](reference/README.md) | Dependency risks and supporting technical material |
-| [RFC texts](../rfc/) | Local normative source texts; presence does not imply support |
-| [Roadmap](roadmap.md) | Dated status projection and historical receipts |
-| [External audit snapshot](gist-audit-reconciliation.md) | Historical reconciliation with immutable source references |
-| [Changelog](../../CHANGELOG.md) | User-visible changes; `Unreleased` is not a published release |
+| Task | Document |
+|:---|:---|
+| Build, review and test | [09 Development](09-development.md) |
+| Maintain changelogs and release evidence | [10 Release process](10-changelog.md) |
+| Reproduce micro-benchmarks | [12 Benchmarks](12-benchmarks.md) |
+| Compare implementations by supported profile | [13 Comparisons](13-competitive-analysis.md) |
+| Evaluate runtime and workload evidence | [14 Performance](14-performance-analysis.md) |
+| Check architectural constraints | [ADRs](adr/README.md) |
+| Inspect dependency risks | [References](reference/README.md) |
+| Check outstanding release acceptance | [Dated status](roadmap.md) |
 
-Beads is the sole executable plan. `bd show gobfd-qj0.8` and `bd ready`
-provide current priorities, dependencies and acceptance criteria. No page in
-this documentation grants publication approval or replaces exact-candidate
-wire, security, integration and runtime qualification.
+## Reading rules
 
-## Start locally
+- Treat an RFC requirement as normative; treat a vendor manual as a
+  platform-specific contract. Neither proves a GoBFD interoperability result.
+- Distinguish implemented, locally tested, wire-qualified and released behavior.
+- Apply imperative procedures only to the explicitly selected environment.
+  Retain the pre-change configuration and verify the documented postcondition.
+- Verify acceptance against the exact candidate and deployment profile.
 
-Follow [Development](09-development.md) to create the pinned Podman environment,
-then [Deployment](06-deployment.md) for daemon privileges and socket access.
-The default management endpoint is `/run/gobfd/gobfd.sock`; metrics binds to
-`127.0.0.1:9100`. Read [Security](15-security.md) before enabling TCP management
-or any preview profile.
+Historical material: [external audit reconciliation](gist-audit-reconciliation.md),
+[release retrospective](audits/2026-10-26-release-retrospective.md),
+[release changelog](../../CHANGELOG.md), [verbatim RFC texts](../rfc/).

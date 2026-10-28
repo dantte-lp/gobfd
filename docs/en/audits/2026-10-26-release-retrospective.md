@@ -4,8 +4,7 @@ This assessment compares the [23 October audit](../../ru/audits/2026-10-23-indep
 with local `dev@1c535f9ac1de7a12f7d85054a9d0fe81216f02c0`.
 The earlier audit examined `f9ed31bdd81425ba4efaf9688bb452ddea142266`.
 The [production contract](../../superpowers/specs/2026-08-18-gobfd-v1-production-contract-design.md)
-and its accepted amendments define release scope. Beads owns execution,
-priorities, dependencies and estimates; this document is a dated assessment.
+and its accepted amendments define release scope. This document is a dated assessment of implementation and acceptance.
 No source, Dolt, Actions or release publication is authorized by it.
 
 Correction: the request for a separate YC profile is withdrawn. The runner
@@ -19,7 +18,7 @@ this correction does not claim that the VM or its preflight is complete.
 
 The six confirmed defects from 23 October are fixed in accepted local source:
 
-| Previous finding | Current source boundary | Beads |
+| Previous finding | Current source boundary | Historical record |
 |---|---|---|
 | TLS identity could obtain Unix UID privileges | Typed transport principal separates Unix, TLS URI and TLS DNS identities | `gobfd-qj0.8.2.3.5` closed |
 | Unsafe loopback mutation policy omitted from startup-only reload contract | Startup contract includes `grpc.unsafe_loopback_mutations` | `gobfd-qj0.8.2.3.6` closed |
@@ -86,7 +85,7 @@ Source entry points: `internal/bfd/session_loop.go`, `internal/bfd/echo.go`,
 `deployments/docker/Containerfile.debug` and
 `deployments/integrations/observability/configs/prometheus/alert-rules.yml`.
 
-Beads snapshot uses actual `parent` links under `gobfd-qj0.8.2`, before closing
+The historical execution snapshot uses actual `parent` links under `gobfd-qj0.8.2`, before closing
 this assessment's own task. Counts include deferred work and acceptance parents.
 
 | Measure | 23 October | 26 October |
@@ -167,7 +166,7 @@ Repeated source acceptance was reported without a consolidated weighted
 release estimate. Small producer slices and late lint findings added repeated
 validation work; historical receipts never qualified the final candidate.
 
-Execution remains in existing Beads owners. Complete A as one end-to-end
+Execution remains assigned to the recorded technical owners. Complete A as one end-to-end
 result, with only the missing evidence it consumes. Run static checks before
 expensive critical tests; repeat only for behavior changes or unresolved
 findings. General dependency freshness, broad Q5 duplicate/wrapper inventories,

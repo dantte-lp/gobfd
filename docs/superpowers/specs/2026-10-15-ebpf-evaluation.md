@@ -128,6 +128,5 @@ delegates them.
 - `https://proxy.golang.org/github.com/cilium/ebpf/@v/v0.22.0.mod`.
 - RFC 9747 Section 2, `docs/rfc/rfc9747.txt`.
 - GoBFD: `internal/netio/rawsock_linux.go`, `BENCHMARKS.md`,
-  `deployments/systemd/gobfd.service`, `go.mod`, beads
-  `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7`, `gobfd-qj0.8.2.3.3`.
+  `deployments/systemd/gobfd.service`, `go.mod`.
 - Not verified: `IP_MINTTL` for UDP sockets (not documented in ip(7)).

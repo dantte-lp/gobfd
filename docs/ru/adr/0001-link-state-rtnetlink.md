@@ -1,77 +1,34 @@
-# ADR-0001: Мониторинг состояния линков через rtnetlink
+# ADR-0001: Мониторинг состояния интерфейсов через rtnetlink
 
 | Поле | Значение |
-|---|---|
-| Статус | Accepted |
-| Дата | 2026-05-01 |
+|:---|:---|
+| Status | Accepted |
+| Date | 2026-05-01 |
 
 ## Контекст
 
-GoBFD должен отслеживать изменения состояния интерфейсов Linux, чтобы
-переводить события потери линка в BFD `Down` до истечения таймера обнаружения.
-В Linux рассматриваются два API:
-
-- `NETLINK_ROUTE` / rtnetlink, выдающий сообщения `RTM_NEWLINK` и
-  `RTM_DELLINK` через группу многоадресной рассылки `RTMGRP_LINK`;
-- `github.com/cilium/ebpf`, загружающий и подключающий eBPF-программы
-  для XDP, TC, kprobes, tracepoints, perf events и ring buffers.
-
-Уведомления о состоянии линка относятся к плоскости управления, а не к
-обработке пакетов. eBPF применим к наблюдению и фильтрации пути пакета,
-а не к уведомлениям интерфейсов.
+Interface state служит control-plane input для BFD. Link-down notification запрашивает local PathDown до обычного detection expiry с учётом доставки события и scheduling owner. Packet tracing не задаёт владение lifecycle интерфейса.
 
 ## Решение
 
-GoBFD использует rtnetlink для уведомлений о состоянии линков.
-`github.com/cilium/ebpf` не входит в путь мониторинга состояния линков.
+Используется Linux `NETLINK_ROUTE` в `internal/netio`. `RTM_NEWLINK`/`RTM_DELLINK` преобразуются в `InterfaceEvent{IfName, IfIndex, Up}`; operational Up равен `IFF_UP && IFF_RUNNING`. IPv4/IPv6 address changes запускают pending-resource retries. `cilium/ebpf` не входит в link-state monitoring.
+
+| Input | Обязательное поведение | Source |
+|:---|:---|:---|
+| Link down/delete | Запросить Down/5 без ожидания Detection Time | [interface_events.go](../../../cmd/gobfd/interface_events.go) |
+| Existing local AdminDown | Сохранить AdminDown/7 | [session_loop.go](../../../internal/bfd/session_loop.go) |
+| Address change | Повторить pending resource classes без link side effects | [interface_events.go](../../../cmd/gobfd/interface_events.go) |
+| Kernel/channel loss | Запросить full inventory resync | [ifmon_linux.go](../../../internal/netio/ifmon_linux.go) |
+| Cancellation | Закрыть monitor socket и owner-owned event channel | [ifmon_linux.go](../../../internal/netio/ifmon_linux.go) |
 
 ## Последствия
 
-| Пункт | Требование |
-|---|---|
-| API ядра | rtnetlink существует начиная с Linux 2.2 |
-| Поддержка дистрибутивов | Основные современные дистрибутивы Linux содержат rtnetlink |
-| Сетевое пространство имён | Сокет netlink наблюдает пространство имён, в котором он открыт |
-| Развёртывание Kubernetes/Podman | Мониторинг интерфейсов хоста требует его сетевого пространства имён |
-| Потеря сообщений | `ENOBUFS` — сигнал ресинхронизации; получатель должен перечитать таблицу линков |
-| Привилегии | Профили контейнеров должны разрешать подписку на netlink-группы и доступ к пространству имён хоста |
-| eBPF | Вне области уведомлений о линках; зарезервирован для будущих функций обработки пакетов |
+Socket наблюдает свою network namespace; host-interface monitoring требует host namespace. Deployment policy должна разрешать этот доступ и netlink subscription. PathDown request может уступить timer expiry; более ранний commit не гарантируется.
 
-### Выбор сетевого API Linux
-
-| Задача | Предпочтительный API Linux |
-|---|---|
-| Создание/удаление/подъём/опускание интерфейса | rtnetlink `RTMGRP_LINK` |
-| Изменение адресов интерфейса | Группы адресов rtnetlink |
-| Изменение маршрутов | Группы маршрутов rtnetlink |
-| Настройки драйвера и аппаратной обработки NIC | ethtool netlink |
-| Быстрый путь пакетов, фильтрация, телеметрия | TC, XDP, eBPF |
-| Устаревшие флаги устройства | ioctl, только когда нет netlink API |
-
-### Контракт реализации
-
-- Монитор rtnetlink для Linux находится в `internal/netio`.
-- Монитор разбирает `RTM_NEWLINK` и `RTM_DELLINK` и выдаёт
-  `InterfaceEvent{IfName, IfIndex, Up}`.
-- Правило рабочего состояния: `IFF_UP && IFF_RUNNING`.
-- Потеря линка запрашивает BFD `Down` с `DiagPathDown` без ожидания
-  истечения таймера обнаружения. Доставка события и планирование владельца не гарантируют
-  опережение одновременно истекающего таймера; действующий локальный
-  AdminDown сохраняет административное состояние и диагностику.
-
-Текущий монитор также подписан на уведомления об адресах IPv4/IPv6 и передаёт
-события адресов и ресинхронизации для повторного получения ожидающих ресурсов. См.
-[`ifmon_linux.go`](../../../internal/netio/ifmon_linux.go),
-[`interface_events.go`](../../../cmd/gobfd/interface_events.go) и
-[`Session.handlePathDown`](../../../internal/bfd/session_loop.go).
+Используйте rtnetlink для link/address/route notifications; TC/XDP/eBPF оставьте отдельно спроектированным packet-path features. Не-Linux stub не создаёт automatic retry events. Проверьте resync и interface recreation по [monitor tests](../../../internal/netio/ifmon_linux_test.go) и runtime reconciliation evidence.
 
 ## Источники
 
-- Linux `netlink(7)`: <https://man7.org/linux/man-pages/man7/netlink.7.html>
-- Linux `rtnetlink(7)`: <https://man7.org/linux/man-pages/man7/rtnetlink.7.html>
-- Спецификация rt-link ядра Linux:
-  <https://docs.kernel.org/networking/netlink_spec/rt_link.html>
-- Документация пакета `github.com/cilium/ebpf`:
-  <https://pkg.go.dev/github.com/cilium/ebpf>
-- Системные требования Cilium:
-  <https://docs.cilium.io/en/stable/operations/system_requirements/>
+- [Реализация monitor](../../../internal/netio/ifmon_linux.go).
+- [Linux rtnetlink API](https://man7.org/linux/man-pages/man7/rtnetlink.7.html).
+- [Граница восстановления](../01-architecture.md#восстановление-и-readiness).
