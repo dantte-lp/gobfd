@@ -729,9 +729,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Update `golang.org/x/net` to v0.62.0 in the runtime and tools modules for
-  HTML parsing/rendering advisories GO-2026-6860 and GO-2026-6866; regenerate the
-  dependency inventory without adding advisory exceptions.
+- Update `golang.org/x/net` to v0.62.0 in runtime, tools and the isolated
+  step-ca qualification profile for HTML parsing/rendering advisories
+  GO-2026-6860 and GO-2026-6866; regenerate the dependency inventory without
+  adding advisory exceptions.
 
 - Bound HAProxy testcontainers builds and runtime resources, bind image
   provenance to the candidate, and reuse ownership-checked immutable image

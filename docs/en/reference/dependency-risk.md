@@ -13,6 +13,8 @@ The runtime and tools module graphs select `golang.org/x/net v0.62.0`, the
 fixed version for [GO-2026-6860](https://vuln.go.dev/ID/GO-2026-6860)
 and [GO-2026-6866](https://vuln.go.dev/ID/GO-2026-6866).
 Both advisories were published on 2026-10-27. Neither has an allowlist entry.
+The [isolated step-ca qualification profile](../../../test/stepca/README.md)
+selects the same fixed version and has its own repeated provider qualification.
 The update also changes IPv4 transport code used by the interoperability peer;
 retain its transport tests alongside the fresh final-candidate security scan.
 Release acceptance remains tracked in Beads `gobfd-qj0.8.4.1`.

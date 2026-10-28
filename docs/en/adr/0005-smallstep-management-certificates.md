@@ -111,6 +111,19 @@ unattended scheduling, automatic reconnect and root rollover remain separate
 post-v1 lifecycle work in `gobfd-qj0.8.2.3.7.5`. GoBFD's final security gate
 retains its own runtime/tool manifests and advisory decisions.
 
+### Test-provider security refresh — 2026-10-28
+
+The isolated profile `0.30.2+gobfd.qual.2` updates x/net to v0.62.0 for
+GO-2026-6860 and GO-2026-6866 without changing upstream Go sources or plugins.
+The complete provider symbol scan has no reachable or affected imported-package
+findings; the same three test-only module advisories remain. All 152 linked
+dependencies match the scanned set. Five renewal tests pass again in a new
+network-none runtime; both children join with exit code zero.
+
+Renewal preserves the SPKI and private-key file hash, changes the serial and
+strictly increases expiry. This refresh is tracked in `gobfd-qj0.8.4.1.2`;
+production CA and the post-v1 lifecycle boundaries above remain separate.
+
 ## References
 
 - [Renewal CLI](../../../cmd/gobfdctl/commands/certificate.go)
