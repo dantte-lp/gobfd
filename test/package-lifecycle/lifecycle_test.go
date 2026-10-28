@@ -8,6 +8,7 @@ package packagelifecycle_test
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 	testcontainers "github.com/testcontainers/testcontainers-go"
 
 	"github.com/dantte-lp/gobfd/test/internal/containertest"
+	"github.com/dantte-lp/gobfd/test/internal/interopproject"
 	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
 
@@ -36,6 +38,7 @@ const artifactEnv = "GOBFD_PACKAGE_ARTIFACT_DIR"
 const (
 	containerMemory = 1 << 30
 	containerPIDs   = 1024
+	packageTestKind = "package-lifecycle"
 	// The hardened unit sets WatchdogSec=30s; the hold must outlast it.
 	watchdogHold = 35 * time.Second
 	pollStep     = 500 * time.Millisecond
@@ -68,6 +71,7 @@ func distros() []distro {
 }
 
 func TestPackageLifecycle(t *testing.T) {
+	t.Setenv("DOCKER_CONFIG", t.TempDir())
 	endpoint := containertest.RequirePodman(t)
 	dist := os.Getenv(distEnv)
 	if dist == "" {
@@ -77,13 +81,13 @@ func TestPackageLifecycle(t *testing.T) {
 	runID := time.Now().UTC().Format("20060102T150405Z")
 
 	for _, d := range distros() {
-		var image, containerID string
+		var image, imageID, containerID string
 		t.Run(d.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Minute)
 			defer cancel()
 
 			pkg := findPackage(t, dist, d.packageSuffix)
-			image = buildSystemdImage(ctx, t, endpoint, root, d)
+			image, imageID = buildSystemdImage(ctx, t, endpoint, root, d, runID)
 			ctr := startSystemd(ctx, t, image, filepath.Dir(pkg))
 			containerID = ctr.GetContainerID()
 			h := &host{t: t, ctx: ctx, ctr: ctr, evidence: &strings.Builder{}}
@@ -92,6 +96,10 @@ func TestPackageLifecycle(t *testing.T) {
 
 			h.mustRun(d.install("/packages/" + filepath.Base(pkg))...)
 			assertInstalledUnit(h, root)
+			if directory := strings.TrimSpace(h.mustRun("stat", "-c", "%a %U:%G", "/etc/gobfd")); directory != "750 root:gobfd" {
+				t.Fatalf("configuration directory = %q, want 750 root:gobfd", directory)
+			}
+			h.mustRun("getent", "passwd", "gobfd")
 			h.mustRun("getent", "group", "gobfd-admin")
 			if d.packageSuffix == ".deb" &&
 				!strings.Contains(h.mustRun("dpkg-query", "-W", "-f=${Depends}", "gobfd"), "procps") {
@@ -114,6 +122,15 @@ func TestPackageLifecycle(t *testing.T) {
 			sleepContext(ctx, t, watchdogHold)
 			h.expectShow("ActiveState", "active")
 			h.expectShow("NRestarts", "0")
+			for _, state := range []string{"disabled", "enabled"} {
+				action := "disable"
+				if state == "enabled" {
+					action = "enable"
+				}
+				h.mustRun("systemctl", action, "gobfd")
+				h.upgradePackage("/packages/"+filepath.Base(pkg), state)
+				h.waitUp([]string{"single-hop", "multi-hop", "micro-bfd", "vxlan", "geneve"}, 7)
+			}
 
 			h.copy(configA(false), "/etc/gobfd/gobfd.yml")
 			h.mustRun("systemctl", "reload", "gobfd")
@@ -152,12 +169,24 @@ func TestPackageLifecycle(t *testing.T) {
 				t.Error("dead-peer stop did not end with only the unknown-peer drain warning")
 			}
 
+			h.mustRun("systemctl", "enable", "gobfd")
+			h.mustRun("systemctl", "start", "gobfd")
+			h.expectShow("ActiveState", "active")
+			h.expectShow("UnitFileState", "enabled")
+			removalPID := h.mainPID()
+			// The dummy bond fixture supports syntax verification, not an enforce-mode restart.
 			h.copyFile(filepath.Join(root, "deployments/systemd/gobfd-kernel-bond.conf"),
 				"/etc/systemd/system/gobfd.service.d/kernel-bond.conf")
 			h.mustRun("systemd-analyze", "verify", "/usr/lib/systemd/system/gobfd.service")
 			t.Logf("%s security: %s", d.name, exposure(h.mustRun("systemd-analyze", "security", "--no-pager", "gobfd")))
 
 			h.mustRun(d.remove...)
+			if code, _ := h.run("test", "-e", fmt.Sprintf("/proc/%d", removalPID)); code == 0 {
+				t.Errorf("package removal left running daemon PID %d", removalPID)
+			}
+			if code, _ := h.run("test", "-L", "/etc/systemd/system/multi-user.target.wants/gobfd.service"); code == 0 {
+				t.Error("package removal left the enablement symlink")
+			}
 			if code, _ := h.run("test", "-e", "/usr/lib/systemd/system/gobfd.service"); code == 0 {
 				t.Error("package removal left gobfd.service")
 			}
@@ -167,6 +196,9 @@ func TestPackageLifecycle(t *testing.T) {
 		}
 		if image != "" {
 			containertest.AssertImageRemoved(t, endpoint, image)
+		}
+		if imageID != "" {
+			containertest.AssertImageRemoved(t, endpoint, imageID)
 		}
 	}
 }
@@ -230,6 +262,48 @@ func (h *host) mustRun(argv ...string) string {
 		h.t.Fatalf("%v exited %d:\n%s", argv, code, out)
 	}
 	return out
+}
+
+func (h *host) upgradePackage(sourcePackage, enabledState string) {
+	h.t.Helper()
+	pid := h.mainPID()
+	identity := h.mustRun("id", "gobfd")
+	configuration := h.mustRun("sha256sum", "/etc/gobfd/gobfd.yml")
+	current := strings.TrimSpace(h.mustRun("dpkg-query", "-W", "-f=${Version}", "gobfd"))
+	version := current + "+qualification.1"
+	packageRoot := strings.TrimSpace(h.mustRun("mktemp", "-d", "/tmp/gobfd-upgrade.XXXXXX"))
+	h.mustRun("dpkg-deb", "--raw-extract", sourcePackage, packageRoot)
+	controlPath := filepath.Join(packageRoot, "DEBIAN", "control")
+	control := h.mustRun("cat", controlPath)
+	original := strings.TrimSpace(h.mustRun("dpkg-deb", "--field", sourcePackage, "Version"))
+	field := "Version: " + original + "\n"
+	if original == "" || strings.Count(control, field) != 1 {
+		h.t.Fatal("fixture control has no unique Version field")
+	}
+	// shortcut: version-only fixtures test dpkg phases; distinct binaries are needed for daemon upgrade qualification.
+	h.copy(strings.Replace(control, field, "Version: "+version+"\n", 1), controlPath)
+	for _, script := range []string{"postinst", "prerm"} {
+		magic := strings.Fields(h.mustRun("od", "-An", "-tx1", "-N4", filepath.Join(packageRoot, "DEBIAN", script)))
+		if strings.Join(magic, "") != "7f454c46" {
+			h.t.Fatalf("Debian %s is not a native ELF maintainer program", script)
+		}
+	}
+	archive := packageRoot + ".deb"
+	h.mustRun("dpkg-deb", "-Zgzip", "--build", packageRoot, archive)
+	if got := strings.TrimSpace(h.mustRun("dpkg-deb", "--field", archive, "Version")); got != version {
+		h.t.Fatalf("upgrade fixture version = %q, want %q", got, version)
+	}
+	h.mustRun("dpkg", "--compare-versions", version, "gt", current)
+	h.mustRun("dpkg", "--install", archive)
+	if got := strings.TrimSpace(h.mustRun("dpkg-query", "-W", "-f=${Version}", "gobfd")); got != version {
+		h.t.Fatalf("installed upgrade version = %q, want %q", got, version)
+	}
+	h.expectShow("ActiveState", "active")
+	h.expectShow("UnitFileState", enabledState)
+	if h.mainPID() != pid || h.mustRun("id", "gobfd") != identity ||
+		h.mustRun("sha256sum", "/etc/gobfd/gobfd.yml") != configuration {
+		h.t.Fatal("package upgrade changed the running PID, service identity or user configuration")
+	}
 }
 
 func (h *host) copy(content, path string) {
@@ -424,10 +498,13 @@ func baseImage(t *testing.T, root, containerfile string) string {
 	return ""
 }
 
-func buildSystemdImage(ctx context.Context, t *testing.T, endpoint, root string, d distro) string {
+func buildSystemdImage(
+	ctx context.Context, t *testing.T, endpoint, root string, d distro, runID string,
+) (string, string) {
 	t.Helper()
 	buildContext := t.TempDir()
-	containerfile := fmt.Sprintf("FROM %s\nRUN %s\n", baseImage(t, root, d.containerfile), d.installSystemd)
+	base := baseImage(t, root, d.containerfile)
+	containerfile := fmt.Sprintf("FROM %s\nRUN %s\n", base, d.installSystemd)
 	if err := os.WriteFile(filepath.Join(buildContext, "Containerfile"), []byte(containerfile), 0o600); err != nil {
 		t.Fatalf("write build Containerfile: %v", err)
 	}
@@ -435,62 +512,107 @@ func buildSystemdImage(ctx context.Context, t *testing.T, endpoint, root string,
 	if err != nil {
 		t.Fatalf("create Podman client: %v", err)
 	}
+	revision, created, err := interopproject.BuildMetadata(ctx, root, os.Getenv("GOBFD_BUILD_REVISION"))
+	if err != nil {
+		t.Fatalf("resolve package fixture source identity: %v", err)
+	}
+	baseName, baseDigest, pinned := strings.Cut(base, "@")
+	if !pinned || !containertest.IsImageDigest(baseDigest) {
+		t.Fatalf("package fixture base is not digest-pinned: %s", base)
+	}
+	tag := fmt.Sprintf("pkg-%s-%d", d.name, time.Now().UnixNano())
+	image := "localhost/gobfd-package-lifecycle:" + tag
+	var imageID string
+	if cleanupErr := containertest.RegisterImageCleanup(ctx, image, runID, packageTestKind, &imageID,
+		podman, t.Cleanup, func(err error) { t.Errorf("%v", err) }); cleanupErr != nil {
+		t.Fatalf("register package fixture image cleanup: %v", cleanupErr)
+	}
 	provider, err := testcontainers.ProviderPodman.GetProvider()
 	if err != nil {
 		t.Fatalf("create Podman provider: %v", err)
 	}
 	dockerProvider, ok := provider.(*testcontainers.DockerProvider)
 	if !ok {
-		t.Fatalf("Podman provider type = %T, want *testcontainers.DockerProvider", provider)
+		t.Fatalf("Podman provider type = %T, want *testcontainers.DockerProvider: %v", provider, provider.Close())
 	}
-	tag := fmt.Sprintf("pkg-%s-%d", d.name, time.Now().UnixNano())
-	//nolint:modernize // FromDockerfile alone does not implement ImageBuildInfo.
-	image, err := dockerProvider.BuildImage(ctx, &testcontainers.ContainerRequest{
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context:    buildContext,
-			Dockerfile: "Containerfile",
-			Repo:       "localhost/gobfd-package-lifecycle",
-			Tag:        tag,
-			KeepImage:  true,
-			// The package mirror must resolve through the host resolver.
-			BuildOptionsModifier: func(options *client.ImageBuildOptions) { options.NetworkMode = "host" },
-		},
-	})
-	closeErr := provider.Close()
-	if err != nil || closeErr != nil {
-		t.Fatalf("build %s systemd image: %v %v", d.name, err, closeErr)
+	labels := map[string]string{
+		"io.gobfd.test": packageTestKind, "io.gobfd.run": runID, "io.gobfd.image": image,
+		"org.opencontainers.image.source":   "https://github.com/dantte-lp/gobfd",
+		"org.opencontainers.image.revision": revision, "org.opencontainers.image.created": created,
+		"org.opencontainers.image.version":     "package-lifecycle-qualification",
+		"org.opencontainers.image.licenses":    "Apache-2.0",
+		"org.opencontainers.image.title":       "GoBFD package lifecycle fixture",
+		"org.opencontainers.image.description": "Debian systemd install, upgrade and removal qualification",
+		"org.opencontainers.image.base.name":   baseName, "org.opencontainers.image.base.digest": baseDigest,
 	}
-	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
-		defer cancel()
-		if err := podman.RemoveImage(cleanupCtx, image); err != nil {
-			t.Errorf("remove %s: %v", image, err)
+	_, buildErr := dockerProvider.BuildImage(ctx, systemdImageRequest(buildContext, tag, labels))
+	metadata, inspectErr := podman.ImageMetadata(ctx, image)
+	if inspectErr == nil {
+		inspectErr = containertest.ValidateImageOwner(metadata, image, runID, packageTestKind)
+		if inspectErr == nil {
+			// Bind cleanup before validating public annotations or closing the provider.
+			imageID = metadata.ID
+			_, inspectErr = containertest.ValidateImageProvenance(metadata, revision)
 		}
-	})
-	return image
+	}
+	if buildCloseErr := errors.Join(buildErr, inspectErr, provider.Close()); buildCloseErr != nil {
+		t.Fatalf("build %s systemd image: %v", d.name, buildCloseErr)
+	}
+	t.Logf("package fixture image=%s id=%s revision=%s created=%s", image, imageID, revision, created)
+	return image, imageID
 }
 
-func startSystemd(ctx context.Context, t *testing.T, image, packages string) testcontainers.Container {
-	t.Helper()
-	ctr, err := containertest.Run(ctx, t, testcontainers.ContainerRequest{
+func systemdImageRequest(buildContext, tag string, labels map[string]string) *testcontainers.ContainerRequest {
+	return &testcontainers.ContainerRequest{
+		Context: buildContext, Dockerfile: "Containerfile",
+		Repo: "localhost/gobfd-package-lifecycle", Tag: tag, KeepImage: true,
+		BuildOptionsModifier: func(options *client.ImageBuildOptions) {
+			// The package mirror must resolve through the host resolver.
+			options.NetworkMode = "host"
+			options.CPUPeriod, options.CPUQuota = 100000, 200000
+			options.Memory, options.MemorySwap = 2<<30, 2<<30
+			options.Labels = labels
+		},
+	}
+}
+
+func systemdContainerRequest(image, packages string) testcontainers.ContainerRequest {
+	return testcontainers.ContainerRequest{
 		Image:  image,
 		Cmd:    []string{"/usr/lib/systemd/systemd"},
-		Labels: map[string]string{"io.gobfd.test": "package-lifecycle"},
+		Labels: map[string]string{"io.gobfd.test": packageTestKind},
 		HostConfigModifier: func(hc *container.HostConfig) {
 			// systemd builds the unit's mount namespace, seccomp filters and a
 			// fresh procfs; the test reads the service's /proc entries.
 			hc.CapAdd = []string{"SYS_ADMIN", "NET_ADMIN", "NET_RAW", "SYS_PTRACE"}
 			hc.SecurityOpt = []string{"unmask=ALL", "label=disable"}
 			hc.Binds = []string{packages + ":/packages:ro"}
-			hc.Memory = containerMemory
+			hc.CPUPeriod, hc.CPUQuota = 100000, 100000
+			hc.CgroupnsMode = container.CgroupnsModePrivate
+			hc.Memory, hc.MemorySwap = containerMemory, containerMemory
 			pids := int64(containerPIDs)
 			hc.PidsLimit = &pids
 		},
-	})
+	}
+}
+
+func startSystemd(ctx context.Context, t *testing.T, image, packages string) testcontainers.Container {
+	t.Helper()
+	ctr, err := containertest.Run(ctx, t, systemdContainerRequest(image, packages))
 	if err != nil {
 		t.Fatalf("start systemd container: %v", err)
 	}
 	h := &host{t: t, ctx: ctx, ctr: ctr}
+	for _, limit := range []struct{ file, value string }{
+		{"cpu.max", "100000 100000"},
+		{"memory.max", strconv.Itoa(containerMemory)},
+		{"memory.swap.max", "0"},
+		{"pids.max", strconv.Itoa(containerPIDs)},
+	} {
+		if value := strings.TrimSpace(h.mustRun("cat", "/sys/fs/cgroup/"+limit.file)); value != limit.value {
+			t.Fatalf("effective runtime %s = %q, want %q", limit.file, value, limit.value)
+		}
+	}
 	// PID 1 opens its bus shortly after the container starts.
 	for {
 		code, out := h.run("systemctl", "is-system-running", "--wait")
