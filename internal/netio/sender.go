@@ -33,8 +33,11 @@ type UDPSender struct {
 	srcPort         uint16
 	multiHop        bool
 	dfBit           bool   // RFC 9764: Don't Fragment bit for path MTU verification
+	paddingPrepared bool   // Immutable proof of successful DF socket preparation.
 	bindDevice      string // SO_BINDTODEVICE interface name (RFC 7130 micro-BFD per-member)
+	deviceScope     bool   // Use verified socket binding instead of a stale named IPv6 zone.
 	writeBufferSize int    // SO_SNDBUF size in bytes (0 = OS default)
+	qos             *SocketQoS
 }
 
 // SenderOption configures optional UDPSender parameters.
@@ -76,8 +79,19 @@ func WithWriteBuffer(bytes int) SenderOption {
 	}
 }
 
+// WithSocketQoS installs an ordinary sender's marking and local queue policy.
+// NewUDPSender validates the copied policy before opening a socket.
+func WithSocketQoS(qos SocketQoS) SenderOption {
+	return func(s *UDPSender) {
+		copyQoS := qos
+		s.qos = &copyQoS
+	}
+}
+
 // NewUDPSender creates a sender for BFD packets from localAddr:srcPort.
 // Supports both IPv4 and IPv6 addresses; the address family is auto-detected.
+// srcPort must be in 49152-65535; zero never requests automatic allocation.
+// This is also the sender's Echo policy, whose source port RFC 5881 leaves unspecified.
 //
 // The socket is configured with:
 //   - IPv4: IP_TTL = 255 (RFC 5881 Section 5 / RFC 5082 GTSM)
@@ -94,6 +108,10 @@ func NewUDPSender(
 	logger *slog.Logger,
 	opts ...SenderOption,
 ) (*UDPSender, error) {
+	if srcPort < sourcePortMin {
+		return nil, fmt.Errorf("UDP source port %d: %w", srcPort, ErrSourcePortInvalid)
+	}
+
 	dstPort := PortSingleHop
 	if multiHop {
 		dstPort = PortMultiHop
@@ -112,10 +130,16 @@ func NewUDPSender(
 	for _, opt := range opts {
 		opt(s)
 	}
+	if s.qos != nil {
+		if err := s.qos.validate(); err != nil {
+			return nil, fmt.Errorf("configure UDP sender QoS: %w", err)
+		}
+	}
 
 	isIPv6 := localAddr.Is6() && !localAddr.Is4In6()
+	preparedDF := s.dfBit
 
-	conn, err := dialSenderSocket(localAddr, srcPort, isIPv6, s.dfBit, s.bindDevice)
+	conn, err := dialSenderSocket(localAddr, srcPort, isIPv6, preparedDF, s.bindDevice, s.qos, s.logger)
 	if err != nil {
 		return nil, fmt.Errorf("create UDP sender %s:%d: %w",
 			localAddr, srcPort, err)
@@ -134,8 +158,13 @@ func NewUDPSender(
 		}
 	}
 
+	s.paddingPrepared = preparedDF
 	return s, nil
 }
+
+// PaddingPrepared reports successful DF preparation at construction.
+// It does not report socket liveness; requested options cannot change it.
+func (s *UDPSender) PaddingPrepared() bool { return s.paddingPrepared }
 
 // dialSenderSocket creates and configures a UDP socket for BFD TX.
 func dialSenderSocket(
@@ -144,12 +173,14 @@ func dialSenderSocket(
 	isIPv6 bool,
 	dfBit bool,
 	bindDevice string,
+	qos *SocketQoS,
+	logger *slog.Logger,
 ) (*net.UDPConn, error) {
 	laddr := netip.AddrPortFrom(localAddr, srcPort)
 
 	lc := net.ListenConfig{
 		Control: func(_, _ string, c syscall.RawConn) error {
-			return setSenderOpts(c, isIPv6, dfBit, bindDevice)
+			return setSenderOpts(c, isIPv6, dfBit, bindDevice, qos, logger)
 		},
 	}
 
@@ -182,13 +213,15 @@ func dialSenderSocket(
 // for RFC 9764 path MTU verification.
 // When bindDevice is non-empty, sets SO_BINDTODEVICE for per-interface
 // binding (RFC 7130 micro-BFD per-member-link sessions).
-func setSenderOpts(c syscall.RawConn, isIPv6 bool, dfBit bool, bindDevice string) error {
+func setSenderOpts(
+	c syscall.RawConn, isIPv6 bool, dfBit bool, bindDevice string, qos *SocketQoS, logger *slog.Logger,
+) error {
 	var sockErr error
 
 	err := c.Control(func(fd uintptr) {
 		intFD := int(fd)
 
-		sockErr = setSenderSockOpts(intFD, isIPv6, dfBit, bindDevice)
+		sockErr = setSenderSockOpts(intFD, isIPv6, dfBit, bindDevice, qos, logger)
 	})
 	if err != nil {
 		return fmt.Errorf("raw conn control: %w", err)
@@ -198,7 +231,9 @@ func setSenderOpts(c syscall.RawConn, isIPv6 bool, dfBit bool, bindDevice string
 }
 
 // setSenderSockOpts applies socket-level and IP-level options for a BFD sender FD.
-func setSenderSockOpts(fd int, isIPv6 bool, dfBit bool, bindDevice string) error {
+func setSenderSockOpts(
+	fd int, isIPv6 bool, dfBit bool, bindDevice string, qos *SocketQoS, logger *slog.Logger,
+) error {
 	// SO_REUSEADDR: allow address reuse.
 	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1); err != nil {
 		return fmt.Errorf("set SO_REUSEADDR: %w", err)
@@ -214,18 +249,32 @@ func setSenderSockOpts(fd int, isIPv6 bool, dfBit bool, bindDevice string) error
 		}
 	}
 
+	var err error
 	if isIPv6 {
-		return setSenderOptsIPv6(fd, dfBit)
+		err = setSenderOptsIPv6(fd, dfBit, qos)
+	} else {
+		err = setSenderOptsIPv4(fd, dfBit, qos)
 	}
-
-	return setSenderOptsIPv4(fd, dfBit)
+	if err != nil {
+		return err
+	}
+	if qos != nil {
+		// Linux IP_TOS also updates sk_priority, so the explicit priority comes last.
+		return setSenderQoS(fd, *qos, logger, unix.SetsockoptInt)
+	}
+	return nil
 }
 
 // setSenderOptsIPv4 configures IPv4-specific socket options for BFD TX.
-func setSenderOptsIPv4(fd int, dfBit bool) error {
+func setSenderOptsIPv4(fd int, dfBit bool, qos *SocketQoS) error {
 	// IP_TTL = 255: RFC 5881 Section 5 / RFC 5082 GTSM.
 	if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TTL, int(ttlRequired)); err != nil {
 		return fmt.Errorf("set IP_TTL: %w", err)
+	}
+	if qos != nil {
+		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TOS, qos.IPv4DSCP<<2); err != nil {
+			return fmt.Errorf("set IP_TOS: %w", err)
+		}
 	}
 
 	// RFC 9764: set DF bit for path MTU verification.
@@ -241,12 +290,17 @@ func setSenderOptsIPv4(fd int, dfBit bool) error {
 }
 
 // setSenderOptsIPv6 configures IPv6-specific socket options for BFD TX.
-func setSenderOptsIPv6(fd int, dfBit bool) error {
+func setSenderOptsIPv6(fd int, dfBit bool, qos *SocketQoS) error {
 	// IPV6_UNICAST_HOPS = 255: RFC 5881 Section 5 / RFC 5082 GTSM.
 	if err := unix.SetsockoptInt(
 		fd, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, int(ttlRequired),
 	); err != nil {
 		return fmt.Errorf("set IPV6_UNICAST_HOPS: %w", err)
+	}
+	if qos != nil {
+		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_TCLASS, qos.IPv6TrafficClass); err != nil {
+			return fmt.Errorf("set IPV6_TCLASS: %w", err)
+		}
 	}
 
 	// RFC 9764: set DF bit for path MTU verification.
@@ -267,7 +321,7 @@ func setSenderOptsIPv6(fd int, dfBit bool) error {
 //
 // This method satisfies the bfd.PacketSender interface.
 func (s *UDPSender) SendPacket(
-	_ context.Context,
+	ctx context.Context,
 	buf []byte,
 	addr netip.Addr,
 ) error {
@@ -276,13 +330,27 @@ func (s *UDPSender) SendPacket(
 		s.mu.Unlock()
 		return fmt.Errorf("send to %s: %w", addr, ErrSocketClosed)
 	}
+	deviceScope := s.deviceScope
 	s.mu.Unlock()
 
 	dst := net.UDPAddrFromAddrPort(netip.AddrPortFrom(addr, s.dstPort))
+	namedZone := addr.Zone() != "" && addr.Zone() == s.bindDevice
+	if namedZone && deviceScope {
+		dst.Zone = ""
+	}
 
-	if _, err := s.conn.WriteToUDP(buf, dst); err != nil {
+	written, sendErr := s.conn.WriteToUDP(buf, dst)
+	if written == 0 && sendErr != nil && s.bindDevice != "" &&
+		(errors.Is(sendErr, unix.ENODEV) || errors.Is(sendErr, unix.ENETUNREACH)) {
+		if bindErr := s.rebindDevice(ctx, dst, namedZone); bindErr != nil {
+			sendErr = errors.Join(sendErr, bindErr)
+		} else {
+			_, sendErr = s.conn.WriteToUDP(buf, dst)
+		}
+	}
+	if sendErr != nil {
 		return fmt.Errorf("send BFD packet to %s:%d: %w",
-			addr, s.dstPort, err)
+			addr, s.dstPort, sendErr)
 	}
 
 	return nil

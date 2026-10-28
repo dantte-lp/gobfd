@@ -653,7 +653,7 @@ func TestTimerPollUnderRemoteDemand(t *testing.T) {
 		if fireRemoteTxTimer(sess, tx) || len(sender.packets) != 0 {
 			t.Fatal("periodic transmission continued under remote Demand")
 		}
-		tuple := timerTuple{200 * time.Millisecond, 200 * time.Millisecond}
+		tuple := timerTuple{200 * time.Millisecond, 200 * time.Millisecond, 3, 0, 0}
 		if _, err := sess.admitTimerUpdate(t.Context(), tuple, 1); err != nil {
 			t.Fatal(err)
 		}
@@ -688,7 +688,8 @@ func TestTimerPollUnderRemoteZeroRxExpires(t *testing.T) {
 		pkt := sess.buildControlPacket()
 		pkt.RequiredMinRxInterval = 0
 		sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
-		status, err := sess.admitTimerUpdate(t.Context(), timerTuple{200 * time.Millisecond, 200 * time.Millisecond}, 1)
+		tuple := timerTuple{200 * time.Millisecond, 200 * time.Millisecond, 3, 0, 0}
+		status, err := sess.admitTimerUpdate(t.Context(), tuple, 1)
 		if err != nil {
 			t.Fatal(err)
 		}

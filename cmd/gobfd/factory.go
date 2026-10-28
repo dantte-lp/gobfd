@@ -16,27 +16,34 @@ import (
 
 const maxBFDWireUint8 = math.MaxUint8
 
-func newUDPSenderFactory(writeBufferSize int) *udpSenderFactory {
+func newUDPSenderFactory(socket config.SocketConfig) *udpSenderFactory {
 	return &udpSenderFactory{
-		portAlloc:       netio.NewSourcePortAllocator(),
-		writeBufferSize: writeBufferSize,
-		senders:         make(map[uint16]*netio.UDPSender),
+		portAlloc: netio.NewSourcePortAllocator(),
+		socket:    socket,
+		senders:   make(map[uint16]*netio.UDPSender),
 	}
 }
 
 func (f *udpSenderFactory) CreateSender(
 	localAddr netip.Addr,
 	ifName string,
-	multiHop bool,
+	kind bfd.SessionType,
 	doNotFragment bool,
 	logger *slog.Logger,
 ) (bfd.PacketSender, uint16, error) {
 	var opts []netio.SenderOption
+	switch kind {
+	case bfd.SessionTypeSingleHop, bfd.SessionTypeMultiHop:
+	case bfd.SessionTypeEcho:
+		opts = append(opts, netio.WithDstPort(netio.PortEcho))
+	default:
+		return nil, 0, fmt.Errorf("API sender type %d: %w", kind, bfd.ErrInvalidSessionType)
+	}
 	if doNotFragment {
 		opts = append(opts, netio.WithDFBit())
 	}
 	localAddr, opts = singleHopSenderBinding(localAddr, ifName, opts)
-	return f.createSenderForSession(localAddr, multiHop, logger, opts...)
+	return f.createSenderForSession(localAddr, kind == bfd.SessionTypeMultiHop, logger, opts...)
 }
 
 func (f *udpSenderFactory) CloseSender(srcPort uint16) error {
@@ -73,10 +80,14 @@ func (f *udpSenderFactory) createSenderForSession(
 		return nil, 0, fmt.Errorf("allocate source port: %w", err)
 	}
 
-	// Copy caller options before appending the immutable startup buffer policy.
-	opts := make([]netio.SenderOption, 0, len(senderOpts)+1)
+	// Apply the immutable startup policy after caller-specific transport options.
+	opts := make([]netio.SenderOption, 0, len(senderOpts)+2)
 	opts = append(opts, senderOpts...)
-	opts = append(opts, netio.WithWriteBuffer(f.writeBufferSize))
+	opts = append(opts, netio.WithWriteBuffer(f.socket.WriteBufferSize), netio.WithSocketQoS(netio.SocketQoS{
+		IPv4DSCP: f.socket.IPv4DSCP, IPv6TrafficClass: f.socket.IPv6TrafficClass,
+		Priority: f.socket.Priority, Mark: f.socket.Mark,
+		PriorityRequired: f.socket.PriorityRequired, MarkRequired: f.socket.MarkRequired,
+	}))
 	sender, err := netio.NewUDPSender(localAddr, srcPort, multiHop, logger, opts...)
 	if err != nil {
 		f.portAlloc.Release(srcPort)
@@ -220,7 +231,19 @@ func newManager(
 	sf *udpSenderFactory,
 	logger *slog.Logger,
 ) (*bfd.Manager, error) {
+	if err := config.ValidateMicroBFDPreview(cfg.MicroBFD); err != nil {
+		return nil, fmt.Errorf("validate Micro-BFD preview: %w", err)
+	}
+	if cfg.MicroBFD.Enabled {
+		logger.Warn("Micro-BFD preview enabled; RFC 7130 L2 qualification is incomplete",
+			slog.String("capability", "micro-bfd"), slog.String("maturity", "preview"))
+	}
+	notifications, err := notificationPopulationOption(cfg)
+	if err != nil {
+		return nil, err
+	}
 	opts := []bfd.ManagerOption{
+		notifications,
 		bfd.WithManagerMetrics(collector),
 		bfd.WithSessionInterfaceResolver(netio.ResolveSessionIfIndex),
 	}
@@ -245,6 +268,32 @@ func newManager(
 		)
 	}
 	return bfd.NewManager(logger, opts...), nil
+}
+
+func notificationPopulationOption(cfg *config.Config) (bfd.ManagerOption, error) {
+	populations := []int{len(cfg.Sessions)}
+	if cfg.Echo.Enabled {
+		populations = append(populations, len(cfg.Echo.Peers))
+	}
+	if cfg.MicroBFD.Enabled {
+		for _, group := range cfg.MicroBFD.Groups {
+			populations = append(populations, len(group.MemberLinks))
+		}
+	}
+	if cfg.VXLAN.Enabled {
+		populations = append(populations, len(cfg.VXLAN.Peers))
+	}
+	if cfg.Geneve.Enabled {
+		populations = append(populations, len(cfg.Geneve.Peers))
+	}
+	if cfg.Unsolicited.Enabled {
+		populations = append(populations, cfg.Unsolicited.MaxSessions)
+	}
+	option, err := bfd.WithNotificationPopulation(populations...)
+	if err != nil {
+		return nil, fmt.Errorf("configure notification population: %w", err)
+	}
+	return option, nil
 }
 
 func buildMicroBFDActuator(

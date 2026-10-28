@@ -32,12 +32,12 @@ RFC 5880 Section 4.1 defines a 24-byte mandatory header:
 | 0 | 1 | Version (3 bits) + Diagnostic (5 bits) | Version MUST be 1 |
 | 1 | 1 | State (2 bits) + P F C A D M (6 bits) | P=Poll, F=Final, C=CPI, A=Auth, D=Demand, M=Multipoint |
 | 2 | 1 | Detect Multiplier | MUST NOT be zero |
-| 3 | 1 | Length | Total packet length in bytes |
+| 3 | 1 | Length | BFD PDU length in bytes; excludes RFC 9764 transport padding |
 | 4-7 | 4 | My Discriminator | MUST NOT be zero |
 | 8-11 | 4 | Your Discriminator | Zero until peer discriminator is known |
 | 12-15 | 4 | Desired Min TX Interval | **Microseconds** |
 | 16-19 | 4 | Required Min RX Interval | **Microseconds** |
-| 20-23 | 4 | Required Min Echo RX Interval | **Microseconds** (0 for affiliated Echo; RFC 9747 unaffiliated Echo is implemented separately) |
+| 20-23 | 4 | Required Min Echo RX Interval | **Microseconds** (0 in GoBFD Control sessions; affiliated Echo is not implemented) |
 | 24+ | var | Authentication Section | Optional, present when A bit is set |
 
 > **IMPORTANT**: All interval fields are in **microseconds** on the wire. Conversion to `time.Duration` happens at the boundary:
@@ -45,7 +45,13 @@ RFC 5880 Section 4.1 defines a 24-byte mandatory header:
 > interval := time.Duration(pkt.DesiredMinTxInterval) * time.Microsecond
 > ```
 
-**Zero-allocation codec**: `MarshalControlPacket` writes into a pre-allocated buffer (typically from `sync.Pool`). `UnmarshalControlPacket` fills a caller-provided `ControlPacket` struct in-place. Auth section digest/password fields reference the original buffer (zero-copy); callers must copy before returning the buffer to the pool.
+**Codec allocation and lifetime**: marshal writes into a supplied buffer;
+valid authenticated and unauthenticated unmarshal fill a caller-owned packet
+without allocating an auth object. `AuthSection.Data` owns up to 20 payload
+bytes inside the value; `DataLen` is validated independently of wire `Len`.
+Receivers retain complete authenticated wire before returning pooled input.
+Hash verification uses a bounded scratch PDU and leaves received wire unchanged.
+See [ADR-0011](adr/0011-bfd-auth-inline-payload.md).
 
 ### FSM State Machine
 
@@ -68,7 +74,9 @@ stateDiagram-v2
     AdminDown --> Down : Admin Up
 ```
 
-The FSM is implemented as a pure function over a `map[stateEvent]transition` table. No if-else chains. No side effects -- the caller (Session) executes returned actions.
+The FSM is a pure indexed lookup over a `[state][event]` array built from the
+declarative `map[stateEvent]transition` at initialization. The caller (Session)
+executes the returned actions.
 
 ### State Transition Table
 
@@ -80,6 +88,7 @@ Derived from RFC 5880 Section 6.8.6 pseudocode:
 | Down | RecvDown | Init | SendControl |
 | Down | RecvInit | Up | SendControl, NotifyUp |
 | Down | AdminDown | AdminDown | SetDiagAdminDown |
+| Down | TimerExpired | Down | SetDiagTimeExpired |
 | Init | RecvAdminDown | Down | SetDiagNeighborDown, NotifyDown |
 | Init | RecvDown | Init | (self-loop) |
 | Init | RecvInit | Up | SendControl, NotifyUp |
@@ -93,31 +102,36 @@ Derived from RFC 5880 Section 6.8.6 pseudocode:
 | Up | TimerExpired | Down | SetDiagTimeExpired, NotifyDown |
 | Up | AdminDown | AdminDown | SetDiagAdminDown |
 
-Unlisted (state, event) pairs are silently ignored.
+Unlisted (state, event) pairs are silently ignored. Down timeout diagnostic
+handling follows the accepted Held-erratum policy described in
+[RFC compliance](08-rfc-compliance.md).
 
 ### State Variables
 
-All mandatory state variables from RFC 5880 Section 6.1:
+Selected RFC 5880 Section 6.1 state variables and their implementation boundaries:
 
 | RFC Variable | Go Field | Notes |
 |---|---|---|
-| bfd.SessionState | `session.state` (atomic) | External reads via `atomic.Uint32` |
-| bfd.RemoteSessionState | `session.remoteState` (atomic) | From received packets |
+| bfd.SessionState | `session.localPair` | Packed atomic state/diagnostic; coherent `Observation` available |
+| bfd.RemoteSessionState | `session.observation` | Committed remote facts read under the session mutex |
 | bfd.LocalDiscr | `session.localDiscr` | Immutable after creation |
 | bfd.RemoteDiscr | `session.remoteDiscr` | Set from received packets |
-| bfd.LocalDiag | `session.localDiag` (atomic) | Set by FSM actions |
+| bfd.LocalDiag | `session.localPair` | Published with local state |
 | bfd.DesiredMinTxInterval | `session.desiredMinTxInterval` | Configurable |
 | bfd.RequiredMinRxInterval | `session.requiredMinRxInterval` | Configurable |
 | bfd.RemoteMinRxInterval | `session.remoteMinRxInterval` | From received packets |
 | bfd.DemandMode | Not implemented | See [Not Implemented](#not-implemented) |
-| bfd.RemoteDemandMode | `session.remoteDemandMode` | Parsed but ignored |
+| bfd.RemoteDemandMode | `session.remoteDemandMode` | Suppresses periodic TX while both peers are Up and no local Poll is active |
 | bfd.DetectMult | `session.detectMult` | Configurable |
 | bfd.AuthType | `session.auth` (interface) | Via `Authenticator` interface |
 | bfd.RcvAuthSeq | `session.authState` | `AuthState` tracks this |
 | bfd.XmitAuthSeq | `session.authState` | `AuthState` tracks this |
 | bfd.AuthSeqKnown | `session.authState` | `AuthState` tracks this |
 
-**Thread safety**: `state`, `remoteState`, and `localDiag` use `atomic.Uint32` for lock-free reads from the gRPC server goroutine. All other state is owned exclusively by the session goroutine.
+**Thread safety**: scalar local state/diagnostic getters use the packed atomic
+pair. `Observation` reads a coherent committed snapshot under `Session.mu`;
+remote state is not an independent atomic snapshot. Owner processing and
+supported configuration updates serialize their mutable fields.
 
 **Initialization** per RFC 5880 Section 6.8.1:
 - `bfd.SessionState` = Down
@@ -135,21 +149,28 @@ RFC 5880 Sections 6.8.1-6.8.4.
 
 The actual transmission interval is the larger of the local desired minimum and the remote required minimum:
 
-```
+```text
 ActualTxInterval = max(bfd.DesiredMinTxInterval, bfd.RemoteMinRxInterval)
 ```
 
-When the session is not in Up state, the TX interval is enforced to be at least 1 second (1,000,000 microseconds) per RFC 5880 Section 6.8.3.
+When the session is not Up, the advertised Desired Min TX and the unjittered
+TX interval have a one-second floor (1,000,000 microseconds) per RFC 5880
+Section 6.8.3. Section 6.8.7 jitter still applies: a one-second interval can
+produce a periodic transmission after 750 ms.
 
 #### Detection Time
 
 The detection time is calculated from the remote peer's parameters:
 
-```
+```text
 DetectionTime = bfd.RemoteDetectMult * max(bfd.RequiredMinRxInterval, bfd.RemoteDesiredMinTxInterval)
 ```
 
-If no packet is received within the Detection Time, the session transitions to Down with Diagnostic = Control Detection Time Expired (1).
+If no valid packet is received within Detection Time, Init and Up transition
+to Down with Diagnostic = Control Detection Time Expired (1). An already Down
+session updates that diagnostic under the selected Held-erratum policy;
+AdminDown retains its administrative state and diagnostic. See
+[`handleDetectTimer`](../../internal/bfd/session_loop.go).
 
 ### Jitter
 
@@ -160,26 +181,20 @@ RFC 5880 Section 6.8.7. Periodic transmission intervals include random jitter to
 | DetectMult > 1 | 0-25% reduction | 75-100% of interval |
 | DetectMult == 1 | 10-25% reduction | 75-90% of interval |
 
-Implementation:
+Implementation: [`applyJitterWithRand` and `Session.applyJitter`](../../internal/bfd/session_packet.go).
 
-```go
-func ApplyJitter(interval time.Duration, detectMult uint8) time.Duration {
-    if detectMult == 1 {
-        jitterPercent = 10 + rng.IntN(16) // 75-90%
-    } else {
-        jitterPercent = rng.IntN(26)       // 75-100%
-    }
-    return interval - (interval * jitterPercent / 100)
-}
-```
-
-The runtime session path uses a crypto-seeded session-local PRNG. Jitter is not
-a security boundary, but the seed is non-predictable and the session-local state
-avoids global RNG contention on the hot path.
+The session-local PRNG prefers a cryptographic seed and falls back to a
+time-based seed if that read fails. Jitter is not a security boundary;
+session-local state avoids global RNG contention on this path.
 
 ### Poll Sequence
 
-RFC 5880 Section 6.5. Parameter changes (TX interval, RX interval) require a Poll Sequence for confirmation:
+RFC 5880 Sections 6.5 and 6.8.3 govern timer negotiation. While Up, protected
+TX increases and RX decreases wait for Final; reverse directions retain their
+immediate local effect when the proposal activates. A promoted non-Up proposal
+applies locally before Final; unresolved Poll and separation still serialize
+promotion. Detect-only Async changes do not require Poll; local TTL policy
+does not use Poll. See [reload policy](adr/0006-session-preserving-reload-policy.md).
 
 ```mermaid
 sequenceDiagram
@@ -206,8 +221,9 @@ Key rules:
 Consecutive transactions wait the measured exchange duration after Final.
 Expiry fails the receipt without rolling back advertised values. See the
 [transaction contract](../superpowers/specs/2026-09-08-gobfd-timer-update-transactions-design.md)
-for recovery and generation semantics. Live FRR/BIRD reload qualification remains
-pending; this is not full Section 6.5 compliance.
+for recovery and generation semantics. Bounded FRR/BIRD wire slices are recorded
+in [Interop](05-interop.md); final unified candidate qualification remains open.
+Those slices do not establish full Section 6.5 compliance.
 
 ### Authentication
 
@@ -216,16 +232,21 @@ RFC 5880 Section 6.7. Five authentication types are supported:
 | Type ID | Name | RFC Section | Sequence Behavior |
 |---|---|---|---|
 | 1 | Simple Password | 4.2 | No sequence number |
-| 2 | Keyed MD5 | 4.3 | Increment on state change only |
+| 2 | Keyed MD5 | 4.3 | Increment on each signing call in GoBFD |
 | 3 | Meticulous Keyed MD5 | 4.3 | Increment on every packet |
-| 4 | Keyed SHA1 | 4.4 | Increment on state change only |
+| 4 | Keyed SHA1 | 4.4 | Increment on each signing call in GoBFD |
 | 5 | Meticulous Keyed SHA1 | 4.4 | Increment on every packet |
 
-**Meticulous vs Non-Meticulous**: Meticulous variants increment `bfd.XmitAuthSeq` on every transmitted packet. Non-meticulous variants increment only on session state changes. This distinction is critical for replay protection.
+**Sequence behavior**: GoBFD increments `bfd.XmitAuthSeq` on every signing call
+for both keyed and meticulous variants. RFC 5880 permits more frequent
+non-meticulous increments than state changes alone. The receive window is
+inclusive `[last, last + 3 * received DetectMult]` for non-meticulous and
+`[last + 1, last + 3 * received DetectMult]` for meticulous, using serial arithmetic.
 
-**Sequence number window**: For non-meticulous auth, received sequence numbers are accepted if they fall within `3 * DetectMult` of `bfd.RcvAuthSeq`. Meticulous auth requires strict monotonic increment.
-
-**Key rotation**: `AuthKeyStore` supports multiple simultaneous keys indexed by Key ID, allowing hitless key rotation per RFC 5880 Section 6.7.1.
+**Key rotation**: multiple keys in `AuthKeyStore` do not establish a live
+rotation protocol. Same-identity authentication changes are rejected on reload;
+coordinated hitless rotation remains separate work. Plan a disruptive restart
+or explicit release/recreation with the peer when changing deployed keys.
 
 > **WARNING**: MD5 and SHA1 are retained despite cryptographic weakness because RFC 5880 defines them as the only hash-based BFD authentication types. Prefer SHA1 over MD5 when interoperability allows, and use meticulous modes when replay-window tightness matters.
 
@@ -241,8 +262,8 @@ RFC 5880 Section 6.7. Five authentication types are supported:
 
 ### Unaffiliated Echo
 
-RFC 9747 unaffiliated Echo is implemented outside the affiliated RFC 5880
-control-session Echo mode.
+Unaffiliated Echo is a default-off preview, separate from affiliated RFC 5880
+control-session Echo. It is not a complete RFC 9747 implementation.
 
 | Field | Status |
 |---|---|
@@ -253,13 +274,22 @@ control-session Echo mode.
 | Demultiplexing | Returned packet `MyDiscriminator` |
 | Diagnostic on timeout | `DiagEchoFailed` |
 
+The current loop moves directly between Down and Up, receives by
+`MyDiscriminator`, and does not authenticate returned packets. RFC 9747
+Section 2 requires the RFC 5880 FSM without AdminDown and bootstrap followed
+by `YourDiscriminator` demultiplexing. Slow pacing before Up and after Down
+also remains unimplemented. Management principal claims do not close these
+protocol gaps; see [RFC coverage](08-rfc-compliance.md#rfc-9747-implementation-notes)
+and [ADR-0009](adr/0009-echo-principal-claims.md).
+
 ### Not Implemented
 
 #### Demand Mode (Section 6.6)
 
-Not implemented. The Demand (D) bit is always set to zero on transmit. `bfd.RemoteDemandMode` is parsed from received packets but has no effect.
-
-**Rationale**: Demand Mode is rarely used in production ISP/DC deployments. The primary use case (reducing BFD traffic) is better served by tuning TX/RX intervals. All major implementations (FRR, Junos, IOS-XR) default to Asynchronous mode.
+Local Demand mode is not implemented: transmitted D remains zero. Remote D
+does affect periodic TX: when both peers are Up and no local Poll is active,
+periodic Control sends are suppressed. Poll/Final and the constrained reload
+handling remain separate. This does not qualify general Demand operation.
 
 #### Affiliated Echo Mode (Section 6.4)
 
@@ -267,8 +297,8 @@ Not implemented for control sessions. `RequiredMinEchoRxInterval` remains zero
 for standard BFD control sessions.
 
 **Rationale**: Affiliated Echo Mode requires control-session coordination and
-remote echo loopback support. RFC 9747 unaffiliated Echo is implemented as the
-standalone forwarding-path echo mechanism.
+remote echo loopback support. A separate unaffiliated Echo preview exists with
+the limitations above.
 
 #### Point-to-Multipoint
 
@@ -282,4 +312,4 @@ The Multipoint (M) bit is always zero. Received packets with M=1 are rejected pe
 
 ---
 
-*Last updated: 2026-05-01*
+*Reviewed against `dev` source: 2026-10-25.*

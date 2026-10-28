@@ -9,12 +9,23 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
+
+	"github.com/dantte-lp/gobfd/test/internal/toolbootstrap"
 )
 
 func (c *Controller) build(ctx context.Context) error {
 	if os.Getenv("COMPOSE_COMPATIBILITY") != "" {
 		return fmt.Errorf("%w: COMPOSE_COMPATIBILITY is unsupported for interop builds", errControl)
+	}
+	version, err := c.podmanText(ctx, commandTimeout, "compose", "version", "--short")
+	if err != nil {
+		return fmt.Errorf("query Compose provider version: %w", err)
+	}
+	if strings.TrimSpace(version) != toolbootstrap.ComposeVersion {
+		return fmt.Errorf("%w: Compose provider version %q, want %q", errControl,
+			strings.TrimSpace(version), toolbootstrap.ComposeVersion)
 	}
 	revision, buildDate, err := BuildMetadata(ctx, c.root, os.Getenv("GOBFD_BUILD_REVISION"))
 	if err != nil {
@@ -92,11 +103,13 @@ func composeBuildArgs(raw json.RawMessage, image, revision, buildDate string) ([
 		"build", "--cpu-period", "100000", "--cpu-quota", "200000",
 		"--memory", "2g", "--memory-swap", "2g", "--jobs", "1",
 		"--tag", image, "--file", build.Dockerfile,
+		"--label", "io.gobfd.image=" + image,
 	}
 	if build.Args == nil {
 		build.Args = make(map[string]*string)
 	}
 	build.Args["VCS_REF"] = &revision
+	build.Args["GIT_COMMIT"] = &revision
 	build.Args["BUILD_DATE"] = &buildDate
 	for _, key := range slices.Sorted(maps.Keys(build.Args)) {
 		value := build.Args[key]

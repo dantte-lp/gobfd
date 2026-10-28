@@ -1,12 +1,16 @@
 package cirunner
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+var errGeneratedProtoDrift = errors.New("generated protobuf files differ from committed sources")
 
 // ProtoOptions configures generated protobuf verification and its test seams.
 type ProtoOptions struct {
@@ -72,6 +76,20 @@ func ProtoVerify(ctx context.Context, options ProtoOptions) error {
 		if err := options.Runner.RunCommand(ctx, command.spec); err != nil {
 			return fmt.Errorf("%s: %w", command.context, err)
 		}
+	}
+	return verifyGeneratedProtoStatus(ctx, root, options.Runner)
+}
+
+func verifyGeneratedProtoStatus(ctx context.Context, root string, runner SpecRunner) error {
+	var status bytes.Buffer
+	if err := runner.RunCommand(ctx, CommandSpec{
+		Name: "git", Dir: root, Stdout: &status,
+		Args: []string{"status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "pkg/bfdpb"},
+	}); err != nil {
+		return fmt.Errorf("inspect generated protobuf code: %w", err)
+	}
+	if status.Len() != 0 {
+		return fmt.Errorf("verify generated protobuf code: %w", errGeneratedProtoDrift)
 	}
 	return nil
 }

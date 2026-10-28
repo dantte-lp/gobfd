@@ -57,8 +57,7 @@ func (c *reconciliationCoordinator) interfaceEventSelection(
 	c.statusMu.RLock()
 	defer c.statusMu.RUnlock()
 	if ev.Resync || ev.Address {
-		// Any source may wait for an address, and a resync may follow a lost
-		// address event; retries skip sources that are not pending.
+		// Any source may lose or await an address; resync covers lost events.
 		return c.snapshot.DesiredGeneration, allReconciliationSources
 	}
 	var selected reconciliationSourceMask
@@ -111,7 +110,7 @@ func (c *reconciliationCoordinator) reconcileInterfaceSources(
 	c.reconcileUnavailableInterfaceLocked(snapshot, selected, checkInterfaces)
 	c.retryPendingSourcesLocked(ctx, expectedGeneration, selected,
 		func(ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate) sourceApplyResult {
-			if result := preflightCompiledSourceInterfaces(source, candidate, checkInterfaces); result.Err != nil {
+			if result := c.preflightSourceResources(source, candidate, checkInterfaces); result.Err != nil {
 				return result
 			}
 			return applySource(ctx, source, candidate)
@@ -135,19 +134,15 @@ func consumeInterfaceEvents(
 			case ev.Resync:
 				resyncInterfacePaths(ctx, mgr, logger)
 			case ev.Address:
-				// An address change carries no link state; it only retries
-				// sources waiting for an address.
+				// Address availability is re-inspected without inventing a link transition.
 			default:
 				mgr.HandleInterfaceEvent(ev.IfName, ev.Up)
 			}
 			// Bound listener interfaces are rebound and re-checked against the current
 			// inventory; a coalesced or lost event cannot leave a false SERVING.
-			// An address change cannot change a device binding.
-			if !ev.Address {
-				if err := coordinator.checkListenerBindings(net.Interfaces); err != nil {
-					logger.Warn("listener interface check failed; readiness unchanged",
-						slog.String("error", err.Error()))
-				}
+			if err := coordinator.checkListenerBindings(net.Interfaces); err != nil {
+				logger.Warn("listener resource check failed",
+					slog.String("error", err.Error()))
 			}
 			generation, selected := coordinator.interfaceEventSelection(ev)
 			queue.add(generation, selected)

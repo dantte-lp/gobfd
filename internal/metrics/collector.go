@@ -2,6 +2,7 @@ package bfdmetrics
 
 import (
 	"net/netip"
+	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -64,6 +65,23 @@ type Collector struct {
 	DeliveryOutcomes *prometheus.CounterVec
 	deliveryCounters map[[2]uint8]prometheus.Counter
 
+	// ReceiveTimingOutcomes counts every Control commit by measurement validity.
+	ReceiveTimingOutcomes *prometheus.CounterVec
+	ReceiveCommitLatency  prometheus.Histogram
+	receiveTimingCounters [bfd.ReceiveTimingOutcomeCount]prometheus.Counter
+
+	// Timer observations use fixed owner/kind and event dimensions only.
+	TimerEvents     *prometheus.CounterVec
+	TimerDelay      *prometheus.HistogramVec
+	timerCounters   [bfd.TimerKindCount][bfd.TimerEventCount]prometheus.Counter
+	timerHistograms [bfd.TimerKindCount][2]prometheus.Observer
+
+	// Socket telemetry retains only fixed Control/Echo sample dimensions.
+	SocketDropSamples  *prometheus.CounterVec
+	SocketDrops        *prometheus.CounterVec
+	socketDropCounters [2][bfd.SocketDropOutcomeCount]prometheus.Counter
+	socketDropTotals   [2]prometheus.Counter
+
 	// GoBGPRPCErrors counts failed GoBGP API calls by RPC, including the
 	// startup and background compatibility preflight.
 	GoBGPRPCErrors *prometheus.CounterVec
@@ -73,6 +91,9 @@ type Collector struct {
 	GoBGPEndpointCompatible prometheus.Gauge
 
 	goBGPPeers *goBGPPeerCollector
+
+	packetMu      sync.RWMutex
+	activePackets map[packetMetricKey]*packetCounters
 }
 
 // NewCollector creates a Collector with all BFD metrics registered against
@@ -96,6 +117,12 @@ func NewCollector(reg prometheus.Registerer) *Collector {
 		c.StateTransitions,
 		c.AuthFailures,
 		c.DeliveryOutcomes,
+		c.ReceiveTimingOutcomes,
+		c.ReceiveCommitLatency,
+		c.TimerEvents,
+		c.TimerDelay,
+		c.SocketDropSamples,
+		c.SocketDrops,
 		c.GoBGPRPCErrors,
 		c.GoBGPEndpointCompatible,
 		c.goBGPPeers,
@@ -107,10 +134,8 @@ func NewCollector(reg prometheus.Registerer) *Collector {
 // newMetrics creates all Prometheus metric vectors without registering them.
 func newMetrics() *Collector {
 	deliveryOutcomes, deliveryCounters := newDeliveryMetrics()
-	sessionLabels := []string{labelPeerAddr, labelLocalAddr, labelSessionType}
 	peerLabels := []string{labelPeerAddr, labelLocalAddr}
-	transitionLabels := []string{labelPeerAddr, labelLocalAddr, labelFromState, labelToState}
-	return &Collector{
+	c := &Collector{
 		goBGPPeers:       newGoBGPPeerCollector(),
 		DeliveryOutcomes: deliveryOutcomes,
 		deliveryCounters: deliveryCounters,
@@ -131,7 +156,7 @@ func newMetrics() *Collector {
 			Subsystem: subsystem,
 			Name:      "sessions",
 			Help:      "Number of currently active BFD sessions.",
-		}, sessionLabels),
+		}, []string{labelPeerAddr, labelLocalAddr, labelSessionType}),
 		PacketsSent: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Subsystem: subsystem,
@@ -157,7 +182,7 @@ func newMetrics() *Collector {
 			Subsystem: subsystem,
 			Name:      "state_transitions_total",
 			Help:      "Total BFD session FSM state transitions.",
-		}, transitionLabels),
+		}, []string{labelPeerAddr, labelLocalAddr, labelFromState, labelToState}),
 
 		AuthFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
@@ -166,6 +191,8 @@ func newMetrics() *Collector {
 			Help:      "Total BFD authentication verification failures (RFC 5880 Section 6.7).",
 		}, peerLabels),
 	}
+	c.initTelemetryMetrics()
+	return c
 }
 
 func newDeliveryMetrics() (*prometheus.CounterVec, map[[2]uint8]prometheus.Counter) {
@@ -195,6 +222,7 @@ func (c *Collector) RecordDelivery(source bfd.DeliverySource, outcome bfd.Delive
 // RegisterSession increments the active sessions gauge for the given peer.
 // Called when a new BFD session is created by the Manager.
 func (c *Collector) RegisterSession(peer, local netip.Addr, sessionType string) {
+	c.registerPacketMetrics(peer, local)
 	// Publish the alert-critical counter at zero before its first transition.
 	// PromQL increase() requires a baseline sample to observe the first Up->Down.
 	c.StateTransitions.WithLabelValues(peer.String(), local.String(), "Up", "Down").Add(0)
@@ -205,6 +233,7 @@ func (c *Collector) RegisterSession(peer, local netip.Addr, sessionType string) 
 // Called when a BFD session is destroyed by the Manager.
 func (c *Collector) UnregisterSession(peer, local netip.Addr, sessionType string) {
 	c.Sessions.WithLabelValues(peer.String(), local.String(), sessionType).Dec()
+	c.unregisterPacketMetrics(peer, local)
 }
 
 // -------------------------------------------------------------------------
@@ -214,18 +243,30 @@ func (c *Collector) UnregisterSession(peer, local netip.Addr, sessionType string
 // IncPacketsSent increments the transmitted packets counter for the given peer.
 // Called on each successful BFD Control packet transmission.
 func (c *Collector) IncPacketsSent(peer, local netip.Addr) {
+	if counters := c.packetMetrics(peer, local); counters != nil {
+		counters.sent.Inc()
+		return
+	}
 	c.PacketsSent.WithLabelValues(peer.String(), local.String()).Inc()
 }
 
 // IncPacketsReceived increments the received packets counter for the given peer.
 // Called on each successfully demultiplexed BFD Control packet.
 func (c *Collector) IncPacketsReceived(peer, local netip.Addr) {
+	if counters := c.packetMetrics(peer, local); counters != nil {
+		counters.received.Inc()
+		return
+	}
 	c.PacketsReceived.WithLabelValues(peer.String(), local.String()).Inc()
 }
 
 // IncPacketsDropped increments the dropped packets counter for the given peer.
 // Called when a packet fails validation or cannot be delivered to a session.
 func (c *Collector) IncPacketsDropped(peer, local netip.Addr) {
+	if counters := c.packetMetrics(peer, local); counters != nil {
+		counters.dropped.Inc()
+		return
+	}
 	c.PacketsDropped.WithLabelValues(peer.String(), local.String()).Inc()
 }
 
@@ -247,6 +288,10 @@ func (c *Collector) RecordStateTransition(peer, local netip.Addr, from, to strin
 // IncAuthFailures increments the authentication failure counter for the
 // given peer. RFC 5880 Section 6.7: auth failures MUST cause packet discard.
 func (c *Collector) IncAuthFailures(peer, local netip.Addr) {
+	if counters := c.packetMetrics(peer, local); counters != nil {
+		counters.authFailures.Inc()
+		return
+	}
 	c.AuthFailures.WithLabelValues(peer.String(), local.String()).Inc()
 }
 

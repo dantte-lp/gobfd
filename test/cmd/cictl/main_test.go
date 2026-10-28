@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -257,7 +258,9 @@ func TestRunDispatchesBenchmarkModes(t *testing.T) {
 	t.Parallel()
 
 	wantErr := errors.New("working directory unavailable")
-	for _, mode := range []string{"benchmark-run", "benchmark-base", "benchmark-normalize", "benchmark-report"} {
+	for _, mode := range []string{
+		"benchmark-run", "benchmark-base", "benchmark-pair", "benchmark-normalize", "benchmark-report",
+	} {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 
@@ -273,30 +276,28 @@ func TestRunDispatchesBenchmarkModes(t *testing.T) {
 
 func TestRunBenchmarkBaseDerivesOriginRefFromGitHubEnvironment(t *testing.T) {
 	t.Parallel()
-
-	wantErr := errors.New("stop after ref validation")
-	runner := &specCommandRecorder{err: wantErr}
-	root := t.TempDir()
-	runnerTemp := t.TempDir()
-	values := map[string]string{
-		"BENCH_REGEX":     "^BenchmarkRequired$",
-		"GITHUB_BASE_REF": "release/v0.6",
-		"RUNNER_TEMP":     runnerTemp,
-	}
-	err := run(context.Background(), []string{"benchmark-base", "--output", "old.txt"}, dependencies{
-		getwd:      func() (string, error) { return root, nil },
-		getenv:     func(name string) string { return values[name] },
-		specRunner: runner,
-	})
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("run(benchmark-base) error = %v, want wrapped runner error", err)
-	}
-	if len(runner.specs) != 1 {
-		t.Fatalf("benchmark-base command count = %d, want 1", len(runner.specs))
-	}
-	wantRef := "origin/release/v0.6"
-	if got := runner.specs[0].Args[len(runner.specs[0].Args)-1]; got != wantRef {
-		t.Errorf("validated base ref = %q, want %q", got, wantRef)
+	for _, mode := range []string{"benchmark-base", "benchmark-pair"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			wantErr := errors.New("stop after ref validation")
+			runner := &specCommandRecorder{err: wantErr}
+			root := t.TempDir()
+			values := map[string]string{
+				"BENCH_REGEX": "^BenchmarkRequired$", "GITHUB_BASE_REF": "release/v0.6", "RUNNER_TEMP": t.TempDir(),
+			}
+			if err := run(t.Context(), []string{mode}, dependencies{
+				getwd: func() (string, error) { return root, nil }, getenv: func(name string) string { return values[name] },
+				specRunner: runner,
+			}); !errors.Is(err, wantErr) {
+				t.Fatalf("run(%s) error=%v, want wrapped runner error", mode, err)
+			}
+			if len(runner.specs) != 1 {
+				t.Fatalf("%s command count=%d, want 1", mode, len(runner.specs))
+			}
+			if got := runner.specs[0].Args[len(runner.specs[0].Args)-1]; got != "origin/release/v0.6" {
+				t.Errorf("validated base ref=%q, want origin/release/v0.6", got)
+			}
+		})
 	}
 }
 
@@ -400,8 +401,8 @@ func TestRunProtoVerifyReadsRunnerEnvironment(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	if got := len(runner.names); got != 4 {
-		t.Errorf("protobuf command count = %d, want 4", got)
+	if got := len(runner.names); got != 5 {
+		t.Errorf("protobuf command count = %d, want 5", got)
 	}
 }
 
@@ -431,11 +432,21 @@ func (r *commandRecorder) Run(_ context.Context, name string, _ ...string) error
 func TestRunPackageCommandsUseRepositoryRoot(t *testing.T) {
 	t.Parallel()
 
-	for command, want := range map[string]int{"package-build": 2, "package-lifecycle": 1} {
-		runner := &specCommandRecorder{}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "upx"), []byte("fixture"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for command, want := range map[string]int{"package-build": 3, "package-lifecycle": 1} {
+		runner := &specCommandRecorder{afterSpec: func(spec cirunner.CommandSpec) {
+			if spec.Name == "upx" {
+				if _, err := io.WriteString(spec.Stdout, "upx 4.2.2\n"); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}}
 		if err := run(context.Background(), []string{command}, dependencies{
 			getwd:      func() (string, error) { return "/repo", nil },
-			environ:    func() []string { return []string{"PATH=/usr/bin"} },
+			environ:    func() []string { return []string{"PATH=" + bin} },
 			specRunner: runner,
 		}); err != nil {
 			t.Fatalf("run(%s) error = %v", command, err)
@@ -444,7 +455,7 @@ func TestRunPackageCommandsUseRepositoryRoot(t *testing.T) {
 			t.Fatalf("%s ran %d commands, want %d", command, len(runner.specs), want)
 		}
 		for _, spec := range runner.specs {
-			if spec.Dir != "/repo" || !slices.Contains(spec.Env, "PATH=/usr/bin") {
+			if spec.Dir != "/repo" || !slices.Contains(spec.Env, "PATH="+bin) {
 				t.Errorf("%s spec dir %q env %v", command, spec.Dir, spec.Env)
 			}
 		}
@@ -455,10 +466,11 @@ func TestRunPackageCommandsUseRepositoryRoot(t *testing.T) {
 }
 
 type specCommandRecorder struct {
-	names    []string
-	specs    []cirunner.CommandSpec
-	afterRun func([]string)
-	err      error
+	names     []string
+	specs     []cirunner.CommandSpec
+	afterRun  func([]string)
+	afterSpec func(cirunner.CommandSpec)
+	err       error
 }
 
 func (r *specCommandRecorder) RunCommand(_ context.Context, spec cirunner.CommandSpec) error {
@@ -466,6 +478,9 @@ func (r *specCommandRecorder) RunCommand(_ context.Context, spec cirunner.Comman
 	r.specs = append(r.specs, spec)
 	if r.afterRun != nil {
 		r.afterRun(spec.Args)
+	}
+	if r.afterSpec != nil {
+		r.afterSpec(spec)
 	}
 	return r.err
 }

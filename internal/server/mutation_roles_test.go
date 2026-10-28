@@ -17,19 +17,25 @@ func TestMutationGuardIdentityRoles(t *testing.T) {
 	tests := []struct {
 		name      string
 		principal string
+		kind      principalKind
 		procedure string
 		wantDeny  bool
 	}{
-		{"listed identity mutates", "spiffe://gobfd.test/ops", "/bfd.v1.BfdService/AddSession", false},
-		{"unlisted identity cannot mutate", "spiffe://gobfd.test/monitor", "/bfd.v1.BfdService/DeleteSession", true},
-		{"unlisted identity reads", "spiffe://gobfd.test/monitor", "/bfd.v1.BfdService/ListSessions", false},
-		{"socket principal mutates", "uid:1000", "/bfd.v1.BfdService/AddSession", false},
+		{"listed identity mutates", "spiffe://gobfd.test/ops", principalTLSURI, "/bfd.v1.BfdService/AddSession", false},
+		{
+			"unlisted identity cannot mutate", "spiffe://gobfd.test/monitor", principalTLSURI,
+			"/bfd.v1.BfdService/DeleteSession", true,
+		},
+		{"unlisted identity reads", "spiffe://gobfd.test/monitor", principalTLSURI, "/bfd.v1.BfdService/ListSessions", false},
+		{"socket principal mutates", "uid:1000", principalUnix, "/bfd.v1.BfdService/AddSession", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := context.WithValue(context.Background(), principalKey{}, tt.principal)
+			ctx := context.WithValue(context.Background(), principalKey{}, transportPrincipal{
+				kind: tt.kind, identity: tt.principal,
+			})
 			called := false
 			next := connect.ServerFunc(func(context.Context, connect.Spec, connect.ServerStream) error {
 				called = true
@@ -57,7 +63,9 @@ func TestAPIOwnerFromContext(t *testing.T) {
 	if got := apiOwnerFromContext(context.Background()); got.ID != "local" {
 		t.Fatalf("anonymous owner = %+v, want ID local", got)
 	}
-	ctx := context.WithValue(context.Background(), principalKey{}, "uid:1000")
+	ctx := context.WithValue(context.Background(), principalKey{}, transportPrincipal{
+		kind: principalUnix, identity: "uid:1000",
+	})
 	if got := apiOwnerFromContext(ctx); got.ID != "uid:1000" {
 		t.Fatalf("socket owner = %+v, want ID uid:1000", got)
 	}

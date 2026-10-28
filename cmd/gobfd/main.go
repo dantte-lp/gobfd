@@ -21,6 +21,7 @@ import (
 	"github.com/dantte-lp/gobfd/internal/config"
 	"github.com/dantte-lp/gobfd/internal/gobgp"
 	bfdmetrics "github.com/dantte-lp/gobfd/internal/metrics"
+	"github.com/dantte-lp/gobfd/internal/netio"
 	"github.com/dantte-lp/gobfd/internal/sdnotify"
 	appversion "github.com/dantte-lp/gobfd/internal/version"
 )
@@ -86,7 +87,7 @@ func run() int {
 	// 6. Create BFD session manager with metrics and unsolicited BFD (RFC 9468).
 	// One UDP sender factory owns the RFC 5881 source-port allocator for
 	// configured, API and unsolicited sessions.
-	sf := newUDPSenderFactory(cfg.Socket.WriteBufferSize)
+	sf := newUDPSenderFactory(cfg.Socket)
 	mgr, err := newManager(cfg, collector, sf, logger)
 	if err != nil {
 		logger.Error("failed to create BFD manager",
@@ -129,8 +130,8 @@ func runServers(
 	coordinator := newReconciliationCoordinator(cfg, logger, healthChecker)
 	listeners, overlays := attachReceiveOwners(cfg, mgr, sf, coordinator, logger)
 	defer coordinator.closeReceivePaths()
-	grpcSrv := newGRPCServer(cfg.GRPC, mgr, newAPIListenerSenderFactory(sf, listeners, false),
-		newAPIListenerSenderFactory(sf, listeners, true), healthChecker, fr, logger)
+	grpcSrv := newGRPCServer(cfg.GRPC, cfg.MicroBFD.Enabled, mgr, newAPIListenerSenderFactory(sf, listeners, false),
+		newAPIListenerSenderFactory(sf, listeners, true), healthChecker, fr, logger, coordinator)
 	bgpStatus := goBGPStatusFor(cfg.GoBGP, healthChecker, collector)
 	bgpStatus.configuredPeers(goBGPManagedPeers(cfg.Sessions))
 	coordinator.onConfiguredPeers = bgpStatus.configuredPeers
@@ -153,7 +154,7 @@ func runServers(
 
 	// Start BFD packet listeners and receivers for incoming packets.
 	g.Go(func() error { return overlays.run(gCtx) })
-	if err := startListenerOwner(gCtx, g, cfg, listeners, logger); err != nil {
+	if err := startListenerOwner(gCtx, g, cfg, listeners); err != nil {
 		return fmt.Errorf("create BFD listeners: %w", err)
 	}
 
@@ -192,6 +193,8 @@ func attachReceiveOwners(
 ) (*listenerOwner, *overlayOwner) {
 	coordinator.listeners = newListenerOwner(mgr, coordinator.readiness, cfg.Socket.ReadBufferSize, logger)
 	coordinator.overlays = newOverlayOwner(cfg, sf, mgr, coordinator.readiness, logger)
+	coordinator.checkAddresses = netio.CheckLocalAddressesAvailable
+	coordinator.readiness.checkAddresses = netio.CheckLocalAddressesAvailable
 	return coordinator.listeners, coordinator.overlays
 }
 
@@ -223,7 +226,7 @@ func startShutdown(
 ) {
 	g.Go(func() error {
 		<-ctx.Done()
-		readiness.set(componentRuntime, false)
+		readiness.setNotReady(componentRuntime)
 		err := gracefulShutdown(ctx, mgr, logger, fr, servers...)
 		// Receive reads take no context; closing after the AdminDown drain
 		// keeps the drain receiving and lets idle receivers return.

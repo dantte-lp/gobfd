@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/dantte-lp/gobfd/test/internal/vendorprofiles"
 )
 
 type testOnlyIdentityRunner struct {
@@ -19,8 +21,21 @@ func (runner *testOnlyIdentityRunner) Run(_ context.Context, command Command) (R
 		return Result{}, nil
 	}
 	switch command.Arguments[0] {
-	case "compose":
-		runner.testInvoked = true
+	case "network":
+		return Result{ExitCode: 1}, nil
+	case "image":
+		if command.Arguments[1] == "inspect" {
+			id := testImageID
+			if strings.HasPrefix(command.Arguments[len(command.Arguments)-1], frrImageRepo+":") {
+				id = testFRRImageID
+			}
+			return Result{Stdout: id + "|" + labName + "|" + runner.runID}, nil
+		}
+		return Result{}, nil
+	case "start":
+		if len(command.Arguments) > 1 && command.Arguments[1] == "--attach" {
+			runner.testInvoked = true
+		}
 		return Result{}, nil
 	case "container":
 		name := command.Arguments[len(command.Arguments)-1]
@@ -37,7 +52,7 @@ func (runner *testOnlyIdentityRunner) Run(_ context.Context, command Command) (R
 	if !exists {
 		return Result{ExitCode: 1}, nil
 	}
-	if name == gobfdContainer {
+	if name == gobfdContainer || name == frrContainer {
 		return Result{Stdout: fmt.Sprintf("%s||%s|%s", id, labName, runner.runID)}, nil
 	}
 	return Result{Stdout: fmt.Sprintf("%s|%s||", id, labName)}, nil
@@ -54,6 +69,9 @@ func TestTestOnlyValidatesLiveContainerIdentitiesBeforeEvidence(t *testing.T) {
 		containers  map[string]string
 		wantErr     bool
 		wantInvoked bool
+		networkID   string
+		legacy      bool
+		recordedNOS bool
 	}{
 		{
 			name: "exact identities",
@@ -79,6 +97,27 @@ func TestTestOnlyValidatesLiveContainerIdentitiesBeforeEvidence(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:       "missing checkpointed network",
+			containers: map[string]string{gobfdContainer: gobfdID, frrContainer: frrID},
+			networkID:  testNetworkID,
+			wantErr:    true,
+		},
+		{
+			name:       "legacy one-image receipt",
+			containers: map[string]string{gobfdContainer: gobfdID, frrContainer: frrID},
+			legacy:     true,
+			wantErr:    true,
+		},
+		{
+			name: "recorded unqualified NOS",
+			containers: map[string]string{
+				gobfdContainer: gobfdID, frrContainer: frrID,
+				"clab-gobfd-vendors-arista": "owned-arista-id",
+			},
+			recordedNOS: true,
+			wantErr:     true,
+		},
+		{
 			name: "unrecorded live vendor",
 			containers: map[string]string{
 				gobfdContainer:              gobfdID,
@@ -90,14 +129,16 @@ func TestTestOnlyValidatesLiveContainerIdentitiesBeforeEvidence(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			root := t.TempDir()
+			root := bootstrapTestRoot(t)
 			if err := ensureRuntimeDirectory(root); err != nil {
 				t.Fatalf("create runtime directory: %v", err)
 			}
 			receipt := lifecycleReceipt{
-				SchemaVersion: ownedReceiptV2,
-				RunID:         runID,
-				Topology:      filepath.Join(root, "gobfd-vendors.generated.clab.yml"),
+				SchemaVersion:      ownedReceiptV3,
+				RunID:              runID,
+				Topology:           runtimeTopologyPath(root),
+				Network:            lifecycleNetwork{Name: networkName(runID)},
+				ExpectedContainers: []string{gobfdContainer, frrContainer},
 				Containers: map[string]string{
 					gobfdContainer:           gobfdID,
 					"clab-gobfd-vendors-frr": frrID,
@@ -106,6 +147,18 @@ func TestTestOnlyValidatesLiveContainerIdentitiesBeforeEvidence(t *testing.T) {
 					Reference: gobfdImageRepo + ":" + runID,
 					ID:        testImageID,
 				},
+				FRR: lifecycleImage{Reference: frrImageRepo + ":" + runID, ID: testFRRImageID},
+			}
+			receipt.Network.ID = test.networkID
+			if test.recordedNOS {
+				receipt.ExpectedContainers = append(receipt.ExpectedContainers, "clab-gobfd-vendors-arista")
+				receipt.Containers["clab-gobfd-vendors-arista"] = "owned-arista-id"
+			}
+			if test.legacy {
+				receipt.SchemaVersion = ownedReceiptV2
+				receipt.FRR = lifecycleImage{}
+				receipt.Network = lifecycleNetwork{}
+				receipt.ExpectedContainers = nil
 			}
 			if err := createLifecycleReceipt(root, receipt); err != nil {
 				t.Fatalf("create lifecycle receipt: %v", err)
@@ -113,9 +166,11 @@ func TestTestOnlyValidatesLiveContainerIdentitiesBeforeEvidence(t *testing.T) {
 			runner := &testOnlyIdentityRunner{containers: test.containers, runID: runID}
 			options := DefaultOptions(root)
 			options.TestOnly = true
+			options.DryRun = true
 
 			err := runTopologyLocked(t.Context(), options, runner)
-			if test.wantErr && !errors.Is(err, errLifecycleState) && !errors.Is(err, ErrBootstrapFailed) {
+			if test.wantErr && !errors.Is(err, errLifecycleState) && !errors.Is(err, ErrBootstrapFailed) &&
+				!errors.Is(err, vendorprofiles.ErrUnavailable) {
 				t.Fatalf("test-only error = %v, want identity failure", err)
 			}
 			if !test.wantErr && err != nil {

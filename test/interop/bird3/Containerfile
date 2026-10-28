@@ -2,7 +2,7 @@
 #
 # BIRD 3.4.0 with the upstream CVE-2026-112112 fix backported.
 
-FROM docker.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS builder
+FROM docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS builder
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -44,7 +44,7 @@ RUN tar -xzf /tmp/bird.tar.gz --strip-components=1 \
        > /out/usr/share/doc/bird/gobfd-source.txt \
     && sha256sum nest/rt-table.c >> /out/usr/share/doc/bird/gobfd-source.txt
 
-FROM docker.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
+FROM docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
 
 ARG VCS_REF
 ARG BUILD_DATE
@@ -56,7 +56,7 @@ LABEL org.opencontainers.image.source="https://github.com/dantte-lp/gobfd" \
       org.opencontainers.image.title="GoBFD BIRD interoperability peer" \
       org.opencontainers.image.description="BIRD 3.4.0 with upstream IPv6 FlowSpec validation fix" \
       org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
-      org.opencontainers.image.base.digest="sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f"
+      org.opencontainers.image.base.digest="sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

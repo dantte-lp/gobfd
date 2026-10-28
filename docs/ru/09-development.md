@@ -20,23 +20,43 @@
 - [Линтинг](#линтинг)
 - [CI-хелперы без shell](#ci-хелперы-без-shell)
 - [Рабочий процесс Protobuf](#рабочий-процесс-protobuf)
-- [Baseline Go 1.27](#baseline-go-127)
+- [Базовая версия Go 1.27](#базовая-версия-go-127)
 - [Конвенции кода](#конвенции-кода)
 - [Вклад в проект](#вклад-в-проект)
 
 ### Предварительные требования
 
-- **Podman** + **Podman Compose** (все команды выполняются в контейнерах)
+- **Podman** + **Podman Compose** для сборки, тестов и линтинга в контейнерах
 - **Git** для управления версиями
-- Go 1.27 (нужен только для поддержки IDE; сборка в контейнерах)
+- **util-linux `flock`** для пяти общих запускателей E2E
+- Go 1.27.3 для IDE и целей, вызывающих Go на хосте; сборка использует закреплённый набор инструментов контейнера
 
-> **Важно**: Все тестирование, сборка и линтинг выполняются внутри контейнеров Podman. Локальный Go-тулчейн не требуется для CI-эквивалентных сборок.
+> `make build`, `make test`, `make lint` и `make vulncheck` используют Podman.
+> Начальная подготовка на хосте, `lint-ci` и некоторые цели интеграции и отчётов по-прежнему
+> вызывают `go run` на хосте; им нужен закреплённый компилятор Go или явный запуск
+> в контейнере. Цели `semgrep*` вызывают выбранный исполняемый файл на хосте.
+> `e2e-routing`, `e2e-rfc`, `e2e-overlay`, `e2e-linux` и `e2e-vendor` пересобирают
+> исключённый из Git `bin/e2ectl` компилятором из `Containerfile.dev`, закреплённым
+> по digest, затем запускают его на хосте без установленного Go. Компилятору
+> доступны исходники только для чтения и каталог бинарника для записи; сокет
+> движка не подключён. Одна исключительная блокировка каталога охватывает
+> пересоздание dev, сборку и runtime; ожидание блокировки ограничено 120 секундами.
+> `make -n` печатает делегирование без создания каталога бинарника и блокировки.
+> Вложенные тесты и нативная квалификация проверяются отдельно.
+> Пять Make-целей Containerlab собирают новый контроллер в SDK без сокета.
+> Тестовый payload с race detector компилируется отдельно и исполняется
+> в Debian runtime с выбранным сокетом движка и без компилятора; нативная
+> квалификация FRR остаётся открытой
+> в `gobfd-qj0.8.2.8.5.2.7.3.4`.
+> Выполните [подготовку провайдера Compose](06-deployment.md#podman-compose)
+> до `make up`. Следующие команды предполагают, что экспортированные
+> переменные окружения сохранены в той же оболочке.
 
 ### Настройка разработки
 
 ```bash
 # Клонирование репозитория
-git clone https://github.com/dantte-lp/gobfd.git
+git clone --branch dev https://github.com/dantte-lp/gobfd.git
 cd gobfd
 
 # Запуск контейнера разработки
@@ -83,16 +103,23 @@ request.
 создаёт черновик релиза GitHub, полностью формирует и проверяет его описание и
 артефакты, а затем автоматически публикует релиз как последнее изменение.
 
+Текущая сверка документации выполняется только локально. Ни описание процесса,
+ни успешная локальная проверка не разрешают push, тег релиза, черновик, продвижение
+OCI или публикацию. Приёмка финального кандидата и поддерживаемой линии
+остаётся отдельной от завершения задач `dev`.
+
 ### Make-цели
 
 Обычные цели сборки и тестирования запускают Go внутри Podman через
 `podman compose exec`.
-Development stack изолирован через `COMPOSE_PROJECT_NAME`, который по
-умолчанию равен имени директории текущего checkout. Parallel worktrees
-используют разные default project names или явно задают `COMPOSE_PROJECT_NAME`.
+Стек разработки изолирован через `COMPOSE_PROJECT_NAME`, который по
+умолчанию берётся из последнего компонента пути рабочего дерева, приведённого
+к нижнему регистру и допустимым символам. При совпадении таких имён рабочие
+деревья получают одинаковое значение; перед запуском их стеков задайте разные
+`COMPOSE_PROJECT_NAME`.
 
-Интерактивной Make-цели для shell нет. Для отдельного неинтерактивного теста
-следует использовать управляемую Make маршрутизацию Compose project, например:
+Интерактивной Make-цели оболочки нет. Для отдельного неинтерактивного теста
+следует использовать управляемую Make маршрутизацию проекта Compose, например:
 
 ```bash
 make test-run RUN=TestFSMTransition PKG=./internal/bfd
@@ -106,19 +133,20 @@ make test-run RUN=TestFSMTransition PKG=./internal/bfd
 | `make down` | Остановка контейнера |
 | `make restart` | Перезапуск (down + up) |
 | `make logs` | Просмотр логов контейнера |
-| `make dev-project` | Показать Compose project name active checkout |
-| `make dev-ps` | Показать development stack active checkout |
+| `make dev-project` | Показать имя проекта Compose текущего рабочего дерева |
+| `make dev-ps` | Показать стек разработки текущего рабочего дерева |
 
 #### Сборка и тесты
 
 | Цель | Описание |
 |---|---|
-| `make all` | Сборка + тесты + линтинг |
+| `make all` | Сборка + тесты + gopls-check + lint + lint-docs |
+| `make verify` | `make all` + proto lint + контролируемая проверка уязвимостей; обычная проверка перед commit |
 | `make build` | Компиляция всех бинарных файлов с информацией о версии |
 | `make test` | Все тесты с `-race -count=1` |
 | `make test-v` | Подробный вывод тестов |
 | `make test-run RUN=TestFSM PKG=./internal/bfd` | Конкретный тест |
-| `make fuzz FUNC=FuzzControlPacket PKG=./internal/bfd` | Фаззинг (60с) |
+| `make fuzz FUNC='^FuzzControlPacket$' PKG=./internal/bfd` | Фаззинг (60с) |
 | `make test-integration` | Интеграционные тесты |
 
 #### Тесты совместимости
@@ -137,30 +165,56 @@ make test-run RUN=TestFSMTransition PKG=./internal/bfd
 | `make interop-bgp-up` | Запуск топологии BGP+BFD |
 | `make interop-bgp-test` | Запуск Go-тестов BGP+BFD |
 | `make interop-bgp-down` | Остановка топологии BGP+BFD |
-| `make interop-clab-bootstrap` | Подготовка вендорных образов и receipt-owned образа GoBFD (`ARGS=...`) |
-| `make interop-clab` | Полный цикл вендорных NOS-тестов (Nokia, FRR и др.) |
-| `make interop-clab-up` | Деплой вендорной NOS-топологии |
-| `make interop-clab-test` | Запуск вендорных interop Go-тестов |
-| `make interop-clab-down` | Удаление записанных ресурсов NOS и точного owned-образа GoBFD |
+| `make interop-clab-bootstrap` | Сборка изолированного контроллера и подготовка своих образов GoBFD/GoBGP и FRR (`ARGS=...`) |
+| `make interop-clab` | Сборка, развёртывание, тест с race detector и очистка своих ресурсов FRR-only топологии |
+| `make interop-clab-up` | Развёртывание своей топологии FRR |
+| `make interop-clab-test` | Защищённый `--test-only`: проверка ID развёрнутых контейнеров, компиляция без сокета, исполнение точного payload |
+| `make interop-clab-down` | Восстановление прерванных своих тестов; удаление записанной топологии и обоих точных образов приложений |
+
+Пять целей требуют Linux, GNU Make/coreutils, `flock`, Podman и заранее
+загруженные закреплённые образы, а не Go на хосте или сервис разработки Compose.
+Каждая цель сначала собирает новый нативный контроллер в SDK без сокета,
+включая справку, пробный запуск и очистку. Тестовый payload собирается отдельно
+с race detector и исполняется в Debian без компилятора. См.
+[требования и изоляцию Containerlab](05-interop.md#предварительные-требования).
+Проверки исходников не заменяют нативную квалификацию FRR и пакетов;
+пять профилей NOS остаются `retained-unavailable`.
+Идентичности CLI и выбранного API проверяются по одной исходной квитанции
+до подготовки и входа в runtime; `gobfd-qj0.8.2.8.5.2.7.3.4.4` фиксирует
+локальные регрессии исходников, а не нативную квалификацию FRR.
 
 #### Примеры интеграций
 
-Testcontainers-цели для core, BGP fast failover, HAProxy health и observability
-делегируют сбор отчётов Go-owned runner `test/cmd/e2ectl`. Он создаёт
+Цели testcontainers для ядра, быстрого переключения BGP, исправности HAProxy и наблюдаемости
+делегируют сбор отчётов реализованному на Go исполнителю `test/cmd/e2ectl`. Он создаёт
 эксклюзивный каталог отчёта, направляет одинаковый вывод `go test -json` в
 `go-test.json` и `go-test.log` и сохраняет код завершения теста.
 
 | Цель | Описание |
 |---|---|
-| `make e2e-core-testcontainers` | Core daemon testcontainers gate и отчёт `e2ectl` |
-| `make int-bgp-failover-testcontainers` | BGP fast-failover testcontainers gate и отчёт `e2ectl` |
-| `make int-haproxy-testcontainers` | HAProxy health testcontainers gate и отчёт `e2ectl` |
-| `make int-observability-testcontainers` | Observability testcontainers gate и отчёт `e2ectl` |
-| `make int-bgp-failover` | Go testcontainers gate для BGP fast failover; операционный Compose-пример доступен через `-up`, `-logs` и `-down` |
-| `make int-haproxy` | Демо HAProxy agent-check bridge |
+| `make e2e-core-testcontainers` | Проверка ядра демона через testcontainers и отчёт `e2ectl` |
+| `make int-bgp-failover-testcontainers` | Проверка быстрого переключения BGP через testcontainers и отчёт `e2ectl` |
+| `make int-haproxy-testcontainers` | Проверка исправности HAProxy через testcontainers и отчёт `e2ectl` |
+| `make int-observability-testcontainers` | Проверка наблюдаемости через testcontainers и отчёт `e2ectl` |
+| `make int-bgp-failover` | Проверка быстрого переключения BGP через testcontainers на Go; операционный Compose-пример доступен через `-up`, `-logs` и `-down` |
+| `make int-haproxy` | Пример моста HAProxy agent-check |
 | `make int-observability` | Стек наблюдаемости Prometheus + Grafana |
 | `make int-exabgp-anycast` | Анонсирование anycast-сервиса ExaBGP |
-| `make int-k8s` | Kubernetes DaemonSet с GoBGP sidecar |
+| `make int-k8s` | Kubernetes DaemonSet с сайдкаром GoBGP |
+
+Полные демонстрационные исполнители HAProxy и наблюдаемости содержат проверки, ошибки которых
+дают только предупреждения. Манифест Kubernetes привязывает API GoBGP к loopback и использует
+exec-пробы; в прежнем исполнителе остаются дефекты селектора и проверок инструментов,
+а квалификация на действующем кластере не завершена. Используйте отдельные
+testcontainers-проверки с утверждениями там, где они доступны. Текущие ограничения
+и задача исправления исполнителя указаны в
+[Интеграциях](11-integrations.md). Прямые Compose-цели `-down` удаляют тома и
+контейнеры-сироты; до очистки проверьте владение и получите требуемое разрешение
+на удаление.
+
+Общая очистка образов через Podman API передаёт `force=false&noprune=true`:
+образы с потребителями сохраняются, dangling-родители автоматически не удаляются.
+Подтверждённые собственные остатки сборки удаляйте отдельно по точным ID образов.
 
 #### Качество
 
@@ -168,17 +222,17 @@ Testcontainers-цели для core, BGP fast failover, HAProxy health и observ
 |---|---|
 | `make lint` | Запуск golangci-lint v2 |
 | `make lint-fix` | Автоматическое исправление проблем линтера |
-| `make semgrep` | Локальный Semgrep OSS scan с ruleset `p/golang` |
-| `make semgrep-json` | Semgrep OSS scan с JSON-выводом |
+| `make semgrep` | Локальное сканирование Semgrep OSS с набором правил `p/golang` |
+| `make semgrep-json` | Сканирование Semgrep OSS с JSON-выводом |
 | `make semgrep-pro` | Semgrep с `--pro`; требует Semgrep Pro Engine и `semgrep login` |
-| `make vulncheck` | Контролируемый vulnerability audit (`govulncheck` + OSV Scanner) |
-| `make osv-scan` | Алиас для контролируемого vulnerability audit |
-| `make vulncheck-strict` | Raw `govulncheck ./...` без project allowlist |
-| `make osv-scan-strict` | Raw `osv-scanner scan -r .` без project allowlist |
+| `make vulncheck` | Контролируемый аудит уязвимостей (`govulncheck` + OSV Scanner) |
+| `make osv-scan` | Алиас для контролируемого аудита уязвимостей |
+| `make vulncheck-strict` | Прямой запуск `govulncheck ./...` без allowlist проекта |
+| `make osv-scan-strict` | Прямой запуск `osv-scanner scan -r .` без allowlist проекта |
 
-Контролируемый audit использует `go.mod` и `tools/go.mod` как раздельные входы
-OSV. CI сохраняет runtime govulncheck/OSV JSON, tools OSV JSON и раздельные
-runtime/tools CycloneDX SBOM в артефакте `dependency-security-reports`.
+Контролируемый аудит использует `go.mod` и `tools/go.mod` как раздельные входы
+OSV. CI сохраняет JSON govulncheck/OSV рабочего модуля, JSON OSV инструментов и раздельные
+CycloneDX SBOM рабочего модуля и инструментов в артефакте `dependency-security-reports`.
 
 #### Protobuf
 
@@ -195,51 +249,36 @@ runtime/tools CycloneDX SBOM в артефакте `dependency-security-reports`
 |---|---|
 | `make tidy` | Запуск `go mod tidy` |
 | `make download` | Загрузка зависимостей модуля |
-| `make clean` | Удаление бинарников и кэшей |
+| `make clean` | Удаление `gobfd`/`gobfdctl` и кешей Go; бинарники мостов сохраняются |
 | `make versions` | Показать версии инструментов |
 
 ### Стратегия тестирования
 
 #### Юнит-тесты
 
-- **Table-driven** тесты для всех пакетов
+- **Табличные** тесты для всех пакетов
 - **`t.Parallel()`** где безопасно (нет общего изменяемого состояния)
 - **Всегда** с `-race -count=1`
-- **`goleak.VerifyTestMain(m)`** в шести concurrency-heavy пакетах, которые
-  владеют жизненным циклом демона, протокола, сети, метрик, конфигурации и
-  интеграционных тестов
+- **`goleak.VerifyTestMain(m)`** в `internal/bfd`, `internal/config`,
+  `internal/metrics`, `internal/netio`, `internal/server` и `test/integration`
 
 #### Тесты FSM (`testing/synctest`)
 
 Go 1.27 `testing/synctest` обеспечивает детерминированное тестирование на
 основе виртуального времени и добавляет `synctest.Sleep` для операции
-advance-time-and-settle:
+продвижения времени с ожиданием завершения работы:
 
-```go
-func TestFSMDetectionTimeout(t *testing.T) {
-    synctest.Test(t, func(t *testing.T) {
-        sess := newTestSession(t, SessionConfig{
-            DesiredMinTxInterval:  100 * time.Millisecond,
-            RequiredMinRxInterval: 100 * time.Millisecond,
-            DetectMultiplier:      3,
-        })
+Пример проверки сессии — существующий `TestSessionDetectionTimeout` в
+[`internal/bfd/session_test.go`](../../internal/bfd/session_test.go): тест
+запускает настоящий цикл сессии с имитацией отправителя, передаёт пакет Control через
+`RecvPacket` и проверяет Down и `DiagControlTimeExpired` после продвижения
+виртуального времени. Отдельный `TestFSMDetectionTimeout` в
+[`fsm_test.go`](../../internal/bfd/fsm_test.go) проверяет чистую функцию
+перехода. Эти тесты используют разные вспомогательные функции; объединять их в вымышленный
+пример API нельзя.
 
-        // Перевод сессии в Up
-        sess.injectPacket(controlPacket(StateInit, 0))
-        synctest.Wait()
-        require.Equal(t, StateUp, sess.State())
-
-        // Таймаут обнаружения = 3 x 100ms = 300ms
-        synctest.Sleep(350 * time.Millisecond)
-        require.Equal(t, StateDown, sess.State())
-    })
-}
-```
-
-Преимущества:
-- Тесты работают в виртуальном времени (мгновенное выполнение)
-- Детерминированность -- никаких нестабильных тестов с таймерами
-- Идеально для таймеров BFD-протокола и таймаутов обнаружения
+Виртуальное время действует внутри изолированной среды `synctest`. Ожидания UDP, interop и
+E2E используют реальные часы и ограничиваются контекстом.
 
 #### Фаззинг
 
@@ -247,48 +286,53 @@ GoBFD включает fuzz-тесты для всех парсеров паке
 
 ```bash
 # Кодек BFD Control пакетов
-make fuzz FUNC=FuzzControlPacket PKG=./internal/bfd
+make fuzz FUNC='^FuzzControlPacket$' PKG=./internal/bfd
 
 # Overlay-кодек VXLAN (RFC 8971)
-make fuzz FUNC=FuzzVXLANHeader PKG=./internal/netio
+make fuzz FUNC='^FuzzVXLANHeader$' PKG=./internal/netio
 
 # Overlay-кодек Geneve (RFC 9521)
-make fuzz FUNC=FuzzGeneveHeader PKG=./internal/netio
+make fuzz FUNC='^FuzzGeneveHeader$' PKG=./internal/netio
 
 # Сборка/разбор внутренних пакетов
-make fuzz FUNC=FuzzInnerPacket PKG=./internal/netio
+make fuzz FUNC='^FuzzInnerPacket$' PKG=./internal/netio
 ```
 
-Каждый fuzz-тест имеет два варианта:
-- **Round-trip**: проверяет `parse(marshal(packet)) == packet` для структурированных входных данных
-- **Raw input**: подаёт произвольные байты в парсер, проверяя отсутствие паники
+[Фильтры тестов Go](https://github.com/golang/go/blob/master/src/testing/testing.go)
+используют незакреплённые регулярные выражения. Ограничивайте `FUNC` якорями для
+выбора одной цели: например, `FuzzVXLANHeader` также совпадает с
+`FuzzVXLANHeaderUnmarshalRaw`.
 
-Длительность фаззинга по умолчанию — 60 секунд. Для более длительного запуска:
+Семейства overlay содержат цели структурированного двустороннего преобразования и отдельные цели
+для исходных входных данных: `FuzzVXLANHeaderUnmarshalRaw`, `FuzzGeneveHeaderUnmarshalRaw` и
+`FuzzStripInnerPacketRaw`. `FuzzControlPacket` принимает произвольные байты пакета;
+пакеты, принятые парсером и сериализатором отправки, разбираются повторно с проверкой
+сохранённых полей. Это отдельные границы целей, а не два варианта каждого fuzz-теста.
 
-```bash
-make fuzz FUNC=FuzzVXLANHeader PKG=./internal/netio FUZZTIME=300s
-```
+Цель Make фиксирует длительность фаззинга 60 секунд и не использует `FUZZTIME`.
+Для другой длительности выполните явный `go test` с `-fuzztime` внутри
+закреплённого контейнера разработки.
 
 #### Проверка Overlay на проводе
 
-`make e2e-overlay` запускает codec fixtures и реальные userspace UDP-тесты с
-race detector. `TestOverlayUserspaceWire` использует две inner tuple на общих
-outer endpoints и VNI для VXLAN и Geneve Format A. Проверяются доставка в обе
-стороны, полученный TTL=255, отклонение чужой identity и повреждённых пакетов,
-отмена по deadline, повторное использование и поведение после `Close`.
-Запускать в изолированном Linux network namespace со свободными UDP 4789 и
-6081; ошибка открытия socket завершает тест ошибкой. Это не vendor interop.
+`make e2e-overlay` запускает тестовые конфигурации кодека и реальные UDP-тесты пространства пользователя с
+race detector. `TestOverlayUserspaceWire` использует два внутренних кортежа на общих
+внешних конечных точках и VNI для VXLAN и Geneve Format A. Проверяются доставка в обе
+стороны, полученный TTL=255, отклонение чужой идентичности и повреждённых пакетов,
+отмена по сроку, повторное использование и поведение после `Close`.
+Запускать в изолированном сетевом пространстве имён Linux со свободными UDP 4789 и
+6081; ошибка открытия сокета завершает тест ошибкой. Это не совместимость с производителями.
 
-`packets.csv` harness — синтетическая сводка codec fixtures, не capture.
-Для capture qualification использовать существующий
-`test/interop/tshark/Containerfile` в network namespace тестового контейнера,
+`packets.csv` стенда — синтетическая сводка тестовых конфигураций кодека, не захват.
+Для квалификации захвата использовать существующий
+`test/interop/tshark/Containerfile` в сетевом пространстве имён тестового контейнера,
 захватывая только loopback UDP 4789 и 6081. Ограничить tshark параметрами
 `-a duration:20 -a filesize:1024`. Сопоставить pcapng и декодированные поля с
-discriminators и наблюдаемыми результатами в Go test JSON; один capture не
-доказывает отклонение. Сохранить команды, revision, image IDs, лимиты и
-checksums артефактов в Beads. Повторить шесть существующих overlay fuzz targets
-с `-race -parallel=2 -fuzztime=20s` и внешним timeout. Owner-specific backends
-и неподдерживаемые wire formats остаются без квалификации.
+дискриминаторами и наблюдаемыми результатами в Go test JSON; один захват не
+доказывает отклонение. Сохранить команды, ревизию, ID образов, лимиты и
+контрольные суммы артефактов в Beads. Повторить шесть существующих целей фаззинга overlay
+с `-race -parallel=2 -fuzztime=20s` и внешним таймаутом. Backend конкретных владельцев
+и неподдерживаемые форматы пакетов остаются без квалификации.
 
 #### Интеграционные тесты
 
@@ -296,60 +340,82 @@ checksums артефактов в Beads. Повторить шесть суще�
 make test-integration
 ```
 
-Используют `testcontainers-go` с бэкендом Podman для тестирования полного жизненного цикла демона.
+Тег `integration` запускает проверки Manager/ConnectRPC в одном процессе,
+форматирования клиентских ответов и BFD-обмена через мост в памяти в
+`test/integration/`. Эта цель не запускает testcontainers или бинарник демона.
+Для отдельной проверки жизненного цикла контейнера используйте
+`make e2e-core-testcontainers`; успешный внутрипроцессный набор не подтверждает
+приёмку UDP или жизненного цикла процесса.
 
 #### Тесты жизненного цикла пакетов
 
 ```bash
+# Выполняйте в закреплённом SDK с проверенным UPX v4.2.2 в PATH.
 go run ./test/cmd/cictl package-build      # dist/gobfd_0.0.0_linux_<arch>.{deb,rpm}
 go run ./test/cmd/cictl package-lifecycle  # нужен сокет Podman API
 ```
 
 `package-build` повторяет путь релиза: версия GoReleaser, закреплённая в
 `release.yml` (`go run github.com/goreleaser/goreleaser/v2@v2.18.2`), без
-этапов publish, announce, validate, sign, SBOM и образов, затем
-`tools/cmd/packagefinalize` для нативных программ жизненного цикла RPM. Команда
-задаёт тестовую версию `v0.0.0` и требует Git checkout. `package-lifecycle`
-запускает тест `package_lifecycle_testcontainers`: он устанавливает DEB и RPM в
-контейнеры с systemd, собранные из закреплённых по digest базовых образов
-релиза Debian 13 и Oracle Linux 10. Тест доказывает запуск, состояние
-песочницы, удержание дольше `WatchdogSec=`, reload без смены PID, перезапуск
+этапов публикации, анонса, валидации, подписи, SBOM и образов, затем
+`tools/cmd/packagefinalize` для нативных программ жизненного цикла RPM. Финализация
+записывает полный несжатый размер CPIO, включая заголовки и выравнивание. Команда
+задаёт тестовую версию `v0.0.0` и требует рабочее дерево Git. До сборки она
+отклоняет отсутствующий UPX или несовпадающую версию общим с `cictl release-upx`
+валидатором открытого исполняемого файла. Ночное задание сначала выполняет
+этот bootstrap. Локально задайте принадлежащие запуску пути `RUNNER_TEMP` и
+`GITHUB_PATH`, затем добавьте выданный каталог бинарника в `PATH` SDK; см.
+[CI-хелперы без shell](#ci-хелперы-без-shell).
+
+`package-lifecycle`
+запускает тест `package_lifecycle_testcontainers`: он устанавливает DEB в
+контейнер с systemd, собранный из закреплённого по digest базового образа
+релиза Debian 13. Тест доказывает запуск, состояние
+песочницы, удержание дольше `WatchdogSec=`, перезагрузку конфигурации без смены PID, перезапуск
 после `SIGKILL`, остановку при мёртвом пире с `Result=success`, отсутствие
-отказов песочницы в journal, `systemd-analyze verify` с drop-in для
-kernel-bond и удаление пакета. Контейнеры получают `SYS_ADMIN`, `SYS_PTRACE`,
-`unmask=ALL` и `label=disable`, чтобы systemd мог построить namespace юнита.
+отказов песочницы в журнале, `systemd-analyze verify` с drop-in для
+kernel-bond и удаление пакета с работающей службой и включённым автозапуском.
+Обновления меняют только версию DEB в control и проверяют сохранение PID,
+учётной записи и байтов конфигурации при выключенном и включённом автозапуске.
+Эти фикстуры проверяют фазы пакетного менеджера и идемпотентность; обновление
+между разными версиями демона требует отдельной квалификации.
+Контейнеры получают `SYS_ADMIN`, `SYS_PTRACE`,
+`unmask=ALL` и `label=disable`, чтобы systemd мог построить пространства имён юнита.
+Сборка ограничена 2 CPU и 2 GiB; runtime получает 1 CPU, 1 GiB, запрет swap,
+1024 PID и отдельное пространство имён cgroup. До проверки службы тест читает
+фактические лимиты ядра и удаляет только принадлежащий ему образ.
 Базовые образы закреплены по digest, но тест устанавливает `systemd`,
-`iproute2`/`iproute` и `procps` из зеркал дистрибутивов без закрепления версий.
-Nightly-job E2E выполняет обе команды и выгружает
+`iproute2` и `procps` из зеркал Debian без закрепления версий.
+Ночное задание E2E выполняет обе команды и выгружает
 `reports/e2e/package-lifecycle/`.
 
 #### Тесты совместимости
 
-См. [05-interop.md](./05-interop.md) для фреймворка 4-пирового interop-тестирования.
+См. [05-interop.md](./05-interop.md) для стенда тестирования совместимости 4 пиров.
 
 ### Линтинг
 
-golangci-lint v2.14.0 с конфигурацией maximum-by-default:
+golangci-lint v2.14.0 с максимальным набором проверок по умолчанию:
 
 ```bash
 make lint
 ```
 
 Инструмент закреплён директивой `tool` в изолированном модуле `tools/go.mod`.
-Локальный lint выполняется только в контейнере: `make lint` приводит dev-сервис
+Локальный линтинг выполняется только в контейнере: `make lint` приводит dev-сервис
 к актуальной конфигурации и запускает в нём заранее собранный закреплённый
-бинарник. Оба CI workflow и compatibility-цель `make lint-ci` вызывают
-реализованную без shell команду `cictl lint`. Она запрещает запуск на хосте,
+бинарник. Оба процесса CI и цель совместимости `make lint-ci` вызывают
+реализованную без оболочки команду `cictl lint`. Она запрещает запуск на хосте,
 фиксирует `GOMAXPROCS=2` и `GOMEMLIMIT=1500MiB`, проверяет версию закреплённого
-бинарника и 92 включённых nondeprecated линтера, затем прямыми векторами
-аргументов Go запускает базовый и все 17 build-tag profiles. Development image
+бинарника и 92 включённых неустаревших линтера, затем прямыми векторами
+аргументов Go запускает базовый и все 18 профилей build-tag. Образ разработки
 выбирает заранее собранный `/go/bin/golangci-lint`, а
-минимальные Go-контейнеры CI используют тот же закреплённый tools module, если
+минимальные Go-контейнеры CI используют тот же закреплённый модуль инструментов, если
 `GOLANGCI_LINT` не задана. По умолчанию dev-сервис ограничен 4 CPU, жёстким
-лимитом памяти 8 GiB, мягким лимитом Go runtime 6 GiB, без swap
+лимитом памяти 8 GiB, мягким лимитом среды исполнения Go 6 GiB, без swap
 сверх жёсткого лимита и 1 024 PID. Кэши Go и golangci-lint остаются в удаляемом
-слое контейнера. Образ содержит C-компилятор и runtime-заголовки, необходимые
-Linux race detector Go, поэтому race-гейты не устанавливают пакеты во время
+слое контейнера. Образ содержит C-компилятор и заголовки среды исполнения, необходимые
+для race detector Go в Linux, поэтому проверки гонок не устанавливают пакеты во время
 выполнения. Все команды, собранные через `go install`, используют абсолютный
 `GOBIN=/go/bin`, а `/go/bin` входит в `PATH`. При необходимости лимиты
 переопределяются через `GOBFD_DEV_CPUS`,
@@ -360,14 +426,14 @@ Linux race detector Go, поэтому race-гейты не устанавлив
 В `.golangci.yml` используется
 `linters.default: all`: включены 92 значимых линтера, отключены 20
 поддерживаемых линтеров без входных данных проекта, с дублирующими проверками или
-документированными семантическими конфликтами, а также два deprecated.
+документированными семантическими конфликтами, а также три устаревших.
 CI проверяет v2-схему, точное число активных линтеров, обычную сборку и каждый
-репозиторный build tag отдельно. Ключевые проверки:
+репозиторный тег сборки отдельно. Ключевые проверки:
 
 - `gosec` (с `audit: true`) -- анализ безопасности
 - `govet`, `staticcheck`, `errcheck` -- стандартные проверки Go
 - `noctx` -- проверки передачи контекста
-- `exhaustive` -- исчерпывающие switch/map проверки
+- `exhaustive` -- исчерпывающие проверки полноты switch/map
 - `cyclop`, `gocognit`, `maintidx` -- ограничения сложности
 - `revive`, `wrapcheck`, `gochecknoglobals`, `mnd`, `lll` -- проверки API,
   ошибок, состояния и дисциплины исходного кода
@@ -376,78 +442,92 @@ CI проверяет v2-схему, точное число активных л
 
 ### Политика документации и коммитов
 
-`make lint-md` запускает репозиторный stdlib-checker Go 1.27 по непустому,
-ограниченному и детерминированному набору Markdown-файлов. Fixtures сохраняют
+`make lint-md` запускает собственный проверяющий инструмент на стандартной библиотеке Go 1.27 по непустому,
+ограниченному и детерминированному набору Markdown-файлов. Тестовые конфигурации сохраняют
 36 активных правил markdownlint 0.41. Команда
 `make lint-commit MSG='feat(bfd): add peer'` проверяет сохранённые границы
-Conventional Commit для type, scope и case, блокирующего 100-байтного предела
-header, неблокирующего 120-байтного предупреждения body и default-ignore. Ни
+Conventional Commit для типа, области и регистра, блокирующего 100-байтного предела
+заголовка, неблокирующего 120-байтного предупреждения тела и исключений по умолчанию. Ни
 одна из этих проверок не требует Node.js или npm.
 
-`make lint-spell` запускает закреплённый Go-инструмент `misspell` по точному
-набору поддерживаемой англоязычной документации. `make lint-yaml` запускает
-закреплённый Go `yamlfmt` в lint-режиме с сохраняющей строки политикой
-`.yamlfmt.yaml`.
+`make lint-spell` запускает закреплённый Go-инструмент `misspell` для
+`README.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SUPPORT.md`,
+`GOVERNANCE.md`, `MAINTAINERS.md`, `CHANGELOG.md` и `docs/en/roadmap.md`.
+Остальные английские руководства и русские переводы эта цель не проверяет.
+Перед публикацией эти страницы отдельно сверяются с кодом и смыслом
+исходного английского текста. `make lint-yaml` запускает закреплённый Go
+`yamlfmt` в lint-режиме с сохраняющей строки политикой `.yamlfmt.yaml`.
 
 ### Контракт отсутствия Python
 
-Репозиторий не содержит Python-кода, окружения, manifest или lock-файла.
-Подготовка вендорных образов, spelling, YAML-политика и преобразование JUnit в
-HTML реализованы на Go. ExaBGP остаётся внешним immutable interop-образом.
+Репозиторий не содержит Python-кода, окружения, манифеста или lock-файла.
+Подготовка вендорных образов, проверка написания, YAML-политика и преобразование JUnit в
+HTML реализованы на Go. ExaBGP остаётся внешним неизменяемым образом совместимости.
 
 ### CI-хелперы без shell
 
 В затронутых шагах GitHub Actions остаётся по одной Go-команде. Репозиторный
-код получает только строгий boolean `SONAR_TOKEN_PRESENT`, а также
+код получает только строгое логическое значение `SONAR_TOKEN_PRESENT`, а также
 `GITHUB_ACTOR` и `GITHUB_OUTPUT`; исходный `SONAR_TOKEN` доступен только
-закреплённому SonarSource scanner action. `cictl sonar-mode` добавляет
+закреплённому action сканера SonarSource. `cictl sonar-mode` добавляет
 `mode=run` для `true` или `mode=skip-dependabot` только для `false` и точного
-actor `dependabot[bot]`. Некорректные и отсутствующие значения, как и другие
-запуски без токена, завершаются ошибкой; id шага и последующие условия по mode
+исполнителя `dependabot[bot]`. Некорректные и отсутствующие значения, как и другие
+запуски без токена, завершаются ошибкой; id шага и последующие условия режима
 не меняются.
 `cictl sonar-skip-notice` выводит существующее объяснение пропуска для
-Dependabot из репозиторного Go-кода, когда выбран этот mode.
+Dependabot из репозиторного Go-кода, когда выбран этот режим.
 
 `cictl build --output /tmp/gobfd-build` проверяет `GITHUB_SHA`, формирует
-восьмизначные CI version metadata и время сборки UTC RFC3339, после чего
-напрямую вызывает `go build` для четырёх поддерживаемых бинарных файлов. Pin
-Go 1.27 и build flags сохраняются без многострочной shell-программы в workflow.
+восьмизначные метаданные версии CI и время сборки UTC RFC3339, после чего
+напрямую вызывает `go build` для четырёх поддерживаемых бинарных файлов. Закреплённый
+Go 1.27 и флаги сборки сохраняются без многострочной программы оболочки в процессе.
 
 `cictl test-coverage` напрямую запускает закреплённый `gotestsum` с
-существующими аргументами JUnit, JSON, format, race, count и atomic coverage.
-Stdout, stderr и ошибки дочернего процесса остаются связанными с шагом workflow.
+существующими аргументами JUnit, JSON, формата, race, числа запусков и атомарного покрытия.
+stdout, stderr и ошибки дочернего процесса остаются связанными с шагом процесса.
 Перед запуском команды хелпер проверяет и очищает только `unit-report.xml`,
 `unit-report.json`, `coverage.out` и `unit-report.html` как обычные файлы с
 режимом `0644`, поэтому неуспешный запуск не может опубликовать устаревшие
 данные. Команда преобразования JUnit в HTML не меняется, но записана одной
-строкой workflow вместо folded scalar.
+командой процесса вместо свёрнутого скаляра.
 
 `cictl commit-policy` передаёт значение окружения `PR_TITLE` одним прямым
 аргументом существующей Go-команде проверки качества репозитория. Условие
 только для pull request, отображение окружения, потоки дочернего процесса и
-поведение при ошибке сохраняются без shell expansion.
+поведение при ошибке сохраняются без подстановок оболочки.
 
 `toolbootstrap podman-runtime` также проверяет `jq --version` через фиксированный
 allowlist команд, поэтому шаг установки тестовых инструментов остаётся одной
 Go-командой и завершается ошибкой, если требуемый JSON-инструмент недоступен.
-Её строка лога фиксирует образ hosted runner (`ImageOS`, `ImageVersion`) и
-`podman --version`. Jobs E2E Evidence выполняются на `ubuntu-26.04`: Podman
+Её строка лога фиксирует образ размещённого исполнителя (`ImageOS`, `ImageVersion`) и
+`podman --version`. Задания E2E Evidence выполняются на `ubuntu-26.04`: Podman
 4.9.3 в Ubuntu 24.04 `ubuntu-latest` собран с Debian imagebuilder 1.2.5,
-который отклоняет `ADD --checksum` в interop Containerfile. AppArmor в Ubuntu
+который отклоняет `ADD --checksum` в Containerfile совместимости. AppArmor в Ubuntu
 26.04 привязывает профиль `tshark` к `/usr/bin/tshark`, а rootless Podman
 запускает контейнеры без профиля, поэтому образ захвата запускает `tshark` и
-`dumpcap` из `/usr/local/bin`. Каждый job до запуска Podman разрешает профилю
-`pasta` принимать сигналы Podman (LP: #2154379) и в конце выводит отказы
-AppArmor.
-Vulnerability audit сам создаёт каталог отчётов; workflow вызывает его
+`dumpcap` из `/usr/local/bin`. Каждое задание E2E вызывает `toolbootstrap podman-e2e`:
+команда переиспользует установку Podman и проверенного провайдера Compose, при необходимости разрешает
+сигналы Podman в профиле `pasta` (LP: #2154379) и подготавливает приватный rootless
+Unix-сокет. Ожидание файла сокета ограничено 20 секундами и не доказывает готовность API.
+Существующий сервис продолжает работать независимо от результата подготовки. Новый процесс
+`podman system service --time=0` остаётся работать после выхода команды только при успешных
+проверках версий и публикации четырёх переменных окружения сокета. При ошибке команда
+останавливает только запущенный ею процесс и ожидает его завершения; `podman-system-service.log`
+сохраняет диагностику. Нужны `GITHUB_ENV` и `GITHUB_PATH`; существующая подготовка
+закреплённым Go на хосте отделена от контейнерных сборок и проверки рабочего окружения.
+В конце задания `toolbootstrap apparmor-denials` выводит только строки отказов AppArmor.
+Для диагностики и `make down` используются штатные `continue-on-error: true` и `always()`:
+ошибки видны, но не блокируют загрузку артефактов. Другие вызовы `podman-runtime`
+сохраняют прежнее поведение.
+Аудит уязвимостей сам создаёт каталог отчётов; процесс вызывает его
 напрямую, без отдельной команды создания каталога.
 
 `cictl sbom --report-dir reports/security` напрямую запускает два закреплённых
-Syft scan для module-файлов, разделяет runtime и tools CycloneDX-отчёты и
-требует, чтобы каждый артефакт был непустым обычным файлом. Перед каждым scan
-хелпер очищает только ожидаемый обычный output, поэтому устаревшее содержимое
+сканирования Syft файлов модулей, разделяет CycloneDX-отчёты рабочего модуля и инструментов и
+требует, чтобы каждый артефакт был непустым обычным файлом. Перед каждым сканированием
+хелпер очищает только ожидаемый обычный выходной файл, поэтому устаревшее содержимое
 не может пройти проверку. Он создаёт каталог отчётов с режимом `0755` и
-нормализует готовые артефакты до режима `0644`; ошибка scanner или проверки
+нормализует готовые артефакты до режима `0644`; ошибка сканера или проверки
 артефакта завершает шаг. Существующие
 контракты запуска `always()` и артефакта `dependency-security-reports` не
 меняются.
@@ -455,259 +535,276 @@ Syft scan для module-файлов, разделяет runtime и tools Cyclon
 `cictl proto-verify` требует безопасные абсолютные каталоги корня репозитория и
 `RUNNER_TEMP`, собирает оба генератора из `tools/go.mod` в отдельном временном
 bin-каталоге и добавляет его в начало `PATH` только для `buf generate`. Затем
-хелпер запускает `git diff --exit-code -- pkg/bfdpb`; ошибка сборки генератора,
-генерации или drift сгенерированного кода завершает шаг.
+хелпер запускает `git diff --exit-code -- pkg/bfdpb` и проверяет отсутствие вывода
+`git status --porcelain=v1 -z --untracked-files=all -- pkg/bfdpb`.
+Изменённые, индексированные, удалённые и новые неотслеживаемые сгенерированные файлы отклоняются;
+посторонние неотслеживаемые файлы не влияют на результат. Ошибка сборки генератора,
+генерации, команды статуса или расхождения сгенерированного кода завершает шаг.
 
-`cictl buf-fetch-base` и `cictl buf-breaking` читают base pull request только из
+`cictl buf-fetch-base` и `cictl buf-breaking` читают базовую ветку pull request только из
 встроенного `GITHUB_BASE_REF` и проверяют его как имя ветки. Fetch использует
 точный принудительный полный refspec из `refs/heads/<base>` в
-`refs/remotes/origin/<base>`. Breaking-проверка разрешает этот remote ref в один
+`refs/remotes/origin/<base>`. Проверка несовместимости разрешает эту удалённую ссылку в один
 40- или 64-значный шестнадцатеричный commit ID и передаёт Buf
 `.git#commit=<sha>`, поэтому символы имени ветки не могут интерпретироваться как
-параметры Buf source. Оба шага сохраняют условия только для pull request и
+параметры источника Buf. Оба шага сохраняют условия только для pull request и
 завершаются ошибкой при ошибке команды.
 
-Benchmark job также реализован на Go. `cictl benchmark-run` запускает из корня
-репозитория фиксированные аргументы пакетов, timeout, количества семплов и
-отчёта по памяти и записывает свежий `new.txt`. `cictl benchmark-base`
-проверяет ref `origin/<base>`, создаёт detached worktree только внутри
-`RUNNER_TEMP` и использует ограниченную одной командой настройку
-`git -c safe.directory=<root>`. Отделённый ограниченный контекст очистки
-удаляет worktree даже при ошибке benchmark-команды или отмене родительского
-контекста; глобальная Git-конфигурация репозитория не изменяется.
+Задание бенчмарков запускает `cictl benchmark-pair --old old.txt --new new.txt`.
+Для каждой ревизии собираются десять измерений с `-benchtime=100ms`, по одному
+измерению на запуск Go. Пары чередуют порядок base/head и head/base, поэтому
+каждая ревизия запускается первой пять раз. Оба файла создаются заново;
+пустые измерения, повреждённые числовые записи и группы package/name без ровно
+десяти измерений отклоняются. Пути результатов не могут совпадать, указывать
+на один файл через hardlink или содержать symlink.
 
-`cictl benchmark-normalize` переписывает только три точных исторических alias
+Для каждого результата действует потоковый лимит 64 MiB. Парные дочерние
+команды используют `WaitDelay` 30 с для ограничения ожидания pipe после
+выхода или отмены.
+
+Сборщик проверяет `origin/<base>`, создаёт одно отсоединённое рабочее дерево
+внутри `RUNNER_TEMP` и использует настройку одной команды
+`git -c safe.directory=<root>`. Отделённый ограниченный контекст очистки
+удаляет рабочее дерево при успехе, ошибке или отмене; глобальная Git-конфигурация
+репозитория сохранена. Таймаут задания остаётся 15 минут. Локальные измерения
+бюджета не гарантируют время завершения занятого runner.
+
+`cictl benchmark-run` и `cictl benchmark-base` сохраняют отдельное диагностическое
+поведение: шесть запусков без чередования. Их вывод не является парным набором
+CI. Команды release snapshot и Make также сохраняют шесть запусков; они не
+устанавливают калиброванный критерий задержек или производительности релиза.
+
+`cictl benchmark-normalize` переписывает только три точных исторических псевдонима
 и требует наличия `RecvDecodeLookupEnqueue`, `RecvDecodeFSM` и
 `TxMarshalJitter` в обоих исходных результатах. `cictl benchmark-report`
-запускает закреплённый `benchstat` для text и CSV, разбирает CSV стандартным
-пакетом Go `encoding/csv`, сохраняет существующую warning-only политику
-critical/report-only для регрессий `>=10%` и добавляет report-only строки и
+запускает закреплённый `benchstat` для текста и CSV, разбирает CSV стандартным
+пакетом Go `encoding/csv`, сохраняет существующую политику только предупреждений
+для critical/report-only для регрессий `>=10%` и добавляет строки только для отчёта и
 заметки инструмента в `GITHUB_STEP_SUMMARY`. Markdown, экранированный HTML,
-исходные CSV/notes и версионированный `bench-comparison.json` атомарно
+исходные CSV/примечания и версионированный `bench-comparison.json` атомарно
 публикуются с режимом `0644`; устаревшие или не обычные файлы не могут пройти
-gate.
+проверку.
 
-Test и report jobs release workflow используют ту же границу без shell.
-Во всём workflow запрещены явные объявления `shell:` и многострочные или
-folded `run`-программы; исполняемые шаги остаются одиночными scalar-командами.
-`cictl release-build` получает release metadata из `GITHUB_REF_NAME` и
+Задания тестов и отчётов релизного процесса используют ту же границу без оболочки.
+Во всём процессе запрещены явные объявления `shell:` и многострочные или
+свёрнутые `run`-программы; исполняемые шаги остаются командами из одного скаляра.
+`cictl release-build` получает метаданные релиза из `GITHUB_REF_NAME` и
 `GITHUB_SHA` и собирает четыре поддерживаемых бинарных файла с фиксированными
 аргументами. Оба шага установки инструментов однократно вызывают
-`toolbootstrap podman-runtime`; эта команда уже проверяет `jq`, поэтому workflow
+`toolbootstrap podman-runtime`; эта команда уже проверяет `jq`, поэтому процесс
 не повторяет проверку.
 
 `cictl release-test-report` запускает закреплённый `gotestsum` и формирует
-существующие JUnit XML, JSON и HTML пути. `cictl release-benchmarks` сохраняет
-шесть семплов для пакетов BFD и netio, дублирует каждый исходный результат в
-лог job и записывает существующие раздельные и объединённые evidence-файлы.
-Metadata mode записывает version, короткий commit, UTC date, Go version и count
-в JSON. При наличии baseline comparison mode сохраняет имена text и HTML, а
-также создаёт Markdown, CSV, notes и версионированный структурированный JSON.
-Release-сравнения HTML и JSON указывают baseline, release version и UTC-время
-создания. Фиксированные benchmark- и comparison-файлы предварительно
-проверяются и очищаются до запуска работы, в том числе при отсутствии baseline,
+существующие пути JUnit XML, JSON и HTML. `cictl release-benchmarks` сохраняет
+шесть измерений для пакетов BFD и netio, дублирует каждый исходный результат в
+лог задания и записывает существующие раздельные и объединённые файлы доказательств.
+Режим метаданных записывает версию, короткий commit, дату UTC, версию Go и число запусков
+в JSON. При наличии исходной базы режим сравнения сохраняет имена текстового и HTML-отчётов, а
+также создаёт Markdown, CSV, примечания и версионированный структурированный JSON.
+Сравнения релиза в HTML и JSON указывают исходную базу, версию релиза и UTC-время
+создания. Фиксированные файлы бенчмарков и сравнений предварительно
+проверяются и очищаются до запуска работы, в том числе при отсутствии исходной базы,
 поэтому устаревшие файлы не попадают в архив. Наконец,
-`cictl release-reports-archive` копирует release benchmark evidence в
+`cictl release-reports-archive` копирует доказательства бенчмарков релиза в
 `reports/` и создаёт существующий артефакт `gobfd-<version>-reports.tar.gz` без
-shell globbing и archive-команд. Копирование evidence использует repository
+подстановок шаблонов оболочки и команд архивации. Копирование доказательств использует корень репозитория
 `os.Root`, а чтение файлов для архива — отдельный Go 1.27 `os.Root` с корнем в
 `reports/`. Обе границы сверяют открытый обычный файл с ожидаемыми идентичностью
 и размером.
 
-Перед созданием release команда `cictl release-preflight` проверяет канонический
-stable SemVer tag, `GITHUB_REPOSITORY`, checked-out commit, объект аннотированного
-tag и точную вершину ветки `release/vMAJOR.MINOR`. Команда вызывает GitHub через
+Перед созданием релиза команда `cictl release-preflight` проверяет канонический
+стабильный тег SemVer, `GITHUB_REPOSITORY`, commit рабочего дерева, объект аннотированного
+тега и точную вершину ветки `release/vMAJOR.MINOR`. Команда вызывает GitHub через
 фиксированные векторы аргументов `git` и `gh`, декодирует GraphQL и постраничный
-GHCR JSON в Go и отклоняет существующий release или draft, а также любой из трёх
-версионных OCI tags. В проверенном `RUNNER_TEMP` через привязанный `os.Root`
-создаются свежие receipts режима `0644` для commit, branch и tag object;
+GHCR JSON в Go и отклоняет существующий релиз или черновик, а также любой из двух
+версионированных тегов OCI. В проверенном `RUNNER_TEMP` через привязанный `os.Root`
+создаются свежие квитанции режима `0644` для commit, ветки и объекта тега;
 `GH_TOKEN` наследуется процессом `gh` через окружение, но никогда не попадает в
 вектор аргументов или артефакт.
 
 Затем `cictl release-notes` запрашивает все страницы GitHub Releases
 фиксированным вектором аргументов `gh api --paginate --slurp`. Команда
-рассматривает опубликованные канонические stable SemVer tags, предпочитая
-наибольший предыдущий release в текущей линии major/minor, а при его отсутствии
-— наибольший предыдущий release среди всех линий; структурно корректные
-неканонические tags игнорируются. Для точного диапазона `CHANGELOG.md` от
+рассматривает опубликованные канонические стабильные теги SemVer, предпочитая
+наибольший предыдущий релиз в текущей линии major/minor, а при его отсутствии
+— наибольший предыдущий релиз среди всех линий; структурно корректные
+неканонические теги игнорируются. Для точного диапазона `CHANGELOG.md` от
 текущей до предыдущей версии обязательны реальные календарные даты и
 категоризированные записи. Результат атомарно записывается как ограниченный
 обычный файл `release-notes.md` режима `0644` через Go 1.27 `os.Root`,
 привязанный к корню репозитория. `GH_TOKEN` наследуется процессом `gh` и не
 попадает в аргументы или вывод.
 
-Commit-pinned action `anchore/sbom-action/download-syft` самостоятельно
-регистрирует PATH для точного version input `v1.54.1`. После action release
-workflow не добавляет второй shell-wrapper или изменяемый Syft shim.
+Закреплённый commit action `anchore/sbom-action/download-syft` самостоятельно
+регистрирует PATH для точного входного значения версии `v1.54.1`. После action релизный
+процесс не добавляет вторую оболочку запуска или изменяемую прослойку Syft.
 
-`cictl release-upx` управляет UPX prerequisite без shell extractor. Команда
-потоково получает точный amd64 Linux asset UPX `v4.2.2` через
+`cictl release-upx` подготавливает UPX без распаковщика на shell. Команда
+потоково получает точный артефакт UPX для amd64 Linux `v4.2.2` через
 `gh release download` в новом корне внутри `RUNNER_TEMP`, проверяет закреплённые
 размер и SHA-256, передаёт архив фиксированным аргументам `xz -d -c -q` и в Go
-проверяет полный набор tar entries, их типы, размеры и режимы. Только
-проверенный executable атомарно записывается с режимом `0755`. Декомпрессия
+проверяет полный набор записей tar, их типы, размеры и режимы. Только
+проверенный исполняемый файл атомарно записывается с режимом `0755`. Декомпрессия
 читает тот же открытый файл, байты которого были хешированы, а проверка версии
-запускает проверенный открытый файл UPX; rooted identity checks отклоняют
+запускает проверенный открытый файл UPX; проверки идентичности внутри корня отклоняют
 подмену пути до публикации. Первая строка `upx --version` должна быть в точности
-`upx 4.2.2`, и лишь затем rooted bin directory добавляется в проверенный
+`upx 4.2.2`, и лишь затем каталог бинарников внутри корня добавляется в проверенный
 обычный файл `GITHUB_PATH` отдельной записью с переводом строки. После commit
-этой записи через rooted rename состояние публикации сохраняется даже при
-ошибке последующей проверки или очистки, поэтому указанный в `GITHUB_PATH` root
+этой записи переименованием внутри корня состояние публикации сохраняется даже при
+ошибке последующей проверки или очистки, поэтому указанный в `GITHUB_PATH` корень
 UPX не удаляется. `GH_TOKEN` наследуется только процессом `gh`, удаляется из
 окружения `xz` и `upx` и не попадает в аргументы или артефакты. При ошибке
-рекурсивная очистка ограничена всё ещё открытым root, identity которого
-совпадает с созданным каталогом; финальная операция по pathname может удалить
+рекурсивная очистка ограничена всё ещё открытым корнем, идентичность которого
+совпадает с созданным каталогом; финальная операция по пути может удалить
 только пустой каталог и никогда рекурсивно не удаляет существующее или
 подменённое дерево.
 
-GoReleaser создаёт draft с `release.skip_upload` и сам не загружает primary
-assets. DEB-пакеты nFPM напрямую исполняют package-internal Go lifecycle
-binary. Команда `go -C tools run ./cmd/packagefinalize` заменяет два RPM
-эквивалентными пакетами, где tags `POSTINPROG` и `PREUNPROG` указывают на
-упакованный нативный lifecycle binary, затем обновляет `dist/artifacts.json` и
-`dist/checksums.txt`. После проверки точных двух archives и четырёх packages
+GoReleaser создаёт черновик с `release.skip_upload` и сам не загружает основные
+артефакты. DEB-пакеты nFPM напрямую исполняют внутренний бинарник жизненного цикла
+пакета на Go. Команда `go -C tools run ./cmd/packagefinalize` заменяет два RPM
+эквивалентными пакетами, где теги `POSTINPROG` и `PREUNPROG` указывают на
+упакованный нативный бинарник жизненного цикла, затем обновляет `dist/artifacts.json` и
+`dist/checksums.txt`. После проверки точных двух архивов и четырёх пакетов
 командой `cictl release-artifacts`, `cictl release-assets-upload` загружает
-только matrix из проверенного receipt и повторно проверяет checksums до и после
+только набор из проверенной квитанции и повторно проверяет контрольные суммы до и после
 загрузки.
 
-После создания draft в GoReleaser commit-pinned checkout action создаёт
-отдельный чистый checkout `.release-verifier` на точном workflow SHA без
-сохранённых credentials. `cictl release-artifacts` запускается из этого
-источника, повторно сверяет HEAD исходного workspace одновременно с
-`GITHUB_SHA` и rooted commit receipt из preflight, связывает pathname workspace
-с открытым root, затем читает ограниченный обычный `dist/artifacts.json`. До
-typed decode структурная JSON-проверка отклоняет invalid UTF-8,
-duplicate object members и неканонический регистр имён contract fields. Typed
-decoder требует точные два Linux archive, четыре Debian/RPM package, два
-CycloneDX SBOM, соответствующих archive, и `checksums.txt` для канонической
-версии release. Каждый выбранный path обязан быть точным относительным
-`dist/<asset>`; нерелизные записи GoReleaser, например binaries и OCI metadata,
-игнорируются. Дубликаты, пропуски, лишние, неверно названные, unsafe-path или
-относящиеся к другой платформе release assets отклоняются. Команда атомарно записывает
-отсортированные receipts режима `0644` `expected-checksummed-assets.txt` и
-`expected-release-assets.txt` под проверенным root `RUNNER_TEMP`; второй также
-включает фиксированные имена reports archive, OCI digest receipt и
-supplemental checksum receipt.
+После создания черновика в GoReleaser закреплённый commit action checkout создаёт
+отдельное чистое рабочее дерево `.release-verifier` на точном SHA процесса без
+сохранённых учётных данных. `cictl release-artifacts` запускается из этого
+источника, повторно сверяет HEAD исходного рабочего каталога одновременно с
+`GITHUB_SHA` и квитанцией commit предварительной проверки внутри корня, связывает путь рабочего каталога
+с открытым корнем, затем читает ограниченный обычный `dist/artifacts.json`. До
+типизированного декодирования структурная JSON-проверка отклоняет некорректный UTF-8,
+повторяющиеся члены объектов и неканонический регистр имён полей контракта. Типизированный
+декодер требует точные два архива Linux, четыре пакета Debian/RPM, два
+CycloneDX SBOM, соответствующих архивам, и `checksums.txt` для канонической
+версии релиза. Каждый выбранный путь обязан быть точным относительным
+`dist/<asset>`; нерелизные записи GoReleaser, например бинарники и метаданные OCI,
+игнорируются. Дубликаты, пропуски, лишние, неверно названные, с небезопасными путями или
+относящиеся к другой платформе артефакты релиза отклоняются. Команда атомарно записывает
+отсортированные квитанции режима `0644` `expected-checksummed-assets.txt` и
+`expected-release-assets.txt` под проверенным корнем `RUNNER_TEMP`; второй также
+включает фиксированные имена архива отчётов, квитанции digest OCI и
+квитанции дополнительных контрольных сумм.
 
-`cictl release-oci-evidence` запускается из immutable verifier checkout и
-заменяет shell-цикл проверки OCI в release workflow. Команда вызывает Buildx
+`cictl release-oci-evidence` запускается из неизменяемого проверочного рабочего дерева и
+заменяет цикл проверки OCI на shell в релизном процессе. Команда вызывает Buildx
 прямыми фиксированными аргументами для
-версионированных primary, Debian Trixie и Oracle Linux 10 образов, требует
-ровно `linux/amd64` и `linux/arm64` вместе с привязанными attestation
-manifest и проверяет SPDX document и BuildKit SLSA v1 provenance каждой
-платформы. Docker получает окружение workflow без `GH_TOKEN` и
-`GITHUB_TOKEN`; оба payload query привязаны к проверенному digest image index,
-а не к изменяемому version tag. Только после успешной проверки всех трёх образов команда
+версионированных основного образа и образа Debian Trixie, требует
+ровно `linux/amd64` и `linux/arm64` вместе с привязанными манифестами
+аттестации и проверяет документ SPDX и BuildKit SLSA v1 provenance каждой
+платформы. Docker получает окружение процесса без `GH_TOKEN` и
+`GITHUB_TOKEN`; оба запроса содержимого привязаны к проверенному digest индекса образа,
+а не к изменяемому тегу версии. Только после успешной проверки обоих образов команда
 атомарно публикует `release-image-digests.txt` режима `0644` через отдельно
-открытый root исходного workspace в фиксированном порядке; digest primary и
-Debian должен совпадать.
+открытый корень исходного рабочего каталога в фиксированном порядке; digest основного образа и
+Debian должны совпадать.
 
-`cictl release-evidence` также запускается из immutable verifier checkout.
-Команда открывает исходный workspace как отдельный root, отклоняет
-отсутствующие, пустые, linked, неверно названные, изменённые или слишком
-большие reports и OCI digest inputs и повторно проверяет точный трёхстрочный
-digest receipt. Затем она атомарно записывает две канонические строки SHA-256
+`cictl release-evidence` также запускается из неизменяемого проверочного рабочего дерева.
+Команда открывает исходный рабочий каталог как отдельный корень, отклоняет
+отсутствующие, пустые, связанные ссылками, неверно названные, изменённые или слишком
+большие отчёты и входные digest OCI и повторно проверяет точную двухстрочную
+квитанцию digest. Затем она атомарно записывает две канонические строки SHA-256
 в `release-evidence-checksums.txt` режима `0644` и один раз вызывает
-`gh release upload` только для owned staging snapshot фиксированных report,
-digest и checksum paths внутри verifier checkout. `--clobber` не используется;
-identity source и staging root и содержимое всех трёх файлов повторно
-проверяются непосредственно до и после загрузки в draft, в том числе при
+`gh release upload` только для принадлежащего запуску промежуточного снимка фиксированных путей отчёта,
+digest и контрольных сумм внутри проверочного рабочего дерева. `--clobber` не используется;
+идентичность исходного и промежуточного корней и содержимое всех трёх файлов повторно
+проверяются непосредственно до и после загрузки в черновик, в том числе при
 ошибке `gh`.
 
-`cictl release-verify` заменяет shell-проверку release draft и запускается из
-того же immutable verifier checkout. До любой загрузки команда повторно
-проверяет checkout, объект annotated tag, целевой commit, release branch, три
-receipt версионированных OCI index, tag/body draft и точный список из 12
-assets. Затем она создаёт новый каталог режима `0700` под root `RUNNER_TEMP`,
-identity которого зафиксирован, и вызывает документированный фиксированный
-argv `gh release download <tag> --repo <owner/repository> --dir <directory>`
-без overwrite- или skip-флагов. Скачанные entries обязаны быть точным
-ограниченным набором непустых обычных файлов; при ошибке cleanup обходит только
-открытый root после доказательства владения через `SameFile` и никогда не
-удаляет replacement pathname.
+`cictl release-verify` заменяет проверку черновика релиза на shell и запускается из
+того же неизменяемого проверочного рабочего дерева. До любой загрузки команда повторно
+проверяет рабочее дерево, объект аннотированного тега, целевой commit, релизную ветку, две
+квитанции версионированных индексов OCI, тег/тело черновика и точный список из 12
+артефактов. Затем она создаёт новый каталог режима `0700` под корнем `RUNNER_TEMP`,
+идентичность которого зафиксирована, и вызывает документированный фиксированный
+вектор аргументов `gh release download <tag> --repo <owner/repository> --dir <directory>`
+без флагов перезаписи или пропуска. Скачанные записи обязаны быть точным
+ограниченным набором непустых обычных файлов; при ошибке очистка обходит только
+открытый корень после доказательства владения через `SameFile` и никогда не
+удаляет подменённый путь.
 
 Эта же команда разбирает в Go канонические основной и дополнительный наборы
-SHA-256 и хеширует rooted snapshots файлов. Два CycloneDX-документа и reports
-archive семантически проверяются из тех же хешированных байтов, без повторного
-открытия paths. Скачанные OCI digest и supplemental checksum receipts обязаны
-побайтово совпадать с локальными evidence. CycloneDX JSON отклоняет invalid
-UTF-8, duplicate или неканонические contract fields и trailing data и требует
-непустые metadata и components. Gzip/tar parser отклоняет дополнительные gzip
-members, trailing data, unsafe или duplicate paths, links и special entries;
-обязательны явный каталог `reports/` и ограниченные regular descendants.
-Только `gh` наследует GitHub tokens; Git и Docker получают явно очищенное от
+SHA-256 и хеширует снимки файлов внутри корня. Два CycloneDX-документа и архив
+отчётов семантически проверяются из тех же хешированных байтов, без повторного
+открытия путей. Скачанные квитанции digest OCI и дополнительных контрольных сумм обязаны
+побайтово совпадать с локальными доказательствами. CycloneDX JSON отклоняет некорректный
+UTF-8, повторяющиеся или неканонические поля контракта и завершающие данные и требует
+непустые метаданные и компоненты. Парсер gzip/tar отклоняет дополнительные элементы
+gzip, завершающие данные, небезопасные или повторяющиеся пути, ссылки и специальные записи;
+обязательны явный каталог `reports/` и ограниченные обычные дочерние файлы.
+Только `gh` наследует токены GitHub; Git и Docker получают явно очищенное от
 токенов окружение.
 
-`cictl release-promote` — единственная команда продвижения OCI aliases в
-release workflow; она также запускается из immutable verifier checkout.
-Команда повторно проверяет annotated tag, целевой commit, release branch и
-точный трёхстрочный OCI digest receipt. До изменения alias она сохраняет
-полный существующий OCI index для `latest`, `debian-trixie` и
-`oraclelinux10`. Затем проверенный primary index назначается первым двум
-aliases, а проверенный Oracle Linux 10 index — третьему, после чего сверяется
-каждый descriptor получившихся indexes. Используется документированное Docker
+`cictl release-promote` — единственная команда продвижения псевдонимов OCI в
+релизном процессе; она также запускается из неизменяемого проверочного рабочего дерева.
+Команда повторно проверяет аннотированный тег, целевой commit, релизную ветку и
+точную двухстрочную квитанцию digest OCI. До изменения псевдонима она сохраняет
+полный существующий индекс OCI для `latest` и `debian-trixie`. Затем
+проверенный основной индекс назначается обоим псевдонимам, после чего сверяется
+каждый дескриптор получившихся индексов. Используется документированное Docker
 поведение
 [`imagetools create`](https://docs.docker.com/reference/cli/docker/buildx/imagetools/create/)
-для копирования единственного source index; platform manifest не
-преобразуется в плоский image.
-При любой ошибке mutation или
-verification все прежние digest aliases восстанавливаются и проверяются в
-независимом ограниченном rollback context. Docker не получает GitHub token.
+для копирования единственного исходного индекса; манифест платформы не
+преобразуется в плоский образ.
+При любой ошибке изменения состояния или
+проверки все прежние digest псевдонимов восстанавливаются и проверяются в
+независимом ограниченном контексте отката. Docker не получает токен GitHub.
 
-`cictl release-publish` — последняя release-команда. Сначала она проверяет три
-продвинутых alias indexes, затем повторно сверяет live Git identity, tag и body
-draft, точные identity 12 remote assets и каждый байт локальных digest
-receipts, использованный предыдущими проверками. Только после успешного
-закрытия opened roots выполняется единственная терминальная mutation
+`cictl release-publish` — последняя команда релиза. Сначала она проверяет два
+продвинутых индекса псевдонимов, затем повторно сверяет текущую идентичность Git, тег и тело
+черновика, точные идентификаторы 12 удалённых артефактов и каждый байт локальных квитанций
+digest, использованный предыдущими проверками. Только после успешного
+закрытия открытых корней выполняется единственная завершающая операция изменения состояния
 `gh release edit <tag> --repo <owner/repository> --draft=false --latest`.
 Флаги соответствуют документации
 [`gh release edit`](https://cli.github.com/manual/gh_release_edit). После этой
-mutation workflow не выполняет другие release-команды или fallible steps.
+операции процесс не выполняет другие команды релиза или шаги, которые могут завершиться ошибкой.
 
 ### Инвентаризация зависимостей
 
-Машиночитаемый snapshot цепочки поставки находится в
+Машиночитаемый снимок цепочки поставки находится в
 `docs/supply-chain/dependency-inventory.json`. Он охватывает полные выбранные
-графы runtime и изолированных инструментов, а также объявленные в репозитории
-инструменты, GitHub Actions, OCI-образы и interop-демоны. Перегенерация фиксирует
-выбранные identity и фактически полученные observations. Проверки release notes,
-безопасности, archive status и принятие для release line выполняются отдельно:
+графы рабочего модуля и изолированных инструментов, а также объявленные в репозитории
+инструменты, GitHub Actions, OCI-образы и демоны совместимости. Перегенерация фиксирует
+выбранные идентификаторы и фактически полученные наблюдения. Проверки описаний релизов,
+безопасности, архивации и принятие для релизной линии выполняются отдельно:
 
 ```bash
 make dependency-inventory
 make dependency-inventory-check
 ```
 
-Генерация запрашивает API deps.dev v3 для license evidence точных версий Go.
-Статические license overrides и координаты OCI build-source не означают новый
-запрос: без подходящего записанного observation они остаются unverified.
-Локальные module-list и checksum observations не подтверждают удалённую
-доступность, актуальность upstream, archive state или безопасность. Без
-импортированного graph-bound scan receipt безопасность остаётся unverified;
-генерация такой receipt не импортирует.
+Генерация запрашивает API deps.dev v3 для доказательств лицензий точных версий Go.
+Статические переопределения лицензий и координаты исходников сборки OCI не означают новый
+запрос: без подходящего записанного наблюдения они остаются непроверенными.
+Локальные наблюдения списка модулей и контрольных сумм не подтверждают удалённую
+доступность, актуальность upstream, архивацию или безопасность. Без
+импортированной квитанции сканирования, привязанной к графу, безопасность остаётся непроверенной;
+генерация такую квитанцию не импортирует.
 
-Текущий контекст `dev` явно задан в генераторе: observation epoch
-`2026-10-15T21:30:03Z`, дата пересмотра `2026-10-31`, tracking
-`gobfd-qj0.8.2.8.7`. Текущие решения deferred имеют владельца и дату
-пересмотра; принятие и исключения stable release не наследуются. Запись GoBGP v4
-имеет собственное решение stable v1: owner `@dantte-lp`, дата expiry
-(пересмотра) `2026-12-31` и tracking `gobfd-qj0.8.4.1`, как у записи
-`GO-2026-4736` в `scripts/vuln-audit.go`. Reuse разрешён
-только внутри того же observation epoch при точном совпадении installed identity
-и immutable pin. Исходные subject, review, source, query, result, hash и время
-observation сохраняются. Изменяемые repository observations становятся stale.
-Любой другой epoch, включая старый snapshot с общей сентябрьской датой, не
-считается доверенным для reuse. При смене epoch требуется новый сбор;
-исторические snapshots сохраняются в Git.
+Текущий контекст `dev` явно задан в генераторе: эпоха наблюдений
+`2026-10-15T21:30:03Z`, дата пересмотра `2026-10-31`, задача
+`gobfd-qj0.8.2.8.7`. Текущие отложенные решения имеют владельца и дату
+пересмотра; принятие и исключения стабильного релиза не наследуются. Запись GoBGP v4
+имеет собственное решение stable v1: владелец `@dantte-lp`, дата окончания действия
+(пересмотра) `2026-12-31` и задача `gobfd-qj0.8.4.1`, как у записи
+`GO-2026-4736` в `scripts/vuln-audit.go`. Повторное использование разрешено
+только внутри той же эпохи наблюдений при точном совпадении установленной идентичности
+и неизменяемой закреплённой ревизии. Исходные субъект, проверка, источник, запрос, результат, хеш и время
+наблюдения сохраняются. Изменяемые наблюдения репозитория устаревают.
+Любая другая эпоха, включая старый снимок с общей сентябрьской датой, не
+считается доверенной для повторного использования. При смене эпохи требуется новый сбор;
+исторические снимки сохраняются в Git.
 
-Offline-проверка
-завершается ошибкой при drift любого Go module graph, объявленного компонента,
-source location, evidence binding или числа Go-пакетов относительно
-проверенного snapshot.
+Автономная проверка
+завершается ошибкой при расхождении любого графа модулей Go, объявленного компонента,
+расположения исходников, привязки доказательств или числа Go-пакетов относительно
+проверенного снимка.
 
 Каждая принятая или сохранённая запись с незакрытой блокирующей проверкой
-содержит собственный `review_exception`: точные измерения проверки,
-ответственного, причину, Bead и дату пересмотра. Offline-проверка отклоняет
+содержит собственный `review_exception`: точные области проверки,
+ответственного, причину, Bead и дату пересмотра. Автономная проверка отклоняет
 неполное или лишнее покрытие исключениями; отложенные и устаревшие решения
 ограничиваются отдельно владельцем и датой пересмотра самого решения.
 
@@ -721,10 +818,10 @@ make semgrep-json  # тот же scan, JSON-вывод
 make semgrep-pro   # требует Semgrep Pro Engine и semgrep login
 ```
 
-Согласно Semgrep CLI reference, `semgrep scan` предназначен для локальных
-проверок и может запускать registry rulesets вроде `p/golang` без аккаунта
-Semgrep. `semgrep ci` использует политики Semgrep App, diff-aware поведение в
-CI и Pro-анализ, когда CLI авторизован. Флаг `--pro` включает interfile-анализ
+Согласно справочнику CLI Semgrep, `semgrep scan` предназначен для локальных
+проверок и может запускать наборы правил реестра вроде `p/golang` без аккаунта
+Semgrep. `semgrep ci` использует политики Semgrep App, учитывающее diff поведение в
+CI и Pro-анализ, когда CLI авторизован. Флаг `--pro` включает анализ между файлами
 и требует Pro Engine плюс авторизацию.
 
 Текущие принятые предупреждения Semgrep задокументированы в
@@ -732,8 +829,8 @@ CI и Pro-анализ, когда CLI авторизован. Флаг `--pro` 
 совместимости с аутентификацией RFC 5880.
 Соответствующее исключение Sonar `go:S4790` ограничено в
 `sonar-project.properties` файлом `internal/bfd/auth.go`; для всех остальных
-файлов правило остаётся активным. In-code resolution не используется, потому
-что SonarQube Cloud поддерживает `sonar-resolve` только для языков C-family,
+файлов правило остаётся активным. Разрешение находок внутри кода не используется, потому
+что SonarQube Cloud поддерживает `sonar-resolve` только для языков семейства C,
 но не для Go.
 
 ### Рабочий процесс Protobuf
@@ -749,21 +846,24 @@ make proto-breaking  # Проверка на несовместимые изме
 
 > **НИКОГДА** не редактируйте файлы в `pkg/bfdpb/` вручную -- они генерируются через `buf generate`.
 
-### Baseline Go 1.27
+### Базовая версия Go 1.27
 
 GoBFD использует Go 1.27, сохраняя нужные API безопасности,
 производительности и отладки из Go 1.26.
 
 #### `testing/synctest` -- Детерминированные тесты таймеров
 
-Все тесты BFD-таймеров и таймаутов обнаружения используют `testing/synctest`
-с виртуальным временем. Соседние `time.Sleep` и `synctest.Wait` записываются
+Модульные BFD-тесты, например `TestSessionDetectionTimeout`, используют
+`testing/synctest` с виртуальным временем. Соседние `time.Sleep` и `synctest.Wait` записываются
 как `synctest.Sleep`; реальные ожидания E2E и interop остаются ограниченными
-контекстом wall-clock waits. См. [Тесты FSM](#тесты-fsm-testingsynctest) выше.
+контекстом ожидания по реальным часам. См. [Тесты FSM](#тесты-fsm-testingsynctest) выше.
 
 #### `os.Root` -- Песочница для доступа к файлам
 
-Загрузка конфигурации использует `os.OpenRoot` для ограничения доступа к файловой системе директорией конфигурации. Это предотвращает атаки обхода пути (path traversal):
+Загрузка конфигурации открывает родительский каталог выбранного оператором пути как
+`os.Root`, затем читает относительно него. Это ограничивает последующие операции
+внутри корня, но не задаёт фиксированный доверенный каталог для произвольного
+выбранного пути конфигурации. Защитите пути конфигурации и права родительских каталогов:
 
 ```go
 root, err := os.OpenRoot(filepath.Dir(path))
@@ -787,30 +887,36 @@ if connectErr, ok := errors.AsType[*connect.Error](err); ok {
 
 #### Диагностика утечек горутин
 
-В Go 1.27 runtime-профиль `goroutineleak` доступен без experiment flag.
+В Go 1.27 профиль среды исполнения `goroutineleak` доступен без экспериментального флага.
 Автоматические тесты продолжают использовать `go.uber.org/goleak` в шести
-concurrency-heavy пакетах. Это разные механизмы; GoBFD не регистрирует полный
-набор обработчиков `net/http/pprof` на публичном metrics mux.
+пакетах с интенсивной конкурентной работой. Это разные механизмы; GoBFD не регистрирует полный
+набор обработчиков `net/http/pprof` на публичном маршрутизаторе метрик.
 
 #### `runtime/trace.FlightRecorder`
 
-Демон непрерывно записывает последние N секунд данных трассировки. С `grpc.flight_recorder: true` сервер управления отдаёт дамп по `/debug/flightrecorder` вызывающим с принципалом (Unix-сокет или разрешённая mTLS-идентичность) для отладки всплесков задержки или дедлоков; по умолчанию endpoint выключен и никогда не обслуживается listener метрик.
+При запуске демон пытается включить кольцевую запись трассировки с
+`MinAge=500ms` и `MaxBytes=2MiB`; ошибка запуска даёт предупреждение и оставляет
+запись недоступной. Эти настройки не задают фиксированную историю в N секунд.
+При `grpc.flight_recorder: true` и работающей записи сервер управления
+обслуживает `/debug/flightrecorder` для вызывающих с принципалом
+(Unix-сокет или разрешённая mTLS-идентичность). По умолчанию конечная точка
+выключена; слушатель метрик её не обслуживает. Источник:
+[`startFlightRecorder`](../../cmd/gobfd/shutdown.go).
 
 #### Swiss Tables
 
-Go 1.26 ввёл Swiss tables как реализацию `map` по умолчанию. Поиск
-дискриминаторов, таблица переходов FSM и демультиплексирование сессий GoBFD
-выигрывают от улучшенной локальности кэша. Go 1.27 удаляет прежний
-диагностический experiment `noswissmap`, поэтому он не должен появляться в
-командах сборки и бенчмарков.
+Реализация map определяется закреплённой средой исполнения. GoBFD использует карты
+для поиска в реестре и demux; поиск FSM при выполнении — индексированный массив. Реализация карты
+сама по себе не доказывает ускорение. Удалённый диагностический эксперимент
+`noswissmap` не должен появляться в командах сборки или бенчмарков Go 1.27.
 
 #### Совместимость HTTP и JSON
 
 Оба публичных HTTP-сервера используют один явный `MaxHeaderValueCount`,
-сохраняя `ReadHeaderTimeout`; parser-level тесты проверяют разрешённую и
+сохраняя `ReadHeaderTimeout`; тесты уровня парсера проверяют разрешённую и
 запрещённую границы. В Go 1.27 существующий API `encoding/json` работает на
-реализации v2; compatibility-тесты покрывают duplicate object members и
-invalid UTF-8 в CLI, Podman, FRR и vulnerability audit без сравнения точного
+реализации v2; тесты совместимости покрывают повторяющиеся члены объектов и
+некорректный UTF-8 в CLI, Podman, FRR и аудите уязвимостей без сравнения точного
 текста ошибок.
 
 ### Конвенции кода
@@ -818,14 +924,14 @@ invalid UTF-8 в CLI, Podman, FRR и vulnerability audit без сравнени
 | Правило | Описание |
 |---|---|
 | **Ошибки** | Всегда оборачивать с `%w` и контекстом: `fmt.Errorf("send control packet to %s: %w", peer, err)` |
-| **Сопоставление ошибок** | Использовать `errors.Is`/`errors.As`, никогда string matching |
-| **Context** | Первый параметр, никогда не сохранять в struct |
+| **Сопоставление ошибок** | Использовать `errors.Is`/`errors.As`, никогда не сопоставлять строки |
+| **Context** | Первый параметр, никогда не сохранять в структуре |
 | **Горутины** | Отправитель закрывает каналы; время жизни привязано к `context.Context` |
 | **Логирование** | ТОЛЬКО `log/slog` со структурированными полями |
 | **Именование** | Без повторов: `package bfd; type Session`, не `BFDSession` |
-| **Импорты** | stdlib, пустая строка, external, пустая строка, internal |
+| **Импорты** | стандартная библиотека, пустая строка, внешние пакеты, пустая строка, внутренние пакеты |
 | **Интерфейсы** | Маленькие, рядом с потребителями |
-| **Тесты** | Table-driven, `t.Parallel()` где безопасно, всегда `-race` |
+| **Тесты** | Табличные, `t.Parallel()` где безопасно, всегда `-race` |
 | **FSM** | Все переходы ОБЯЗАНЫ точно соответствовать RFC 5880 Section 6.8.6 |
 | **Таймеры** | Интервалы BFD в МИКРОСЕКУНДАХ по RFC -- не путать с мс |
 
@@ -842,7 +948,7 @@ invalid UTF-8 в CLI, Podman, FRR и vulnerability audit без сравнени
 # Цикл разработки
 make up           # Запуск среды разработки
 # ... внесение изменений ...
-make all          # Сборка + тесты + линтинг
+make verify       # Сборка + тесты + gopls + lint + docs + proto lint + проверка уязвимостей
 
 # Для изменений протокола:
 make interop      # Проверка совместимости с 4 пирами
@@ -860,4 +966,4 @@ make proto-lint   # Линтинг proto-определений
 
 ---
 
-*Последнее обновление: 2026-08-27*
+*Сверено с исходниками `dev`: 2026-10-25; команды проверены по коду, но не выполнялись.*

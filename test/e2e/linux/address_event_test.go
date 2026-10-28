@@ -85,7 +85,7 @@ func TestAddressEventFollowsUnassignedBind(t *testing.T) {
 	if err := bind("unassigned"); !errors.Is(err, syscall.EADDRNOTAVAIL) {
 		t.Fatalf("bind before assignment = %v, want EADDRNOTAVAIL", err)
 	}
-	if err := nl.addIPv4Address(iface.Index, local, 30); err != nil {
+	if err := nl.addIPAddress(iface.Index, local, 30); err != nil {
 		t.Fatalf("assign %s: %v", local, err)
 	}
 	deadline := time.After(10 * time.Second)

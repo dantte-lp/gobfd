@@ -12,7 +12,7 @@ forward link to the replacement.
 
 | Field | Value |
 |---|---|
-| Status | Proposed | Accepted | Superseded by ADR-NNNN | Deprecated |
+| Status | One of: Proposed, Accepted, Superseded by ADR-NNNN, Deprecated |
 | Date | YYYY-MM-DD |
 
 ## Context
@@ -29,3 +29,11 @@ forward link to the replacement.
 | [0002](./0002-ovs-backend-ovsdb.md) | Native OVSDB client for the OVS LAG backend | Accepted |
 | [0003](./0003-linux-advanced-bfd-applicability.md) | Linux applicability of Micro-BFD, VXLAN BFD, and Geneve BFD | Accepted |
 | [0004](./0004-overlay-backend-vocabulary.md) | Shared overlay backend vocabulary | Accepted |
+| [0005](./0005-smallstep-management-certificates.md) | External Smallstep CA renewal for management certificates | Accepted |
+| [0006](./0006-session-preserving-reload-policy.md) | Session-preserving reload policy | Accepted policy; qualification separate |
+| [0007](./0007-workload-phase-accounting.md) | Workload phases and terminal packet accounting | Accepted policy; qualification separate |
+| [0008](./0008-experimental-prerelease-boundary.md) | Experimental prerelease boundary | Proposed; no publication authorization |
+| [0009](./0009-echo-principal-claims.md) | Principal claims on a shared Echo wire | Accepted policy; local qualification separate |
+| [0010](./0010-bfd-auth-value-ownership.md) | Value ownership of BFD authentication metadata | Superseded by ADR-0011 |
+| [0011](./0011-bfd-auth-inline-payload.md) | Inline BFD authentication payload ownership | Accepted policy; source and runtime qualification separate |
+| [0012](./0012-owner-down-transition-witness.md) | Owner-monotonic Down transition evidence | Accepted policy; causal classification and release qualification separate |

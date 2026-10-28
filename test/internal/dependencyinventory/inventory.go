@@ -40,7 +40,7 @@ const (
 const (
 	currentSchemaVersion  = 2
 	githubRepositoryParts = 2
-	snapshotObservedAt    = "2026-10-15T21:30:03Z"
+	snapshotObservedAt    = "2026-10-28T19:52:52Z"
 	devReviewBy           = "2026-10-31"
 	devTracking           = "gobfd-qj0.8.2.8.7"
 )
@@ -730,8 +730,8 @@ func applyOCILicenseEvidence(inv *Inventory) {
 
 func exactOCILicense(reference string) (ociLicenseOverride, bool) {
 	licenses := map[string]ociLicenseOverride{
-		"docker.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f": {
-			SourceRepository: "debuerreotype/docker-debian-artifacts", SourceCommit: "7935fc7dd049cb343df42037c152f570069d274f",
+		"docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad": {
+			SourceRepository: "debuerreotype/docker-debian-artifacts", SourceCommit: "cee78df586385250331cacba8fd1140133c054e5",
 			LicenseFile: "LICENSE", SPDX: "Apache-2.0", LicenseHash: "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
 		},
 		"docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c": {
@@ -745,10 +745,6 @@ func exactOCILicense(reference string) (ociLicenseOverride, bool) {
 		"docker.io/library/nginx:1.31.6-trixie@sha256:60f0d4e986561e08804f75c211dcaf7fc5455699eada29f42cbe8a0a7253dd86": {
 			SourceRepository: "nginx/docker-nginx", SourceCommit: "a16f1329e13e7273c4103f75d863ca625b75109e",
 			LicenseFile: "LICENSE", SPDX: "BSD-2-Clause", LicenseHash: "5e01e80542c4ee1c1640501bea5bd55e1e2174034343b45e228465c300ce5158",
-		},
-		"docker.io/library/oraclelinux:10-slim@sha256:965eb786602f98a4bc9ca449295d44468e5c8f2ee9175ae04c29f21bf1a9809d": {
-			SourceRepository: "oracle/container-images", SourceCommit: "5c8a1c296acd6e90487cd261d16cf85fd6bcb73f",
-			LicenseFile: "LICENSE", SPDX: "LicenseRef-Oracle-Linux-Agreement", LicenseHash: "22802f1802feb6fbc19f77b89e740937d82f11806c7711a3600b23a8d47fe9d0",
 		},
 		"ghcr.io/holo-routing/holo-bundle@sha256:5c1f61475b1623b3eab611921f8319fb0a10492ced3f7da05e656418abb5ca4a": {
 			SourceRepository: "holo-routing/holo", SourceCommit: "947daeb2811b0cb90f457458f35c3b1a3c989b6b",

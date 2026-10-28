@@ -50,9 +50,12 @@ as a waiting reverse update; do not pretend that the active change was undone.
 
 ## Advertisement and effects
 
-Only promote while Up and with no unresolved startup/recovery Poll. Admission
-while non-Up retains the proposal in the waiting slot with its original
-deadline; it does not change wire values or report application.
+Promote when no unresolved Poll or exchange separation blocks the owner.
+Outside Up, a promoted proposal takes local effect immediately under RFC 5880
+§6.8.3; it need not wait for Up or Final to release a local zero-RX hold-down.
+Poll still confirms the receipt, and unresolved recovery work retains its
+ordering. This supersedes the original Up-only promotion restriction and matches
+the accepted implementation and [ADR-0006](../../en/adr/0006-session-preserving-reload-policy.md).
 Promotion to active changes the advertised tuple and initiates Poll. Reuse
 scheduled transmissions; add no Poll-only packet when periodic TX is already
 running. Crossed Poll replies remain `P=0,F=1`, followed by the local Poll.

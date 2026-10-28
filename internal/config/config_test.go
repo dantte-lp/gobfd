@@ -1738,6 +1738,7 @@ func TestLoadWithMicroBFDActuatorConfig(t *testing.T) {
 
 	yamlContent := `
 micro_bfd:
+  enabled: true
   actuator:
     mode: "dry-run"
     backend: "networkmanager"

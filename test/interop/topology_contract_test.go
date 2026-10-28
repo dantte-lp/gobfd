@@ -283,7 +283,7 @@ func TestBGPTopologyContract(t *testing.T) {
 		})
 		recipe := readContractFile(t, peer+" recipe", filepath.Join(root, "test/interop", peer, "Containerfile"))
 		assertContainsAll(t, peer+" trixie artifact", recipe, []string{
-			"FROM docker.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f",
+			"FROM docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad",
 			`org.opencontainers.image.revision="${VCS_REF}"`,
 			`org.opencontainers.image.created="${BUILD_DATE}"`,
 		})
@@ -298,8 +298,8 @@ func TestBGPTopologyContract(t *testing.T) {
 			})
 		} else {
 			assertContainsAll(t, peer+" source runtime", recipe, []string{
-				"https://codeload.github.com/Exa-Networks/exabgp/tar.gz/edf249571174449f80c72d75eb6933dcabd67f92",
-				"ADD --checksum=sha256:dbf1f3789e28d5c06d123c154c1d4432da9378bbd251699bf7932c5b5f880302",
+				"https://codeload.github.com/Exa-Networks/exabgp/tar.gz/b70054ffdf210e3a6001e1dd282d08309d4552dd",
+				"ADD --checksum=sha256:d257c151ee3b3479d70c46c0de1561747b6e02d11d65d2abf0ea6f0acb93ce84",
 				"PYTHONPATH=/opt/exabgp/src", `"python3", "iproute2", "dumb-init"`,
 				`ENTRYPOINT ["/usr/bin/dumb-init", "--", "python3", "-m", "exabgp"]`,
 				"exabgp_daemon_user=exa", "exabgp_daemon_daemonize=false",
@@ -556,8 +556,9 @@ func TestInteropOperationalContract(t *testing.T) {
 		`GOBFD_BUILD_REVISION="$(shell git rev-parse --verify HEAD^{commit})"`,
 		"go test -tags interop_testcontainers -race -count=1 " +
 			"-run '^(TestTimerReload.+|TestCraftedPeerEvidence.+)$$' ./test/interop/",
-		"-run '^(TestFourPeerTopologyTestcontainers|TestBIRDFlowSpecValidation|" +
-			"TestCraftedPeerTestcontainers)$$' ./test/interop/",
+		"-run '^(TestFourPeerTopologyTestcontainers|TestFourPeerMeticulousTopologyTestcontainers|" +
+			"TestBIRDFlowSpecValidation|" +
+			"TestCraftedPeerTestcontainers|TestCraftedMultihopTTLTestcontainers)$$' ./test/interop/",
 		"interop-project-validate",
 		`"INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}"`,
 		`bgp_project="$${INTEROP_PROJECT_NAME}-bgp"`,
@@ -744,9 +745,13 @@ func TestInteropOperationalContract(t *testing.T) {
 	})
 
 	taggedGo := contents["tagged Go helper"]
-	assertContainsAll(t, "invalid-vector resource limits", taggedGo, []string{
+	vectorBuilder := readContractFile(t, "invalid-vector Compose builder",
+		filepath.Join(root, "test", "interop", "invalid_vector_image_test.go"))
+	assertContainsAll(t, "invalid-vector build resource limits", vectorBuilder, []string{
 		`"--cpu-period", "100000", "--cpu-quota", "200000"`,
 		`"--memory", "2g", "--memory-swap", "2g", "--jobs", "1"`,
+	})
+	assertContainsAll(t, "invalid-vector runtime resource limits", taggedGo, []string{
 		`"--cpus", "1", "--memory", "256m", "--memory-swap", "256m", "--pids-limit", "64"`,
 	})
 	assertContainsAll(t, "tagged Go helper", taggedGo, []string{
@@ -806,59 +811,6 @@ func TestInteropOperationalContract(t *testing.T) {
 		"GoBFD, FRR, BIRD3, Holo, Holo loader, Thoro/bfd, tshark, Go BFD invalid-vector generator",
 		"Exact Compose project label",
 	})
-
-	implementationPlan := readContractFile(
-		t,
-		"Holo implementation plan",
-		filepath.Join(root, "docs", "superpowers", "plans", "2026-08-21-"+"aio"+"bfd-to-holo-interop.md"),
-	)
-	assertContainsAll(t, "Holo Task 6 plan", implementationPlan, []string{
-		`TASK6_ARTIFACT_DIR="$(mktemp -d`,
-		"INVALID_STARTUP=",
-		"PODMAN=(timeout 2m podman)",
-		"INTEROP_COMPOSE_OVERRIDE_FILE",
-		`grep -Fq '=== Holo daemon logs ==='`,
-		`grep -Fq '=== Holo daemon /tmp/holod.err ==='`,
-		`grep -Fq '=== Holo configuration loader logs ==='`,
-		`"${PODMAN[@]}" events`,
-		`.Name == "holo-interop" and .Status == "create"`,
-		`.Name == "holo-interop" and .Status == "start"`,
-		`.Name == "holo-config-interop" and .Status == "create"`,
-		`.Name == "holo-config-interop" and .Status == "start"`,
-		`.Name == "holo-config-interop" and .Status == "died"`,
-		`(.ContainerExitCode | type) == "number"`,
-		`.ContainerExitCode == 0`,
-		`grep -Fq 'Holo running configuration is missing the required BFD session'`,
-		`--command 'show running format json'`,
-		`Holo command-line interface 0.5.0`,
-		`holo-version.txt`,
-		`.["ietf-interfaces:interfaces"].interface[]?`,
-		`.type == "iana-if-type:ethernetCsmacd"`,
-		`.["ietf-ip:ipv4"] | type`,
-		`.type == "ietf-bfd-types:bfdv1"`,
-		`.["dest-addr"] == "172.20.0.10"`,
-		`.["source-addr"] == "172.20.0.50"`,
-		"source ./test/interop/project_guard.sh",
-		"interop_verify_project_absent",
-		"interop_verify_labelled_containers_absent",
-		"make interop-up",
-		"go test -json -tags interop",
-		`select(.Action == "pass" and .Test == "TestHoloFailureRecoveryLifecycle")`,
-		`select(.Action == "skip" and .Test == "TestHoloFailureRecoveryLifecycle")`,
-		"make interop-down",
-		"make proto-lint",
-		"gobfd-interop-negative",
-		"gobfd-interop-bgp",
-		"v062-testcontainers",
-		"io.gobfd.e2e.merge-owner",
-		"There is no `podman volume rm` cleanup path.",
-	})
-	if strings.Contains(implementationPlan, `.ContainerExitCode != 0`) {
-		t.Error("Holo Task 6 plan retains the impossible non-zero loader assertion")
-	}
-	if strings.Contains(implementationPlan, "\nbuf lint\n") {
-		t.Error("Holo Task 6 plan invokes an unpinned host buf binary")
-	}
 }
 
 func TestInteropJitterAnalyzerContract(t *testing.T) {
@@ -981,9 +933,11 @@ func TestInteropCaptureStorageContract(t *testing.T) {
 			)
 			render.Dir = root
 			render.Env = append(os.Environ(), "PODMAN_COMPOSE_WARNING_LOGS=false")
-			rendered, renderErr := render.CombinedOutput()
+			var stderr bytes.Buffer
+			render.Stderr = &stderr
+			rendered, renderErr := render.Output()
 			if renderErr != nil {
-				t.Fatalf("render Compose topology: %v\n%s", renderErr, rendered)
+				t.Fatalf("render Compose topology: %v\nstderr: %s\nstdout: %s", renderErr, &stderr, rendered)
 			}
 			var renderedRaw composeRaw
 			if decodeErr := yaml.Unmarshal(rendered, &renderedRaw); decodeErr != nil {
@@ -1645,9 +1599,11 @@ func TestBenchmarkResultMountContract(t *testing.T) {
 	assertEqual(t, "default rendered benchmark result source", defaultSource, filepath.Join(root, "bench-results"))
 	render := benchmarkComposeConfigCommand(t.Context(), root)
 	render.Env = append(render.Env, "BENCH_RESULTS_DIR="+defaultSource)
-	rendered, err := render.CombinedOutput()
+	var stderr bytes.Buffer
+	render.Stderr = &stderr
+	rendered, err := render.Output()
 	if err != nil {
-		t.Fatalf("render benchmark Compose: %v\n%s", err, rendered)
+		t.Fatalf("render benchmark Compose: %v\nstderr: %s\nstdout: %s", err, &stderr, rendered)
 	}
 	type renderedBind struct {
 		SELinux string `yaml:"selinux"`

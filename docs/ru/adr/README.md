@@ -1,24 +1,24 @@
-# Architecture Decision Records
+# Архитектурные решения (ADR)
 
-Живые decision-записи для GoBFD. Каждая запись фиксирует контекст,
-решение и последствия. Поле `Date` устанавливается при переходе в
+Действующие записи решений GoBFD. Каждая запись фиксирует контекст,
+решение и последствия. Поле даты (`Date` в английском оригинале) устанавливается при переходе в
 статус `Accepted` и далее не меняется. Заменённые записи остаются на
 месте с прямой ссылкой на замену.
 
 ## Формат
 
 ```markdown
-# ADR-NNNN: Title
+# ADR-NNNN: Название
 
-| Field | Value |
+| Поле | Значение |
 |---|---|
-| Status | Proposed | Accepted | Superseded by ADR-NNNN | Deprecated |
-| Date | YYYY-MM-DD |
+| Статус | Одно из: Proposed, Accepted, Superseded by ADR-NNNN, Deprecated |
+| Дата | YYYY-MM-DD |
 
-## Context
-## Decision
-## Consequences
-## References
+## Контекст
+## Решение
+## Последствия
+## Источники
 ```
 
 ## Индекс
@@ -29,3 +29,11 @@
 | [0002](./0002-ovs-backend-ovsdb.md) | Нативный OVSDB-клиент для OVS LAG backend | Accepted |
 | [0003](./0003-linux-advanced-bfd-applicability.md) | Применимость Micro-BFD, VXLAN BFD и Geneve BFD в Linux | Accepted |
 | [0004](./0004-overlay-backend-vocabulary.md) | Единый словарь overlay backend | Accepted |
+| [0005](./0005-smallstep-management-certificates.md) | Внешняя Smallstep CA для сертификатов управления | Accepted |
+| [0006](./0006-session-preserving-reload-policy.md) | Политика перезагрузки с сохранением сессии | Принятая политика; квалификация отдельно |
+| [0007](./0007-workload-phase-accounting.md) | Фазы нагрузки и конечный учёт пакетов | Принятая политика; квалификация отдельно |
+| [0008](./0008-experimental-prerelease-boundary.md) | Граница экспериментального prerelease | Proposed; публикация не разрешена |
+| [0009](./0009-echo-principal-claims.md) | Права субъектов на общую Echo-сессию | Принятая политика; локальная квалификация отдельно |
+| [0010](./0010-bfd-auth-value-ownership.md) | Владение метаданными аутентификации BFD по значению | Superseded by ADR-0011 |
+| [0011](./0011-bfd-auth-inline-payload.md) | Владение встроенным payload аутентификации BFD | Принятая политика; исходники и runtime квалифицируются отдельно |
+| [0012](./0012-owner-down-transition-witness.md) | Монотонные данные о переходе владельца в Down | Принятая политика; причинная классификация и релизная квалификация отдельно |

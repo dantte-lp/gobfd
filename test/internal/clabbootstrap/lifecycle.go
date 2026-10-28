@@ -1,22 +1,23 @@
 package clabbootstrap
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"go.yaml.in/yaml/v3"
 
 	"github.com/dantte-lp/gobfd/test/internal/interopproject"
+	"github.com/dantte-lp/gobfd/test/internal/vendorprofiles"
 )
 
 const (
@@ -30,6 +31,9 @@ const (
 	containerlabLabel = "containerlab"
 	legacyReceiptV1   = 1
 	ownedReceiptV2    = 2
+	ownedReceiptV3    = 3
+	frrImageRepo      = "localhost/gobfd-clab-frr"
+	frrContainer      = "clab-" + labName + "-frr"
 	maxReceiptSize    = 1 << 20
 	secureFileMode    = os.FileMode(0o600)
 	podmanExec        = "exec"
@@ -95,10 +99,7 @@ afi-safi-name = %q
 		`{{ index .Labels "io.gobfd.interop-clab.run" }}`
 )
 
-var (
-	errLifecycleState = errors.New("invalid vendor lab lifecycle state")
-	projectSlugRE     = regexp.MustCompile(`[^a-z0-9_-]+`)
-)
+var errLifecycleState = errors.New("invalid vendor lab lifecycle state")
 
 type vendorProfile struct {
 	name      string
@@ -118,11 +119,14 @@ type vendorCandidate struct {
 }
 
 type lifecycleReceipt struct {
-	SchemaVersion int               `json:"schema_version"`
-	RunID         string            `json:"run_id"`
-	Topology      string            `json:"topology"`
-	Containers    map[string]string `json:"containers"`
-	Image         lifecycleImage    `json:"image"`
+	SchemaVersion      int               `json:"schema_version"`
+	RunID              string            `json:"run_id"`
+	Topology           string            `json:"topology"`
+	Containers         map[string]string `json:"containers"`
+	Image              lifecycleImage    `json:"image"`
+	FRR                lifecycleImage    `json:"frr,omitzero"`
+	Network            lifecycleNetwork  `json:"network,omitzero"`
+	ExpectedContainers []string          `json:"expected_containers,omitempty"`
 }
 
 type lifecycleImage struct {
@@ -131,7 +135,12 @@ type lifecycleImage struct {
 }
 
 type topologyDocument struct {
-	Name     string `yaml:"name"`
+	Name string `yaml:"name"`
+	Mgmt struct {
+		Network        string `yaml:"network"`
+		IPv4Subnet     string `yaml:"ipv4-subnet"`      //nolint:tagliatelle // Containerlab defines this public key.
+		SkipWhenUnused bool   `yaml:"skip-when-unused"` //nolint:tagliatelle // Containerlab defines this public key.
+	} `yaml:"mgmt"`
 	Topology struct {
 		Nodes map[string]map[string]any `yaml:"nodes"`
 		Links []struct {
@@ -173,6 +182,15 @@ func runTopologyLocked(ctx context.Context, options Options, runner Runner) erro
 		if receipt.Topology == "" || len(receipt.Containers) == 0 {
 			return fmt.Errorf("vendor topology is not deployed: %w", errLifecycleState)
 		}
+		if err := validateTestPolicy(options, receipt); err != nil {
+			return err
+		}
+		if imageErr := validateApplicationImages(ctx, runner, receipt); imageErr != nil {
+			return imageErr
+		}
+		if networkErr := validateDeployedNetwork(ctx, runner, receipt); networkErr != nil {
+			return networkErr
+		}
 		if err := validateDeployedContainerIdentities(ctx, options, runner, receipt); err != nil {
 			return err
 		}
@@ -182,15 +200,39 @@ func runTopologyLocked(ctx context.Context, options Options, runner Runner) erro
 	}
 }
 
+func validateTestPolicy(options Options, receipt lifecycleReceipt) error {
+	policy, err := vendorprofiles.Load(options.ProjectRoot)
+	if err != nil {
+		return fmt.Errorf("load test-only vendor policy: %w", err)
+	}
+	names := slices.Clone(receipt.ExpectedContainers)
+	for name := range receipt.Containers {
+		names = append(names, name)
+	}
+	for _, name := range names {
+		if name != gobfdContainer && !policy.AllowsNode(strings.TrimPrefix(name, "clab-"+labName+"-")) {
+			return fmt.Errorf("test receipt contains unqualified container %s: %w", name, vendorprofiles.ErrUnavailable)
+		}
+	}
+	return nil
+}
+
 func validateDeployedContainerIdentities(
 	ctx context.Context,
 	options Options,
 	runner Runner,
 	receipt lifecycleReceipt,
 ) error {
+	if receipt.SchemaVersion == ownedReceiptV3 {
+		for _, name := range receipt.ExpectedContainers {
+			if receipt.Containers[name] == "" {
+				return fmt.Errorf("expected container %s was never checkpointed: %w", name, errLifecycleState)
+			}
+		}
+	}
 	var validationErr error
 	for name, wantID := range receipt.Containers {
-		gotID, err := inspectOwnedContainer(ctx, runner, name, receipt.RunID)
+		gotID, err := inspectContainerIdentity(ctx, runner, name, receipt.RunID, receipt.SchemaVersion == ownedReceiptV3)
 		if err != nil {
 			validationErr = errors.Join(validationErr, err)
 			continue
@@ -202,6 +244,16 @@ func validateDeployedContainerIdentities(
 			)
 		}
 	}
+	return errors.Join(validationErr, validateUnrecordedLabContainers(ctx, options, runner, receipt))
+}
+
+func validateUnrecordedLabContainers(
+	ctx context.Context,
+	options Options,
+	runner Runner,
+	receipt lifecycleReceipt,
+) error {
+	var validationErr error
 	for _, name := range fixedTestContainerNames(options) {
 		if _, recorded := receipt.Containers[name]; recorded {
 			continue
@@ -214,7 +266,7 @@ func validateDeployedContainerIdentities(
 		if exists {
 			validationErr = errors.Join(
 				validationErr,
-				fmt.Errorf("unrecorded container %s could be selected by test-only: %w", name, errLifecycleState),
+				fmt.Errorf("unrecorded container %s in vendor lab: %w", name, errLifecycleState),
 			)
 		}
 	}
@@ -237,7 +289,7 @@ func dryRunTopology(ctx context.Context, options Options, runner Runner, imageRe
 			Executable: executableContainerlab,
 			Arguments: []string{
 				"destroy", "--runtime", "podman",
-				"--topo", runtimeTopologyPath(options.ProjectRoot), "--cleanup",
+				"--topo", runtimeTopologyPath(options.ProjectRoot), "--cleanup", "--keep-mgmt-net",
 			},
 			DryRun: true,
 		})
@@ -245,8 +297,19 @@ func dryRunTopology(ctx context.Context, options Options, runner Runner, imageRe
 	if options.TestOnly {
 		return runVendorTests(ctx, options, runner)
 	}
-	profiles := defaultDryRunProfiles(options, mustFRRReference(options.ProjectRoot))
+	if err := validateFRRTemplate(options.ProjectRoot); err != nil {
+		return err
+	}
+	profiles, err := availableProfiles(ctx, options, runner, frrImageRepo+":dry-run")
+	if err != nil {
+		return err
+	}
 	if err := startGoBFDContainer(ctx, options, runner, "dry-run", imageReference); err != nil {
+		return err
+	}
+	dryReceipt := newImageReceipt("dry-run")
+	dryReceipt.FRR.ID = dryReceipt.FRR.Reference
+	if err := startFRRContainer(ctx, options, runner, dryReceipt); err != nil {
 		return err
 	}
 	if err := runCommand(ctx, runner, Command{
@@ -273,7 +336,13 @@ func deployTopology(ctx context.Context, options Options, runner Runner) (return
 	keep := false
 	defer func() {
 		if !keep {
-			returnErr = errors.Join(returnErr, cleanupTopology(ctx, options, runner, receipt))
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ownedCleanupTimeout)
+			defer cancel()
+			if recoveryErr := recoverPartialTopology(cleanupCtx, options, runner, &receipt); recoveryErr != nil {
+				returnErr = errors.Join(returnErr, recoveryErr)
+				return
+			}
+			returnErr = errors.Join(returnErr, cleanupTopology(cleanupCtx, options, runner, receipt))
 		}
 	}()
 	profiles, err := prepareTopologyDeployment(ctx, options, runner, &receipt)
@@ -296,24 +365,32 @@ func prepareTopologyDeployment(
 	runner Runner,
 	receipt *lifecycleReceipt,
 ) ([]vendorProfile, error) {
-	if receipt.SchemaVersion != ownedReceiptV2 || receipt.Topology != "" || len(receipt.Containers) != 0 {
+	if receipt.SchemaVersion != ownedReceiptV3 || receipt.Topology != "" || len(receipt.Containers) != 0 {
 		return nil, fmt.Errorf("vendor image receipt is not staged for deployment: %w", errLifecycleState)
 	}
-	if _, err := validateOwnedImage(ctx, runner, *receipt); err != nil {
+	if err := validateApplicationImages(ctx, runner, *receipt); err != nil {
 		return nil, err
 	}
-	profiles, err := availableProfiles(ctx, options, runner)
+	if err := validateUnrecordedLabContainers(ctx, options, runner, *receipt); err != nil {
+		return nil, err
+	}
+	if _, err := os.Lstat(containerlabDirectory(options.ProjectRoot)); !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("containerlab directory already exists or cannot be inspected: %w", errLifecycleState)
+	}
+	profiles, err := availableProfiles(ctx, options, runner, receipt.FRR.ID)
 	if err != nil {
 		return nil, err
 	}
 	if len(profiles) == 0 {
 		return nil, fmt.Errorf("no vendor image is available: %w", errLifecycleState)
 	}
-	topologyPath, err := writeRuntimeTopology(options, profiles)
+	topologyPath, err := writeRuntimeTopology(options, profiles, *receipt)
 	if err != nil {
 		return nil, err
 	}
 	receipt.Topology = topologyPath
+	receipt.Network.Name = networkName(receipt.RunID)
+	receipt.ExpectedContainers = append([]string{gobfdContainer}, profileContainerNames(profiles)...)
 	receipt.Containers = make(map[string]string, len(profiles)+1)
 	if err := writeLifecycleReceipt(options.ProjectRoot, *receipt); err != nil {
 		return nil, err
@@ -322,13 +399,16 @@ func prepareTopologyDeployment(
 }
 
 func activateTopology(
-	ctx context.Context,
-	options Options,
-	runner Runner,
-	profiles []vendorProfile,
-	receipt *lifecycleReceipt,
+	ctx context.Context, options Options, runner Runner,
+	profiles []vendorProfile, receipt *lifecycleReceipt,
 ) error {
-	if err := startGoBFDContainer(ctx, options, runner, receipt.RunID, receipt.Image.ID); err != nil {
+	if err := prepareDeploymentNetwork(ctx, options, runner, receipt); err != nil {
+		return err
+	}
+	if err := startManagedApplications(ctx, options, runner, receipt); err != nil {
+		return err
+	}
+	if err := validateDeployedNetwork(ctx, runner, *receipt); err != nil {
 		return err
 	}
 	if err := runCommand(ctx, runner, Command{
@@ -338,20 +418,18 @@ func activateTopology(
 	}); err != nil {
 		return fmt.Errorf("deploy vendor topology: %w", err)
 	}
+	if err := validateDeployedNetwork(ctx, runner, *receipt); err != nil {
+		return err
+	}
 	for _, profile := range profiles {
 		if err := waitContainerRunning(ctx, runner, profile.container, 30*time.Second); err != nil {
 			return fmt.Errorf("wait for %s container: %w", profile.name, err)
 		}
 	}
-	for _, name := range append([]string{gobfdContainer}, profileContainerNames(profiles)...) {
-		id, err := inspectOwnedContainer(ctx, runner, name, receipt.RunID)
-		if err != nil {
+	for _, name := range receipt.ExpectedContainers {
+		if err := checkpointManagedContainer(ctx, options, runner, receipt, name); err != nil {
 			return err
 		}
-		receipt.Containers[name] = id
-	}
-	if err := writeLifecycleReceipt(options.ProjectRoot, *receipt); err != nil {
-		return err
 	}
 	if err := configureGoBFD(ctx, options, runner, profiles); err != nil {
 		return err
@@ -363,17 +441,29 @@ func activateTopology(
 	return nil
 }
 
-func availableProfiles(ctx context.Context, options Options, runner Runner) ([]vendorProfile, error) {
-	frrReference, err := loadFRRReference(options.ProjectRoot)
-	if err != nil {
+func availableProfiles(
+	ctx context.Context, options Options, runner Runner, frrReference string,
+) ([]vendorProfile, error) {
+	if err := validateFRRTemplate(options.ProjectRoot); err != nil {
 		return nil, err
+	}
+	policy, err := vendorprofiles.Load(options.ProjectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("load executable vendor profiles: %w", err)
 	}
 	candidates := vendorCandidates(options, frrReference)
 	profiles := make([]vendorProfile, 0, len(candidates))
 	for _, candidate := range candidates {
-		image, err := firstAvailableImage(ctx, options, runner, candidate.images)
-		if err != nil {
-			return nil, fmt.Errorf("inspect %s image: %w", candidate.profile.name, err)
+		if !policy.AllowsNode(candidate.profile.name) {
+			continue
+		}
+		image := frrReference
+		if !options.DryRun {
+			var imageErr error
+			image, imageErr = firstAvailableImage(ctx, options, runner, candidate.images)
+			if imageErr != nil {
+				return nil, fmt.Errorf("inspect %s image: %w", candidate.profile.name, imageErr)
+			}
 		}
 		if image == "" {
 			if options.Logger != nil {
@@ -486,31 +576,7 @@ func firstAvailableImage(ctx context.Context, options Options, runner Runner, ca
 	return "", nil
 }
 
-func defaultDryRunProfiles(options Options, frrReference string) []vendorProfile {
-	profiles := []vendorProfile{
-		{
-			name: vendorNokia, image: "ghcr.io/nokia/srlinux:" + options.Tags.Nokia,
-			index: 2, peerIPv4: "10.0.2.2", localIPv4: "10.0.2.1",
-			peerIPv6: "fd00:0:2::1", localIPv6: "fd00:0:2::", asn: 65003,
-		},
-		{
-			name: vendorSONiC, image: "docker.io/netreplica/docker-sonic-vs:" + options.Tags.Sonic,
-			index: 4, peerIPv4: "10.0.4.2", localIPv4: "10.0.4.1", asn: 65005,
-		},
-		{name: "vyos", image: vyosTargetImage, index: 5, peerIPv4: "10.0.5.2", localIPv4: "10.0.5.1", asn: 65006},
-		{
-			name: "frr", image: frrReference, index: 6,
-			peerIPv4: "10.0.6.2", localIPv4: "10.0.6.1",
-			peerIPv6: "fd00:0:6::1", localIPv6: "fd00:0:6::", asn: 65007,
-		},
-	}
-	for index := range profiles {
-		profiles[index].container = "clab-" + labName + "-" + profiles[index].name
-	}
-	return profiles
-}
-
-func writeRuntimeTopology(options Options, profiles []vendorProfile) (string, error) {
+func writeRuntimeTopology(options Options, profiles []vendorProfile, receipt lifecycleReceipt) (string, error) {
 	source := filepath.Join(options.ProjectRoot, "test", "interop-clab", "gobfd-vendors.clab.yml")
 	file, err := os.Open(source)
 	if err != nil {
@@ -522,6 +588,23 @@ func writeRuntimeTopology(options Options, profiles []vendorProfile) (string, er
 	if decodeErr := decoder.Decode(&topology); decodeErr != nil {
 		return "", fmt.Errorf("decode vendor topology: %w", decodeErr)
 	}
+	selectRuntimeNodes(&topology, profiles, receipt.RunID)
+	rewriteExternalFRR(&topology)
+	topology.Mgmt.Network = networkName(receipt.RunID)
+	topology.Mgmt.IPv4Subnet = "auto"
+	topology.Mgmt.SkipWhenUnused = true
+	data, err := yaml.Marshal(topology)
+	if err != nil {
+		return "", fmt.Errorf("encode runtime vendor topology: %w", err)
+	}
+	path := runtimeTopologyPath(options.ProjectRoot)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return "", fmt.Errorf("write runtime vendor topology: %w", err)
+	}
+	return path, nil
+}
+
+func selectRuntimeNodes(topology *topologyDocument, profiles []vendorProfile, runID string) {
 	selected := map[string]bool{gobfdContainer: true}
 	images := make(map[string]string, len(profiles))
 	for _, profile := range profiles {
@@ -534,7 +617,14 @@ func writeRuntimeTopology(options Options, profiles []vendorProfile) (string, er
 			continue
 		}
 		delete(node, podmanExec)
-		if image := images[name]; image != "" {
+		node["labels"] = map[string]string{ownerLabel: labName, runLabel: runID}
+		if name == gobfdContainer || name == "frr" {
+			node["kind"] = "ext-container"
+			node["network-mode"] = "none"
+			delete(node, "image")
+			delete(node, "binds")
+			delete(node, "cmd")
+		} else if image := images[name]; image != "" {
 			node["image"] = image
 		}
 	}
@@ -553,15 +643,22 @@ func writeRuntimeTopology(options Options, profiles []vendorProfile) (string, er
 		}
 		return false
 	})
-	data, err := yaml.Marshal(topology)
-	if err != nil {
-		return "", fmt.Errorf("encode runtime vendor topology: %w", err)
+}
+
+func rewriteExternalFRR(topology *topologyDocument) {
+	frr, present := topology.Topology.Nodes["frr"]
+	if !present {
+		return
 	}
-	path := runtimeTopologyPath(options.ProjectRoot)
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return "", fmt.Errorf("write runtime vendor topology: %w", err)
+	delete(topology.Topology.Nodes, "frr")
+	topology.Topology.Nodes[frrContainer] = frr
+	for _, link := range topology.Topology.Links {
+		for index, endpoint := range link.Endpoints {
+			if strings.HasPrefix(endpoint, "frr:") {
+				link.Endpoints[index] = frrContainer + strings.TrimPrefix(endpoint, "frr")
+			}
+		}
 	}
-	return path, nil
 }
 
 func startGoBFDContainer(
@@ -573,13 +670,9 @@ func startGoBFDContainer(
 ) error {
 	return runCommand(ctx, runner, Command{
 		Executable: executablePodman,
-		Arguments: []string{
-			"run", "--detach", "--name", gobfdContainer,
-			"--label", ownerLabel + "=" + labName,
-			"--label", runLabel + "=" + runID,
-			"--cap-add", "NET_RAW", "--cap-add", "NET_ADMIN",
+		Arguments: append(managedContainerArguments(options, runID, gobfdContainer),
 			"--user", "0:0", "--entrypoint", "sleep", imageReference, "infinity",
-		},
+		),
 		DryRun: options.DryRun,
 	})
 }
@@ -625,6 +718,11 @@ func configureGoBFDLinks(
 				DryRun:     options.DryRun,
 			}
 			if err := runCommand(ctx, runner, command); err != nil {
+				return fmt.Errorf("configure GoBFD link for %s: %w", profile.name, err)
+			}
+		}
+		if profile.localIPv6 != "" && !options.DryRun {
+			if err := waitGoBFDIPv6Address(ctx, runner, interfaceName, profile.localIPv6); err != nil {
 				return fmt.Errorf("configure GoBFD link for %s: %w", profile.name, err)
 			}
 		}
@@ -826,7 +924,7 @@ func waitContainerRunning(ctx context.Context, runner Runner, container string, 
 	return waitHostCommand(
 		ctx,
 		runner,
-		[]string{"inspect", "--type", "container", "--format", "{{.State.Running}}", container},
+		[]string{podmanInspect, "--type", "container", networkFormatOption, "{{.State.Running}}", container},
 		"true",
 		timeout,
 	)
@@ -845,54 +943,78 @@ func waitForBFD(ctx context.Context, options Options, runner Runner) {
 }
 
 func runVendorTests(ctx context.Context, options Options, runner Runner) error {
-	rootName := strings.ToLower(filepath.Base(options.ProjectRoot))
-	project := strings.Trim(projectSlugRE.ReplaceAllString(rootName, "-"), "-")
-	if project == "" {
-		return fmt.Errorf("derive Compose project name from %s: %w", options.ProjectRoot, errInvalidBootstrapOptions)
-	}
-	return runCommand(ctx, runner, Command{
-		Executable: executablePodman,
-		Arguments: []string{
-			"compose", "-p", project, "-f", filepath.Join(options.ProjectRoot, "deployments", "compose", "compose.dev.yml"),
-			podmanExec, "-T", "dev", "env", "GOBFD_INTEROP_CLAB_TEST_IN_CONTAINER=1",
-			"go", "test", "-tags", "interop_clab", "-v", "-count=1", "-timeout", "600s", "./test/interop-clab/",
-		},
-		Directory: options.ProjectRoot,
-		DryRun:    options.DryRun,
-	})
+	return runIsolatedVendorTests(ctx, options, runner)
 }
 
 func destroyTopology(ctx context.Context, options Options, runner Runner) error {
+	if err := recoverTestRun(ctx, options, runner); err != nil {
+		return err
+	}
 	receipt, err := loadLifecycleReceipt(options.ProjectRoot)
 	if err != nil {
+		return err
+	}
+	if err := recoverPartialTopology(ctx, options, runner, &receipt); err != nil {
 		return err
 	}
 	return cleanupTopology(ctx, options, runner, receipt)
 }
 
 func cleanupTopology(ctx context.Context, options Options, runner Runner, receipt lifecycleReceipt) error {
-	imageID, imagePresent, err := validateOwnedImageForCleanup(ctx, runner, receipt)
+	images, err := applicationImages(receipt)
 	if err != nil {
 		return err
 	}
-	if err := validateOwnedContainersForCleanup(ctx, runner, receipt); err != nil {
+	ids, err := validateCleanupImages(ctx, runner, images, receipt.RunID)
+	if err != nil {
+		return err
+	}
+	if err := preflightTopologyCleanup(ctx, options, runner, receipt); err != nil {
 		return err
 	}
 	if err := removeTopologyResources(ctx, runner, receipt); err != nil {
 		return err
 	}
-	if imagePresent {
-		if err := removeOwnedImage(ctx, options, runner, receipt, imageID); err != nil {
+	if receipt.Network.Name != "" {
+		if err := removeOwnedNetwork(ctx, runner, receipt.Network, receipt.RunID); err != nil {
 			return err
+		}
+	}
+	for index, image := range images {
+		if ids[index] != "" {
+			if err := removeOwnedImage(ctx, runner, image, receipt.RunID, ids[index]); err != nil {
+				return err
+			}
 		}
 	}
 	return removeLifecycleFiles(options.ProjectRoot, receipt)
 }
 
+func preflightTopologyCleanup(ctx context.Context, options Options, runner Runner, receipt lifecycleReceipt) error {
+	if receipt.SchemaVersion == ownedReceiptV3 && receipt.Topology != "" &&
+		receipt.Topology != runtimeTopologyPath(options.ProjectRoot) {
+		return fmt.Errorf("runtime topology path differs from receipt owner: %w", errLifecycleState)
+	}
+	if err := validateOwnedContainersForCleanup(ctx, runner, receipt); err != nil {
+		return err
+	}
+	if receipt.Topology != "" {
+		if err := validateUnrecordedLabContainers(ctx, options, runner, receipt); err != nil {
+			return err
+		}
+	}
+	if receipt.Network.Name != "" {
+		_, err := validateOwnedNetwork(ctx, runner, receipt.Network, receipt.RunID, false)
+		return err
+	}
+	return nil
+}
+
 func validateOwnedContainersForCleanup(ctx context.Context, runner Runner, receipt lifecycleReceipt) error {
 	var cleanupErr error
 	for name, wantID := range receipt.Containers {
-		if err := validateOwnedContainerForCleanup(ctx, runner, name, wantID, receipt.RunID); err != nil {
+		if err := validateOwnedContainerForCleanup(ctx, runner, name, wantID, receipt.RunID,
+			receipt.SchemaVersion == ownedReceiptV3); err != nil {
 			cleanupErr = errors.Join(cleanupErr, err)
 		}
 	}
@@ -902,31 +1024,63 @@ func validateOwnedContainersForCleanup(ctx context.Context, runner Runner, recei
 func removeTopologyResources(ctx context.Context, runner Runner, receipt lifecycleReceipt) error {
 	var cleanupErr error
 	if receipt.Topology != "" {
-		cleanupErr = errors.Join(cleanupErr, runCommand(ctx, runner, Command{
+		if err := runCommand(ctx, runner, Command{
 			Executable: executableContainerlab,
-			Arguments:  []string{"destroy", "--runtime", "podman", "--topo", receipt.Topology, "--cleanup"},
-			Directory:  filepath.Dir(receipt.Topology),
+			Arguments: []string{
+				"destroy", "--runtime", "podman", "--topo", receipt.Topology,
+				"--cleanup", "--keep-mgmt-net",
+			},
+			Directory: filepath.Dir(receipt.Topology),
+		}); err != nil {
+			// Direct containers carry the discovery labels needed to retry destroy.
+			return err
+		}
+	}
+	for _, name := range []string{gobfdContainer, frrContainer} {
+		id := receipt.Containers[name]
+		if id == "" {
+			continue
+		}
+		present, err := containerExists(ctx, runner, id)
+		if err != nil {
+			cleanupErr = errors.Join(cleanupErr, err)
+			continue
+		}
+		if !present {
+			continue
+		}
+		if err := validateOwnedContainerForCleanup(ctx, runner, name, id, receipt.RunID,
+			receipt.SchemaVersion == ownedReceiptV3); err != nil {
+			cleanupErr = errors.Join(cleanupErr, err)
+			continue
+		}
+		cleanupErr = errors.Join(cleanupErr, runCommand(ctx, runner, Command{
+			Executable: executablePodman, Arguments: []string{"rm", "--force", id},
 		}))
 	}
-	if id := receipt.Containers[gobfdContainer]; id != "" {
-		result, err := runner.Run(ctx, Command{
-			Executable: executablePodman,
-			Arguments:  []string{"container", "exists", id},
-		})
-		switch {
-		case err != nil:
-			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("inspect GoBFD container during cleanup: %w", err))
-		case result.ExitCode == 0:
-			cleanupErr = errors.Join(cleanupErr, runCommand(ctx, runner, Command{
-				Executable: executablePodman,
-				Arguments:  []string{"rm", "--force", id},
-			}))
-		case result.ExitCode != 1:
-			cleanupErr = errors.Join(cleanupErr, fmt.Errorf(
-				"inspect GoBFD container during cleanup: exit %d: %w",
-				result.ExitCode,
-				ErrBootstrapFailed,
-			))
+	return errors.Join(cleanupErr, verifyTopologyResourcesAbsent(ctx, runner, receipt))
+}
+
+func verifyTopologyResourcesAbsent(ctx context.Context, runner Runner, receipt lifecycleReceipt) error {
+	var cleanupErr error
+	for name, id := range receipt.Containers {
+		if err := validateOwnedContainerForCleanup(ctx, runner, name, id, receipt.RunID,
+			receipt.SchemaVersion == ownedReceiptV3); err != nil {
+			cleanupErr = errors.Join(cleanupErr, err)
+			continue
+		}
+		present, err := containerExists(ctx, runner, id)
+		if err != nil {
+			cleanupErr = errors.Join(cleanupErr, err)
+		} else if present {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("container %s remains after destroy: %w", name, errLifecycleState))
+		}
+	}
+	if receipt.SchemaVersion == ownedReceiptV3 && receipt.Topology != "" {
+		labDirectory := filepath.Join(filepath.Dir(receipt.Topology), "clab-"+labName)
+		if _, err := os.Lstat(labDirectory); !errors.Is(err, os.ErrNotExist) {
+			cleanupErr = errors.Join(cleanupErr,
+				fmt.Errorf("containerlab directory remains or cannot be inspected: %w", errLifecycleState))
 		}
 	}
 	return cleanupErr
@@ -934,18 +1088,28 @@ func removeTopologyResources(ctx context.Context, runner Runner, receipt lifecyc
 
 func removeOwnedImage(
 	ctx context.Context,
-	options Options,
 	runner Runner,
-	receipt lifecycleReceipt,
+	image lifecycleImage,
+	runID string,
 	imageID string,
 ) error {
+	currentID, present, err := validateOwnedImageForCleanup(ctx, runner, image, runID)
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	if currentID != imageID {
+		return fmt.Errorf("owned image changed before removal: %w", errLifecycleState)
+	}
 	if err := runCommand(ctx, runner, Command{
 		Executable: executablePodman,
-		Arguments:  []string{"image", "rm", imageID},
+		Arguments:  []string{"image", "rm", "--no-prune", imageID},
 	}); err != nil {
 		return err
 	}
-	return verifyOwnedImageRemoved(ctx, options, runner, receipt, imageID)
+	return verifyOwnedImageAbsent(ctx, runner, image, imageID)
 }
 
 func removeLifecycleFiles(projectRoot string, receipt lifecycleReceipt) error {
@@ -971,6 +1135,7 @@ func validateOwnedContainerForCleanup(
 	name string,
 	wantID string,
 	runID string,
+	strict bool,
 ) error {
 	idExists, err := containerExists(ctx, runner, wantID)
 	if err != nil {
@@ -986,7 +1151,7 @@ func validateOwnedContainerForCleanup(
 		}
 		return nil
 	}
-	gotID, err := inspectOwnedContainer(ctx, runner, name, runID)
+	gotID, err := inspectContainerIdentity(ctx, runner, name, runID, strict)
 	if err != nil {
 		return err
 	}
@@ -1014,211 +1179,11 @@ func containerExists(ctx context.Context, runner Runner, reference string) (bool
 	}
 }
 
-func stageGoBFDImage(ctx context.Context, options Options, runner Runner) (lifecycleReceipt, error) {
-	if options.lifecycleLockHeld {
-		return stageGoBFDImageLocked(ctx, options, runner)
-	}
-	lock, err := acquireLifecycleLock(options.ProjectRoot)
-	if err != nil {
-		return lifecycleReceipt{}, err
-	}
-	receipt, stageErr := stageGoBFDImageLocked(ctx, options, runner)
-	return receipt, errors.Join(stageErr, releaseLifecycleLock(lock))
-}
-
-func stageGoBFDImageLocked(ctx context.Context, options Options, runner Runner) (lifecycleReceipt, error) {
-	if options.SkipBuild {
-		return loadStagedGoBFDImage(ctx, options.ProjectRoot, runner)
-	}
-	return buildStagedGoBFDImage(ctx, options, runner)
-}
-
-func loadStagedGoBFDImage(ctx context.Context, projectRoot string, runner Runner) (lifecycleReceipt, error) {
-	receipt, err := loadLifecycleReceipt(projectRoot)
-	if err != nil {
-		return lifecycleReceipt{}, err
-	}
-	if receipt.SchemaVersion != ownedReceiptV2 || receipt.Topology != "" ||
-		len(receipt.Containers) != 0 || receipt.Image.ID == "" {
-		return lifecycleReceipt{}, fmt.Errorf("vendor image receipt is not staged: %w", errLifecycleState)
-	}
-	if _, err := validateOwnedImage(ctx, runner, receipt); err != nil {
-		return lifecycleReceipt{}, err
-	}
-	return receipt, nil
-}
-
-func buildStagedGoBFDImage(ctx context.Context, options Options, runner Runner) (lifecycleReceipt, error) {
-	if _, statErr := os.Lstat(receiptPath(options.ProjectRoot)); !errors.Is(statErr, os.ErrNotExist) {
-		if statErr == nil {
-			return lifecycleReceipt{}, fmt.Errorf(
-				"vendor lab receipt already exists; run interop-clab-down: %w",
-				errLifecycleState,
-			)
-		}
-		return lifecycleReceipt{}, fmt.Errorf("inspect vendor lab receipt: %w", statErr)
-	}
-	runID := fmt.Sprintf("%d-%d", time.Now().UTC().UnixNano(), os.Getpid())
-	receipt := lifecycleReceipt{
-		SchemaVersion: ownedReceiptV2,
-		RunID:         runID,
-		Containers:    make(map[string]string),
-		Image: lifecycleImage{
-			Reference: gobfdImageRepo + ":" + runID,
-		},
-	}
-	exists, err := imageExists(ctx, options, runner, receipt.Image.Reference)
-	if err != nil {
-		return lifecycleReceipt{}, err
-	}
-	if exists {
-		return lifecycleReceipt{}, fmt.Errorf(
-			"GoBFD image reference %s already exists: %w",
-			receipt.Image.Reference,
-			errLifecycleState,
-		)
-	}
-	if createErr := createLifecycleReceipt(options.ProjectRoot, receipt); createErr != nil {
-		return lifecycleReceipt{}, createErr
-	}
-	buildErr := runCommand(ctx, runner, buildCommand(options, receipt.Image.Reference, receipt.RunID))
-	if buildErr != nil {
-		return receipt, fmt.Errorf("build owned GoBFD image: %w", buildErr)
-	}
-	id, err := inspectOwnedImage(ctx, runner, receipt.Image.Reference, receipt.RunID)
-	if err != nil {
-		return receipt, err
-	}
-	receipt.Image.ID = id
-	if writeErr := writeLifecycleReceipt(options.ProjectRoot, receipt); writeErr != nil {
-		return receipt, writeErr
-	}
-	return receipt, nil
-}
-
-func validateOwnedImage(ctx context.Context, runner Runner, receipt lifecycleReceipt) (string, error) {
-	if receipt.SchemaVersion != ownedReceiptV2 {
-		return "", nil
-	}
-	exists, err := imageReferenceExists(ctx, runner, receipt.Image.Reference)
-	if err != nil {
-		return "", err
-	}
-	if !exists {
-		return "", fmt.Errorf("owned GoBFD image %s is missing: %w", receipt.Image.Reference, errLifecycleState)
-	}
-	id, err := inspectOwnedImage(ctx, runner, receipt.Image.Reference, receipt.RunID)
-	if err != nil {
-		return "", err
-	}
-	if receipt.Image.ID != "" && id != receipt.Image.ID {
-		return "", fmt.Errorf("GoBFD image %s changed identity: %w", receipt.Image.Reference, errLifecycleState)
-	}
-	return id, nil
-}
-
-func validateOwnedImageForCleanup(
-	ctx context.Context,
-	runner Runner,
-	receipt lifecycleReceipt,
-) (string, bool, error) {
-	if receipt.SchemaVersion != ownedReceiptV2 {
-		return "", false, nil
-	}
-	exists, err := imageReferenceExists(ctx, runner, receipt.Image.Reference)
-	if err != nil {
-		return "", false, err
-	}
-	if !exists {
-		if receipt.Image.ID == "" {
-			return "", false, nil
-		}
-		idExists, idErr := imageReferenceExists(ctx, runner, receipt.Image.ID)
-		if idErr != nil {
-			return "", false, idErr
-		}
-		if idExists {
-			return "", false, fmt.Errorf(
-				"owned GoBFD image reference %s no longer identifies %s: %w",
-				receipt.Image.Reference,
-				receipt.Image.ID,
-				errLifecycleState,
-			)
-		}
-		return "", false, nil
-	}
-	id, err := validateOwnedImage(ctx, runner, receipt)
-	if err != nil {
-		return "", false, err
-	}
-	return id, true, nil
-}
-
-func inspectOwnedImage(ctx context.Context, runner Runner, reference, runID string) (string, error) {
+func inspectContainerIdentity(ctx context.Context, runner Runner, name, runID string, strict bool) (string, error) {
 	result, err := runner.Run(ctx, Command{
 		Executable: executablePodman,
 		Arguments: []string{
-			"image", "inspect", "--format", inspectImageOwnershipFormat, reference,
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("inspect GoBFD image %s: %w", reference, err)
-	}
-	if result.ExitCode != 0 {
-		return "", fmt.Errorf("inspect GoBFD image %s: exit %d: %w", reference, result.ExitCode, ErrBootstrapFailed)
-	}
-	fields := strings.Split(strings.TrimSpace(result.Stdout), "|")
-	if len(fields) != 3 || fields[0] == "" || fields[1] != labName || fields[2] != runID {
-		return "", fmt.Errorf("GoBFD image %s is not owned by run %s: %w", reference, runID, errLifecycleState)
-	}
-	return fields[0], nil
-}
-
-func imageReferenceExists(ctx context.Context, runner Runner, reference string) (bool, error) {
-	result, err := runner.Run(ctx, Command{
-		Executable: executablePodman,
-		Arguments:  []string{"image", "exists", reference},
-	})
-	if err != nil {
-		return false, fmt.Errorf("inspect GoBFD image %s: %w", reference, err)
-	}
-	switch result.ExitCode {
-	case 0:
-		return true, nil
-	case 1:
-		return false, nil
-	default:
-		return false, fmt.Errorf("inspect GoBFD image %s: exit %d: %w", reference, result.ExitCode, ErrBootstrapFailed)
-	}
-}
-
-func verifyOwnedImageRemoved(
-	ctx context.Context,
-	options Options,
-	runner Runner,
-	receipt lifecycleReceipt,
-	imageID string,
-) error {
-	for _, reference := range []string{imageID, receipt.Image.Reference} {
-		exists, err := imageReferenceExists(ctx, runner, reference)
-		if err != nil {
-			return err
-		}
-		if exists {
-			return fmt.Errorf("GoBFD image %s remains after cleanup: %w", reference, errLifecycleState)
-		}
-	}
-	if options.Logger != nil {
-		options.Logger.InfoContext(ctx, "removed owned GoBFD image", "reference", receipt.Image.Reference, "id", imageID)
-	}
-	return nil
-}
-
-func inspectOwnedContainer(ctx context.Context, runner Runner, name, runID string) (string, error) {
-	result, err := runner.Run(ctx, Command{
-		Executable: executablePodman,
-		Arguments: []string{
-			"inspect", "--type", "container", "--format",
+			podmanInspect, "--type", "container", networkFormatOption,
 			inspectOwnershipFormat,
 			name,
 		},
@@ -1233,9 +1198,9 @@ func inspectOwnedContainer(ctx context.Context, runner Runner, name, runID strin
 	if len(fields) != 4 || fields[0] == "" {
 		return "", fmt.Errorf("decode ownership for container %s: %w", name, errLifecycleState)
 	}
-	if name == gobfdContainer {
+	if strict || name == gobfdContainer {
 		if fields[2] != labName || fields[3] != runID {
-			return "", fmt.Errorf("GoBFD container %s is not owned by run %s: %w", name, runID, errLifecycleState)
+			return "", fmt.Errorf("application container %s is not owned by run %s: %w", name, runID, errLifecycleState)
 		}
 	} else if fields[1] != labName {
 		return "", fmt.Errorf("vendor container %s lacks Containerlab ownership: %w", name, errLifecycleState)
@@ -1285,59 +1250,41 @@ func releaseLifecycleLock(lock *interopproject.ProjectLock) error {
 }
 
 func createLifecycleReceipt(projectRoot string, receipt lifecycleReceipt) error {
-	path := receiptPath(projectRoot)
+	return createPrivateReceipt(receiptPath(projectRoot), receipt)
+}
+
+func createPrivateReceipt(path string, receipt any) error {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("create vendor lifecycle receipt: %w", err)
 	}
 	encoder := json.NewEncoder(file)
 	encodeErr := encoder.Encode(receipt)
+	syncErr := file.Sync()
 	closeErr := file.Close()
-	if err := errors.Join(encodeErr, closeErr); err != nil {
-		return fmt.Errorf("write vendor lifecycle receipt: %w", err)
+	if writeErr := errors.Join(encodeErr, syncErr, closeErr); writeErr != nil {
+		return fmt.Errorf("write vendor lifecycle receipt: %w", writeErr)
 	}
-	return nil
+	directory, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return fmt.Errorf("open created receipt directory: %w", err)
+	}
+	return errors.Join(directory.Sync(), directory.Close())
 }
 
 func writeLifecycleReceipt(projectRoot string, receipt lifecycleReceipt) error {
-	path := receiptPath(projectRoot)
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
-		return fmt.Errorf("validate vendor lifecycle receipt: %w", errLifecycleState)
-	}
 	data, err := json.Marshal(receipt)
 	if err != nil {
 		return fmt.Errorf("encode vendor lifecycle receipt: %w", err)
 	}
 	data = append(data, '\n')
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return fmt.Errorf("update vendor lifecycle receipt: %w", err)
-	}
-	return nil
+	return replaceLifecycleReceipt(receiptPath(projectRoot), data)
 }
 
 func loadLifecycleReceipt(projectRoot string) (lifecycleReceipt, error) {
-	path := receiptPath(projectRoot)
-	info, err := os.Lstat(path)
-	if err != nil {
-		return lifecycleReceipt{}, fmt.Errorf("inspect vendor lifecycle receipt: %w", err)
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	invalidFile := !ok || !info.Mode().IsRegular() || info.Mode().Perm() != secureFileMode
-	invalidOwner := ok && int(stat.Uid) != os.Getuid()
-	invalidSize := info.Size() <= 0 || info.Size() > maxReceiptSize
-	if invalidFile || invalidOwner || invalidSize {
-		return lifecycleReceipt{}, fmt.Errorf("validate vendor lifecycle receipt %s: %w", path, errLifecycleState)
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return lifecycleReceipt{}, fmt.Errorf("open vendor lifecycle receipt: %w", err)
-	}
-	defer file.Close()
 	var receipt lifecycleReceipt
-	decoder := json.NewDecoder(io.LimitReader(file, maxReceiptSize))
-	if err := decoder.Decode(&receipt); err != nil {
-		return lifecycleReceipt{}, fmt.Errorf("decode vendor lifecycle receipt: %w", err)
+	if err := loadPrivateReceipt(receiptPath(projectRoot), &receipt); err != nil {
+		return lifecycleReceipt{}, err
 	}
 	if !validLifecycleReceipt(receipt) {
 		return lifecycleReceipt{}, fmt.Errorf("validate vendor lifecycle receipt fields: %w", errLifecycleState)
@@ -1345,13 +1292,48 @@ func loadLifecycleReceipt(projectRoot string) (lifecycleReceipt, error) {
 	return receipt, nil
 }
 
+func loadPrivateReceipt(path string, receipt any) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect private receipt: %w", err)
+	}
+	if !privateReceiptFile(info) || info.Size() <= 0 || info.Size() > maxReceiptSize {
+		return fmt.Errorf("validate private receipt %s: %w", path, errLifecycleState)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open private receipt: %w", err)
+	}
+	data, readErr := io.ReadAll(io.LimitReader(file, maxReceiptSize+1))
+	if err := errors.Join(readErr, file.Close()); err != nil {
+		return fmt.Errorf("read private receipt: %w", err)
+	}
+	// v1 decoding alone accepts duplicate names and replaces invalid UTF-8.
+	if len(data) > maxReceiptSize || !jsontext.Value(data).IsValid() {
+		return fmt.Errorf("require one strict ownership JSON document: %w", errLifecycleState)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(receipt); err != nil {
+		return fmt.Errorf("decode private receipt: %w", err)
+	}
+	return nil
+}
+
 func validLifecycleReceipt(receipt lifecycleReceipt) bool {
+	if receipt.SchemaVersion == ownedReceiptV3 {
+		return validOwnedReceipt(receipt)
+	}
+	if receipt.RunID == "" || receipt.FRR != (lifecycleImage{}) ||
+		receipt.Network != (lifecycleNetwork{}) || len(receipt.ExpectedContainers) != 0 {
+		return false
+	}
 	switch receipt.SchemaVersion {
 	case legacyReceiptV1:
-		return receipt.RunID != "" && filepath.IsAbs(receipt.Topology) && len(receipt.Containers) != 0
+		return filepath.IsAbs(receipt.Topology) && len(receipt.Containers) != 0 && receipt.Image == (lifecycleImage{})
 	case ownedReceiptV2:
-		validTopology := receipt.Topology == "" || filepath.IsAbs(receipt.Topology)
-		return receipt.RunID != "" && receipt.Image.Reference == gobfdImageRepo+":"+receipt.RunID && validTopology
+		return receipt.Image.Reference == gobfdImageRepo+":"+receipt.RunID &&
+			(receipt.Topology == "" || filepath.IsAbs(receipt.Topology))
 	default:
 		return false
 	}
@@ -1387,12 +1369,4 @@ func receiptPath(projectRoot string) string {
 
 func runtimeTopologyPath(projectRoot string) string {
 	return filepath.Join(projectRoot, "test", "interop-clab", "gobfd-vendors.generated.clab.yml")
-}
-
-func mustFRRReference(projectRoot string) string {
-	reference, err := loadFRRReference(projectRoot)
-	if err != nil {
-		return "quay.io/frrouting/frr:10.7.0"
-	}
-	return reference
 }

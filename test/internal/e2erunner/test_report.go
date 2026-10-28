@@ -28,7 +28,7 @@ func testReportTarget(target string) (testReportSpec, bool) {
 			artifactEnvironment: "E2E_CORE_TESTCONTAINERS_ARTIFACT_DIR",
 			commandTimeout:      11 * time.Minute,
 			goArguments: []string{
-				"test", "-tags", "e2e_core_testcontainers", "./test/e2e/core", "-race", "-count=1",
+				goTestCommand, goTagsFlag, "e2e_core_testcontainers", "./test/e2e/core", goRaceFlag, "-count=1",
 				"-json", "-timeout", "10m", "-run", "^TestCoreDaemonTestcontainers$",
 			},
 		}, true
@@ -38,7 +38,7 @@ func testReportTarget(target string) (testReportSpec, bool) {
 			artifactEnvironment: "E2E_BGP_FAILOVER_TESTCONTAINERS_ARTIFACT_DIR",
 			commandTimeout:      11 * time.Minute,
 			goArguments: []string{
-				"test", "-tags", "e2e_bgp_failover_testcontainers", "./test/e2e/bgp-failover", "-race",
+				goTestCommand, goTagsFlag, "e2e_bgp_failover_testcontainers", "./test/e2e/bgp-failover", goRaceFlag,
 				"-count=1", "-json", "-timeout", "10m", "-run", "^TestBGPFastFailoverTestcontainers$",
 			},
 		}, true
@@ -48,8 +48,8 @@ func testReportTarget(target string) (testReportSpec, bool) {
 			artifactEnvironment: "E2E_HAPROXY_TESTCONTAINERS_ARTIFACT_DIR",
 			commandTimeout:      11 * time.Minute,
 			goArguments: []string{
-				"test", "-trimpath", "-tags", "e2e_haproxy_testcontainers", "./test/e2e/haproxy-health",
-				"-race", "-count=1", "-json", "-timeout", "10m",
+				goTestCommand, "-trimpath", goTagsFlag, "e2e_haproxy_testcontainers", "./test/e2e/haproxy-health",
+				goRaceFlag, "-count=1", "-json", "-timeout", "10m",
 			},
 		}, true
 	case "observability":
@@ -59,8 +59,8 @@ func testReportTarget(target string) (testReportSpec, bool) {
 			ownerEnvironment:    "E2E_OBSERVABILITY_TESTCONTAINERS_ARTIFACT_OWNER",
 			commandTimeout:      16 * time.Minute,
 			goArguments: []string{
-				"test", "-trimpath", "-tags", "e2e_observability_testcontainers", "./test/e2e/observability",
-				"-race", "-count=1", "-json", "-timeout", "15m",
+				goTestCommand, "-trimpath", goTagsFlag, "e2e_observability_testcontainers", "./test/e2e/observability",
+				goRaceFlag, "-count=1", "-json", "-timeout", "15m",
 			},
 		}, true
 	default:

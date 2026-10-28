@@ -76,7 +76,7 @@ func TestEchoWatchRejectsDelayedOwnersAcrossRegistries(t *testing.T) {
 					}
 					mgr.ownershipMu.Lock()
 					mgr.registerEchoAndStart(t.Context(), es, NewSenderLease(echoLeaseSender{}, nil),
-						canonicalEchoSessionKey(cfg), echoSessionSourceCompatibility)
+						canonicalEchoSessionKey(cfg), compatibilityAPISessionOwner())
 					mgr.ownershipMu.Unlock()
 					if es.RecvEcho() != DeliveryQueued {
 						t.Fatal("replacement Echo receive was refused")

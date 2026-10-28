@@ -62,6 +62,7 @@ func TestLinuxTransportAPIsRejectUnsupportedPlatform(t *testing.T) {
 					WithDstPort(PortEcho),
 					WithBindDevice("eth0"),
 					WithWriteBuffer(4096),
+					WithSocketQoS(SocketQoS{IPv4DSCP: 48, IPv6TrafficClass: 192}),
 				)
 				return err
 			},

@@ -1,66 +1,81 @@
-# Production runbooks интеграций
+# Эксплуатационные инструкции для интеграций
 
 ![Linux](https://img.shields.io/badge/Linux-Hosts-FCC624?style=for-the-badge&logo=linux&logoColor=black)
 ![Kubernetes](https://img.shields.io/badge/Kubernetes-DaemonSet-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
 ![BGP](https://img.shields.io/badge/BGP-Fast_Failover-00ADD8?style=for-the-badge)
 ![Overlay](https://img.shields.io/badge/Overlay-Lab_Only-ea4335?style=for-the-badge)
 
-> Runbooks для развёртывания и проверки GoBFD в Linux, Kubernetes, BGP и overlay-network окружениях.
+> Инструкции по развёртыванию и проверке GoBFD в Linux, Kubernetes, BGP и оверлейных сетях.
+
+Это операторские процедуры для текущих исходников `dev`, а не новые
+квитанции запуска или приёмка стабильного релиза. Выполняйте проверки только
+в допущенной лаборатории с подтверждённым владением ресурсами; сохраняйте
+точные идентификаторы исходников и образов и наблюдённые результаты.
+Интеграция исходников в `dev` разрешена; публикация релиза остаётся заблокированной.
 
 ---
 
 ## База проверки
 
-- RFC 5880: в Asynchronous mode detection time равен удалённому Detect Mult,
-  умноженному на согласованный receive interval.
-- RFC 5881: single-hop BFD использует UDP destination port 3784, source port из
-  dynamic range и TTL/Hop Limit 255.
-- RFC 7130: Micro-BFD создаёт независимые сессии на каждый LAG member и
-  использует UDP port 6784.
-- RFC 8971: VXLAN BFD использует Management VNI, inner UDP destination port
-  3784 и inner TTL/Hop Limit 255.
-- RFC 9521: Geneve BFD работает для point-to-point Geneve tunnels с inner
+- RFC 5880: в асинхронном режиме время обнаружения равно удалённому Detect Mult,
+  умноженному на согласованный интервал приёма.
+- RFC 5881: одношаговый BFD использует UDP-порт назначения 3784, порт источника
+  из динамического диапазона и TTL/Hop Limit 255.
+- RFC 7130: Micro-BFD создаёт независимые сессии для каждого участника LAG и
+  использует UDP-порт 6784.
+- RFC 8971: VXLAN BFD использует Management VNI, внутренний UDP-порт назначения
+  3784 и внутренний TTL/Hop Limit 255.
+- RFC 9521: Geneve BFD работает для туннелей Geneve типа точка-точка с внутренним
   TTL/Hop Limit 255 и требованиями к управлению частотой трафика.
-- Текущие userspace receive paths VXLAN/Geneve являются небезопасными и
-  неполными preview: валидация inner packet и полная tunnel-session identity
-  не прошли production qualification.
-- Kubernetes host-network pods require `dnsPolicy: ClusterFirstWithHostNet`
-  when `hostNetwork: true` is set.
-- Vendor examples require public vendor documentation.
+- Пути VXLAN/Geneve IPv4 Format A в пространстве пользователя имеют локальные проверки пакетов
+  и идентичности. Ограниченные результаты проверки на проводе не квалифицируют
+  интеграцию с владельцем плоскости передачи, пересылку вендора или рабочее развёртывание.
+  Это неполные предварительные реализации с явным включением; см.
+  [Разработку](09-development.md#проверка-overlay-на-проводе) и
+  [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go).
+- Pod Kubernetes в сетевом пространстве узла требуют `dnsPolicy: ClusterFirstWithHostNet`
+  при `hostNetwork: true`.
+- Примеры для оборудования остаются необязательными и требуют ссылок на публичную документацию производителя.
 
 ## Профили развёртывания
 
 | Профиль | Сценарий | Артефакты |
 |---|---|---|
-| BGP failover | Linux routing host или лабораторная пара FRR/GoBGP | `deployments/integrations/bgp-fast-failover/` |
-| Kubernetes daemon | Один экземпляр GoBFD на узел через host networking | `deployments/integrations/kubernetes/` |
-| Наблюдаемость | Prometheus alerts и Grafana dashboard | `deployments/integrations/observability/` |
-| Overlay lab | Только изолированная проверка VXLAN/Geneve | [ADR-0003](./adr/0003-linux-advanced-bfd-applicability.md) |
+| Переключение BGP | Linux-маршрутизатор или лабораторная пара FRR/GoBGP | `deployments/integrations/bgp-fast-failover/` |
+| Демон Kubernetes | Один экземпляр GoBFD на узел в его сетевом пространстве | `deployments/integrations/kubernetes/` |
+| Наблюдаемость | Оповещения Prometheus и панель Grafana | `deployments/integrations/observability/` |
+| Оверлейная лаборатория | Только изолированная проверка VXLAN/Geneve | [ADR-0003](./adr/0003-linux-advanced-bfd-applicability.md) |
 
-## Kubernetes host-network daemon
+## Демон Kubernetes в сетевом пространстве узла
 
-Используйте этот паттерн, когда BFD-пиры достижимы из network namespace узла.
-DaemonSet намеренно универсален: он не кодирует site topology, private
-addresses или vendor-specific assumptions.
+Используйте этот вариант, когда BFD-пиры достижимы из сетевого пространства узла.
+Универсальный DaemonSet не задаёт топологию площадки, частные адреса или
+допущения для конкретного производителя.
 
 Обязательные свойства:
 
 - `hostNetwork: true`
 - `dnsPolicy: ClusterFirstWithHostNet`
-- только Linux nodes
-- `NET_RAW` для BFD packet sockets
-- `NET_ADMIN` для socket options и будущей link-state integration
-- TCP readiness/liveness probes для gRPC и metrics ports
+- только узлы Linux
+- `NET_RAW` для пакетных сокетов BFD
+- `NET_ADMIN` для включённых опций сокетов и операций с интерфейсами
+- проверка готовности через запуск `gobfdctl` и Unix-сокет; проверка работоспособности через TCP-порт метрик
+
+До применения манифестов поместите `gobfd:local` и `gobgp:local` в хранилище
+образов каждого подходящего узла: манифест задаёт `imagePullPolicy: Never`.
+Пример исполнителя импортирует образы только в локальное хранилище k3s и сохраняет
+несовпадение меток pod и устаревшие проверки (`gobfd-qj0.8.2.8.7.1.4.1`). Это
+отдельные ограничения исполнителя, а не приведённых ниже команд применения манифестов.
 
 Развёртывание:
 
 ```bash
 kubectl apply -f deployments/integrations/kubernetes/manifests/
-kubectl -n gobfd rollout status daemonset/gobfd
+kubectl -n gobfd rollout status daemonset/gobfd --timeout=120s
 kubectl -n gobfd get pods -o wide
 ```
 
-Проверка host networking и probes:
+Проверка сетевого режима узла и проверок состояния:
 
 ```bash
 kubectl -n gobfd describe daemonset/gobfd
@@ -68,88 +83,115 @@ kubectl -n gobfd get endpoints gobfd
 kubectl -n gobfd logs -l app.kubernetes.io/name=gobfd -c gobfd --tail=100
 ```
 
-Операционные заметки:
+Эксплуатационные замечания:
 
 - Для статических окружений фиксируйте BFD-сессии в `configmap-gobfd.yml`.
-- Для динамических окружений создавайте сессии через `gobfdctl` или controller
-  после node/peer discovery.
-- Держите GoBFD API на localhost или доверенной management-сети, если mTLS не
-  настроен.
+- Для динамических окружений создавайте сессии через `gobfdctl` или контроллер
+  после обнаружения узлов и пиров.
+- Сохраняйте Unix-сокет по умолчанию. Удалённое управление через TCP требует
+  mTLS; доверенная сеть не разрешает незашифрованный слушатель вне loopback.
+- Поставляемый ConfigMap открывает метрики без аутентификации по `:9100` в
+  сети хоста. До использования примера ограничьте доступность на границе узла.
+- Сайдкар GoBGP привязывает API к `127.0.0.1:50051`. Обе probes GoBGP
+  выполняют поставляемую команду `gobgp global` против этого loopback API
+  с таймаутом три секунды. Незашифрованный доступ к API с узла сохраняется.
+  Проверьте probes, счётчики OOM и перезапуски при объявленных лимитах ресурсов;
+  `gobfd-qj0.8.2.8.7.1.4.1.1` сохраняет квалификацию работающего кластера.
 
-## BGP fast-failover drill
+Импорт образов Kubernetes и квалификация на работающем кластере не завершены.
+Эти манифесты и проверки являются примерами, а не принятым развёртыванием
+кластера. Готовность подтверждает доступ к управлению, но не установление
+сессий или сходимость маршрутов.
+
+## Проверка быстрого переключения BGP
 
 Запуск универсальной FRR/GoBGP-интеграции:
 
 ```bash
 make int-bgp-failover-up
-make int-bgp-failover-logs
+# При необходимости смотрите логи в отдельном терминале.
+# make int-bgp-failover-logs
 ```
 
 Полная документация примера:
 [`deployments/integrations/bgp-fast-failover/README.md`](../../deployments/integrations/bgp-fast-failover/README.md).
 
-Baseline checks:
+Исходные проверки:
 
 ```bash
 podman exec gobgp-bgp-failover gobgp neighbor
 podman exec gobgp-bgp-failover gobgp global rib
-podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd -c 5
+podman exec gobfd-bgp-failover gobfdctl session list
+podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd
 ```
 
-Failure drill:
+До имитации отказа подтвердите BFD Up и наличие маршрута `10.20.0.0/24`.
+Команды ниже показывают наблюдения; отдельная проверка с утверждениями об
+отзыве и восстановлении запускается через `make int-bgp-failover`.
+
+Используйте существующий жизненный цикл на Go с проверками отказа.
+Сначала остановите отдельно запущенный пример, освободив фиксированные имена;
+тест создаёт собственную топологию и проверяет отзыв и восстановление маршрута:
 
 ```bash
-podman pause frr-bgp-failover
-sleep 2
-podman exec gobgp-bgp-failover gobgp global rib
-podman unpause frr-bgp-failover
-sleep 5
-podman exec gobgp-bgp-failover gobgp global rib
+make int-bgp-failover-down
+make int-bgp-failover
 ```
 
 Ожидаемый результат:
 
-- BFD переходит из Up в Down до истечения обычного BGP hold timer.
+- BFD переходит из Up в Down до истечения обычного таймера удержания BGP.
 - GoBGP отключает затронутого пира.
-- Доступность маршрута восстанавливается после возврата BFD-сессии в Up.
+- Маршрут `10.20.0.0/24` возвращается в GoBGP RIB после BFD Up; пересылка трафика проверяется отдельно.
 
-## Проверка Prometheus alerts
+## Проверка оповещений Prometheus
 
-Запустите observability stack:
+Используйте изолированный хост: лаборатория публикует порты хоста 9090/3000 и
+использует стандартные учётные данные Grafana; см. [Интеграции](11-integrations.md#наблюдаемость).
+Ниже приведена локальная процедура; эта правка документации не фиксирует новый
+прогон. Команды просмотра требуют `curl`.
+
+Запустите стек наблюдаемости:
 
 ```bash
 make int-observability-up
 ```
 
-Проверьте targets и rules:
+Проверьте цели сбора метрик и правила:
 
 ```bash
 curl -fsS http://localhost:9090/api/v1/targets
 curl -fsS http://localhost:9090/api/v1/rules
 ```
 
-Вызовите down transition:
+Для проверки используйте существующий жизненный цикл testcontainers на Go.
+Сначала остановите пример для просмотра. Тест создаёт собственную топологию,
+проверяет сбор метрик, вызывает отказ пути FRR, требует оповещение в состоянии
+`firing` и проверяет восстановление:
 
 ```bash
-podman stop frr-observability
-sleep 5
-curl -fsS http://localhost:9090/api/v1/alerts
-podman start frr-observability
+make int-observability-down
+make int-observability-testcontainers
 ```
 
-Назначение alerts:
+Код 0 требует восстановления BFD, работоспособности цели и состояния оповещения
+`inactive` после фазы отказа. Одного HTTP 200 недостаточно. Жизненный цикл
+сохраняет evidence и очищает собственные ресурсы. Поля ответа определяет Prometheus
+[alerts API](https://prometheus.io/docs/prometheus/latest/querying/api/#alerts).
 
-| Alert | Значение |
+Назначение оповещений:
+
+| Оповещение | Значение |
 |---|---|
-| `BFDNoActiveSessions` | У GoBFD нет активных сконфигурированных сессий. |
+| `BFDNoActiveSessions` | Работающий экспортёр без активных Control-сессий, включая экспортёр, ещё не создавший сессий. |
 | `BFDSessionDownTransition` | Сессия перешла из Up в Down. |
 | `BFDSessionFlapping` | Сессия изменила состояние более 3 раз за 5 минут. |
-| `BFDAuthFailures` | Проверка authentication по RFC 5880 завершилась ошибкой. |
-| `BFDPacketDrops` | Были packet validation, demux или buffer drops. |
+| `BFDAuthFailures` | Проверка аутентификации по RFC 5880 завершилась ошибкой. |
+| `BFDPacketDrops` | Выросло число отброшенных пакетов допущенных пиров; результаты разбора и демультиплексирования до сессии учитывает отдельный журнал доставки. |
 
-## Packet verification
+## Проверка пакетов
 
-Проверяйте видимое RFC-поведение через packet captures, а не только по логам:
+Проверяйте поведение на проводе по захваченным пакетам, а не только по логам:
 
 ```bash
 podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd \
@@ -166,42 +208,39 @@ podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd \
   -E separator=,
 ```
 
-Ожидаемые single-hop значения:
+Ожидаемые значения для одного перехода:
 
 | Поле | Ожидаемо |
 |---|---|
-| UDP destination port | 3784 |
-| UDP source port | 49152-65535 |
+| UDP-порт назначения | 3784 |
+| UDP-порт источника | 49152-65535 |
 | TTL/Hop Limit | 255 |
-| BFD version | 1 |
-| State progression | Down -> Init -> Up |
+| Версия BFD | 1 |
+| Последовательность состояний | Down -> Init -> Up |
 
-## Public vendor notes
+## Публичные заметки по оборудованию
 
-Примеры GoBFD остаются vendor-neutral. Vendor snippets требуют первичной
-vendor-документации.
+Примеры GoBFD не зависят от производителя. Фрагменты конфигурации оборудования
+требуют первичной документации производителя.
 
-Опубликованные optional notes:
+Опубликованные дополнительные заметки:
 
-- [Arista EOS BFD verification note](../../deployments/integrations/bgp-fast-failover/vendor-notes/arista-eos.md)
+- [Проверка BFD в Arista EOS](../../deployments/integrations/bgp-fast-failover/vendor-notes/arista-eos.md)
 
-Публичное поведение Arista EOS:
+Используйте первичные ссылки заметки для точного релиза и профиля оборудования.
+Дополнительный пример команды производителя не подтверждает аппаратную
+обработку, применение состояния Micro-BFD к участнику LAG или непрерывность
+пересылки в GoBFD.
 
-- `neighbor bfd` включает BFD для BGP neighbor или peer group.
-- Если BFD-сессия перешла Down, связанная BGP-сессия также переводится Down.
-- `show bfd peers` отображает BFD state и session type, включая RFC7130 и Vxlan
-  там, где они поддерживаются.
-- `show port-channel <N> detail` может показать members inactive из-за RFC 7130
-  micro-session state.
+## Оставшиеся ограничения рабочей эксплуатации
 
-## Открытые production gaps
-
-| Gap | Статус |
+| Ограничение | Статус |
 |---|---|
-| Dedicated API/CLI create flows для Echo, Micro-BFD, VXLAN и Geneve | Planned |
-| Kernel/OVS/OVN/Cilium/Calico/NSX overlay backends beyond `userspace-udp` | Future |
-| Release signatures, provenance и Scorecard hardening | Implemented |
+| Создание Echo и Micro-BFD через API/CLI | Предварительная реализация; квалификация транспорта, владельца и RFC остаётся отдельной |
+| Отдельные API/CLI создания VXLAN/Geneve | Не реализованы; используются явно включаемые декларативные профили |
+| Оверлейные backend ядра/OVS/OVN/Cilium/Calico/NSX помимо `userspace-udp` | Будущая работа |
+| OCI SBOM/provenance и контрольные суммы релиза | Процесс реализован; точный кандидат проверяется до публикации; шаг подписи не настроен |
 
 ---
 
-*Последнее обновление: 2026-05-01*
+*Сверено с исходниками `dev`: 2026-10-25; команды проверены по коду, но не выполнялись.*

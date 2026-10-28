@@ -90,7 +90,7 @@ func TestPathDownRetainsRemoteDiscriminatorUntilOwnerExpiry(t *testing.T) {
 			t.Fatal("repeated PathDown command rejected")
 		}
 		bad := signedAuthExpiryPacket(t, s, 202)
-		bad.pkt.Auth.Digest[0] ^= 0xff
+		bad.pkt.Auth.Data[0] ^= 0xff
 		s.recvCh <- bad
 		synctest.Wait()
 		synctest.Sleep(detection/4 - time.Nanosecond)
@@ -113,7 +113,7 @@ func TestDownInterruptionReanchorsDiscriminatorExpiry(t *testing.T) {
 				s, _, tx, detect := newRemoteTxTestSession(t)
 				s.requiredMinRxInterval = time.Second
 				s.remoteDesiredMinTxInterval, s.remoteDetectMult = 100*time.Millisecond, 3
-				proposal := timerTuple{100 * time.Millisecond, 100 * time.Millisecond}
+				proposal := timerTuple{100 * time.Millisecond, 100 * time.Millisecond, 3, 0, 0}
 				if _, err := s.admitTimerUpdate(t.Context(), proposal, 1); err != nil {
 					t.Fatal(err)
 				}
@@ -202,7 +202,7 @@ func TestRemoteDiscriminatorExpiryOwnerTimer(t *testing.T) {
 					case "missing authentication":
 						bad.pkt.AuthPresent = false
 					case "invalid digest":
-						bad.pkt.Auth.Digest[0] ^= 0xff
+						bad.pkt.Auth.Data[0] ^= 0xff
 					}
 					s.recvCh <- bad
 					synctest.Wait()

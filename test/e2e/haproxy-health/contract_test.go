@@ -4,7 +4,6 @@ package haproxy_health_test
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -19,20 +18,6 @@ import (
 
 	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
-
-type successfulBuiltImageClient struct {
-	imageID string
-}
-
-func (client successfulBuiltImageClient) ImageExists(context.Context, string) (bool, error) {
-	return true, nil
-}
-
-func (client successfulBuiltImageClient) ImageID(context.Context, string) (string, error) {
-	return client.imageID, nil
-}
-
-func (successfulBuiltImageClient) RemoveImage(context.Context, string) error { return nil }
 
 func TestHAProxyHealthContract(t *testing.T) {
 	root := repositoryRoot(t)
@@ -109,25 +94,6 @@ func TestRuntimeOwnerIPv4Contract(t *testing.T) {
 	}
 }
 
-func TestSuccessfulBuildInspectsAndRecordsContentID(t *testing.T) {
-	const imageID = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	var recorded []string
-	err := inspectAndRecordBuiltImage(
-		t.Context(), "localhost/gobfd-haproxy-health:test-owned",
-		successfulBuiltImageClient{imageID: imageID},
-		func(got string) error {
-			recorded = append(recorded, got)
-			return nil
-		},
-	)
-	if err != nil {
-		t.Fatalf("inspect and record successful build: %v", err)
-	}
-	if len(recorded) != 1 || recorded[0] != imageID {
-		t.Fatalf("recorded content IDs = %v, want exact %s", recorded, imageID)
-	}
-}
-
 func TestContainerSnapshotRejectsOversizedInspection(t *testing.T) {
 	reportDir := t.TempDir()
 	if err := initializeHAProxyDiagnostics(reportDir); err != nil {
@@ -181,6 +147,13 @@ func TestRuntimeContractStartupFailureWraps(t *testing.T) {
 }
 
 func TestBFDSessionJSONGo127Compatibility(t *testing.T) {
+	valid := `{"peer_address":"172.23.0.30","local_address":"172.23.0.10","type":"SingleHop",` +
+		`"observation_version":42,"remote_known":true,"remote_diagnostic":"None",` +
+		`"local_control_plane_independent":true,"remote_control_plane_independent":true,` +
+		`"cause":"RemoteStateChange","padded_pdu_size":0,"local_state":"Up","remote_state":"Up"}`
+	if _, err := parseBFDSessionJSON(valid, "172.23.0.30"); err != nil {
+		t.Fatalf("decode current CLI session JSON: %v", err)
+	}
 	tests := map[string]struct {
 		input string
 		peer  string

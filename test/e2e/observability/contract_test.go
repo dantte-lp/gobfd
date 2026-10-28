@@ -52,7 +52,7 @@ func TestObservabilityCompatibilityGateContract(t *testing.T) {
 	}
 	for _, path := range []string{
 		contract.gobfdConfig, contract.frrDaemons, contract.frrConfig,
-		contract.prometheusConfig, contract.alertRules, contract.grafanaDatasource,
+		contract.prometheusConfig, contract.alertRules, contract.alertRuleTests, contract.grafanaDatasource,
 		contract.grafanaDashboardProvider, contract.grafanaDashboard, contract.tsharkContainerfile,
 	} {
 		if _, err := os.Stat(path); err != nil {
@@ -134,6 +134,9 @@ func TestObservabilityAPIBoundaries(t *testing.T) {
 	}
 
 	validSession := `{"peer_address":"172.25.0.20","local_address":"172.25.0.10","type":"single_hop",` +
+		`"observation_version":42,"remote_known":true,"remote_diagnostic":"None",` +
+		`"local_control_plane_independent":true,"remote_control_plane_independent":true,` +
+		`"cause":"RemoteStateChange","padded_pdu_size":0,` +
 		`"local_state":"Up","remote_state":"Up","local_diagnostic":"None",` +
 		`"local_discriminator":1,"remote_discriminator":2,"detect_multiplier":3,"auth_type":"None"}`
 	if _, err := parseBFDSessionJSON(validSession, contract.frrIP); err != nil {

@@ -43,6 +43,14 @@ COMPOSE_FILE := deployments/compose/compose.dev.yml
 DC := COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) $(COMPOSE) -p $(COMPOSE_PROJECT_NAME) -f $(COMPOSE_FILE)
 EXEC := $(DC) exec -T dev
 E2ECTL_BIN := /tmp/gobfd-e2ectl
+E2E_AGGREGATES := e2e-routing e2e-rfc e2e-overlay e2e-linux e2e-vendor
+E2E_PRIVATE_TARGETS := $(addprefix _,$(E2E_AGGREGATES))
+ifneq ($(filter $(E2E_AGGREGATES) $(E2E_PRIVATE_TARGETS) e2e-overlay-test e2e-linux-test,$(MAKECMDGOALS)),)
+override E2E_COMPILER_PIN := $(shell awk '$$1 == "FROM" && $$3 == "AS" && $$4 == "go-toolchain" { image = $$2; count++ } $$1 == "toolchain" { toolchain = $$2 } END { digest = image; sub(/^.*@sha256:/, "", digest); sub(/^go/, "", toolchain); if (count == 1 && image == "docker.io/library/golang:" toolchain "-trixie@sha256:" digest && length(digest) == 64 && digest !~ /[^0-9a-f]/) print image }' deployments/docker/Containerfile.dev go.mod)
+ifneq ($(words $(E2E_COMPILER_PIN)),1)
+$(error E2E compiler requires exactly one digest-pinned go-toolchain FROM matching go.mod toolchain)
+endif
+endif
 SEMGREP ?= semgrep
 SEMGREP_CONFIG ?= p/golang
 SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-version-check --timeout 15 --no-git-ignore --include='*.go' .
@@ -55,6 +63,7 @@ SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-versi
         dev-ps dev-project dev-ensure e2ectl-build \
         e2e-help e2e-core e2e-core-testcontainers \
         e2e-routing e2e-routing-test e2e-rfc e2e-rfc-test e2e-overlay e2e-overlay-test e2e-linux e2e-linux-test e2e-vendor e2e-vendor-test \
+        $(E2E_PRIVATE_TARGETS) \
 	interop-project-validate interop interop-test interop-testcontainers interop-up interop-down interop-logs \
         interop-capture interop-pcap interop-pcap-summary integration \
         interop-bgp interop-bgp-test interop-bgp-testcontainers interop-bgp-up interop-bgp-down interop-bgp-logs \
@@ -132,8 +141,27 @@ e2e-core-testcontainers: e2ectl-build
 		./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/core/...
 	$(EXEC) $(E2ECTL_BIN) core
 e2e-routing: interop-project-validate
+
+# One directory lock covers dev recreation, non-atomic Go output publication and runtime.
+$(E2E_AGGREGATES):
+ifneq ($(findstring n,$(filter-out --%,$(firstword $(MAKEFLAGS)))),)
+	@printf '%s\n' '$(MAKE) --no-print-directory _$@'
+else
+	test ! -L bin
+	mkdir -p bin
+	test ! -L bin/e2ectl
+	flock --exclusive --close --wait 120 bin $(MAKE) --no-print-directory _$@
+endif
+
+$(E2E_PRIVATE_TARGETS):
 	$(DC) up -d --build --force-recreate dev
-	go run ./test/cmd/e2ectl routing
+	podman run --rm --cpus 2 --memory 2g --memory-swap 2g --pids-limit 512 \
+		--cap-drop ALL --security-opt no-new-privileges --image-volume ignore \
+		--volume "$(CURDIR):/src:ro,z" --volume "$(CURDIR)/bin:/out:rw,z" --workdir /src \
+		--env CGO_ENABLED=0 --env GOTOOLCHAIN=local --env GOMEMLIMIT=1500MiB \
+		--entrypoint /usr/local/go/bin/go "$(E2E_COMPILER_PIN)" \
+		build -trimpath -mod=readonly -o /out/e2ectl ./test/cmd/e2ectl
+	env "COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME)" ./bin/e2ectl $(patsubst _e2e-%,%,$@)
 
 e2e-routing-test: interop-project-validate
 	$(INTEROP_CTL) lock-run -- env "COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME)" \
@@ -149,29 +177,13 @@ e2e-routing-test: interop-project-validate
 		INTEROP_BGP_COMPOSE_FILE=/app/test/interop-bgp/compose.yml \
 		go test -tags interop_bgp -v -count=1 -timeout 300s ./test/interop-bgp/
 
-e2e-rfc:
-	$(DC) up -d --build --force-recreate dev
-	go run ./test/cmd/e2ectl rfc
-
 e2e-rfc-test:
 	$(EXEC) env INTEROP_RFC_COMPOSE_FILE=/app/test/interop-rfc/compose.yml \
 		go test -tags interop_rfc -v -count=1 -timeout 300s ./test/interop-rfc/
 
-e2e-overlay:
-	$(DC) up -d --build --force-recreate dev
-	go run ./test/cmd/e2ectl overlay
-
 e2e-overlay-test: e2e-overlay
 
-e2e-linux:
-	$(DC) up -d --build --force-recreate dev
-	go run ./test/cmd/e2ectl linux
-
 e2e-linux-test: e2e-linux
-
-e2e-vendor:
-	$(DC) up -d --build --force-recreate dev
-	go run ./test/cmd/e2ectl vendor
 
 e2e-vendor-test:
 	$(EXEC) go test -tags e2e_vendor -v -count=1 -timeout 120s ./test/e2e/vendor/
@@ -257,7 +269,7 @@ interop-testcontainers: dev-ensure
 		INTEROP_TESTCONTAINERS_ARTIFACT_DIR=/app/reports/e2e/interop-testcontainers \
 		GOBFD_BUILD_REVISION="$(shell git rev-parse --verify HEAD^{commit})" \
 		go test -tags interop_testcontainers -race -count=1 -v -timeout 20m \
-		-run '^(TestFourPeerTopologyTestcontainers|TestBIRDFlowSpecValidation|TestCraftedPeerTestcontainers)$$' ./test/interop/
+		-run '^(TestFourPeerTopologyTestcontainers|TestFourPeerMeticulousTopologyTestcontainers|TestBIRDFlowSpecValidation|TestCraftedPeerTestcontainers|TestCraftedMultihopTTLTestcontainers)$$' ./test/interop/
 
 interop-up: interop-project-validate
 	$(INTEROP_CTL) up
@@ -348,27 +360,235 @@ interop-rfc-logs:
 
 CLAB_TOPO := test/interop-clab/gobfd-vendors.clab.yml
 
+# Cold-start boundary only: the controller and payload lifecycle remain Go-owned.
+# All effects stay in the recipe, so make -n does not create launcher resources.
+# The lock inode persists; its descriptor is inherited by compiler/controller children.
+define CLAB_COLD_CONTROLLER
+@set -eu; \
+umask 077; LC_ALL=C; export LC_ALL; \
+clab_root=$$(pwd -P); clab_uid=$$(id -u); \
+clab_runtime="$$clab_root/test/interop-clab/gobfd/.runtime"; \
+clab_fail() { printf '%s\n' "clabbootstrap: $$*" >&2; return 1; }; \
+clab_private_dir() { \
+  [ ! -L "$$1" ] && [ -d "$$1" ] && \
+  [ "$$(stat -c '%a:%u:%F' -- "$$1")" = "700:$$clab_uid:directory" ]; \
+}; \
+clab_private_file() { \
+  [ ! -L "$$1" ] && [ -f "$$1" ] && \
+  [ "$$(stat -c '%a:%u:%h' -- "$$1")" = "600:$$clab_uid:1" ]; \
+}; \
+clab_hex() { \
+  [ "$${#1}" -eq "$$2" ] || return 1; \
+  case "$$1" in *[!0123456789abcdef]*) return 1;; esac; \
+}; \
+mkdir -p -- "$$clab_runtime"; \
+clab_private_dir "$$clab_runtime" || { clab_fail 'runtime directory must be owned and private'; exit 1; }; \
+clab_lock="$$clab_runtime/controller-build.lock"; \
+if [ ! -e "$$clab_lock" ] && [ ! -L "$$clab_lock" ]; then \
+  (set -C; : > "$$clab_lock") || exit 1; \
+fi; \
+clab_private_file "$$clab_lock" || { clab_fail 'unsafe bootstrap lock'; exit 1; }; \
+exec 9<>"$$clab_lock"; \
+flock -n 9 || { clab_fail 'another cold controller holds the bootstrap lock'; exit 1; }; \
+[ "$$(stat -Lc '%d:%i' -- /proc/$$$$/fd/9)" = "$$(stat -c '%d:%i' -- "$$clab_lock")" ] || exit 1; \
+clab_intent="$$clab_runtime/controller-build.intent"; clab_child=; \
+clab_run() { \
+  "$$@" & clab_child=$$!; \
+  if wait "$$clab_child"; then clab_result=0; else clab_result=$$?; fi; \
+  clab_child=; return "$$clab_result"; \
+}; \
+clab_exists() { timeout --kill-after=5s 30s podman container exists "$$1"; }; \
+clab_identity() { \
+  clab_record=$$(timeout --kill-after=5s 30s podman inspect --type container --format \
+    '{{.Id}}|{{index .Config.Labels "io.gobfd.interop-clab.owner"}}|{{index .Config.Labels "io.gobfd.interop-clab.run"}}' \
+    "$$clab_name") || return $$?; \
+  clab_observed=$${clab_record%%|*}; clab_labels=$${clab_record#*|}; \
+  clab_owner=$${clab_labels%%|*}; clab_run_id=$${clab_labels#*|}; \
+  clab_hex "$$clab_observed" 64 && [ "$$clab_owner" = gobfd-vendors ] && \
+    [ "$$clab_run_id" = "$$clab_nonce" ] && \
+    [ "$$clab_record" = "$$clab_observed|$$clab_owner|$$clab_run_id" ] || \
+    { clab_fail 'compiler identity is foreign or malformed'; return 1; }; \
+  printf '%s\n' "$$clab_observed"; \
+}; \
+clab_load_intent() { \
+  clab_private_file "$$clab_intent" && [ "$$(stat -c '%s' -- "$$clab_intent")" = 33 ] || \
+    { clab_fail 'unsafe bootstrap intent'; return 1; }; \
+  clab_nonce=$$(cat -- "$$clab_intent") || return $$?; \
+  clab_hex "$$clab_nonce" 32 && \
+    [ "$$(printf '%s\n' "$$clab_nonce" | sha256sum)" = "$$(sha256sum < "$$clab_intent")" ] || \
+    { clab_fail 'bootstrap intent must contain exactly one nonce'; return 1; }; \
+  clab_base="controller-build-$$clab_nonce"; clab_context="$$clab_runtime/$$clab_base"; \
+  clab_name="gobfd-clab-bootstrap-$$clab_nonce"; clab_cid="$$clab_context/compiler.cid"; \
+  if [ -e "$$clab_context" ] || [ -L "$$clab_context" ]; then \
+    clab_private_dir "$$clab_context" || { clab_fail 'unsafe compiler output directory'; return 1; }; \
+  fi; \
+}; \
+clab_absent() { \
+  if clab_exists "$$1"; then clab_fail 'compiler reference remains present'; return 1; \
+  else clab_status=$$?; [ "$$clab_status" -eq 1 ] || return "$$clab_status"; fi; \
+}; \
+clab_remove_compiler() { \
+  clab_expected=; clab_prefix=; clab_partial=0; \
+  if [ -e "$$clab_cid" ] || [ -L "$$clab_cid" ]; then \
+    clab_private_file "$$clab_cid" || return 1; \
+    clab_cid_size=$$(stat -c '%s' -- "$$clab_cid") || return $$?; \
+    [ "$$clab_cid_size" -le 65 ] || return 1; \
+    clab_prefix=$$(cat -- "$$clab_cid") || return $$?; \
+    if [ "$$clab_cid_size" -eq 65 ]; then \
+      clab_hex "$$clab_prefix" 64 && \
+        [ "$$(printf '%s\n' "$$clab_prefix" | sha256sum)" = "$$(sha256sum < "$$clab_cid")" ] || return 1; \
+      clab_expected=$$clab_prefix; \
+    else \
+      [ "$${#clab_prefix}" -eq "$$clab_cid_size" ] || return 1; \
+      case "$$clab_prefix" in *[!0123456789abcdef]*) return 1;; esac; \
+      clab_partial=1; \
+    fi; \
+  fi; \
+  if clab_exists "$$clab_name"; then \
+    clab_seen=$$(clab_identity) || return $$?; \
+    [ -z "$$clab_expected" ] || [ "$$clab_expected" = "$$clab_seen" ] || \
+      { clab_fail 'compiler ID differs from its checkpoint'; return 1; }; \
+    if [ -z "$$clab_expected" ]; then \
+      clab_private_dir "$$clab_context" || return 1; \
+      if [ "$$clab_partial" -eq 1 ]; then \
+        case "$$clab_seen" in "$$clab_prefix"*) :;; \
+          *) clab_fail 'partial compiler ID differs from its owner'; return 1;; esac; \
+        printf '%s\n' "$${clab_seen#"$$clab_prefix"}" >> "$$clab_cid" || return $$?; \
+      else \
+        (set -C; printf '%s\n' "$$clab_seen" > "$$clab_cid") || return $$?; \
+      fi; \
+      sync -- "$$clab_cid" "$$clab_context" || return $$?; \
+      clab_expected=$$clab_seen; \
+    fi; \
+    clab_current=$$(clab_identity) || return $$?; \
+    [ "$$clab_current" = "$$clab_expected" ] || return 1; \
+    timeout --kill-after=5s 60s podman rm --force "$$clab_expected" || return $$?; \
+  else \
+    clab_status=$$?; [ "$$clab_status" -eq 1 ] || return "$$clab_status"; \
+    [ "$$clab_partial" -eq 0 ] || [ -z "$$clab_prefix" ] || \
+      { clab_fail 'partial compiler checkpoint has no matching named container'; return 1; }; \
+  fi; \
+  clab_absent "$$clab_name" || return $$?; \
+  if [ -n "$$clab_expected" ]; then clab_absent "$$clab_expected" || return $$?; fi; \
+}; \
+clab_cleanup() { \
+  if [ ! -e "$$clab_intent" ] && [ ! -L "$$clab_intent" ]; then return 0; fi; \
+  clab_private_dir "$$clab_runtime" && clab_load_intent && clab_remove_compiler || return $$?; \
+  ( \
+    cd -- "$$clab_runtime" || exit 1; \
+    clab_private_dir . && \
+      [ "$$(stat -c '%d:%i' .)" = "$$(stat -c '%d:%i' -- "$$clab_runtime")" ] || exit 1; \
+    if [ -e "./$$clab_base" ] || [ -L "./$$clab_base" ]; then \
+      clab_private_dir "./$$clab_base" && rm -rf --one-file-system -- "./$$clab_base" || exit 1; \
+    fi; \
+    [ ! -e "./$$clab_base" ] && [ ! -L "./$$clab_base" ] || exit 1; \
+    sync -- . || exit 1; \
+    clab_private_file controller-build.intent && rm -- controller-build.intent || exit 1; \
+    sync -- .; \
+  ); \
+}; \
+clab_finish() { \
+  clab_exit=$$?; trap - 0 HUP INT TERM; \
+  if clab_cleanup; then :; elif [ "$$clab_exit" -eq 0 ]; then clab_exit=1; fi; \
+  exit "$$clab_exit"; \
+}; \
+clab_signal() { \
+  trap - HUP INT TERM; \
+  if [ -n "$$clab_child" ]; then kill -"$$1" "$$clab_child" 2>/dev/null || :; wait "$$clab_child" || :; fi; \
+  exit "$$2"; \
+}; \
+trap 'clab_finish' 0; trap 'clab_signal HUP 129' HUP; \
+trap 'clab_signal INT 130' INT; trap 'clab_signal TERM 143' TERM; \
+clab_cleanup || exit $$?; \
+clab_nonce=$$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n'); \
+clab_hex "$$clab_nonce" 32 || exit 1; \
+clab_base="controller-build-$$clab_nonce"; clab_context="$$clab_runtime/$$clab_base"; \
+clab_name="gobfd-clab-bootstrap-$$clab_nonce"; \
+[ ! -e "$$clab_context" ] && [ ! -L "$$clab_context" ] || exit 1; \
+clab_absent "$$clab_name" || exit $$?; \
+(set -C; printf '%s\n' "$$clab_nonce" > "$$clab_intent"); \
+sync -- "$$clab_intent" "$$clab_runtime"; \
+mkdir -- "$$clab_context" "$$clab_context/src" "$$clab_context/out"; \
+clab_load_intent; \
+clab_copy_source() { \
+  [ ! -L "$$1" ] && [ -f "$$1" ] && [ "$$(stat -c '%s' -- "$$1")" -le 2097152 ] || return 1; \
+  cp -- "$$1" "$$2" && chmod 0400 -- "$$2"; \
+}; \
+for clab_input in go.mod go.sum; do \
+  clab_copy_source "$$clab_root/$$clab_input" "$$clab_context/src/$$clab_input"; \
+done; \
+for clab_package in test/cmd/clabbootstrap test/internal/clabbootstrap test/internal/interopproject \
+  test/internal/podmanapi test/internal/vendorprofiles; do \
+  [ ! -L "$$clab_root/$$clab_package" ] && [ -d "$$clab_root/$$clab_package" ] || exit 1; \
+  mkdir -p -- "$$clab_context/src/$$clab_package"; \
+  clab_count=0; \
+  for clab_input in "$$clab_root/$$clab_package/"*.go; do \
+    case "$$clab_input" in *_test.go) continue;; esac; \
+    clab_file=$${clab_input##*/}; \
+    clab_copy_source "$$clab_input" "$$clab_context/src/$$clab_package/$$clab_file"; \
+    clab_count=$$((clab_count + 1)); \
+  done; \
+  [ "$$clab_count" -gt 0 ] || exit 1; \
+done; \
+case $$(uname -m) in x86_64) clab_arch=amd64;; aarch64|arm64) clab_arch=arm64;; *) exit 1;; esac; \
+clab_created=$$(clab_run timeout --kill-after=5s 60s podman create \
+  --name "$$clab_name" --network bridge --read-only --cap-drop ALL \
+  --label io.gobfd.interop-clab.owner=gobfd-vendors --label "io.gobfd.interop-clab.run=$$clab_nonce" \
+  --security-opt no-new-privileges --security-opt label=disable --image-volume ignore \
+  --cpus 2 --memory 2g --memory-swap 2g --pids-limit 512 --pull never \
+  --tmpfs /tmp:rw,nosuid,nodev,size=512m --tmpfs /root/.cache/go-build:rw,nosuid,nodev,size=512m \
+  --tmpfs /go/pkg/mod:rw,nosuid,nodev,size=512m --workdir /src \
+  --env GOTOOLCHAIN=local --env GOWORK=off --env CGO_ENABLED=0 --env GOOS=linux --env "GOARCH=$$clab_arch" \
+  --env GOMAXPROCS=2 --env GOMEMLIMIT=512MiB \
+  --mount "type=bind,src=$$clab_context/src,dst=/src,ro=true" \
+  --mount "type=bind,src=$$clab_context/out,dst=/out" \
+  docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c \
+  /usr/bin/timeout --signal=TERM --kill-after=5s 900s /bin/sh -eu -c \
+  '"$$@"; go version -m /out/clabbootstrap > /out/build-info; \
+   grep -Fx "/out/clabbootstrap: go1.27.3" /out/build-info > /dev/null; \
+   grep -Fx "$$(printf "\tpath\tgithub.com/dantte-lp/gobfd/test/cmd/clabbootstrap")" /out/build-info > /dev/null; \
+   grep -Fx "$$(printf "\tbuild\tCGO_ENABLED=0")" /out/build-info > /dev/null; \
+   grep -Fx "$$(printf "\tbuild\tGOOS=linux")" /out/build-info > /dev/null; \
+   grep -Fx "$$(printf "\tbuild\tGOARCH=%s" "$$GOARCH")" /out/build-info > /dev/null' \
+  clab-compile go build -trimpath -mod=readonly -buildvcs=false -o /out/clabbootstrap ./test/cmd/clabbootstrap); \
+clab_hex "$$clab_created" 64 && [ "$$(clab_identity)" = "$$clab_created" ] || exit 1; \
+(set -C; printf '%s\n' "$$clab_created" > "$$clab_cid"); \
+sync -- "$$clab_cid" "$$clab_context"; \
+if clab_run timeout --kill-after=5s 960s podman start --attach "$$clab_created"; then :; else exit $$?; fi; \
+[ "$$(clab_identity)" = "$$clab_created" ] || exit 1; \
+clab_state=$$(timeout --kill-after=5s 30s podman inspect --type container --format \
+  '{{.State.Status}}|{{.State.Running}}|{{.State.ExitCode}}|{{.State.OOMKilled}}' "$$clab_created"); \
+[ "$$clab_state" = 'exited|false|0|false' ] || \
+  { clab_fail 'compiler did not finish successfully'; exit 1; }; \
+clab_remove_compiler; \
+clab_artifact="$$clab_context/out/clabbootstrap"; clab_native="$$clab_context/clabbootstrap"; \
+[ ! -L "$$clab_artifact" ] && [ -f "$$clab_artifact" ] && [ -s "$$clab_artifact" ] && \
+  [ "$$(stat -c '%s' -- "$$clab_artifact")" -le 134217728 ] || exit 1; \
+clab_digest=$$(sha256sum < "$$clab_artifact"); \
+(set -C; cat -- "$$clab_artifact" > "$$clab_native"); chmod 0500 -- "$$clab_native"; \
+[ "$$(sha256sum < "$$clab_native")" = "$$clab_digest" ] || exit 1; \
+if clab_run timeout --signal=TERM --kill-after=15s 1800s "$$clab_native" $(1); then exit 0; else exit $$?; fi
+endef
+
 interop-clab-bootstrap:
-	go run ./test/cmd/clabbootstrap $(ARGS)
+	$(call CLAB_COLD_CONTROLLER,$(ARGS))
 
 interop-clab:
-	$(DC) up -d --build --force-recreate dev
-	go run ./test/cmd/clabbootstrap --test
+	$(call CLAB_COLD_CONTROLLER,--test)
 
 interop-clab-test:
-	$(EXEC) go test -tags interop_clab -v -count=1 -timeout 600s ./test/interop-clab/
+	$(call CLAB_COLD_CONTROLLER,--test-only)
 
 interop-clab-up:
-	$(DC) up -d --build --force-recreate dev
-	go run ./test/cmd/clabbootstrap --deploy
+	$(call CLAB_COLD_CONTROLLER,--deploy)
 
 interop-clab-down:
-	go run ./test/cmd/clabbootstrap --down
+	$(call CLAB_COLD_CONTROLLER,--down)
 
 # === Integration Examples ===
 
 INT_BGP_CTL := env "INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}-bgp-fast-failover" INTEROP_PROJECT_KIND=bgp-fast-failover $(INTEROP_CTL)
-INT_HAPROXY_DC := $(COMPOSE) -f deployments/integrations/haproxy-health/compose.yml
+INT_HAPROXY_CTL := env INTEROP_PROJECT_NAME=gobfd-haproxy-health INTEROP_PROJECT_KIND=haproxy-health $(INTEROP_CTL)
 INT_OBS_DC := $(COMPOSE) -f deployments/integrations/observability/compose.yml
 INT_EXABGP_CTL := env "INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}-exabgp-anycast" INTEROP_PROJECT_KIND=exabgp-anycast $(INTEROP_CTL)
 
@@ -398,13 +618,13 @@ int-haproxy-testcontainers: e2ectl-build
 	$(EXEC) $(E2ECTL_BIN) haproxy-health
 
 int-haproxy-up:
-	$(INT_HAPROXY_DC) up --build -d
+	$(INT_HAPROXY_CTL) up
 
 int-haproxy-down:
-	$(INT_HAPROXY_DC) down --volumes --remove-orphans
+	$(INT_HAPROXY_CTL) down
 
 int-haproxy-logs:
-	$(INT_HAPROXY_DC) logs -f
+	$(INT_HAPROXY_CTL) logs
 
 int-observability:
 	go run ./test/cmd/integrationctl observability
@@ -446,6 +666,10 @@ int-k8s-down:
 
 # === Benchmarks & Profiling ===
 
+# Preserve producer and tee failures before publishing benchmark reports.
+benchmark benchmark-all benchmark-save benchmark-compare: SHELL := bash
+benchmark benchmark-all benchmark-save benchmark-compare: .SHELLFLAGS := -e -o pipefail -c
+
 benchmark:
 	$(EXEC) go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$$' ./internal/bfd/ | tee benchmark.txt
 
@@ -479,9 +703,10 @@ benchmark-save:
 	@cat $(BENCH_DIR)/$(BENCH_VERSION)/benchmark-bfd.txt \
 		$(BENCH_DIR)/$(BENCH_VERSION)/benchmark-netio.txt \
 		> $(BENCH_DIR)/$(BENCH_VERSION)/benchmark.txt
-	@printf '{"version":"%s","commit":"%s","date":"%s","go":"%s","count":6}\n' \
+	@go_version="$$($(EXEC) go env GOVERSION)"; \
+	printf '{"version":"%s","commit":"%s","date":"%s","go":"%s","count":6}\n' \
 		"$(BENCH_VERSION)" "$(GIT_COMMIT)" "$(BUILD_DATE)" \
-		"$$($(EXEC) go env GOVERSION)" \
+		"$$go_version" \
 		> $(BENCH_DIR)/$(BENCH_VERSION)/meta.json
 	@echo "=== Benchmarks saved to $(BENCH_DIR)/$(BENCH_VERSION)/ ==="
 

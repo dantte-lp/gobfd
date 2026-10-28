@@ -9,7 +9,7 @@ Four binaries: `gobfd` (daemon), `gobfdctl` (CLI), `gobfd-haproxy-agent` (HAProx
 make build                                         # сборка всех 4 бинарников с ldflags
 go test ./... -race -count=1                       # тесты с race detector
 go test -run '^TestFSMTransition$' ./internal/bfd  # один тест
-make lint                                          # линтер (v2, 92 линтера + 17 build-tag profiles)
+make lint                                          # линтер (v2, 92 линтера + 18 build-tag profiles)
 buf generate                                       # генерация proto
 buf lint                                           # проверка proto
 make interop                                       # interop tests (FRR + BIRD3 + Holo + Thoro/bfd, 4 peers)
@@ -121,6 +121,9 @@ All other Python container stages remain forbidden.
 ## Container base policy
 
 Use digest-pinned Debian trixie for application build and runtime images.
+Oracle Linux 10 is excluded from v1 OCI products and lifecycle qualification
+by maintainer decision on 2026-10-23. Keep generic RPM package generation;
+preserve historical v0.6 artifacts and release-line contracts.
 Do not substitute Alpine, bookworm or a scratch runtime. Scratch stages that
 only hold checksum-verified downloads contain no executable environment and
 are allowed. Remaining legacy and vendor NOS consumers stay unqualified until
@@ -139,6 +142,16 @@ an upstream image name alone is not an exception.
   Podman runtime contract.
 - Run the provider version check and render every tracked Compose file before
   live topology validation.
+
+## Planning
+
+- Beads is the sole source of executable plans, priorities, dependencies,
+  acceptance criteria, blockers and handoff/resume steps.
+- Do not create or maintain Markdown task/checklist plans. Files under
+  `docs/superpowers/plans/` are Beads entrypoints only; roadmaps are dated
+  status projections, not task authority. Keep measured evidence separate.
+- Read and update the relevant Beads issue before implementation. A skill's
+  Markdown-plan workflow does not override this repository requirement.
 
 ## Release branches
 

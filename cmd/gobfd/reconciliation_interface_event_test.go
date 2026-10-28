@@ -106,7 +106,7 @@ func TestReconciliationCoordinatorUnavailableInterfaceClassifiesWithoutApply(t *
 		},
 		{
 			name:          "same pending receipt is no-op",
-			initial:       sourceApplyResult{Created: 3, Released: 2, Pending: 2},
+			initial:       sourceApplyResult{Created: 3, Released: 2, Pending: 2, Err: errors.Join(typed0, typed1)},
 			pendingClaims: 2, preflightErr: errors.Join(typed0, typed1),
 			wantPending: 2, wantCheckCalls: 1,
 		},

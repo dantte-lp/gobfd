@@ -218,6 +218,15 @@ func parseGoInput(path string) (goInput, error) {
 	return result, nil
 }
 
+// ValidateGoRecord validates one benchmark row using the report's numeric checks.
+func ValidateGoRecord(line string) error {
+	if !strings.HasPrefix(strings.TrimSpace(line), "Benchmark") {
+		return invalidInputf("not a Go benchmark record")
+	}
+	_, err := parseGoRecord("benchmark output", 1, line)
+	return err
+}
+
 func parseGoRecord(path string, lineNumber int, line string) (goEntry, error) {
 	fields := strings.Fields(line)
 	location := fmt.Sprintf("%s:%d", path, lineNumber)

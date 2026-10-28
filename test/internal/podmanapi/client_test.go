@@ -32,6 +32,42 @@ func TestDemuxDockerStream(t *testing.T) {
 	}
 }
 
+func TestClientRemoveImagePreservesParents(t *testing.T) {
+	t.Parallel()
+	for _, status := range []int{http.StatusNoContent, http.StatusConflict} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			t.Parallel()
+			queries := make(chan url.Values, 1)
+			socket := filepath.Join(t.TempDir(), "podman.sock")
+			server := newUnixHTTPServer(t, socket, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodDelete || r.URL.Path != "/v5.0.0/images/owned-child" {
+					http.NotFound(w, r)
+					return
+				}
+				queries <- r.URL.Query()
+				w.WriteHeader(status)
+				if status == http.StatusConflict {
+					_, _ = w.Write([]byte(`{"message":"image is in use"}`))
+				}
+			}))
+			defer server.Close()
+			client, err := NewClient(socket)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = client.RemoveImage(t.Context(), "owned-child")
+			if (status == http.StatusNoContent && err != nil) ||
+				(status == http.StatusConflict && !errors.Is(err, errImageRemoveStatus)) {
+				t.Fatalf("remove status %d: %v", status, err)
+			}
+			query := <-queries
+			if query.Get("force") != "false" || query.Get("noprune") != "true" {
+				t.Errorf("unsafe image removal query: %s", query.Encode())
+			}
+		})
+	}
+}
+
 func TestClientExecLogsInspectAndLifecycle(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "podman.sock")
 	seen := make(map[string]int)

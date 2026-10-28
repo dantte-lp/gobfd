@@ -25,7 +25,7 @@ type listenerAdmissionRecorder struct {
 }
 
 func (r *listenerAdmissionRecorder) DemuxWithWire(
-	pkt *bfd.ControlPacket, meta bfd.PacketMeta, wire []byte,
+	pkt bfd.ControlPacket, meta bfd.PacketMeta, wire []byte,
 ) (bfd.DeliveryOutcome, error) {
 	outcome, err := r.mgr.DemuxWithWire(pkt, meta, wire)
 	r.calls <- listenerAdmission{meta: meta, err: err}
@@ -66,7 +66,7 @@ func checkUnsolicitedListenerAdmission(t *testing.T, cfg *config.Config, src, ds
 	t.Helper()
 	logger := slog.New(slog.DiscardHandler)
 	// A missing IPv6 namespace fixture is explicit, never a passing IPv6 acceptance.
-	probe, err := netio.NewUDPSender(netip.MustParseAddr(src), 0, false, logger, netio.WithBindDevice("lo"))
+	probe, err := netio.NewUDPSender(netip.MustParseAddr(src), 49152, false, logger, netio.WithBindDevice("lo"))
 	if err != nil {
 		t.Skipf("dedicated dual-stack network namespace required: %v", err)
 	}
@@ -148,7 +148,7 @@ func checkUnsolicitedListenerAdmission(t *testing.T, cfg *config.Config, src, ds
 		}
 	}
 	if configured {
-		known, sendErr := netio.NewUDPSender(netip.MustParseAddr("127.0.0.3"), 0, false, logger)
+		known, sendErr := netio.NewUDPSender(netip.MustParseAddr("127.0.0.3"), 49153, false, logger)
 		if sendErr != nil {
 			t.Fatal(sendErr)
 		}

@@ -1149,7 +1149,7 @@ func TestSessionCachedPacketIncludesAuthSection(t *testing.T) {
 		if !pkt.AuthPresent {
 			t.Fatal("AuthPresent = false, want true")
 		}
-		if pkt.Auth == nil {
+		if pkt.Auth.IsZero() {
 			t.Fatal("Auth = nil, want simple password section")
 		}
 		if pkt.Auth.Type != bfd.AuthTypeSimplePassword {
@@ -1158,8 +1158,8 @@ func TestSessionCachedPacketIncludesAuthSection(t *testing.T) {
 		if pkt.Auth.KeyID != 7 {
 			t.Fatalf("Auth.KeyID = %d, want 7", pkt.Auth.KeyID)
 		}
-		if string(pkt.Auth.AuthData) != "s10-core-auth" {
-			t.Fatalf("AuthData = %q, want s10-core-auth", string(pkt.Auth.AuthData))
+		if string(pkt.Auth.Data[:pkt.Auth.DataLen]) != "s10-core-auth" {
+			t.Fatalf("Data = %q, want s10-core-auth", string(pkt.Auth.Data[:pkt.Auth.DataLen]))
 		}
 	})
 }

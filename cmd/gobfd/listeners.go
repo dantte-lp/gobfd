@@ -75,7 +75,7 @@ type ownedListener struct {
 	// between reads as a stale binding, never as a false ready one.
 	ifIndex int
 	claims  listenerClaims
-	// apiClaims counts the API-created senders receiving on this listener.
+	// apiClaims counts sender-owned RX leases, including shared Echo wires.
 	apiClaims    int
 	stop         context.CancelFunc
 	rebindFailed bool
@@ -132,24 +132,16 @@ func newListenerOwner(
 }
 
 // startListenerOwner opens the startup listeners, then runs the owner's
-// fail-stop worker and the periodic binding recheck. Any listener failure
-// fails startup.
+// fail-stop worker. The coordinator owns periodic resource rechecks. Any
+// listener failure fails startup.
 func startListenerOwner(
-	ctx context.Context, g *errgroup.Group, cfg *config.Config, owner *listenerOwner, logger *slog.Logger,
+	ctx context.Context, g *errgroup.Group, cfg *config.Config, owner *listenerOwner,
 ) error {
 	//nolint:contextcheck // Receivers are owner-scoped: close() cancels each one before its socket closes.
 	if err := owner.openStartup(cfg); err != nil {
 		return err
 	}
 	g.Go(func() error { return owner.run(ctx) })
-	// Interface events re-check bindings promptly; the ticker covers a
-	// disabled or stopped interface monitor.
-	g.Go(func() error {
-		recheckBindings(ctx, bindingRecheckInterval, func() error {
-			return owner.checkBindings(net.Interfaces)
-		}, logger)
-		return nil
-	})
 	return nil
 }
 
@@ -203,9 +195,8 @@ func (o *listenerOwner) acquire(claims listenerClaims, configs []netio.ListenerC
 	return nil
 }
 
-// claimAPI takes one API claim on the listener of cfg, opening it when
-// absent. An API Echo session shares the per-address Echo listener, as
-// configured Echo peers do.
+// claimAPI takes one sender-owned claim on the listener of cfg, opening it when
+// absent. Echo claims share only listeners with the same address and interface.
 func (o *listenerOwner) claimAPI(cfg netio.ListenerConfig) (listenerKey, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -213,13 +204,6 @@ func (o *listenerOwner) claimAPI(cfg netio.ListenerConfig) (listenerKey, error) 
 		return listenerKey{}, errListenerOwnerClosed
 	}
 	key := listenerKeyOf(cfg)
-	if key.port == netio.PortEcho {
-		if index := slices.IndexFunc(o.order, func(k listenerKey) bool {
-			return k.port == netio.PortEcho && k.addr == key.addr
-		}); index >= 0 {
-			key = o.order[index]
-		}
-	}
 	if owned, ok := o.listeners[key]; ok {
 		owned.apiClaims++
 		return key, nil
@@ -372,7 +356,7 @@ func (o *listenerOwner) release(claims listenerClaims, configs []netio.ListenerC
 func (o *listenerOwner) checkBindings(interfaces interfaceInventory) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if !slices.ContainsFunc(o.order, listenerKey.deviceBound) {
+	if len(o.order) == 0 {
 		return o.readiness.watchBindings(nil, interfaces)
 	}
 	current, err := interfaces()
@@ -409,20 +393,22 @@ func (o *listenerOwner) checkBindings(interfaces interfaceInventory) error {
 }
 
 func (o *listenerOwner) bindingsLocked() []listenerBinding {
-	var bindings []listenerBinding
+	bindings := make([]listenerBinding, 0, len(o.order))
 	for _, key := range o.order {
-		if key.deviceBound() {
-			bindings = append(bindings, listenerBinding{
-				ifName: key.ifName, ifIndex: o.listeners[key].ifIndex, component: key.component(),
-			})
+		binding := listenerBinding{
+			component: key.component(), address: netio.LocalAddress{Addr: key.addr, Interface: key.ifName},
 		}
+		if key.deviceBound() {
+			binding.ifName, binding.ifIndex = key.ifName, o.listeners[key].ifIndex
+		}
+		bindings = append(bindings, binding)
 	}
 	return slices.Compact(bindings)
 }
 
 func (o *listenerOwner) publishLocked() {
 	if err := o.readiness.watchBindings(o.bindingsLocked(), o.interfaces); err != nil {
-		o.logger.Warn("listener interface check failed; readiness unchanged", slog.String("error", err.Error()))
+		o.logger.Warn("listener resource check failed", slog.String("error", err.Error()))
 	}
 }
 
@@ -565,16 +551,30 @@ func newAPIListenerSenderFactory(
 	}
 }
 
+// EchoReady reports the live receive owner's admission state, before allocation.
+func (f *apiListenerSenderFactory) EchoReady() bool {
+	if !f.echo || f.owner == nil {
+		return false
+	}
+	f.owner.mu.Lock()
+	defer f.owner.mu.Unlock()
+	return !f.owner.closed && f.owner.readiness.echoAPIReady()
+}
+
 // CreateSender claims the listener before it creates the sender.
 func (f *apiListenerSenderFactory) CreateSender(
-	localAddr netip.Addr, ifName string, multiHop, doNotFragment bool, logger *slog.Logger,
+	localAddr netip.Addr, ifName string, kind bfd.SessionType, doNotFragment bool, logger *slog.Logger,
 ) (bfd.PacketSender, uint16, error) {
-	lnCfg := netio.ListenerConfig{Addr: localAddr, IfName: ifName, Port: netio.PortSingleHop, MultiHop: multiHop}
-	switch {
-	case f.echo:
-		lnCfg = netio.ListenerConfig{Addr: localAddr, Port: netio.PortEcho, ExpectedTTL: netio.TTLEchoLoopback}
-	case multiHop:
+	lnCfg := netio.ListenerConfig{Addr: localAddr, IfName: ifName, Port: netio.PortSingleHop}
+	switch kind {
+	case bfd.SessionTypeSingleHop:
+	case bfd.SessionTypeEcho:
+		lnCfg.Port, lnCfg.ExpectedTTL = netio.PortEcho, netio.TTLEchoLoopback
+	case bfd.SessionTypeMultiHop:
 		lnCfg.Port = netio.PortMultiHop
+		lnCfg.MultiHop = true
+	default:
+		return nil, 0, fmt.Errorf("API listener type %d: %w", kind, bfd.ErrInvalidSessionType)
 	}
 	key, err := f.owner.claimAPI(lnCfg)
 	if err != nil {
@@ -583,7 +583,7 @@ func (f *apiListenerSenderFactory) CreateSender(
 		}
 		return nil, 0, err
 	}
-	sender, port, err := f.SenderFactory.CreateSender(localAddr, ifName, multiHop, doNotFragment, logger)
+	sender, port, err := f.SenderFactory.CreateSender(localAddr, ifName, kind, doNotFragment, logger)
 	if err != nil {
 		f.owner.releaseAPI(key)
 		return nil, 0, fmt.Errorf("create API sender: %w", addressUnavailableError(localAddr, err))

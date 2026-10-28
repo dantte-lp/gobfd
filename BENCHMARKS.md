@@ -1,277 +1,116 @@
-# GoBFD Benchmarks
+# GoBFD Benchmarks / Бенчмарки GoBFD
 
-## Overview
+## English
 
-GoBFD maintains 34 micro-benchmarks covering individual BFD processing stages
-and their observed allocation boundaries. A zero-allocation result applies
-only to the measured benchmark body; it does not establish end-to-end UDP
-latency, packet-loss behavior, GC immunity, or a supported session scale.
+The [benchmark guide](docs/en/12-benchmarks.md) defines commands, measured
+operations and reporting policy. [Performance analysis](docs/en/14-performance-analysis.md)
+defines the separate UDP, owner-commit, timer, workload and clock boundaries.
 
-Benchmarks live in `internal/bfd/bench_test.go`,
-`internal/bfd/bench_scaling_test.go`, and `internal/netio/bench_test.go`; CI
-runs them through `benchstat` to catch performance regressions (>10% threshold).
+### Retained samples
 
-## Running Benchmarks
+| Evidence | Scope | Limit |
+|---|---|---|
+| [v0.4.0 raw Go samples](testdata/benchmarks/v0.4.0/benchmark.txt) and [metadata](testdata/benchmarks/v0.4.0/meta.json) | Historical Go 1.26 component benchmarks, six runs | Not current Go 1.27.3 qualification |
+| `reports/collector-owner-20261022/` | Local Go 1.27.3 owner-commit benchmark with the real collector | Synthetic timing, no UDP/codec/auth; exact receipts are local evidence |
+| [C models](bench/c/) | Repository-owned replicas of selected operations | Not upstream FRR/BIRD daemon measurements |
 
-```sh
-make benchmark          # Run BFD package benchmarks (6 iterations, benchmem)
-make benchmark-all      # Run all package benchmarks (6 iterations, benchmem)
-make profile            # Generate pprof CPU profile
+The 2026-10-22 owner benchmark records a baseline of 16 B/op and 2 allocs/op
+and subsequent samples of 0 B/op and 0 allocs/op after caching active
+peer/local packet-counter handles. Registration lifetime bounds that cache;
+historical CounterVec series retain their existing lifetime. This does not
+qualify lifetime metric cardinality, supported scale or a latency distribution.
+
+### Interpret allocation results
+
+- CI collects ten alternating base/head pairs with 100 ms samples; the
+  [paired comparison guide](docs/en/12-benchmarks.md#paired-ci-comparison)
+  distinguishes these samples from six-run standalone diagnostics.
+- A zero-allocation result applies only to the named benchmark body.
+- Authenticated unmarshal owns `AuthSection` and its bounded payload by value.
+  Hash verification separately requires immutable retained wire. See
+  [ADR-0011](docs/en/adr/0011-bfd-auth-inline-payload.md).
+- All five built-in Sign/Verify methods and the authenticated owner fixture with
+  real metrics report 0 B/op and 0 allocs/op, three runs of 200000 iterations.
+  [Inline samples](docs/en/12-benchmarks.md#inline-payload--2026-10-26) exclude
+  socket receive and retained-wire allocation; clock input is synthetic.
+- Micro-BFD dispatch logging reports 0 allocs/op without an actuator, including
+  enabled JSON encoding. The noop actuator retains 4 allocs/op for its bounded
+  context; the full allocation target remains open. See
+  [dispatch samples](docs/en/12-benchmarks.md#micro-bfd-dispatch-logging--2026-10-26).
+- `BuildInnerPacketInto` writes into caller-owned storage and is used by
+  production overlay TX. `BuildInnerPacket` is the allocating compatibility wrapper.
+- Runtime FSM lookup uses an indexed array built from the declarative map
+  during initialization. Old map-based timing is historical provenance.
+- Construction B/op is not retained per-session RSS. Buffered enqueue is
+  not packet commit, and arithmetic ns/op is not timer precision.
+
+```bash
+make up
+make benchmark       # BFD package, six non-race runs with benchmem
+make benchmark-all   # all packages, six non-race runs with benchmem
+make profile         # separate CPU and heap profiles
 ```
 
-## Results
+The current CI report warns on performance regression; a warning alone does
+not fail the job. Calibrated blocking regression policy and full runtime
+acceptance remain separate Beads tasks. Do not convert component timings to
+supported packet rates or claim immunity to GC pauses.
 
-Historical baseline measured on Go 1.26 in an 8 vCPU Podman container. All
-results below are medians of 6 iterations and are not a current Go 1.27
-qualification receipt.
+## Русский
 
-### Packet Codec
+[Руководство по бенчмаркам](docs/ru/12-benchmarks.md) определяет команды,
+измеряемые операции и политику отчётности.
+[Анализ производительности](docs/ru/14-performance-analysis.md) задаёт отдельные
+границы UDP, фиксации пакета владельцем, таймеров, нагрузки и часов.
 
-| Benchmark | ns/op | B/op | allocs/op | Description |
-|-----------|------:|-----:|----------:|-------------|
-| `ControlPacketMarshal` | ~5.8 | 0 | 0 | Serialize 24-byte BFD Control packet into pre-allocated buffer |
-| `ControlPacketMarshalWithAuth` | ~11.4 | 0 | 0 | Serialize 52-byte packet with Keyed SHA1 auth section |
-| `ControlPacketUnmarshal` | ~11.0 | 0 | 0 | Parse 24-byte wire-format BFD packet (no auth) |
-| `ControlPacketUnmarshalWithAuth` | ~54 | 64 | 1 | Parse 52-byte packet with SHA1 auth (1 alloc for digest) |
-| `ControlPacketRoundTrip` | ~17 | 0 | 0 | Marshal + unmarshal combined (full codec cost) |
+### Сохранённые измерения
 
-The marshal path achieves ~170M ops/sec. The unmarshal-with-auth allocs 64 bytes for the SHA1 digest copy — this is intentional to avoid sharing memory with the receive buffer.
+| Доказательство | Область | Ограничение |
+|---|---|---|
+| [Исходные измерения Go v0.4.0](testdata/benchmarks/v0.4.0/benchmark.txt) и [метаданные](testdata/benchmarks/v0.4.0/meta.json) | Исторические компонентные бенчмарки Go 1.26, шесть запусков | Не текущая квалификация Go 1.27.3 |
+| `reports/collector-owner-20261022/` | Локальный бенчмарк фиксации владельцем с реальным сборщиком метрик, Go 1.27.3 | Синтетическое время, без UDP, кодека и аутентификации; точные результаты сохранены локально |
+| [C-модели](bench/c/) | Собственные модели отдельных операций | Не измерения демонов из проектов FRR/BIRD |
 
-### FSM Transitions
+Бенчмарк владельца от 2026-10-22 содержит исходные 16 B/op и 2 allocs/op и
+последующие 0 B/op и 0 allocs/op после кеширования дескрипторов счётчиков пакетов
+для активных пар соседнего и локального адресов. Кеш ограничен сроком регистрации;
+исторические ряды CounterVec сохраняют прежний срок жизни. Это не квалификация
+числа рядов за весь срок работы, поддерживаемого масштаба или распределения задержек.
 
-| Benchmark | ns/op | B/op | allocs/op | Description |
-|-----------|------:|-----:|----------:|-------------|
-| `FSMTransitionUpRecvUp` | ~20 | 0 | 0 | Steady-state keepalive self-loop (most frequent) |
-| `FSMTransitionDownRecvDown` | ~20 | 0 | 0 | Three-way handshake step 1 (RFC 5880 §6.8.6) |
-| `FSMTransitionUpTimerExpired` | ~20 | 0 | 0 | Detection timeout (RFC 5880 §6.8.4) |
-| `FSMTransitionIgnored` | ~17 | 0 | 0 | Map miss for invalid state+event combinations |
+### Интерпретация выделений памяти
 
-All FSM transitions are O(1) map lookups. The transition table is pre-built at package init.
+- CI собирает десять чередующихся пар base/head с целевым временем 100 мс;
+  [руководство парного сравнения](docs/ru/12-benchmarks.md#парное-сравнение-в-ci)
+  отличает эти измерения от отдельных диагностических серий по шесть запусков.
+- Нулевые выделения относятся только к указанному телу бенчмарка.
+- Разбор аутентификации хранит `AuthSection` и ограниченный payload во владении
+  пакета по значению. Hash verification отдельно требует сохранённого неизменяемого
+  wire. См. [ADR-0011](docs/ru/adr/0011-bfd-auth-inline-payload.md).
+- Все пять встроенных Sign/Verify и fixture аутентифицированного владельца
+  с реальными метриками дают 0 B/op и 0 allocs/op: три серии по 200000 итераций.
+  [Измерения inline](docs/ru/12-benchmarks.md#встроенный-payload--2026-10-26)
+  не включают приём сокетом и выделение сохраняемого wire; вход часов синтетический.
+- Логирование Micro-BFD dispatch даёт 0 allocs/op без actuator, включая
+  включённое JSON-кодирование. Noop-actuator сохраняет 4 allocs/op для
+  ограниченного контекста; полная цель выделений остаётся открытой. См.
+  [измерения dispatch](docs/ru/12-benchmarks.md#логирование-micro-bfd-dispatch--2026-10-26).
+- `BuildInnerPacketInto` пишет в память вызывающего кода и используется
+  рабочим путём передачи overlay. `BuildInnerPacket` — обёртка совместимости
+  с выделением памяти.
+- Поиск FSM использует индексированный массив, созданный при инициализации
+  из декларативной карты. Прежние измерения поиска по карте остаются историческими.
+- B/op создания не является удерживаемым RSS на сессию. Запись в буферизованную
+  очередь не является фиксацией пакета; ns/op вычислений не задаёт точность таймера.
 
-### Timer Operations
-
-| Benchmark | ns/op | B/op | allocs/op | Description |
-|-----------|------:|-----:|----------:|-------------|
-| `ApplyJitter` | ~9.2 | 0 | 0 | TX interval jitter (RFC 5880 §6.8.7, DetectMult>=2) |
-| `ApplyJitterDetectMultOne` | ~9.1 | 0 | 0 | Stricter 75%-90% jitter range (DetectMult=1) |
-| `DetectionTimeCalc` | ~0.75 | 0 | 0 | Detection time calculation (RFC 5880 §6.8.4) |
-| `CalcTxInterval` | ~0.67 | 0 | 0 | TX interval negotiation (one atomic load) |
-
-Sub-nanosecond detection time and TX interval calculations confirm pure arithmetic with no allocations.
-
-### Session & Pool Operations
-
-| Benchmark | ns/op | B/op | allocs/op | Description |
-|-----------|------:|-----:|----------:|-------------|
-| `PacketPool` | ~12 | 0 | 0 | sync.Pool Get/Put cycle for receive buffers |
-| `RecvStateToEvent` | ~3.7 | 0 | 0 | Wire State → FSM Event mapping (switch) |
-| `SessionRecvPacket` | ~24 | 0 | 0 | Channel send to running session goroutine |
-
-### Receive and Transmit Stage Benchmarks
-
-| Benchmark | ns/op | B/op | allocs/op | Description |
-|-----------|------:|-----:|----------:|-------------|
-| `RecvDecodeLookupEnqueue` | environment-dependent | measured | measured | Unmarshal + discriminator lookup + attempted buffered-channel enqueue |
-| `RecvDecodeFSM` | environment-dependent | measured | measured | Unmarshal + state-to-event mapping + stateless FSM transition |
-| `TxMarshalJitter` | environment-dependent | measured | measured | Marshal a pre-built packet + calculate jitter; no socket send |
-
-`RecvDecodeLookupEnqueue` stops when `Session.RecvPacket` enqueues or drops the
-item. Because `recvCh` is buffered, a successful send does not prove that the
-session goroutine processed the packet. The benchmark excludes the kernel UDP
-path, authentication, session-state mutation, FSM commit, timer reset,
-diagnostic actions, notifications, and loss accounting.
-
-### Overlay Codec
-
-| Benchmark | ns/op | B/op | allocs/op | Description |
-|-----------|------:|-----:|----------:|-------------|
-| `BuildInnerPacketInto` | ~— | 0 | 0 | Assemble inner packet into caller-owned TX buffer |
-| `BuildInnerPacket` | ~— | 80 | 1 | Compatibility wrapper that allocates an owned packet |
-| `StripInnerPacket` | ~25 | 0 | 0 | Parse inner packet headers and extract BFD payload |
-| `VXLANHeaderMarshal` | ~8 | 0 | 0 | Serialize 8-byte VXLAN header (RFC 8971) |
-| `VXLANHeaderUnmarshal` | ~6 | 0 | 0 | Parse 8-byte VXLAN header from wire format |
-| `GeneveHeaderMarshal` | ~10 | 0 | 0 | Serialize 8-byte Geneve header (RFC 9521) |
-| `GeneveHeaderUnmarshal` | ~7 | 0 | 0 | Parse 8-byte Geneve header from wire format |
-
-The production VXLAN/Geneve TX paths use `BuildInnerPacketInto` with a connection-owned buffer and enforce zero allocations for inner assembly. `BuildInnerPacket` intentionally remains an allocating compatibility wrapper for standalone callers and tests.
-
-### Session Scaling
-
-| Benchmark | ns/op | B/op | allocs/op | Description |
-|-----------|------:|-----:|----------:|-------------|
-| `ManagerCreate100Sessions` | ~— | — | — | Create + destroy lifecycle for 100 BFD sessions |
-| `ManagerCreate1000Sessions` | ~— | — | — | Create + destroy lifecycle for 1000 BFD sessions |
-| `ManagerDemux1000Sessions` | ~60 | 0 | 0 | Demux by discriminator across 1000 active sessions |
-| `ManagerReconcile` | ~— | — | — | Reconcile diff: add 10, remove 5 on 100-session baseline |
-
-`Demux1000Sessions` measures discriminator lookup and enqueue with 1,000
-registered sessions. The map lookup is expected O(1); this benchmark is not a
-supported-scale or end-to-end throughput qualification.
-
-## Zero Allocation Policy
-
-Selected packet codec, FSM, timer, lookup, and caller-buffer operations target
-0 allocs/op. Current evidence consists of benchmark reports:
-
-1. `b.ReportAllocs()` reports allocations made by each benchmark body
-2. CI publishes `benchstat` comparisons; the >10% regression is a warning
-3. Pre-allocated buffers via `sync.Pool` for receive paths
-4. Value types (`ControlPacket` struct) instead of pointer indirection
-
-There is no executable repository-wide assertion that every runtime hot path
-allocates zero bytes. Release claims therefore remain limited to named
-benchmark bodies and their recorded samples.
-
-Known exceptions are `UnmarshalWithAuth` (1 alloc, 64 bytes), which copies the
-SHA1 digest so it outlives the receive buffer, and `BuildInnerPacket` (1 alloc,
-80 bytes), which owns its returned slice. Session create/reconcile benchmarks
-measure lifecycle work and are not packet hot paths.
-
-## Competitive Context
-
-FRR bfdd (C implementation) processes BFD packets with similar latency characteristics but relies on `malloc`/`free` for packet buffers. GoBFD's sync.Pool approach achieves comparable throughput while providing memory safety and goroutine-per-session isolation.
-
-## Go 1.26 Swiss Tables
-
-Go 1.26 uses Swiss tables as the default `map` implementation. All benchmarks above reflect Swiss table performance — the FSM transition map, discriminator lookup, and session demuxing benefit from improved cache locality and group probing.
-
-No code changes were required to adopt Swiss tables. Go 1.27 removed the
-former `noswissmap` diagnostic experiment, so legacy-map A/B runs are no longer
-supported; the Go 1.26 measurements above remain historical provenance.
-
----
-
-# GoBFD: Бенчмарки
-
-## Обзор
-
-GoBFD содержит 34 микробенчмарка отдельных этапов обработки BFD и наблюдаемых
-границ аллокаций. Результат с нулём аллокаций относится только к телу
-конкретного бенчмарка и не доказывает сквозную задержку UDP, отсутствие потерь,
-невосприимчивость к GC или поддерживаемый масштаб сессий.
-
-Бенчмарки расположены в `internal/bfd/bench_test.go`,
-`internal/bfd/bench_scaling_test.go` и `internal/netio/bench_test.go`; CI
-запускает их через `benchstat` для обнаружения регрессий производительности
-(порог >10%).
-
-## Запуск бенчмарков
-
-```sh
-make benchmark          # Бенчмарки BFD-пакета (6 итераций, benchmem)
-make benchmark-all      # Бенчмарки всех пакетов (6 итераций, benchmem)
-make profile            # Генерация CPU-профиля pprof
+```bash
+make up
+make benchmark       # пакет BFD, шесть запусков без race detector с benchmem
+make benchmark-all   # все пакеты, шесть запусков без race detector с benchmem
+make profile         # отдельные профили CPU и памяти
 ```
 
-## Результаты
-
-Исторический baseline измерен на Go 1.26 в Podman-контейнере с 8 vCPU. Все
-результаты ниже — медиана 6 итераций, а не актуальный qualification receipt
-для Go 1.27.
-
-### Кодек пакетов
-
-| Бенчмарк | нс/оп | Б/оп | аллок/оп | Описание |
-|----------|------:|-----:|----------:|----------|
-| `ControlPacketMarshal` | ~5.8 | 0 | 0 | Сериализация 24-байтного BFD Control пакета |
-| `ControlPacketMarshalWithAuth` | ~11.4 | 0 | 0 | Сериализация 52-байтного пакета с аутентификацией SHA1 |
-| `ControlPacketUnmarshal` | ~11.0 | 0 | 0 | Разбор 24-байтного пакета (без аутентификации) |
-| `ControlPacketUnmarshalWithAuth` | ~54 | 64 | 1 | Разбор 52-байтного пакета с SHA1 (1 аллокация для дайджеста) |
-| `ControlPacketRoundTrip` | ~17 | 0 | 0 | Сериализация + разбор (полная стоимость кодека) |
-
-### Переходы FSM
-
-| Бенчмарк | нс/оп | Б/оп | аллок/оп | Описание |
-|----------|------:|-----:|----------:|----------|
-| `FSMTransitionUpRecvUp` | ~20 | 0 | 0 | Keepalive в устойчивом состоянии (самый частый) |
-| `FSMTransitionDownRecvDown` | ~20 | 0 | 0 | Шаг 1 трёхстороннего рукопожатия (RFC 5880 §6.8.6) |
-| `FSMTransitionUpTimerExpired` | ~20 | 0 | 0 | Таймаут обнаружения (RFC 5880 §6.8.4) |
-| `FSMTransitionIgnored` | ~17 | 0 | 0 | Промах в таблице для невалидных комбинаций |
-
-### Операции с таймерами
-
-| Бенчмарк | нс/оп | Б/оп | аллок/оп | Описание |
-|----------|------:|-----:|----------:|----------|
-| `ApplyJitter` | ~9.2 | 0 | 0 | Джиттер TX-интервала (RFC 5880 §6.8.7) |
-| `ApplyJitterDetectMultOne` | ~9.1 | 0 | 0 | Строгий диапазон 75%-90% (DetectMult=1) |
-| `DetectionTimeCalc` | ~0.75 | 0 | 0 | Вычисление времени обнаружения (RFC 5880 §6.8.4) |
-| `CalcTxInterval` | ~0.67 | 0 | 0 | Согласование TX-интервала (одна атомарная загрузка) |
-
-### Сессии и пул
-
-| Бенчмарк | нс/оп | Б/оп | аллок/оп | Описание |
-|----------|------:|-----:|----------:|----------|
-| `PacketPool` | ~12 | 0 | 0 | Цикл sync.Pool Get/Put для буферов приёма |
-| `RecvStateToEvent` | ~3.7 | 0 | 0 | Маппинг State → Event FSM (switch) |
-| `SessionRecvPacket` | ~24 | 0 | 0 | Отправка в канал работающей горутины сессии |
-
-### Измеряемые этапы RX и TX
-
-| Бенчмарк | нс/оп | Б/оп | аллок/оп | Описание |
-|----------|------:|-----:|----------:|----------|
-| `RecvDecodeLookupEnqueue` | зависит от окружения | измеряется | измеряется | Unmarshal + поиск дискриминатора + попытка записи в буферизованный канал |
-| `RecvDecodeFSM` | зависит от окружения | измеряется | измеряется | Unmarshal + преобразование состояния + stateless-переход FSM |
-| `TxMarshalJitter` | зависит от окружения | измеряется | измеряется | Marshal готового пакета + расчёт jitter; без socket send |
-
-`RecvDecodeLookupEnqueue` заканчивается, когда `Session.RecvPacket` записывает
-элемент в канал или отбрасывает его. Успешная запись в буферизованный `recvCh`
-не подтверждает обработку пакета горутиной сессии. Не измеряются UDP-путь ядра,
-аутентификация, изменение состояния, commit FSM, сброс таймера, диагностические
-действия, уведомления и учёт потерь.
-
-### Overlay-кодеки
-
-| Бенчмарк | нс/оп | Б/оп | аллок/оп | Описание |
-|----------|------:|-----:|----------:|----------|
-| `BuildInnerPacketInto` | ~— | 0 | 0 | Сборка внутреннего пакета в caller-owned TX буфер |
-| `BuildInnerPacket` | ~— | 80 | 1 | Совместимая обёртка с выделением собственного буфера |
-| `StripInnerPacket` | ~25 | 0 | 0 | Разбор заголовков внутреннего пакета и извлечение BFD-полезной нагрузки |
-| `VXLANHeaderMarshal` | ~8 | 0 | 0 | Сериализация 8-байтного заголовка VXLAN (RFC 8971) |
-| `VXLANHeaderUnmarshal` | ~6 | 0 | 0 | Разбор 8-байтного заголовка VXLAN |
-| `GeneveHeaderMarshal` | ~10 | 0 | 0 | Сериализация 8-байтного заголовка Geneve (RFC 9521) |
-| `GeneveHeaderUnmarshal` | ~7 | 0 | 0 | Разбор 8-байтного заголовка Geneve |
-
-Production TX-пути VXLAN/Geneve используют `BuildInnerPacketInto` с буфером, принадлежащим соединению, и не выделяют память при сборке inner-пакета. `BuildInnerPacket` остаётся allocating-обёрткой для автономных вызывающих сторон и тестов.
-
-### Масштабирование сессий
-
-| Бенчмарк | нс/оп | Б/оп | аллок/оп | Описание |
-|----------|------:|-----:|----------:|----------|
-| `ManagerCreate100Sessions` | ~— | — | — | Цикл создания + уничтожения 100 BFD-сессий |
-| `ManagerCreate1000Sessions` | ~— | — | — | Цикл создания + уничтожения 1000 BFD-сессий |
-| `ManagerDemux1000Sessions` | ~60 | 0 | 0 | Демультиплексирование по дискриминатору среди 1000 активных сессий |
-| `ManagerReconcile` | ~— | — | — | Реконсиляция: добавить 10, удалить 5 на базе 100 сессий |
-
-`Demux1000Sessions` измеряет поиск дискриминатора и enqueue при 1000
-зарегистрированных сессиях. Ожидаемая сложность поиска — O(1), но этот
-бенчмарк не квалифицирует поддерживаемый масштаб или сквозную пропускную
-способность.
-
-## Политика нулевых аллокаций
-
-Для выбранных операций кодека, FSM, таймеров, поиска и записи в буфер целевое
-значение равно 0 аллокаций/оп. Текущее доказательство ограничено отчётами
-бенчмарков:
-
-1. `b.ReportAllocs()` сообщает аллокации тела конкретного бенчмарка
-2. CI публикует сравнение `benchstat`; регрессия >10% остаётся предупреждением
-3. Предвыделенными буферами через `sync.Pool`
-4. Value types (`ControlPacket` struct) вместо указателей
-
-Исполняемого утверждения о нулевых аллокациях для всех runtime hot path в
-репозитории нет. Публичное утверждение ограничивается именованными
-бенчмарками и сохранёнными измерениями.
-
-Известные исключения: `UnmarshalWithAuth` (1 аллокация, 64 байта), где дайджест
-SHA1 копируется из буфера приёма, и `BuildInnerPacket` (1 аллокация, 80 байт),
-который владеет возвращаемым slice. Бенчмарки создания и reconcile сессий
-измеряют lifecycle, а не пакетный hot path.
-
-## Swiss Tables в Go 1.26
-
-Go 1.26 использует Swiss tables как реализацию `map` по умолчанию. Все бенчмарки выше отражают производительность Swiss tables — таблица переходов FSM, поиск дискриминаторов и демультиплексирование сессий выигрывают от улучшенной локальности кэша и группового зондирования.
-
-Изменения кода для Swiss tables не потребовались. Go 1.27 удалил прежний
-диагностический experiment `noswissmap`, поэтому A/B-прогоны со старой
-реализацией map больше не поддерживаются; приведённые выше измерения Go 1.26
-сохраняются как историческое подтверждение.
+Текущий отчёт CI предупреждает о регрессии производительности; предупреждение
+само по себе не завершает задание ошибкой. Калиброванная блокирующая политика
+регрессий и полная приёмка работающей системы — отдельные задачи Beads.
+Не превращайте компонентные измерения в поддерживаемую скорость обработки
+пакетов и не заявляйте невосприимчивость к паузам GC.

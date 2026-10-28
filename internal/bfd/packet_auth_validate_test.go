@@ -9,19 +9,22 @@ import (
 )
 
 func validOutboundPacket(auth *bfd.AuthSection) *bfd.ControlPacket {
-	return &bfd.ControlPacket{
+	pkt := &bfd.ControlPacket{
 		Version:           bfd.Version,
 		State:             bfd.StateUp,
 		DetectMult:        3,
 		MyDiscriminator:   1,
 		YourDiscriminator: 2,
 		AuthPresent:       auth != nil,
-		Auth:              auth,
 	}
+	if auth != nil {
+		pkt.Auth = *auth
+	}
+	return pkt
 }
 
 func digestAuth(authType bfd.AuthType, authLen uint8, digestLen int) *bfd.AuthSection {
-	return &bfd.AuthSection{Type: authType, Len: authLen, KeyID: 1, Digest: make([]byte, digestLen)}
+	return &bfd.AuthSection{Type: authType, Len: authLen, KeyID: 1, DataLen: uint8(digestLen)}
 }
 
 // H-03: MarshalControlPacket must reject an inconsistent authentication
@@ -32,9 +35,11 @@ func TestMarshalRejectsInvalidOutboundAuth(t *testing.T) {
 	md5 := func(n int) *bfd.AuthSection { return digestAuth(bfd.AuthTypeKeyedMD5, 24, n) }
 	sha1 := func(n int) *bfd.AuthSection { return digestAuth(bfd.AuthTypeMeticulousKeyedSHA1, 28, n) }
 	password := func(lenField uint8, n int) *bfd.AuthSection {
-		return &bfd.AuthSection{
-			Type: bfd.AuthTypeSimplePassword, Len: lenField, KeyID: 1, AuthData: bytes.Repeat([]byte("p"), n),
+		auth := &bfd.AuthSection{
+			Type: bfd.AuthTypeSimplePassword, Len: lenField, KeyID: 1, DataLen: uint8(n),
 		}
+		copy(auth.Data[:], bytes.Repeat([]byte("p"), n))
+		return auth
 	}
 
 	tests := []struct {
@@ -44,7 +49,7 @@ func TestMarshalRejectsInvalidOutboundAuth(t *testing.T) {
 		wantErr error
 	}{
 		{"A set without auth", &bfd.ControlPacket{Version: bfd.Version, AuthPresent: true}, 64, bfd.ErrAuthMismatch},
-		{"auth without A", &bfd.ControlPacket{Version: bfd.Version, Auth: md5(16)}, 64, bfd.ErrAuthMismatch},
+		{"auth without A", &bfd.ControlPacket{Version: bfd.Version, Auth: *md5(16)}, 64, bfd.ErrAuthMismatch},
 		{"reserved type 0", validOutboundPacket(digestAuth(0, 24, 16)), 64, bfd.ErrInvalidAuthType},
 		{"unknown type 6", validOutboundPacket(digestAuth(6, 24, 16)), 64, bfd.ErrInvalidAuthType},
 		{"MD5 Len 28", validOutboundPacket(digestAuth(bfd.AuthTypeKeyedMD5, 28, 16)), 64, bfd.ErrAuthLenMismatch},
@@ -93,19 +98,21 @@ func TestMarshalValidOutboundAuth(t *testing.T) {
 	t.Parallel()
 
 	hashed := func(authType bfd.AuthType, authLen, keyID uint8, seq uint32, digestLen int) bfd.AuthSection {
-		return bfd.AuthSection{
+		auth := bfd.AuthSection{
 			Type: authType, Len: authLen, KeyID: keyID, SequenceNumber: seq,
-			Digest: bytes.Repeat([]byte{0x5C}, digestLen),
+			DataLen: uint8(digestLen),
 		}
+		copy(auth.Data[:], bytes.Repeat([]byte{0x5C}, digestLen))
+		return auth
 	}
+	password := bfd.AuthSection{Type: bfd.AuthTypeSimplePassword, Len: 19, KeyID: 255, DataLen: 16}
+	copy(password.Data[:], bytes.Repeat([]byte("p"), 16))
 	tests := []struct {
 		name string
 		auth bfd.AuthSection
 	}{
-		{"password 1", bfd.AuthSection{Type: bfd.AuthTypeSimplePassword, Len: 4, KeyID: 7, AuthData: []byte("p")}},
-		{"password 16", bfd.AuthSection{
-			Type: bfd.AuthTypeSimplePassword, Len: 19, KeyID: 255, AuthData: bytes.Repeat([]byte("p"), 16),
-		}},
+		{"password 1", bfd.AuthSection{Type: bfd.AuthTypeSimplePassword, Len: 4, KeyID: 7, DataLen: 1, Data: [20]byte{'p'}}},
+		{"password 16", password},
 		{"keyed MD5", hashed(bfd.AuthTypeKeyedMD5, 24, 2, 9, 16)},
 		{"meticulous MD5", hashed(bfd.AuthTypeMeticulousKeyedMD5, 24, 3, 10, 16)},
 		{"keyed SHA1", hashed(bfd.AuthTypeKeyedSHA1, 28, 4, 11, 20)},
@@ -130,9 +137,7 @@ func TestMarshalValidOutboundAuth(t *testing.T) {
 			if err := bfd.UnmarshalControlPacket(buf, &got); err != nil {
 				t.Fatalf("UnmarshalControlPacket: %v", err)
 			}
-			if got.Auth == nil || got.Auth.Type != auth.Type || got.Auth.Len != auth.Len ||
-				got.Auth.KeyID != auth.KeyID || got.Auth.SequenceNumber != auth.SequenceNumber ||
-				!bytes.Equal(got.Auth.AuthData, auth.AuthData) || !bytes.Equal(got.Auth.Digest, auth.Digest) {
+			if got.Auth != auth {
 				t.Fatalf("round trip auth = %+v, want %+v", got.Auth, auth)
 			}
 		})
@@ -151,9 +156,15 @@ func FuzzMarshalOutboundAuth(f *testing.F) {
 		pkt := validOutboundPacket(nil)
 		pkt.AuthPresent = aBit
 		if hasAuth {
-			pkt.Auth = &bfd.AuthSection{
-				Type: bfd.AuthType(authType), Len: authLen, KeyID: keyID, AuthData: data, Digest: digest,
+			payload := digest
+			if bfd.AuthType(authType) == bfd.AuthTypeSimplePassword {
+				payload = data
 			}
+			pkt.Auth = bfd.AuthSection{
+				Type: bfd.AuthType(authType), Len: authLen, KeyID: keyID,
+				DataLen: uint8(min(len(payload), 21)), // #nosec G115 -- saturates to an invalid length above 20.
+			}
+			copy(pkt.Auth.Data[:], payload)
 		}
 
 		buf := bytes.Repeat([]byte{0xAA}, bfd.MaxPacketSize)
@@ -169,10 +180,10 @@ func FuzzMarshalOutboundAuth(f *testing.F) {
 		if err := bfd.UnmarshalControlPacket(buf[:n], &got); err != nil {
 			t.Fatalf("marshaled packet does not decode: %v", err)
 		}
-		if (got.Auth == nil) != (pkt.Auth == nil) {
+		if got.Auth.IsZero() != pkt.Auth.IsZero() {
 			t.Fatalf("decoded auth = %+v, want %+v", got.Auth, pkt.Auth)
 		}
-		if pkt.Auth != nil && (got.Auth.Type != pkt.Auth.Type || got.Auth.Len != pkt.Auth.Len ||
+		if !pkt.Auth.IsZero() && (got.Auth.Type != pkt.Auth.Type || got.Auth.Len != pkt.Auth.Len ||
 			got.Auth.KeyID != keyID) {
 			t.Fatalf("decoded auth = %+v, want %+v", got.Auth, pkt.Auth)
 		}

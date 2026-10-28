@@ -13,8 +13,9 @@
 
 - [Configuration Sources](#configuration-sources)
 - [Full Configuration Example](#full-configuration-example)
+- [Preview Capability Status](#preview-capability-status)
 - [Configuration Sections](#configuration-sections)
-- [Socket Tuning](#socket-tuning)
+- [UDP Buffers and Sender QoS](#socket----socket-buffer-tuning)
 - [Environment Variables](#environment-variables)
 - [Declarative Sessions](#declarative-sessions)
 - [GoBGP Integration](#gobgp-integration)
@@ -29,6 +30,11 @@ GoBFD loads configuration from three sources, applied in order (later sources ov
 1. **Defaults** -- sensible production defaults (see [Defaults](#defaults))
 2. **YAML file** -- specified via `-config /path/to/gobfd.yml`
 3. **Environment variables** -- prefixed with `GOBFD_`
+
+This merge runs only when `-config` names a file. Without `-config`, the
+daemon uses built-in defaults directly and does not load environment
+overrides. See [`loadConfig`](../../cmd/gobfd/handlers.go) and
+[`config.Load`](../../internal/config/config.go).
 
 ### Full Configuration Example
 
@@ -66,6 +72,7 @@ echo:
 
 # Micro-BFD (RFC 7130)
 micro_bfd:
+  enabled: false
   groups: []
 
 # VXLAN BFD (RFC 8971)
@@ -93,10 +100,16 @@ gobgp:
     max_suppress_time: "60s"
     half_life: "15s"
 
-# Socket buffer tuning (reduces packet loss under high session counts)
+# Startup-owned UDP buffers and ordinary BFD sender QoS
 socket:
   read_buffer_size: 4194304    # SO_RCVBUF: 4 MiB (0 = OS default)
   write_buffer_size: 4194304   # SO_SNDBUF: 4 MiB (0 = OS default)
+  ipv4_dscp: 48               # CS6; 0 = best effort
+  ipv6_traffic_class: 192     # Full octet: CS6 with ECN=0; 0 = best effort
+  priority: 0                # Linux local queue priority, independent of DSCP
+  mark: 0                    # No SO_MARK operation when zero
+  priority_required: true
+  mark_required: true
 
 # Declarative sessions (reconciled on SIGHUP reload)
 sessions:
@@ -121,6 +134,40 @@ sessions:
     padded_pdu_size: 128             # RFC 9764: per-session PDU padding
 ```
 
+### Preview Capability Status
+
+<!-- BEGIN GOBFD PREVIEW CAPABILITIES -->
+| Profile | RFC | Maturity |
+|---|---|---|
+| unsolicited | 9468 | preview; unsafe |
+| echo | 9747 | preview; incomplete RFC qualification |
+| micro_bfd | 7130 | preview; incomplete L2 owner integration |
+| vxlan | 8971 | preview; unsafe/incomplete owner integration |
+| geneve | 9521 | preview; unsafe/incomplete IPv4 Format A |
+<!-- END GOBFD PREVIEW CAPABILITIES -->
+
+Inspect the daemon with `gobfdctl capabilities` (`--format table`, `json` or
+`yaml`). The read-only `bfd.v1.CapabilityService.ListCapabilities` RPC remains
+available when forwarding runtime is not ready, under management transport
+policy, and exposes no peer addresses, endpoints or secrets. Its daemon-owned
+catalog has no client-side fallback.
+
+Maturity is independent of effective enablement and local readiness.
+Enablement follows validated `unsolicited.enabled`, `echo.enabled`,
+`micro_bfd.enabled`, `vxlan.enabled` and `geneve.enabled` values. An enabled
+VXLAN/Geneve profile with zero peers has no owned backend and remains
+`not_ready`. Valid reloads update reloadable values; rejected
+candidates preserve the retained generation. Changing `micro_bfd.enabled`
+still requires a restart.
+
+Missing runtime state produces `unknown` enablement/readiness; a disabled
+profile is `not_ready`. `ready` requires the necessary owned receive/backend
+path and local runtime, source and binding readiness. It does not prove peer
+health, RFC compliance or L2 actuator enforcement. API-only Echo can remain
+`not_ready` without a receive listener until API admission claims one; this
+coarse catalog is not an admission preflight. Inspection changes no defaults
+and activates no preview.
+
 ### Configuration Sections
 
 #### `grpc` -- ConnectRPC Server
@@ -128,9 +175,9 @@ sessions:
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `addr` | string | `""` | Optional TCP listen address; empty opens no TCP listener. Plaintext must be loopback; a non-loopback address needs `tls` |
-| `mutating_identities` | []string | `[]` | mTLS identities (URI SAN or `dns:<name>`) that may mutate; when set, other mTLS clients are read-only. Requires `tls` |
+| `mutating_identities` | []string | `[]` | mTLS identities (URI SAN or `dns:<name>`) that may mutate; when nonempty, other recognized identities are read-only. Requires `tls` |
 | `flight_recorder` | bool | `false` | Serves the runtime trace dump at `/debug/flightrecorder` on the management server to callers with a principal |
-| `unsafe_loopback_mutations` | bool | `false` | Lets anonymous plaintext loopback TCP clients call mutating RPCs; `gobfd.management` health is `NOT_SERVING` while set |
+| `unsafe_loopback_mutations` | bool | `false` | Admits anonymous mutations only over verified plaintext loopback TCP. `gobfd.management` health is `NOT_SERVING` while set |
 | `socket.path` | string | `"/run/gobfd/gobfd.sock"` | Absolute path of the management Unix socket; empty disables it |
 | `socket.mode` | string | `"0660"` | Octal permission mode of the socket file |
 | `socket.group` | string | `""` | Group that owns the socket file; empty keeps the daemon's group |
@@ -150,24 +197,34 @@ Access control is the socket mode and group, so use a dedicated admin group
 rather than the daemon group, which can read `/etc/gobfd`. `grpc.socket` is
 restart-only ([transport decision](../superpowers/specs/2026-10-15-management-transport-decision.md)).
 
-Anonymous callers are plain TCP clients without mTLS, which can bind only
-loopback. They may read (`List*`, `Get*`, `Watch*`) but receive
+Callers without a recognized principal may read (`List*`, `Get*`, `Watch*`) but receive
 `PermissionDenied` for `AddSession`, `DeleteSession`, `AddEchoSession`,
 `DeleteEchoSession`, `AddMicroBFDGroup` and `DeleteMicroBFDGroup` unless
-`unsafe_loopback_mutations` is set. Socket and mTLS callers carry a principal
-and may mutate; with `mutating_identities` set, only the listed mTLS
-identities may. A session created through the API belongs to the caller's
+`unsafe_loopback_mutations` is set and the request arrives over verified
+plaintext loopback TCP. Plain TCP listeners can bind only loopback.
+Socket callers with successfully obtained peer credentials and mTLS clients
+with a URI/DNS SAN carry a principal and may mutate; with `mutating_identities`
+nonempty, only the listed mTLS identities may.
+A session created through the API belongs to the caller's
 principal: another principal gets `PermissionDenied` from `DeleteSession`
 (logged as a refused release), and two principals that add the same session
 share it until both release it. Anonymous callers under
 `unsafe_loopback_mutations` share the owner `local`.
 
+**Unsafe opt-in transport:** both endpoints of the accepted direct TCP
+connection must be loopback, and the request must have no TLS. Missing
+transport proof fails closed; HTTP headers and request URLs cannot grant this
+permission. An mTLS client without a URI or DNS SAN cannot mutate, even with
+the opt-in enabled. A local proxy still connects as a local process; this
+option does not isolate local users. The default remains `false`.
+
 **Upgrading from a TCP-only configuration:** a non-loopback plaintext
 `grpc.addr` (for example `":50052"`) now fails startup; bind it to loopback
 or add `grpc.tls`. Move mutating clients to the socket (`gobfdctl --addr
 unix:///run/gobfd/gobfd.sock`, the new default) and add operators to group
-`gobfd-admin`, or set `unsafe_loopback_mutations: true` as a transitional,
-visibly unsafe mode. A configured `grpc.addr` keeps its TCP listener.
+`gobfd-admin`, or use `unsafe_loopback_mutations: true` only for an isolated
+plaintext loopback listener as a transitional, visibly unsafe mode.
+A configured `grpc.addr` keeps its TCP listener.
 
 #### `metrics` -- Prometheus Endpoint
 
@@ -201,10 +258,12 @@ Changing the format requires a restart.
 | `default_desired_min_tx` | duration | `"1s"` | Default Desired Min TX Interval |
 | `default_required_min_rx` | duration | `"1s"` | Default Required Min RX Interval; zero requests no periodic Control packets |
 | `default_detect_multiplier` | uint32 | `3` | Default Detection Multiplier (1–255) |
-| `align_intervals` | bool | `false` | RFC 7419: align timers to nearest common interval |
+| `align_intervals` | bool | `false` | RFC 7419: round timers up within the common interval set; preserve values above 1 s |
 | `default_padded_pdu_size` | uint16 | `0` | RFC 9764: pad BFD packets to this size with DF bit (0 = disabled; v1 targets: 24-9000 without auth, 26-9000 with auth; never truncate the actual PDU) |
 
-These defaults apply to sessions created via gRPC that do not specify their own parameters. Sessions defined in the `sessions` section can override any of these values.
+These defaults supply omitted values for declarative YAML sessions. The gRPC
+`AddSession` boundary separately defaults omitted TX/RX to `1s` and rejects a
+zero Detect Multiplier; it does not inherit these configurable defaults.
 
 All detection multiplier fields are checked before numeric decoding, including
 Echo, VXLAN, Geneve and Micro-BFD peers and defaults. Values outside 0–255,
@@ -217,9 +276,11 @@ non-mapping list entries are rejected before weak decoding.
 Multiplier lookup follows the decoder's case-insensitive matching; conflicting
 case aliases for a field are rejected.
 
-When `align_intervals` is `true`, `DesiredMinTxInterval` and `RequiredMinRxInterval` are rounded UP to the nearest RFC 7419 common interval (3.3ms, 10ms, 20ms, 50ms, 100ms, 1s). This prevents negotiation mismatches with hardware BFD implementations.
+With `align_intervals: true`, creation rounds TX/RX up within the RFC 7419
+common set (3.3 ms, 10 ms, 20 ms, 50 ms, 100 ms, 1 s); values above 1 s remain
+unchanged. Alignment does not establish peer interoperability or timer accuracy.
 
-> **Note**: Per RFC 5880 Section 6.8.3, when the session is not in Up state, the TX interval is enforced to be at least 1 second regardless of the configured value.
+> **Note**: Per RFC 5880 Section 6.8.3, when the session is not in Up state, the advertised Desired Min TX and the unjittered TX interval have a one-second floor. Periodic transmissions still apply Section 6.8.7 jitter; a one-second interval can produce a transmission after 750 ms.
 
 #### `gobgp` -- GoBGP Integration
 
@@ -286,9 +347,10 @@ unsolicited listener. Configured per-address listeners remain available.
 > is >= 0, at least one interface is enabled and every `allowed_prefixes`
 > entry is a valid CIDR.
 >
-> **Unsafe preview**: IPv6 packet-capture qualification and lease-close fault
-> injection are open (`gobfd-qj0.8.2.1.10.1`). Do not enable unsolicited BFD
-> on an untrusted interface.
+> **Unsafe preview**: bounded development qualification covers dual-stack
+> packet capture and concurrent sender-lease release (`gobfd-qj0.8.2.1.10.1`).
+> These receipts do not establish final-candidate or stable RFC qualification.
+> Do not enable unsolicited BFD on an untrusted interface.
 
 #### `echo` -- RFC 9747 Unaffiliated BFD Echo
 
@@ -299,13 +361,40 @@ unsolicited listener. Configured per-address listeners remain available.
 | `echo.default_detect_multiplier` | uint32 | -- | Default echo detection multiplier |
 | `echo.peers[].peer` | string | -- | Remote system IP (echo target) |
 | `echo.peers[].local` | string | -- | Local system IP |
-| `echo.peers[].interface` | string | -- | Network interface for `SO_BINDTODEVICE` (optional) |
+| `echo.peers[].interface` | string | -- | Optional `SO_BINDTODEVICE` binding for both the receive listener and declarative TX sender; an empty value retains kernel route selection |
 | `echo.peers[].tx_interval` | duration | -- | Override `default_tx_interval` for this peer |
 | `echo.peers[].detect_mult` | uint32 | -- | Override `default_detect_multiplier` for this peer |
 
-Echo sessions detect forwarding-path failures without requiring the remote system to run BFD. The local system sends BFD Control packets to UDP port 3785 on the remote, which forwards them back via normal IP routing.
+RFC 9747 describes forwarding-path detection without requiring BFD on the
+adjacent system. Its packets have a local IP destination and traverse the
+adjacent device's normal forwarding path back to the originator. The current
+preview sends to the configured peer address on UDP port 3785; that path does
+not establish the RFC's forwarding behavior. See the
+[implementation boundaries](08-rfc-compliance.md#rfc-9747-implementation-notes)
+and [RFC 9747 Section 1](../rfc/rfc9747.txt).
 
 Echo peers are reconciled on SIGHUP reload. Session key: `(peer, local, interface)`.
+
+Both declarative and API-created Echo send to UDP destination port 3785.
+An explicit `interface` applies `SO_BINDTODEVICE` to the receive listener
+and TX sender; an empty value leaves device selection to the kernel. These
+local transport checks do not establish full RFC 9747 qualification.
+
+API creation also requires `echo.enabled: true`, a reconciled Echo source and
+a ready runtime/receive binding. Otherwise `AddEchoSession` returns
+`FailedPrecondition` before opening a sender or creating a session. API-only
+deployments may omit `echo.peers`: the API claims its receive listener before
+opening the sender. Valid SIGHUP reloads update this opt-in; rejected candidates
+preserve it. Readiness loss rejects subsequent admission; already admitted
+requests may complete. List/Delete remain available under management policy.
+This guard does not promote RFC 9747 beyond preview.
+
+Compatible config and API principal claims share one canonical Echo wire.
+An admitted same-principal retry retains its sender and discriminator. Removing
+`echo.peers[]` releases only the config claim; the physical lease preserves RX/TX
+for remaining API claims. Parameter conflicts reject before changing existing
+claims, and failed preparation retains the previous config set. See
+[ADR-0009](adr/0009-echo-principal-claims.md).
 
 Example:
 ```yaml
@@ -323,9 +412,25 @@ echo:
 
 #### `micro_bfd` -- RFC 7130 Micro-BFD for LAG
 
+Micro-BFD is a preview, disabled by default. Explicitly set
+`micro_bfd.enabled: true` or `GOBFD_MICRO_BFD_ENABLED=true` before configuring
+groups, selecting `dry-run` or `enforce`, or calling `AddMicroBFDGroup`.
+Otherwise configuration validation fails before resources open, and the API
+returns `FailedPrecondition` without creating a group. List and Delete remain
+available subject to the existing management authorization and ownership rules.
+Changing `micro_bfd.enabled` requires a restart; SIGHUP rejects the candidate
+and preserves the running generation. Group changes remain reloadable when enabled.
+Startup logs mark the enabled capability as preview. This opt-in does not
+qualify the missing dedicated multicast MAC or enslaved-member TX behavior.
+
+This is a permanent deployment safety setting, owned by the maintainer under
+`gobfd-qj0.8.2.1.8.1`, introduced on 2026-10-22. It has no scheduled removal;
+preview graduation is tracked separately under `gobfd-qj0.8.2.2.1`.
+
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `micro_bfd.groups[].lag_interface` | string | -- | Logical LAG interface name (e.g., "bond0") |
+| `micro_bfd.enabled` | bool | `false` | Opt into the incomplete RFC 7130 preview; restart required |
 | `micro_bfd.groups[].member_links` | []string | -- | Physical member link names |
 | `micro_bfd.groups[].peer_addr` | string | -- | Remote system IP for all member sessions |
 | `micro_bfd.groups[].local_addr` | string | -- | Local system IP |
@@ -356,6 +461,46 @@ networkmanager-dbus`. It deactivates the active bond port profile when a member
 goes Down and activates the remembered or available bond port profile when the
 member recovers. Otherwise keep the default owner refusal policy for disabled
 and dry-run modes.
+
+Before deactivation, an already-active no-op or cached activation, the backend
+reloads the selected profile's settings and verifies its bond controller and
+port type. The member's optional `interface-name` must agree with the resolved
+device when nonempty. Modern `controller`/`port-type` and legacy
+`master`/`slave-type` fields are supported; conflicting or wrongly typed values
+are rejected. A deleted or reprofiled cached connection fails without activation.
+Discovery selects only a matching available profile.
+
+A controller UUID is resolved with `GetConnectionByUuid`; the referenced profile
+must identify the requested bond. `connection.interface-name` takes precedence
+over the deprecated `bond.interface-name`. An unbound controller is accepted
+only when the requested bond device's active connection uses that same profile.
+Repeated remove/add calls avoid further mutations once NetworkManager reports
+the corresponding inactive/active state. These checks use a fresh snapshot;
+concurrent administrative profile edits require external coordination.
+
+Replies retain the declared D-Bus types and arity. Object-path methods require
+one nonroot object path; property reads require a Variant containing the exact
+property type. The inactive `ActiveConnection` root sentinel and an empty
+`AvailableConnections` array remain valid. Available profile paths must be
+nonroot, `GetSettings` retains its nested Variant dictionary, and
+`DeactivateConnection` returns no values. Malformed replies return
+`ErrNetworkManagerSettingsInvalid`; remote errors and context cancellation are
+preserved. Reply validation cannot undo a request already processed by the peer.
+
+On Linux, NetworkManager network setup and property reply waits honor the
+actuator's context. Manager sets a 5 s context for each action, including DNS,
+socket dialing, D-Bus authentication and Hello. Each action owns a private
+connection. Transport selection uses `DBUS_SYSTEM_BUS_ADDRESS` when nonempty,
+otherwise the first existing `/var/run/dbus/system_bus_socket` or
+`/run/dbus/system_bus_socket`. Unix path/abstract, TCP and nonce-TCP addresses
+are supported; `godbus_no_tcp` disables both TCP transports before DNS.
+
+Nonce-TCP requires a trusted local regular nonce file containing exactly 16
+bytes; pipes and other nonregular files are rejected. The context bounds network
+waits, not filesystem calls on a stalled mount. Transport failures may select
+the next address, but authentication or Hello failures never select another
+peer. Live NetworkManager ownership and member-wire behavior still require
+qualification; see [ADR-0003](adr/0003-linux-advanced-bfd-applicability.md).
 
 Groups are reconciled on SIGHUP reload. Group key: `lag_interface`.
 
@@ -394,6 +539,7 @@ the actuator in dispatch order.
 Example:
 ```yaml
 micro_bfd:
+  enabled: true
   actuator:
     mode: "dry-run"
     backend: "kernel-bond"
@@ -520,12 +666,20 @@ geneve:
       detect_mult: 5
 ```
 
-#### `socket` -- Socket Buffer Tuning
+<a id="socket----socket-buffer-tuning"></a>
+
+#### `socket` -- UDP Buffers and Sender QoS
 
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `socket.read_buffer_size` | int | `4194304` (4 MiB) | `SO_RCVBUF` size in bytes for listener sockets. Larger buffers reduce packet loss under high session counts. Set to `0` to use the OS default. |
 | `socket.write_buffer_size` | int | `4194304` (4 MiB) | `SO_SNDBUF` size in bytes for sender sockets. Larger buffers reduce `sendto` failures under burst conditions. Set to `0` to use the OS default. |
+| `socket.ipv4_dscp` | int | `48` (CS6) | Six-bit IPv4 DSCP, 0–63; transmitted as `IP_TOS = DSCP << 2` with ECN=0. `0` selects best effort. |
+| `socket.ipv6_traffic_class` | int | `192` | Complete IPv6 Traffic Class octet, 0–255. `192` is CS6 with ECN=0; `0` selects best effort. |
+| `socket.priority` | int | `0` | Linux `SO_PRIORITY`, 0–2147483647; local queue policy independent of the IP marking. |
+| `socket.mark` | uint32 | `0` | Linux `SO_MARK`, 0–4294967295; zero skips the privileged socket operation. |
+| `socket.priority_required` | bool | `true` | Reject sender creation if setting `SO_PRIORITY` fails; `false` logs a warning and continues. |
+| `socket.mark_required` | bool | `true` | Reject sender creation if setting a nonzero `SO_MARK` fails; `false` logs a warning and continues. |
 
 Both values must be nonnegative integers representable as `int`. `read_buffer_size` applies to the shared
 single-hop and multihop control listeners, the interface-bound IPv4 and IPv6
@@ -542,11 +696,36 @@ fails that socket construction and closes the new socket. Buffer policy is
 captured at startup, including for senders created later; changing either
 value through SIGHUP is rejected and requires a process restart.
 
-**Sizing guidelines:**
+QoS applies to ordinary API and declarative Control, Echo, Micro-BFD and
+unsolicited senders, including senders created after startup. All six QoS
+settings are immutable until process restart; a changed SIGHUP candidate is
+rejected before generation, log level or session resources change. Numeric
+QoS input must be integral and within its declared range before decoding;
+boolean numeric coercion, fractions, overflow and null are rejected.
 
-- **< 100 sessions**: OS defaults are usually sufficient (set both to `0`)
-- **100-1000 sessions**: 4 MiB (default) provides headroom for burst traffic
-- **> 1000 sessions**: Consider 8-16 MiB; monitor `netstat -su` for UDP receive errors
+CS6 is deployment policy, not an RFC 5881 requirement. Existing configurations
+without these fields now request CS6. Set both IP marking fields to `0` to
+retain best effort. Source-port range, per-session stability and allocation
+remain unchanged. `IP_TOS` and `IPV6_TCLASS` failures always reject the sender;
+optional priority/mark failures identify the option, value and error in a
+structured warning. The explicit priority is applied after IP marking because
+Linux `IP_TOS` also updates the socket's local priority.
+
+Linux permits unprivileged `SO_PRIORITY` values 0–6; higher values require
+capability permission. Linux 6.12 accepts `CAP_NET_RAW` or `CAP_NET_ADMIN`;
+check the deployed kernel's policy. Nonzero `SO_MARK` requires `CAP_NET_ADMIN`
+or, since Linux 5.17, `CAP_NET_RAW`; see
+[socket(7)](https://man7.org/linux/man-pages/man7/socket.7.html) and the
+[Linux 6.12 socket implementation](https://github.com/torvalds/linux/blob/v6.12/net/core/sock.c).
+An optional mark can continue without the intended routing mark; keep
+`mark_required: true` where the mark selects the required path. Local readback
+or packet marking does not establish cloud/fabric treatment or queue priority.
+QoS does not inherit into VXLAN/Geneve outer sockets or inner headers; overlay
+policy remains separate. Local-address availability probes also omit QoS.
+
+Qualify buffer sizes using actual burst load, requested/effective kernel
+limits and observed socket drops. Session count alone does not establish a
+safe size; zero retains OS defaults rather than a tested capacity guarantee.
 
 > **Note**: The kernel may cap the effective buffer size at `net.core.rmem_max` / `net.core.wmem_max`. To allow larger buffers, increase these sysctl values:
 > ```bash
@@ -574,8 +753,15 @@ built-in defaults.
 | `GOBFD_LOG_FORMAT` | `log.format` | `"text"` |
 | `GOBFD_UNSOLICITED_ENABLED` | `unsolicited.enabled` | `true` |
 | `GOBFD_ECHO_ENABLED` | `echo.enabled` | `true` |
+| `GOBFD_MICRO_BFD_ENABLED` | `micro_bfd.enabled` | `true` |
 | `GOBFD_SOCKET_READ_BUFFER_SIZE` | `socket.read_buffer_size` | `8388608` |
 | `GOBFD_SOCKET_WRITE_BUFFER_SIZE` | `socket.write_buffer_size` | `8388608` |
+| `GOBFD_SOCKET_IPV4_DSCP` | `socket.ipv4_dscp` | `46` |
+| `GOBFD_SOCKET_IPV6_TRAFFIC_CLASS` | `socket.ipv6_traffic_class` | `184` |
+| `GOBFD_SOCKET_PRIORITY` | `socket.priority` | `6` |
+| `GOBFD_SOCKET_MARK` | `socket.mark` | `123` |
+| `GOBFD_SOCKET_PRIORITY_REQUIRED` | `socket.priority_required` | `true` |
+| `GOBFD_SOCKET_MARK_REQUIRED` | `socket.mark_required` | `true` |
 | `GOBFD_VXLAN_ENABLED` | `vxlan.enabled` | `true` |
 | `GOBFD_VXLAN_BACKEND` | `vxlan.backend` | `"userspace-udp"` |
 | `GOBFD_GENEVE_ENABLED` | `geneve.enabled` | `true` |
@@ -602,6 +788,19 @@ configuration claim. Reconciliation semantics are:
   rejected without mutating the manager's ownership claims or session
   registries
 
+Each source claims/prepares desired resources before releasing old claims;
+release requires zero `Failed` and `ResourcePending`, independently of
+`TimerPending`. Fatal preparation rolls back newly created claims; valid
+disjoint claims may remain for resource-pending retry. An occupied receive key
+permits a prepared SingleHop/MultiHop swap only for an interface-empty base
+session with one config owner, no old identity in desired and all other identity
+fields unchanged. Shared/API/unsolicited, same-type and other-scope collisions
+are rejected before the sender factory; base admission also rejects them before
+generation acceptance. Cancellation before replacement publication keeps the
+old identity. After publication, the old session performs actual AdminDown/drain
+outside Manager/lifecycle mutation locks before lease/discriminator cleanup;
+typed incomplete drain is reported. Peer-visible cutover has no hitless-rollback guarantee.
+
 Before startup or SIGHUP applies any control-session source, the daemon
 compiles and validates the complete combined base, Micro-BFD member, VXLAN,
 and Geneve candidate. Each adapter also validates its complete source set
@@ -617,7 +816,7 @@ The YAML uniqueness key is the tuple: `(peer, local, interface)`.
 | Key | Type | Required | Description |
 |---|---|---|---|
 | `peer` | string | Yes | Remote system's IP address |
-| `local` | string | Yes | Local system's IP address |
+| `local` | string | No | Local IP; use an explicit address for a verified receive binding |
 | `interface` | string | No | Network interface for `SO_BINDTODEVICE` on single-hop RX and TX; rejected on `multi_hop` (`ErrInvalidSessionMultiHopInterface`) |
 | `type` | string | No | `single_hop` (default) or `multi_hop` |
 | `desired_min_tx` | duration | No | Override default TX interval |
@@ -626,7 +825,7 @@ The YAML uniqueness key is the tuple: `(peer, local, interface)`.
 | `padded_pdu_size` | uint16 | No | RFC 9764: pad BFD packets to this size; nonzero overrides `bfd.default_padded_pdu_size`; v1 rejects authenticated targets 24/25 and retains larger actual PDUs |
 | `multihop_max_hops` | uint32 | No | `multi_hop` only: hop policy 1-254, default 1; accepts received TTL/Hop Limit >= 255 - N (1/2/5 -> 254/253/250). Explicit `0` and the key on `single_hop` are rejected (`ErrInvalidSessionMultihopMaxHops`). YAML only: API sessions use the default |
 | `auth.type` | string | No | RFC 5880 auth type: `simple_password`, `keyed_md5`, `meticulous_keyed_md5`, `keyed_sha1`, `meticulous_keyed_sha1` |
-| `auth.key_id` | uint32 | If auth enabled | Auth Key ID, valid range 0-255 |
+| `auth.key_id` | uint32 | No | Auth Key ID, valid range 0-255; omission selects 0, including when auth is enabled |
 | `auth.secret` | string | If auth enabled | Secret: 1-16 bytes for Simple Password/MD5, 1-20 bytes for SHA1 |
 
 Public API `AddSessionRequest.padded_pdu_size` and CLI `--padded-pdu-size`
@@ -689,9 +888,9 @@ new index and needs the session recreated.
 
 A YAML session whose `local` address no interface or several interfaces own is
 pending, not failed: neighbouring sessions are created, the reconciliation
-receipt counts it as pending, and the next interface link event, interface
-inventory resync or SIGHUP retries it. An address added without a link event is
-picked up only on those triggers. While a session is pending, the reconciliation
+receipt counts it as pending. Linux link events, address events, inventory
+resyncs and SIGHUP retry pending sources. Adding the local address triggers
+retry without a link-state change. While a session is pending, the reconciliation
 is stale and gRPC health readiness stays `NOT_SERVING`. An address owned by
 several interfaces stays ambiguous on every retry, so the session stays pending
 and readiness stays `NOT_SERVING` until the configuration sets `interface` (or
@@ -823,9 +1022,10 @@ On reload:
 5. Log level is updated dynamically after validation (no restart needed); this
    setting is not rolled back if a later source fails
 6. The base session source is reconciled, including an empty desired set
-7. Echo peers are reconciled as a source-isolated desired set, including the
-   disabled or empty state; sender leases are acquired lazily only for newly
-   accepted sessions
+7. Echo peers are reconciled as config claims, including the disabled or empty
+   desired set. Compatible API claims share the wire. New claims are prepared
+   before stale config claims are released; only new physical wires acquire
+   sender leases
 8. Micro-BFD groups and the member-session source are reconciled, including
    empty desired sets
 9. VXLAN and Geneve are reconciled as distinct sources, including empty
@@ -836,16 +1036,42 @@ On reload:
    service when all five do; runtime and listener components also apply
    (`07-monitoring.md`)
 
+Each source receipt retains fixed `interface_pending` and `address_pending`
+presence flags. They identify unavailable resource classes, not claim counts or
+resource identities. A class change emits a new receipt even when `pending` is
+unchanged; identical receipts remain deduplicated. Convergence clears the flags.
+Permanent failures and admitted timer-only waits remain separate. Raw error text
+and resource IDs are not retained in the snapshot or used as metric labels.
+
 `log.level` applies immediately after the complete candidate passes validation.
 On Linux, an existing but down configured interface produces `pending` after
 whole-source availability preflight. Link events retry affected pending sources
 against the retained generation automatically; another SIGHUP is not required.
-Repeated events coalesce and do not replay converged sources. Netlink loss
-requests a full interface resync. Address events (`RTM_NEWADDR`/`RTM_DELADDR`,
-including IPv6 DAD completion) and resyncs retry every pending source; they
-carry no link state and never take sessions down. Receiving these rtnetlink
-groups needs no capability. The non-Linux stub provides no automatic retry, so
-there a later SIGHUP retries pending sources.
+Repeated events coalesce; healthy converged sources are inspected without
+reapplying their resources. Netlink loss requests a full resync. Address events
+(`RTM_NEWADDR`/`RTM_DELADDR`, including IPv6 DAD completion) and resyncs inspect
+all five sources and retry unavailable resources; they carry no link state and
+do not synthesize a session Down. Receiving these rtnetlink groups needs no
+capability. A 2 s periodic check also inspects all five sources and owned
+listeners when the monitor is disabled, stopped or loses events. This is a
+check interval, not a recovery-time guarantee. The non-Linux stub provides no
+automatic event retry; a later SIGHUP retries pending sources.
+
+**Active local-address loss:** an unavailable local address required by a
+configured listener or outer overlay makes its source `pending`, the generation stale and the affected
+service `NOT_SERVING`. Re-adding a usable address retries the same desired
+generation automatically. Existing session IDs, claims and UDP sockets remain;
+the last applied generation can still equal desired while `stale` is true.
+IPv6 tentative and DAD-failed addresses do not satisfy a dependency. A global
+source address may belong to another interface; link-local IPv6 scope must
+match. Wildcard listeners need no specific assigned address. Kernel-local
+routes remain compatible through an exclusive temporary bind probe when the
+address dump has no assignment; it sends no packets and closes its own socket.
+These checks run outside the packet path. Address-inventory errors are `failed`,
+not proof of an unavailable address; availability events and periodic checks do
+not retry failed sources. Correct the cause and send SIGHUP. Health does not
+prove peer reachability. See [`preflightSourceResources`](../../cmd/gobfd/source_availability.go)
+and [`checkBindings`](../../cmd/gobfd/readiness.go).
 
 Receive listeners are part of the generation. Before the base, Echo, or
 Micro-BFD source applies, it claims the UDP listeners its desired set needs
@@ -856,16 +1082,17 @@ automatic interface retry opens it; any other open error leaves the source
 `failed`. A local address that is not assigned yet or still IPv6-tentative
 (`EADDRNOTAVAIL`) on a listener, sender, or overlay backend bind is a typed
 unavailable address that leaves the source `pending`. A listener that cannot
-bind stops its source before the Manager apply, so old claims stay; an overlay
-endpoint that cannot bind leaves out only its own identities; a sender that cannot bind leaves only its own claim pending, and
-the pass still releases entries removed from the desired set. The address
+bind stops its source before Manager apply, so old claims stay; an incomplete
+overlay acquire likewise holds the whole source. A pending control-session
+sender claim retains every old claim of its Manager source, while valid
+disjoint new claims may remain tracked. The address
 event that assigns the address retries the source. An API-created
-control or Echo session claims its listener with its sender and opens it when
-absent; an Echo session shares the per-address Echo listener. An absent
+control or Echo wire retains its listener with its sender and opens it when
+absent; Echo listeners share only an exact address/interface/transport key. An absent
 interface or unassigned address fails `AddSession` or `AddEchoSession` with
 `Unavailable`, another open error with `FailedPrecondition`, and no session is
-created. Destroying the session drops
-its claim. After a source applies without failed or resource-pending entries,
+created. Retiring the final session claim drops its lease-owned listener
+reference. After a source applies without failed or resource-pending entries,
 it drops its claims outside the desired set; a listener closes when its last
 source, unsolicited, or API claim goes.
 Unchanged listeners, including the startup-owned unsolicited wildcard
@@ -879,19 +1106,47 @@ the binding `NOT_SERVING` and is retried. At startup any listener failure,
 including an absent interface, still fails the start. Non-Linux builds cannot
 create listeners, so such a source is `failed`.
 
+An existing device-bound UDP sender also retains its socket and source port
+through interface recreation. A zero-byte write failure with `ENODEV` or
+`ENETUNREACH` revalidates the named device, updates a stale `SO_BINDTODEVICE`
+binding and retries the datagram once. After verifying a positive bound ifindex,
+a zone matching the device name uses the socket's device scope instead of a
+per-datagram zone. Subsequent matching sends retain that scope, avoiding the
+forced Go interface-table refresh caused by a cached numeric zone. Explicit
+numeric and unrelated zones are preserved. Successful writes do not enter
+GoBFD's rebind helper; this is not a guarantee that `SendPacket` allocates no
+memory. Corrective task: `gobfd-qj0.8.2.2.6.7`. See
+[`SendPacket`](../../internal/netio/sender.go) and
+[`rebindDevice`](../../internal/netio/sender_rebind_linux.go).
+During recovery, missing devices, denied rebinding and canceled or closed owners remain errors;
+the sender never clears its device binding or falls back to another interface.
+This recovery requires the existing `CAP_NET_RAW` grant. It does not guarantee
+hitless delivery or prevent BFD timeout while the interface/address is absent.
+
 Overlay backends are part of the generation as well. One userspace-udp socket
 serves each tunnel kind and outer local address (VXLAN UDP 4789, Geneve UDP
 6081). Before the VXLAN or Geneve source applies, it claims the identities of
 its desired set: a new local endpoint opens a backend, and an identity added
 on an open endpoint joins that socket's identity set in place, so live
-sessions keep their socket. An identity with the wire identity of a claimed
-one, such as a VXLAN peer whose `local_mac` changed, replaces it. Each local
-endpoint claims independently: identities of an endpoint that cannot open are
-left out of the apply, `pending` for an unassigned address and `failed`
-otherwise, while the other identities apply, including removals. After an apply without failed or resource-pending
-entries, every backend narrows to the desired identities and a backend left
-without one closes and returns its inner source port. A failed apply keeps the
-wider set. Startup claims backends the same way, so a backend that cannot open
+sessions keep their socket. Pure whole-source scope preflight precedes the first
+backend open or `SetScopes`: an unequal scope sharing a live/draining wire
+identity, including a VXLAN `local_mac` change, requires explicit separate
+removal/recreation. A never-committed unused preparation can instead be
+superseded by a new same-wire scope; duplicate desired wire identities remain
+invalid. Successful preflight prunes obsolete unused preparations before new
+claims. Failures are classified per endpoint, `pending` for an unassigned
+address and `failed` otherwise. Any incomplete acquire returns before Manager
+apply or release for the entire overlay source, retaining every old session,
+live/draining exact scope and backend. Retained scopes are existing scopes in
+current desired plus scopes with physical-session lease refs; the factory
+increments refs. Registered sessions retain refs through retirement drain,
+then release them on idempotent close; unused/unpublished leases use ordinary
+once-only cleanup without drain. Currently desired preparations may remain for
+retry. This is source-local apply protection, not global pre-generation
+overlay admission or all-source atomicity. After an apply without failed or resource-pending
+entries, each backend retains existing desired identities and live/draining
+lease refs; an empty backend closes and returns its inner source port. A failed apply keeps the
+currently needed set and live/draining refs. Startup claims backends the same way, so a backend that cannot open
 fails or pends its source instead of stopping the daemon. The ports are
 unprivileged and the sockets are not device-bound, so no capability is needed.
 
@@ -902,27 +1157,85 @@ may be added, removed, or re-keyed, including a new local endpoint or a new
 per-peer Geneve VNI. BFD defaults and per-entry timers,
 padding, authentication, peer, and threshold values apply when a new identity
 is created. Solely config-owned base sessions also accept in-place changes to
-`desired_min_tx` and `required_min_rx`. One active Poll transaction keeps its
-advertised values; newer reloads replace only the latest waiting proposal.
-When a proposal becomes active, TX increases and RX decreases defer their
+`desired_min_tx`, `required_min_rx`, `detect_mult`, the multihop TTL floor and
+qualified `padded_pdu_size` without replacing the session or discriminator,
+with unchanged authentication. The tuple and generation/revision references,
+confirmed/effective receipts carry TX, RX, DetectMult, MinTTL and PaddedPduSize.
+A detect-only Async update applies locally
+without Poll and appears in the next Control packet (RFC 5880 §6.8.12).
+Remote Demand with both ends Up requires Poll/Final (RFC 5880 §6.6), so that
+receipt remains `pending` until confirmation. Entering or leaving
+`detect_mult: 1` reschedules TX for the applicable jitter window.
+
+Changing `multihop_max_hops` updates the local receive floor `255 - N` under
+`Session.mu`; TTL-only updates need no Poll even under remote Demand. This is
+GoBFD admission policy, not a normative RFC 5883 receive-TTL rule.
+Padding reload permits only positive-to-positive targets on an actually
+constructor-DF-prepared sender in Async (`remote D` unset). Immutable
+`PaddingPrepared` proves preparation, not socket liveness. Unknown/unprepared
+senders, `0` transitions and shared-owner/API base padding updates are rejected
+before desired generation, log-level or resource changes. Micro-BFD and overlay
+remain outside the qualified profile; their configuration has no padding/minTTL fields.
+If Demand activates while a tuple waits, owner revalidation fails the whole
+pending tuple before any field mutation. Policy precedes equality shortcuts,
+including reversal to a confirmed target while Demand is active.
+
+One active Poll transaction keeps its advertised tuple; newer reloads replace
+only the latest waiting proposal. Combined TX/RX/Detect Multiplier changes
+retain the timer direction rules: TX increases and RX decreases defer their
 protected local effect until Final; the reverse directions take effect immediately.
-Admission remains `pending`,
-not `updated`, until confirmation. Completion updates the current generation
+Poll-dependent admission remains `pending`, not `updated`, until confirmation.
+Completion updates the current generation
 and readiness automatically without a second SIGHUP. Timeout or loss of Up
 fails the receipt; a late Final does not turn that failure into success.
 Cancellation after admission does not undo advertised values. The
 [transaction contract](../superpowers/specs/2026-09-08-gobfd-timer-update-transactions-design.md)
-defines the negotiation budget and startup/recovery separation. Live FRR/BIRD
-reload qualification remains pending; this is not full Poll/Demand compliance.
+defines the negotiation budget and startup/recovery separation. Scoped local
+FRR/BIRD Async and crafted remote-Demand qualification is recorded in
+`gobfd-qj0.8.2.2.7.5.2`; final exact-candidate qualification remains separate.
+This does not establish full Poll/Demand compliance.
 
-Other effective-parameter changes to an existing same-key session or Micro-BFD
-group are not in-place updates: reconciliation reports a conflict,
-the generation remains stale, and the operator must remove then add the identity
-in separate reloads or restart the process. Removing the final entry or
-disabling a source is supported.
+Unsupported authentication changes on a retained base identity are rejected
+before accepting a new generation (`ErrAuthenticationReloadUnsupported`). This
+includes authentication enable/disable, algorithm, key IDs/material, selected
+TX key and receive-key-set changes. Admission compares immutable fingerprints
+against both retained accepted desired entries, even without live sessions,
+and live Manager sessions, including API/shared owners. Rejection preserves
+the accepted configuration, generation, log level, readiness, configured peers
+and existing sessions, before listener or sender resources are applied.
+Startup authentication, new/removed identities and semantically identical
+fresh key stores remain admissible. No key rotation is enabled. Claims acquired
+after acceptance still face normal fail-closed Manager apply; this admission
+boundary does not make the whole reload atomic or guarantee seamless rollback.
+
+The coordinator passes only `candidate.base` to `Manager.AdmitSessionReload`;
+unsupported stable-base field and ownership transitions reject the complete
+candidate before acceptance. Other-source effective changes retain their
+existing per-source conflict/stale behavior. API claims
+acquired later still face ordinary fail-closed Manager apply. Other modes gain
+no in-place packet-policy support; incompatible Micro-BFD group changes still
+report reconciliation conflicts. Removing the final entry or disabling a
+source remains supported.
+
+Padding capacity growth prepares one replaceable waiting buffer at control
+admission; owner promotion swaps it before field commit. No growth allocation
+is deferred to packet transmission. The target counts payload bytes excluding
+IP/UDP headers; transmission uses `max(declared PDU length, target)`, never
+truncates authentication, and zero-fills outside its existing MAC domain.
+Authenticated targets still require at least 26 bytes; zero-target DF defaults
+are unchanged. Padding enable/disable and dynamic DF preparation remain
+after-v1 P2 `gobfd-ebu`.
+
+[ADR-0006](adr/0006-session-preserving-reload-policy.md) records the accepted
+policy. Packet-policy child `gobfd-qj0.8.2.2.7.2` is closed on dev;
+P0 integration `gobfd-qj0.8.2.2.7.4` with `gobfd-qj0.8.2.2.7.4.1` and
+`gobfd-qj0.8.2.2.7.4.2` is accepted and closed on local dev. This source
+acceptance does not close mandatory P0 actual-wire gate
+`gobfd-qj0.8.2.2.7.5`, including final RFC 9764 peer/MTU qualification.
+Coordinated key-ID rotation remains after-v1 P2 in `gobfd-khr`.
 
 The following settings require a process restart: `grpc.*`, `metrics.*`,
-`log.format`, `socket.*`, `unsolicited.*`, `micro_bfd.actuator.*`, `gobgp.*`,
+`log.format`, `socket.*`, `unsolicited.*`, `micro_bfd.enabled`, `micro_bfd.actuator.*`, `gobgp.*`,
 `vxlan.backend`, `vxlan.management_vni`, `geneve.backend`, and
 `geneve.default_vni`. The two VNI defaults re-key every identity of their
 source at once; runtime support for that is not implemented, which is a scope
@@ -930,11 +1243,20 @@ limit rather than a kernel or privilege boundary. A rejected reload logs only
 these bounded field paths, never configuration values or authentication
 secrets. Socket buffer values are included in this startup-only boundary
 and apply to every supported UDP socket described in the socket tuning section.
+Ordinary sender QoS is also startup-owned; these values do not configure the
+overlay outer sockets.
+
+Changing `grpc.unsafe_loopback_mutations` in either direction rejects the
+reload before generation acceptance, log-level changes, peer callbacks or
+session/resource application. The running RPC policy and `gobfd.management`
+health retain their startup values; changing this policy requires a restart.
+Reapplying the unchanged policy remains admissible.
 
 Base configuration, Echo, Micro-BFD members, VXLAN, and Geneve use distinct
 source ownership. Removing the final entry for one of these sources does not
 delete sessions owned by another source. Echo sender acquisition failure rolls
-back newly accepted Echo sessions from that pass; SIGHUP remains
+back only new config claims from that pass and preserves the previous config
+claims; surviving API claims retain their wire and RX/TX. SIGHUP remains
 non-transactional across sources and for other runtime apply failures.
 Automatic completion covers admitted base timer transactions, not arbitrary
 failed source operations. Other partial applies still require a later explicit
@@ -950,7 +1272,12 @@ changes are not rolled back.
 | `log.level` must be `debug`, `info`, `warn`, or `error` (case-insensitive) | `ErrInvalidLogLevel` |
 | `log.format` must be exactly `json` or `text` | `ErrInvalidLogFormat` |
 | `socket.read_buffer_size` / `socket.write_buffer_size` must be >= 0 | `ErrInvalidSocketReadBufferSize` / `ErrInvalidSocketWriteBufferSize` |
-| `grpc.addr` must not be empty | `ErrEmptyGRPCAddr` |
+| `socket.ipv4_dscp` must be an integer in 0–63 | `ErrInvalidSocketIPv4DSCP` |
+| `socket.ipv6_traffic_class` must be an integer in 0–255 | `ErrInvalidSocketIPv6TrafficClass` |
+| `socket.priority` must be an integer in 0–2147483647 | `ErrInvalidSocketPriority` |
+| `socket.mark` must be an integer in 0–4294967295 | `ErrInvalidSocketMark` |
+| `socket.priority_required` / `socket.mark_required` must be boolean | `ErrInvalidSocketPriorityRequired` / `ErrInvalidSocketMarkRequired` |
+| At least one of `grpc.addr` or `grpc.socket.path` must be nonempty | `ErrEmptyGRPCAddr` |
 | `bfd.default_detect_multiplier` must be >= 1 | `ErrInvalidDetectMultiplier` |
 | `bfd.default_desired_min_tx` must be > 0 | `ErrInvalidDesiredMinTx` |
 | `bfd.default_required_min_rx` must be >= 0 | `ErrInvalidRequiredMinRx` |
@@ -997,8 +1324,10 @@ These are validation identities. At runtime the listener owner keys a socket by
 `(local address with an IPv4-mapped form unmapped, interface, port, multi-hop
 flag)`, where the port is 3784, 4784, 3785, or 6784. Entries whose validation
 identities differ only by an IPv4-mapped spelling and declare the same
-interface share one socket. An API Echo session uses the Echo listener of its
-local address whatever its interface, as configured Echo peers do.
+interface share one socket. An API Echo session shares a listener only when
+its complete runtime key matches. A different requested interface, including
+an empty value, claims a distinct listener instead of reusing another device's
+socket. Configuration-file interface-conflict validation remains unchanged.
 
 `ListenerBindingConflictError` wraps `ErrAmbiguousListenerInterface`.
 Its `FieldID()` identifies `sessions[].interface` or `echo.peers[].interface`;
@@ -1021,8 +1350,11 @@ the error contains no address or interface values.
 | `gobgp.strategy` | `disable-peer` | Safest BGP action |
 | `gobgp.action_timeout` | `5s` | Bounds external GoBGP API calls |
 | `gobgp.tls.enabled` | `false` | Backward-compatible localhost GoBGP default |
-| `socket.read_buffer_size` | `4194304` (4 MiB) | Headroom for 100+ sessions |
-| `socket.write_buffer_size` | `4194304` (4 MiB) | Headroom for 100+ sessions |
+| `socket.read_buffer_size` | `4194304` (4 MiB) | Requested receive buffer; qualify effective capacity under deployment load |
+| `socket.write_buffer_size` | `4194304` (4 MiB) | Requested send buffer; qualify effective capacity under deployment load |
+| `socket.ipv4_dscp` / `socket.ipv6_traffic_class` | `48` / `192` | CS6 deployment defaults; explicit zero selects best effort |
+| `socket.priority` / `socket.mark` | `0` / `0` | Default local queue and no routing mark |
+| `socket.priority_required` / `socket.mark_required` | `true` / `true` | Requested socket policy fails closed unless explicitly optional |
 
 ### Related Documents
 
@@ -1032,4 +1364,4 @@ the error contains no address or interface values.
 
 ---
 
-*Last updated: 2026-02-24*
+*Reviewed against `dev` source: 2026-10-25; baseline `93b8d19867edd3731f1a964d37c2badefd6c6a68`, with sender recovery follow-up `gobfd-qj0.8.2.2.6.7`.*

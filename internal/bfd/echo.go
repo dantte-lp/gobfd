@@ -1,4 +1,4 @@
-// RFC 9747 — Unaffiliated BFD for Sessionless Applications.
+// RFC 9747 — Unaffiliated Bidirectional Forwarding Detection (BFD) Echo.
 //
 // The unaffiliated BFD echo function provides forwarding-path liveness
 // detection without requiring the remote system to run BFD. The local
@@ -6,13 +6,13 @@
 // forwards them back via normal IP routing. If echoes stop returning,
 // the local system declares the path down.
 //
-// Key differences from BFD control sessions (RFC 5880):
+// Current preview behavior; full RFC 9747 qualification remains incomplete:
 //   - No three-way handshake (no Init state)
 //   - No timer negotiation (locally provisioned)
 //   - DiagEchoFailed (2) on timeout instead of DiagControlTimeExpired (1)
 //   - UDP port 3785 (RFC 5881 Section 4)
 //   - TTL 255 send, exact TTL 254 receive after one-hop loopback (RFC 9747)
-//   - Demux on return by MyDiscriminator (self-originated packet)
+//   - Demux on return by MyDiscriminator, not the required YourDiscriminator path
 
 package bfd
 
@@ -22,14 +22,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
 // -------------------------------------------------------------------------
-// Echo Session Configuration — RFC 9747 Section 3
+// Echo Session Configuration — RFC 9747 Section 2
 // -------------------------------------------------------------------------
 
 // EchoSessionConfig contains the parameters for an RFC 9747 echo session.
@@ -46,7 +45,7 @@ type EchoSessionConfig struct {
 	Interface string
 
 	// TxInterval is the echo transmit interval.
-	// RFC 9747 Section 3.3: locally provisioned, not negotiated.
+	// RFC 9747 Section 2: locally provisioned, not negotiated.
 	TxInterval time.Duration
 
 	// DetectMultiplier is the detection time multiplier.
@@ -77,25 +76,26 @@ const (
 )
 
 // -------------------------------------------------------------------------
-// EchoSession — RFC 9747 Section 3
+// EchoSession — current unaffiliated Echo preview
 // -------------------------------------------------------------------------
 
-// EchoSession implements an RFC 9747 unaffiliated BFD echo session.
+// EchoSession implements the current unaffiliated BFD Echo preview.
 //
 // The echo function sends BFD Control packets to the remote system,
 // which forwards them back via normal IP routing. If echoes stop
 // returning within DetectionTime, the session transitions to Down
 // with DiagEchoFailed.
 //
-// State machine (RFC 9747 Section 3.3):
+// Current two-state loop, pending the RFC 9747 Section 2 state-machine work:
 //   - Down → Up: when an echo packet is received back
 //   - Up → Down: when detection time expires (DiagEchoFailed)
-//   - No Init state, no AdminDown (simpler than control FSM)
+//   - No Init state; this differs from the required RFC 5880 FSM without AdminDown
 type EchoSession struct {
 	// --- State ---
 	observationMu    sync.RWMutex
 	observation      Observation
 	observationClock *atomic.Uint64
+	transitionTiming TransitionTiming
 
 	// --- Identity ---
 	localDiscr uint32
@@ -108,17 +108,19 @@ type EchoSession struct {
 	detectMult uint8
 
 	// --- Runtime ---
-	sender         PacketSender
-	metrics        MetricsReporter
-	delivery       DeliveryReporter
-	publicLossWake chan<- struct{}
-	logger         *slog.Logger
-	recvCh         chan struct{}
-	notifyCh       chan<- StateChange
-	cachedPacket   []byte
-	admissionMu    sync.Mutex
-	started        bool
-	closed         bool
+	sender           PacketSender
+	metrics          MetricsReporter
+	timerEvent       timerObservation
+	lastAcceptedEcho time.Time
+	delivery         DeliveryReporter
+	publicLossWake   chan<- struct{}
+	logger           *slog.Logger
+	recvCh           chan struct{}
+	notifyCh         chan<- StateChange
+	cachedPacket     []byte
+	admissionMu      sync.Mutex
+	started          bool
+	closed           bool
 
 	// --- Counters ---
 	echosSent        atomic.Uint64
@@ -181,7 +183,6 @@ func NewEchoSession(
 		opt(es)
 	}
 
-	// RFC 9747 Section 3.3: echo session starts in Down state.
 	es.observation = Observation{State: StateDown, LocalDiag: DiagNone, ObservationVersion: 1}
 	es.rebuildCachedPacket()
 
@@ -222,12 +223,12 @@ func (es *EchoSession) LocalDiscriminator() uint32 { return es.localDiscr }
 
 // State returns the current echo session state.
 func (es *EchoSession) State() State {
-	return es.observationSnapshot().State
+	return es.Observation().State
 }
 
 // LocalDiag returns the current local diagnostic code.
 func (es *EchoSession) LocalDiag() Diag {
-	return es.observationSnapshot().LocalDiag
+	return es.Observation().LocalDiag
 }
 
 // PeerAddr returns the remote system's IP address (echo target).
@@ -246,7 +247,7 @@ func (es *EchoSession) TxInterval() time.Duration { return es.txInterval }
 func (es *EchoSession) DetectMultiplier() uint8 { return es.detectMult }
 
 // DetectionTime returns the echo detection timeout.
-// RFC 9747 Section 3.3: DetectMult * TxInterval.
+// RFC 9747 Section 2: DetectMult * TxInterval.
 func (es *EchoSession) DetectionTime() time.Duration {
 	return time.Duration(int64(es.txInterval) * int64(es.detectMult))
 }
@@ -344,9 +345,6 @@ func (es *EchoSession) Run(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
 	txTimer := time.NewTimer(ApplyJitter(es.txInterval, es.detectMult))
 	defer txTimer.Stop()
 
@@ -377,12 +375,16 @@ func (es *EchoSession) echoRunLoop(
 		case <-es.recvCh:
 			es.handleEchoRecv(ctx, detectTimer)
 
-		case <-txTimer.C:
+		case due := <-txTimer.C:
+			es.timerEvent.begin(es.metrics, TimerEchoTX, due)
 			es.sendEcho(ctx)
 			txTimer.Reset(ApplyJitter(es.txInterval, es.detectMult))
+			es.timerEvent.finish(es.metrics)
 
-		case <-detectTimer.C:
+		case due := <-detectTimer.C:
+			es.timerEvent.begin(es.metrics, TimerEchoDetection, due)
 			es.handleDetectTimeout(ctx, detectTimer)
+			es.timerEvent.finish(es.metrics)
 		}
 	}
 }
@@ -396,16 +398,13 @@ func (es *EchoSession) echoRunLoop(
 func (es *EchoSession) handleEchoRecv(ctx context.Context, detectTimer *time.Timer) {
 	defer es.recordDelivery(DeliveryEchoOwner, DeliveryCommitted)
 	es.echosReceived.Add(1)
-	es.lastEchoRecv.Store(time.Now().UnixNano())
+	es.lastAcceptedEcho = time.Now()
+	es.lastEchoRecv.Store(es.lastAcceptedEcho.UnixNano())
 	es.metrics.IncPacketsReceived(es.peerAddr, es.localAddr)
 
 	// Reset detection timer on every echo return.
-	if !detectTimer.Stop() {
-		drainTimer(detectTimer)
-	}
 	detectTimer.Reset(es.DetectionTime())
 
-	// RFC 9747 Section 3.3: Down → Up when echo is received.
 	if es.State() == StateDown {
 		es.transitionTo(ctx, StateUp, DiagNone)
 	}
@@ -416,7 +415,7 @@ func (es *EchoSession) handleEchoRecv(ctx context.Context, detectTimer *time.Tim
 // -------------------------------------------------------------------------
 
 // handleDetectTimeout fires when no echo returns within detection time.
-// RFC 9747 Section 3.3: transition to Down with DiagEchoFailed.
+// RFC 9747 Section 2: transition to Down with DiagEchoFailed.
 func (es *EchoSession) handleDetectTimeout(ctx context.Context, detectTimer *time.Timer) {
 	if es.State() == StateUp {
 		es.transitionTo(ctx, StateDown, DiagEchoFailed)
@@ -437,6 +436,14 @@ func (es *EchoSession) transitionTo(ctx context.Context, newState State, diag Di
 		es.observationMu.Unlock()
 		return
 	}
+	var timing TransitionTiming
+	if oldState == StateUp && newState == StateDown {
+		timing.ValidatedAt, timing.DetectionTime = es.lastAcceptedEcho, es.DetectionTime()
+		if es.timerEvent.active && es.timerEvent.kind == TimerEchoDetection {
+			timing.DetectionDue = es.timerEvent.due
+		}
+		timing.CommitStartedAt = time.Now()
+	}
 
 	es.observation.State, es.observation.LocalDiag = newState, diag
 	es.observation.Cause = CauseUnknown
@@ -444,10 +451,18 @@ func (es *EchoSession) transitionTo(ctx context.Context, newState State, diag Di
 		es.observation.Cause = CauseDetectionTimeout
 	}
 	es.observation.ObservationVersion = es.nextObservationVersionLocked()
+	if !timing.CommitStartedAt.IsZero() {
+		timing.CommitEndedAt = time.Now()
+		timing.Version = es.observation.ObservationVersion
+		es.transitionTiming = timing
+	}
 	es.stateTransitions.Add(1)
 	es.lastStateChange.Store(time.Now().UnixNano())
 	status := es.watchStatusForObservation(es.observation)
 	es.observationMu.Unlock()
+	if newState == StateDown && diag == DiagEchoFailed {
+		es.timerEvent.effect(es.metrics, TimerEchoDetection, time.Now())
+	}
 	es.metrics.RecordStateTransition(
 		es.peerAddr, es.localAddr,
 		oldState.String(), newState.String(),
@@ -478,15 +493,16 @@ func (es *EchoSession) sendEcho(ctx context.Context) {
 		)
 		return
 	}
+	es.timerEvent.effect(es.metrics, TimerEchoTX, time.Now())
 	es.echosSent.Add(1)
 	es.metrics.IncPacketsSent(es.peerAddr, es.localAddr)
 }
 
 // rebuildCachedPacket pre-serializes the BFD echo packet.
 // RFC 9747: uses standard BFD Control packet format.
-// MyDiscriminator is set for demux on return. YourDiscriminator is zero.
+// YourDiscriminator is zero while Down and the local discriminator while Up.
 func (es *EchoSession) rebuildCachedPacket() {
-	observation := es.observationSnapshot()
+	observation := es.Observation()
 	yourDiscr := uint32(0)
 	if observation.State == StateUp {
 		yourDiscr = es.localDiscr
@@ -521,6 +537,12 @@ func (es *EchoSession) emitNotification(oldState State, status SessionSnapshot) 
 		return
 	}
 	sc := stateChangeOf(status, oldState)
+	es.observationMu.RLock()
+	timing := es.transitionTiming
+	es.observationMu.RUnlock()
+	if timing.Version != 0 && timing.Version == status.ObservationVersion {
+		sc.TransitionTiming = timing
+	}
 	select {
 	case es.notifyCh <- sc:
 		es.recordDelivery(DeliveryEchoNotification, DeliveryQueued)
@@ -582,7 +604,7 @@ type EchoSessionSnapshot struct {
 
 // Snapshot returns a read-only view of the echo session's current state.
 func (es *EchoSession) Snapshot() EchoSessionSnapshot {
-	observation := es.observationSnapshot()
+	observation := es.Observation()
 	return EchoSessionSnapshot{
 		LocalDiscr:       es.localDiscr,
 		PeerAddr:         es.peerAddr,

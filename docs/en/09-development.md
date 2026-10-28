@@ -26,17 +26,35 @@
 
 ### Prerequisites
 
-- **Podman** + **Podman Compose** (all commands run inside containers)
+- **Podman** + **Podman Compose** for containerized builds, tests and lint
 - **Git** for version control
-- Go 1.27 (only needed for local IDE support; builds run in containers)
+- **util-linux `flock`** for the five E2E aggregate launchers
+- Go 1.27.3 for IDE support and targets that invoke host Go; builds use the repository-pinned container toolchain
 
-> **Important**: All testing, building, scanning, and linting runs inside Podman containers. No local Go toolchain is required for CI-equivalent builds.
+> `make build`, `make test`, `make lint` and `make vulncheck` use Podman.
+> Host bootstrap, `lint-ci` and some integration/report targets still invoke
+> `go run` directly; they require the pinned Go toolchain or an explicit
+> container invocation. `semgrep*` targets call the selected host executable.
+> `e2e-routing`, `e2e-rfc`, `e2e-overlay`, `e2e-linux` and `e2e-vendor` rebuild
+> ignored `bin/e2ectl` with the digest-pinned compiler from `Containerfile.dev`,
+> then run it on the host without host Go. The compiler has read-only source,
+> a writable binary directory and no engine socket. One exclusive directory
+> lock covers dev recreation, compilation and runtime; lock acquisition waits
+> at most 120 seconds. `make -n` prints the delegation without creating the
+> binary directory or taking the lock. Payload and native qualification remain separate.
+> Containerlab's five Make launchers build a fresh controller in a socket-free
+> SDK. Its race-enabled payload compiles separately and executes in a Debian
+> runtime with the selected engine socket and no compiler. Native FRR
+> qualification remains open in `gobfd-qj0.8.2.8.5.2.7.3.4`.
+> Complete the [Compose-provider bootstrap](06-deployment.md#podman-compose)
+> before `make up`. The setup below assumes that its exported environment
+> variables remain set in the same shell.
 
 ### Development Setup
 
 ```bash
 # Clone the repository
-git clone https://github.com/dantte-lp/gobfd.git
+git clone --branch dev https://github.com/dantte-lp/gobfd.git
 cd gobfd
 
 # Start the development container
@@ -80,12 +98,18 @@ also never moved, deleted, or reused. The tag-triggered GitHub Actions workflow
 creates a draft GitHub Release, completes and verifies its notes and assets,
 and automatically publishes it only as the final mutation.
 
+The current documentation reconciliation is local-only. Neither this workflow
+description nor a passing local check authorizes push, a release tag, draft,
+OCI promotion or publication. Final-candidate and supported-line acceptance
+remain separate from `dev` task completion.
+
 ### Make Targets
 
 Routine build and test targets run Go inside Podman via `podman compose exec`.
 The development stack is scoped by `COMPOSE_PROJECT_NAME`, which defaults to
-the current checkout directory name. Parallel worktrees use distinct default
-project names and can override `COMPOSE_PROJECT_NAME` explicitly.
+the sanitized lowercase basename of the current checkout directory. Worktrees
+with the same sanitized basename share that default; set distinct
+`COMPOSE_PROJECT_NAME` values before starting their stacks.
 
 There is no interactive Make shell target. Use the Make-owned project routing
 for a specific non-interactive test, for example:
@@ -109,12 +133,13 @@ make test-run RUN=TestFSMTransition PKG=./internal/bfd
 
 | Target | Description |
 |---|---|
-| `make all` | Build + test + lint |
+| `make all` | Build + test + gopls-check + lint + lint-docs |
+| `make verify` | `make all` + proto lint + controlled vulnerability audit; routine pre-commit gate |
 | `make build` | Compile all binaries with version info |
 | `make test` | Run all tests with `-race -count=1` |
 | `make test-v` | Verbose test output |
 | `make test-run RUN=TestFSM PKG=./internal/bfd` | Run specific test |
-| `make fuzz FUNC=FuzzControlPacket PKG=./internal/bfd` | Fuzz test (60s) |
+| `make fuzz FUNC='^FuzzControlPacket$' PKG=./internal/bfd` | Fuzz test (60s) |
 | `make test-integration` | Run integration tests |
 
 #### Interoperability Testing
@@ -133,11 +158,23 @@ make test-run RUN=TestFSMTransition PKG=./internal/bfd
 | `make interop-bgp-up` | Start BGP+BFD topology |
 | `make interop-bgp-test` | Run BGP+BFD Go tests |
 | `make interop-bgp-down` | Stop BGP+BFD topology |
-| `make interop-clab-bootstrap` | Prepare vendor images and a receipt-owned GoBFD image (`ARGS=...`) |
-| `make interop-clab` | Full cycle vendor NOS tests (Nokia, FRR, etc.) |
-| `make interop-clab-up` | Deploy vendor NOS topology |
-| `make interop-clab-test` | Run vendor interop Go tests |
-| `make interop-clab-down` | Destroy recorded vendor resources and the exact owned GoBFD image |
+| `make interop-clab-bootstrap` | Build the isolated controller and prepare owned GoBFD/GoBGP and FRR images (`ARGS=...`) |
+| `make interop-clab` | Owned FRR-only build, deploy, race-enabled test and cleanup |
+| `make interop-clab-up` | Deploy the owned FRR topology |
+| `make interop-clab-test` | Guarded `--test-only`: verify deployed identities, compile without a socket, execute the exact payload |
+| `make interop-clab-down` | Recover interrupted owned test runs; destroy recorded topology and both exact application images |
+
+These five targets require Linux, GNU Make/coreutils, `flock`, Podman and the
+preloaded pinned images, not host Go or the Compose development service.
+Each target builds a fresh native controller in a socket-free SDK first,
+including help, dry-run and cleanup. The test payload compiles separately with
+race detection and runs in Debian without a compiler. See
+[Containerlab prerequisites and isolation](05-interop.md#prerequisites).
+Source checks do not replace native FRR or wire qualification; five NOS
+profiles remain `retained-unavailable`.
+CLI and selected API identities are checked against the same original receipt
+before preparation and runtime entry; `gobfd-qj0.8.2.8.5.2.7.3.4.4` records
+the local source regressions, not native FRR qualification.
 
 #### Integration Examples
 
@@ -157,6 +194,19 @@ output to `go-test.json` and `go-test.log`, and preserves the test exit code.
 | `make int-observability` | Prometheus + Grafana observability stack |
 | `make int-exabgp-anycast` | ExaBGP anycast service announcement |
 | `make int-k8s` | Kubernetes DaemonSet with GoBGP sidecar |
+
+The HAProxy and observability full-demo runners include warning-only
+observations. The Kubernetes manifest binds the GoBGP API to loopback and uses
+exec probes; its legacy runner still has selector and tool-probe defects, and
+live-cluster qualification remains open. Use the separate assertion-based
+testcontainers gates where available. Current limits
+and the tracked runner follow-up are in [Integrations](11-integrations.md).
+Their raw Compose `-down` targets remove volumes and orphans; inspect ownership
+and obtain the required deletion approval before cleanup.
+
+The shared Podman API image cleanup sends `force=false&noprune=true`:
+it preserves images with consumers and does not prune dangling parents.
+Remove separately verified owned builder residues by exact image ID.
 
 #### Quality
 
@@ -192,7 +242,7 @@ separate runtime/tools CycloneDX SBOMs in the
 |---|---|
 | `make tidy` | Run `go mod tidy` |
 | `make download` | Download module dependencies |
-| `make clean` | Remove binaries and caches |
+| `make clean` | Remove `gobfd`/`gobfdctl` and Go caches; bridge binaries are retained |
 | `make versions` | Show tool versions |
 
 ### Testing Strategy
@@ -202,40 +252,25 @@ separate runtime/tools CycloneDX SBOMs in the
 - **Table-driven** tests for all packages
 - **`t.Parallel()`** where safe (no shared mutable state)
 - **Always** run with `-race -count=1`
-- **`goleak.VerifyTestMain(m)`** in the six concurrency-heavy packages that
-  own the daemon, protocol, network, metrics, configuration, and integration
-  lifecycles
+- **`goleak.VerifyTestMain(m)`** in `internal/bfd`, `internal/config`,
+  `internal/metrics`, `internal/netio`, `internal/server` and `test/integration`
 
 #### FSM Tests (`testing/synctest`)
 
 Go 1.27 `testing/synctest` enables deterministic time-based testing and adds
 `synctest.Sleep` for the common advance-time-and-settle operation:
 
-```go
-func TestFSMDetectionTimeout(t *testing.T) {
-    synctest.Test(t, func(t *testing.T) {
-        sess := newTestSession(t, SessionConfig{
-            DesiredMinTxInterval:  100 * time.Millisecond,
-            RequiredMinRxInterval: 100 * time.Millisecond,
-            DetectMultiplier:      3,
-        })
+Use the existing `TestSessionDetectionTimeout` in
+[`internal/bfd/session_test.go`](../../internal/bfd/session_test.go) as the
+session-level example: it runs the real session loop with a mock sender,
+injects a Control packet through `RecvPacket` and checks Down plus
+`DiagControlTimeExpired` after virtual time advances. The separate
+`TestFSMDetectionTimeout` in [`fsm_test.go`](../../internal/bfd/fsm_test.go)
+tests the pure transition function. These tests use different helpers and
+should not be combined into a synthetic API example.
 
-        // Bring session to Up state
-        sess.injectPacket(controlPacket(StateInit, 0))
-        synctest.Wait()
-        require.Equal(t, StateUp, sess.State())
-
-        // Detection timeout = 3 x 100ms = 300ms
-        synctest.Sleep(350 * time.Millisecond)
-        require.Equal(t, StateDown, sess.State())
-    })
-}
-```
-
-Benefits:
-- Tests run in virtual time (instant execution)
-- Deterministic -- no flaky timer-dependent tests
-- Perfect for BFD protocol timers and detection timeouts
+Virtual time applies inside the `synctest` bubble. UDP, interop and E2E waits
+remain context-bounded wall-clock waits.
 
 #### Fuzz Testing
 
@@ -243,27 +278,32 @@ GoBFD includes fuzz tests for all packet parsers that handle untrusted network i
 
 ```bash
 # BFD Control packet codec
-make fuzz FUNC=FuzzControlPacket PKG=./internal/bfd
+make fuzz FUNC='^FuzzControlPacket$' PKG=./internal/bfd
 
 # VXLAN overlay codec (RFC 8971)
-make fuzz FUNC=FuzzVXLANHeader PKG=./internal/netio
+make fuzz FUNC='^FuzzVXLANHeader$' PKG=./internal/netio
 
 # Geneve overlay codec (RFC 9521)
-make fuzz FUNC=FuzzGeneveHeader PKG=./internal/netio
+make fuzz FUNC='^FuzzGeneveHeader$' PKG=./internal/netio
 
 # Inner packet assembly/disassembly
-make fuzz FUNC=FuzzInnerPacket PKG=./internal/netio
+make fuzz FUNC='^FuzzInnerPacket$' PKG=./internal/netio
 ```
 
-Each fuzz test has two variants:
-- **Round-trip**: verifies `parse(marshal(packet)) == packet` for structured inputs
-- **Raw input**: feeds arbitrary bytes to the parser, verifying it never panics
+[Go's test filters](https://github.com/golang/go/blob/master/src/testing/testing.go)
+are unanchored regular expressions. Anchor `FUNC` to select one target; for
+example, `FuzzVXLANHeader` alone also matches `FuzzVXLANHeaderUnmarshalRaw`.
 
-The default fuzz duration is 60 seconds. To run longer:
+The overlay families pair structured round-trip targets with separate raw-input
+targets: `FuzzVXLANHeaderUnmarshalRaw`, `FuzzGeneveHeaderUnmarshalRaw` and
+`FuzzStripInnerPacketRaw`. `FuzzControlPacket` consumes arbitrary wire bytes;
+packets accepted by both parsing and outbound marshaling are parsed again to
+check preserved fields. These are separate target boundaries, not two variants
+of every fuzz test.
 
-```bash
-make fuzz FUNC=FuzzVXLANHeader PKG=./internal/netio FUZZTIME=300s
-```
+The Make target fixes fuzz duration at 60 seconds; it does not consume a
+`FUZZTIME` variable. For another duration, run the explicit `go test` command
+with `-fuzztime` inside the pinned development container.
 
 #### Overlay Wire Qualification
 
@@ -292,11 +332,16 @@ unqualified.
 make test-integration
 ```
 
-Uses `testcontainers-go` with Podman backend for testing the full daemon lifecycle.
+The `integration` tag runs in-process Manager/ConnectRPC server tests,
+client-formatting checks and an in-memory BFD packet bridge under
+`test/integration/`. This target does not launch testcontainers or the daemon
+binary. Use `make e2e-core-testcontainers` for the separate container lifecycle
+gate; a passing in-process suite is not UDP or process-lifecycle acceptance.
 
 #### Package Lifecycle Tests
 
 ```bash
+# Run in the pinned SDK with verified UPX v4.2.2 on PATH.
 go run ./test/cmd/cictl package-build      # dist/gobfd_0.0.0_linux_<arch>.{deb,rpm}
 go run ./test/cmd/cictl package-lifecycle  # needs the Podman API socket
 ```
@@ -305,17 +350,33 @@ go run ./test/cmd/cictl package-lifecycle  # needs the Podman API socket
 `release.yml` (`go run github.com/goreleaser/goreleaser/v2@v2.18.2`) without
 publish, announce, validate, sign, SBOM and image stages, then
 `tools/cmd/packagefinalize` for the native RPM lifecycle programs. It sets the
-test version `v0.0.0` and needs a Git checkout. `package-lifecycle` runs the
-`package_lifecycle_testcontainers` test, which installs the DEB and RPM into
-systemd-enabled containers built from the digest-pinned Debian 13 and Oracle
-Linux 10 release bases. It proves start, sandbox state, a hold past
+complete uncompressed CPIO size, including archive headers and alignment.
+The command sets the
+test version `v0.0.0` and needs a Git checkout. Before building, it rejects
+missing or mismatched UPX through the same bound-executable version verifier
+as `cictl release-upx`. The nightly job runs that bootstrap first. For a local
+bootstrap, supply runner-owned `RUNNER_TEMP` and `GITHUB_PATH` paths and add
+the emitted binary directory to the SDK's `PATH`; see
+[Shell-Free CI Helpers](#shell-free-ci-helpers).
+
+`package-lifecycle` runs the
+`package_lifecycle_testcontainers` test, which installs the DEB into a
+systemd-enabled container built from the digest-pinned Debian 13 release base.
+It proves start, sandbox state, a hold past
 `WatchdogSec=`, reload without a PID change, restart after `SIGKILL`, a stop
 with a dead peer that ends with `Result=success`, zero sandbox denials in the
 journal, `systemd-analyze verify` with the kernel-bond drop-in, and package
-removal. The containers receive `SYS_ADMIN`, `SYS_PTRACE`, `unmask=ALL` and
+removal from an active, enabled service. Upgrade fixtures change only the
+DEB control version and verify that both disabled and enabled services retain
+their PID, identity and configuration bytes. These fixtures qualify package
+phases and idempotence; distinct daemon versions require separate upgrade
+qualification. The containers receive `SYS_ADMIN`, `SYS_PTRACE`, `unmask=ALL` and
 `label=disable` so that systemd can build the unit namespaces.
+Builds are limited to 2 CPUs and 2 GiB; runtime uses 1 CPU, 1 GiB, no swap,
+1024 PIDs and a private cgroup namespace. The test reads back the effective
+kernel limits before exercising the service and removes only its owned image.
 The base images stay digest-pinned, but the test installs `systemd`,
-`iproute2`/`iproute` and `procps` from the distribution mirrors without
+`iproute2` and `procps` from the Debian mirrors without
 version pins. The nightly E2E job runs both commands and uploads
 `reports/e2e/package-lifecycle/`.
 
@@ -337,7 +398,7 @@ runs the prebuilt pinned binary inside it. Both CI workflows and the
 `make lint-ci` compatibility target call the shell-free `cictl lint` command.
 It refuses host execution, fixes `GOMAXPROCS=2` and `GOMEMLIMIT=1500MiB`,
 verifies the pinned binary version and 92 enabled nondeprecated linters, and
-runs the base plus all 17 build-tag profiles through direct Go argument vectors.
+runs the base plus all 18 build-tag profiles through direct Go argument vectors.
 The development image selects its prebuilt `/go/bin/golangci-lint`; minimal CI
 Go containers use the same pinned tools module when `GOLANGCI_LINT` is unset.
 The dev service defaults to 4 CPUs, an 8 GiB hard memory limit, a 6 GiB Go
@@ -355,7 +416,7 @@ only when needed with
 `.golangci.yml` uses
 `linters.default: all`: 92 signal-bearing linters are enabled, while 20
 maintained linters with no project inputs, duplicate coverage, or documented
-semantic conflicts and two deprecated linters are disabled.
+semantic conflicts and three deprecated linters are disabled.
 The CI contract validates the v2 schema, the enabled-linter count, the normal
 build, and every repository-specific build tag independently. Key checks include:
 
@@ -378,9 +439,13 @@ checks the preserved Conventional Commit type, scope, case, 100-byte blocking
 header limit, 120-byte non-blocking body warning, and default-ignore boundary.
 Neither check requires Node.js or npm.
 
-`make lint-spell` runs the pinned Go `misspell` tool over the exact maintained
-English documentation set. `make lint-yaml` runs pinned Go `yamlfmt` in lint
-mode with the repository's line-preserving `.yamlfmt.yaml` policy.
+`make lint-spell` runs the pinned Go `misspell` tool over `README.md`,
+`CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SUPPORT.md`, `GOVERNANCE.md`,
+`MAINTAINERS.md`, `CHANGELOG.md` and `docs/en/roadmap.md`. It does not scan
+the other English guides or Russian translations. Publication review must
+check those pages separately against the code and source-language meaning.
+`make lint-yaml` runs pinned Go `yamlfmt` in lint mode with the repository's
+line-preserving `.yamlfmt.yaml` policy.
 
 ### Python Absence Contract
 
@@ -429,9 +494,20 @@ builds with Debian imagebuilder 1.2.5, which rejects the interop
 Containerfiles' `ADD --checksum`. Ubuntu 26.04 AppArmor attaches its `tshark`
 profile to `/usr/bin/tshark`, and rootless Podman runs containers without a
 profile, so the capture image runs `tshark` and `dumpcap` from
-`/usr/local/bin`. Each job allows the `pasta` profile to receive Podman
-signals before Podman starts (LP: #2154379) and prints AppArmor denials at the
-end. The vulnerability audit creates its own
+`/usr/local/bin`. Each E2E job calls `toolbootstrap podman-e2e`, which reuses
+the runtime/provider bootstrap, conditionally permits Podman signals in the
+`pasta` profile (LP: #2154379), and prepares a private rootless Unix socket.
+Socket-file readiness has a 20-second deadline; it does not assert API health.
+An existing socket is reused without taking ownership. A newly started direct
+`podman system service --time=0` outlives bootstrap only after version checks
+and publication of the four socket environment values succeed. Failure kills
+and joins only that new process; `podman-system-service.log` retains diagnostics.
+The command requires `GITHUB_ENV` and `GITHUB_PATH`; the existing pinned host-Go
+bootstrap remains separate from containerized builds and runtime qualification.
+At job end, `toolbootstrap apparmor-denials` emits only AppArmor denial lines.
+Diagnostics and `make down` use native `continue-on-error: true` with `always()`;
+their failures remain visible without blocking artifact upload. Other callers
+of `podman-runtime` keep their existing behavior. The vulnerability audit creates its own
 report directory; the workflow delegates to it directly without a separate
 directory command.
 
@@ -448,8 +524,11 @@ unchanged.
 `cictl proto-verify` requires safe absolute repository and `RUNNER_TEMP`
 directories, builds both generators from `tools/go.mod` below a dedicated
 temporary bin directory, and prepends that directory to `PATH` only for
-`buf generate`. It then runs `git diff --exit-code -- pkg/bfdpb`; a generator
-build, generation, or generated-code drift failure stops the step.
+`buf generate`. It then runs `git diff --exit-code -- pkg/bfdpb` and checks
+`git status --porcelain=v1 -z --untracked-files=all -- pkg/bfdpb` for any output.
+Changed, staged, deleted or new untracked generated files fail verification;
+unrelated untracked files do not. A generator build, generation, status-command
+or generated-code drift failure stops the step.
 
 `cictl buf-fetch-base` and `cictl buf-breaking` read the pull request base only
 from the built-in `GITHUB_BASE_REF` and validate it as a branch name. Fetching
@@ -459,14 +538,28 @@ one 40- or 64-hex commit ID and passes `.git#commit=<sha>` to Buf, so branch
 characters cannot be interpreted as Buf source parameters. Both steps retain
 their pull-request-only conditions and fail on command errors.
 
-The benchmark job is also Go-owned. `cictl benchmark-run` executes the fixed
-package, timeout, sample-count, and memory-report arguments from the repository
-root and writes a fresh `new.txt`. `cictl benchmark-base` validates the
-`origin/<base>` ref, creates its detached worktree only below `RUNNER_TEMP`, and
-uses command-scoped `git -c safe.directory=<root>` configuration. A detached,
-bounded cleanup context removes that worktree even when the benchmark command
-fails or its parent context is cancelled; repository-global Git configuration
-is not changed.
+The benchmark job runs `cictl benchmark-pair --old old.txt --new new.txt`.
+It collects ten samples per revision with `-benchtime=100ms`, one sample per
+Go invocation. Pairs alternate base/head and head/base order, giving each
+revision five first runs. Both files are fresh; empty samples, malformed
+numeric records and package/name groups without exactly ten samples fail
+collection. Output paths cannot be identical, refer to the same file through
+hard links or use symbolic links.
+
+Each output has a streaming limit of 64 MiB. The paired child commands use
+a `WaitDelay` of 30 s to bound pipe waits after exit or cancellation.
+
+The collector validates `origin/<base>`, creates one detached worktree below
+`RUNNER_TEMP` and uses command-scoped `git -c safe.directory=<root>`.
+A detached, bounded cleanup context removes that worktree on success,
+failure or cancellation; repository-global Git configuration is unchanged.
+The workflow retains its 15-minute job timeout. Local budget measurements
+do not guarantee an otherwise busy runner's completion time.
+
+`cictl benchmark-run` and `cictl benchmark-base` retain their separate six-run,
+non-interleaved diagnostic behavior. Their output is not the paired CI sample
+set. The release snapshot and Make benchmark commands also retain six runs;
+they do not establish a calibrated latency or release-performance gate.
 
 `cictl benchmark-normalize` rewrites only the three exact historical aliases
 and requires `RecvDecodeLookupEnqueue`, `RecvDecodeFSM`, and `TxMarshalJitter`
@@ -507,7 +600,7 @@ Before release creation, `cictl release-preflight` validates the canonical
 stable SemVer tag, `GITHUB_REPOSITORY`, the checked-out commit, the annotated
 tag object, and the exact `release/vMAJOR.MINOR` branch head. It queries GitHub
 with fixed `git` and `gh` argument vectors, decodes GraphQL and paginated GHCR
-JSON in Go, and refuses an existing release or draft and any of the three
+JSON in Go, and refuses an existing release or draft and any of the two
 versioned OCI tags. The command writes fresh mode `0644` commit, branch, and tag
 object receipts under an `os.Root` anchored at the validated `RUNNER_TEMP`.
 `GH_TOKEN` is inherited by `gh` through the process environment; it is never
@@ -575,21 +668,21 @@ under a validated `RUNNER_TEMP` root; the latter also includes the fixed report
 archive, OCI digest receipt, and supplemental checksum receipt names.
 
 `cictl release-oci-evidence` runs from the immutable verifier checkout and
-replaces the release workflow's OCI shell loop. It inspects the fixed primary,
-Debian Trixie, and Oracle Linux 10 versioned references with direct Buildx
+replaces the release workflow's OCI shell loop. It inspects the fixed primary
+and Debian Trixie versioned references with direct Buildx
 argv, requires exactly `linux/amd64` and
 `linux/arm64` plus their linked attestation manifests, and validates each
 platform's SPDX document and BuildKit SLSA v1 provenance. Docker receives the
 workflow environment without `GH_TOKEN` or `GITHUB_TOKEN`; both payload
 queries are pinned to the inspected image-index digest rather than the mutable
-version tag. Only after all three images pass does the command atomically publish mode `0644`
+version tag. Only after both image references pass does the command atomically publish mode `0644`
 `release-image-digests.txt` through the separately rooted original workspace
 in fixed order; the primary and Debian digests must be identical.
 
 `cictl release-evidence` also runs from the immutable verifier checkout. It
 opens the original workspace as a separate root, rejects missing, empty, linked,
 misnamed, changed, or oversized report and OCI digest inputs, and validates the
-exact three-line digest receipt again. It atomically writes the two canonical
+exact two-line digest receipt again. It atomically writes the two canonical
 SHA-256 records to mode `0644` `release-evidence-checksums.txt`, then calls
 `gh release upload` once with only an owned staging snapshot of the fixed
 report, digest, and checksum paths under the verifier checkout. The command
@@ -599,7 +692,7 @@ when `gh` reports an error.
 
 `cictl release-verify` replaces the release draft verification shell and runs
 from the same immutable verifier checkout. It revalidates the checkout,
-annotated tag object, target commit, release branch, three versioned OCI index
+annotated tag object, target commit, release branch, two versioned OCI index
 receipts, draft tag/body, and the exact 12-name asset inventory before any
 download. It creates a new mode `0700` directory under the identity-bound
 `RUNNER_TEMP` root and invokes the documented fixed
@@ -622,11 +715,10 @@ receive an explicitly token-stripped environment.
 
 `cictl release-promote` is the only OCI alias-promotion command in the release
 workflow and also runs from the immutable verifier checkout. It revalidates
-the annotated tag, target commit, release branch, and exact three-line OCI
+the annotated tag, target commit, release branch, and exact two-line OCI
 digest receipt. Before changing an alias, it snapshots the complete existing
-OCI index for `latest`, `debian-trixie`, and `oraclelinux10`. It then promotes
-the verified primary index to the first two aliases and the verified Oracle
-Linux 10 index to the third, and verifies every resulting index descriptor.
+OCI index for `latest` and `debian-trixie`. It then promotes the verified
+primary index to both aliases and verifies every resulting index descriptor.
 This uses Docker's documented
 [`imagetools create`](https://docs.docker.com/reference/cli/docker/buildx/imagetools/create/)
 single-source index-copy behavior; no platform manifest is flattened.
@@ -635,7 +727,7 @@ digest under an independent bounded rollback context. Docker never receives a
 GitHub token.
 
 `cictl release-publish` is the final release command. It first verifies the
-three promoted alias indexes, then revalidates the live Git identity, draft
+two promoted alias indexes, then revalidates the live Git identity, draft
 tag and body, the exact 12 remote asset identities, and every local digest
 receipt byte used by the preceding checks. Only after its opened roots have
 closed successfully does it execute the single terminal
@@ -733,14 +825,17 @@ and debugging APIs.
 
 #### `testing/synctest` -- Deterministic Timer Tests
 
-All BFD timer and detection timeout tests use `testing/synctest` for
-virtual-time execution. An adjacent `time.Sleep` plus `synctest.Wait` is written
+BFD unit tests such as `TestSessionDetectionTimeout` use `testing/synctest`
+for virtual-time execution. An adjacent `time.Sleep` plus `synctest.Wait` is written
 as `synctest.Sleep`; real E2E and interoperability waits remain context-bounded
 wall-clock waits. See [FSM Tests](#fsm-tests-testingsynctest) above.
 
 #### `os.Root` -- Sandboxed File Access
 
-Configuration file loading uses `os.OpenRoot` to sandbox filesystem access within the config directory. This prevents path traversal attacks where a malicious config path could read arbitrary files:
+Configuration loading opens the parent of the operator-selected path as an
+`os.Root`, then reads relative to that root. This confines subsequent rooted
+operations; it does not establish a fixed trusted directory for an arbitrary
+selected config path. Protect configuration paths and parent permissions:
 
 ```go
 root, err := os.OpenRoot(filepath.Dir(path))
@@ -771,14 +866,21 @@ register the complete `net/http/pprof` handler set on its public metrics mux.
 
 #### `runtime/trace.FlightRecorder`
 
-The daemon continuously records the last N seconds of trace data. With `grpc.flight_recorder: true` the management server serves the dump at `/debug/flightrecorder` to callers with a principal (Unix socket or allowed mTLS identity) for debugging latency spikes or deadlocks; it is off by default and never served on the metrics listener.
+At startup the daemon attempts to start a rolling trace recorder with
+`MinAge=500ms` and `MaxBytes=2MiB`; a start failure logs a warning and leaves
+the recorder unavailable. These settings do not define a fixed N-second
+history. With `grpc.flight_recorder: true` and a running recorder, the
+management server serves `/debug/flightrecorder` to callers with a principal
+(Unix socket or allowed mTLS identity). The endpoint is off by default and is
+never served on the metrics listener. See
+[`startFlightRecorder`](../../cmd/gobfd/shutdown.go).
 
 #### Swiss Tables
 
-Go 1.26 introduced Swiss tables as the default `map` implementation. GoBFD's
-discriminator lookup, FSM transition table, and session demuxing benefit from
-improved cache locality. Go 1.27 removes the former `noswissmap` diagnostic
-experiment, so it must not appear in build or benchmark commands.
+Map implementation belongs to the pinned runtime. GoBFD uses maps for
+registry/demux lookup; its runtime FSM lookup is an indexed array. Do not infer
+a measured speedup from the map implementation alone. The removed `noswissmap`
+diagnostic experiment must not appear in Go 1.27 build or benchmark commands.
 
 #### HTTP and JSON Compatibility
 
@@ -818,7 +920,7 @@ exact error strings.
 # Development loop
 make up           # Start dev environment
 # ... make changes ...
-make all          # Build + test + lint
+make verify       # Build + test + gopls + lint + docs + proto lint + vulnerability audit
 
 # For protocol changes:
 make interop      # Verify interop with 4 peers
@@ -836,4 +938,4 @@ make proto-lint   # Lint proto definitions
 
 ---
 
-*Last updated: 2026-08-27*
+*Reviewed against `dev` source: 2026-10-25; commands were inspected, not executed.*

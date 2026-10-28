@@ -211,6 +211,7 @@ func assertDuplicateMicroBFDTestStateUnchanged(
 func duplicateMicroBFDConfig() *config.Config {
 	cfg := config.DefaultConfig()
 	cfg.Sessions = []config.SessionConfig{{Peer: "192.0.2.230", Local: "127.0.0.1", Interface: "lo"}}
+	cfg.MicroBFD.Enabled = true
 	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{
 		{
 			LAGInterface: "bond-dup", MemberLinks: []string{"lo"},
@@ -238,7 +239,7 @@ func TestReconcileAllSessionsDuplicateMicroBFDKeyPreservesState(t *testing.T) {
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
 	wantSessions, wantGroups := seedDuplicateMicroBFDTestState(t, mgr)
-	sf := newUDPSenderFactory(0)
+	sf := newUDPSenderFactory(config.SocketConfig{})
 	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 
 	cfg := duplicateMicroBFDConfig()
@@ -258,7 +259,7 @@ func TestReloadConfigDuplicateMicroBFDKeyPreservesStateAndLogLevel(t *testing.T)
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
 	wantSessions, wantGroups := seedDuplicateMicroBFDTestState(t, mgr)
-	sf := newUDPSenderFactory(0)
+	sf := newUDPSenderFactory(config.SocketConfig{})
 	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 	level := new(slog.LevelVar)
 	level.Set(slog.LevelInfo)
@@ -270,6 +271,7 @@ sessions:
     local: 127.0.0.1
     interface: lo
 micro_bfd:
+  enabled: true
   groups:
     - lag_interface: bond-dup
       member_links: [lo]
@@ -441,6 +443,7 @@ func TestReconcileAdaptersDoNotLogCompletionAfterDetailedFailure(t *testing.T) {
 				mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 				t.Cleanup(mgr.Close)
 				cfg := config.DefaultConfig()
+				cfg.MicroBFD.Enabled = true
 				cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
 					LAGInterface: "bond0", MemberLinks: []string{"eth0"},
 					PeerAddr: "192.0.2.222", LocalAddr: "127.0.0.1", MinActiveLinks: 1,
@@ -547,6 +550,7 @@ func TestReconcileMicroBFDClosesEarlierSendersWhenLaterCreationFails(t *testing.
 	t.Cleanup(mgr.Close)
 	sf := newNthFailureDeclarativeSenderFactory(3)
 	cfg := config.DefaultConfig()
+	cfg.MicroBFD.Enabled = true
 	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
 		LAGInterface: "bond0", MemberLinks: []string{"eth0", "eth1", "eth2"},
 		PeerAddr: "192.0.2.243", LocalAddr: "127.0.0.1", MinActiveLinks: 1,
@@ -578,6 +582,7 @@ func TestReconcileMicroBFDGroupConflictDoesNotLogCompletion(t *testing.T) {
 	if _, err := mgr.CreateMicroBFDGroup(original); err != nil {
 		t.Fatalf("CreateMicroBFDGroup: %v", err)
 	}
+	cfg.MicroBFD.Enabled = true
 	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
 		LAGInterface: "bond0", MemberLinks: []string{"eth0", "eth1"},
 		PeerAddr: "192.0.2.9", LocalAddr: "192.0.2.2", MinActiveLinks: 1,
@@ -617,7 +622,7 @@ func TestReconcileSessionsRejectsWholeCandidateBeforeOpeningSenders(t *testing.T
 	}
 	before := mgr.Sessions()
 
-	sf := newUDPSenderFactory(0)
+	sf := newUDPSenderFactory(config.SocketConfig{})
 	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 	cfg := config.DefaultConfig()
 	cfg.Sessions = []config.SessionConfig{
@@ -669,7 +674,7 @@ func TestReconcileSessionsForwardsEmptyBaseDesiredSet(t *testing.T) {
 		context.Background(),
 		config.DefaultConfig(),
 		mgr,
-		newUDPSenderFactory(0),
+		newUDPSenderFactory(config.SocketConfig{}),
 		slog.New(slog.DiscardHandler),
 	)
 	if err := mgr.DestroySession(context.Background(), shared.LocalDiscriminator()); err != nil {
@@ -706,7 +711,7 @@ func TestReconcileMicroBFDGroupsForwardsEmptyMemberDesiredSet(t *testing.T) {
 		context.Background(),
 		config.DefaultConfig(),
 		mgr,
-		newUDPSenderFactory(0),
+		newUDPSenderFactory(config.SocketConfig{}),
 		slog.New(slog.DiscardHandler),
 	)
 	if got := len(mgr.Sessions()); got != 0 {
@@ -766,7 +771,7 @@ func TestReconcileOverlayTunnelsForwardsEmptyDesiredSets(t *testing.T) {
 	}
 	for _, source := range []reconciliationSource{sourceVXLAN, sourceGeneve} {
 		if result := applyCompiledSource(context.Background(), source, candidate, mgr,
-			newNthFailureDeclarativeSenderFactory(0), slog.New(slog.DiscardHandler)); result.Err != nil {
+			newNthFailureDeclarativeSenderFactory(0), slog.New(slog.DiscardHandler), nil); result.Err != nil {
 			t.Fatal(result.Err)
 		}
 	}
@@ -778,10 +783,11 @@ func TestReconcileOverlayTunnelsForwardsEmptyDesiredSets(t *testing.T) {
 func TestReconcileMicroBFDCandidateIsValidatedBeforeOpeningSenders(t *testing.T) {
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
-	sf := newUDPSenderFactory(0)
+	sf := newUDPSenderFactory(config.SocketConfig{})
 	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 
 	cfg := config.DefaultConfig()
+	cfg.MicroBFD.Enabled = true
 	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{
 		{
 			LAGInterface: "bond0", MemberLinks: []string{"lo"},
@@ -907,12 +913,13 @@ func TestReconcileAllSessionsValidatesLaterSourceBeforeAnyApply(t *testing.T) {
 	}
 	before := mgr.Sessions()
 
-	sf := newUDPSenderFactory(0)
+	sf := newUDPSenderFactory(config.SocketConfig{})
 	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 	cfg := config.DefaultConfig()
 	cfg.Sessions = []config.SessionConfig{{
 		Peer: "192.0.2.101", Local: "127.0.0.1", Interface: "lo",
 	}}
+	cfg.MicroBFD.Enabled = true
 	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
 		LAGInterface: "bond0", MemberLinks: []string{"lo"},
 		PeerAddr: "not-an-address", LocalAddr: "127.0.0.1", MinActiveLinks: 1,
@@ -1275,7 +1282,7 @@ func TestConfigSessionToBFDConfiguresAuthentication(t *testing.T) {
 	if err := cfg.Auth.Sign(state, cfg.AuthKeys, pkt, buf, 0); err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
-	if !pkt.AuthPresent || pkt.Auth == nil {
+	if !pkt.AuthPresent || pkt.Auth.IsZero() {
 		t.Fatal("signed packet missing auth section")
 	}
 	if pkt.Auth.Type != bfd.AuthTypeKeyedSHA1 {
@@ -2153,7 +2160,7 @@ func TestNewGRPCServerEnablesHTTP1AndUnencryptedHTTP2(t *testing.T) {
 	t.Cleanup(mgr.Close)
 
 	srv := newGRPCServer(
-		config.GRPCConfig{Addr: "127.0.0.1:0"}, mgr, nil, nil, newDaemonHealthChecker(), nil, logger,
+		config.GRPCConfig{Addr: "127.0.0.1:0"}, false, mgr, nil, nil, newDaemonHealthChecker(), nil, logger, nil,
 	)
 	if srv.Protocols == nil {
 		t.Fatal("Protocols is nil; want explicit HTTP/1 and unencrypted HTTP/2")
@@ -2182,7 +2189,7 @@ func TestHTTPServersEnforceHeaderValueLimit(t *testing.T) {
 			prometheus.NewRegistry(),
 		),
 		"grpc": newGRPCServer(
-			config.GRPCConfig{Addr: "127.0.0.1:0"}, mgr, nil, nil, newDaemonHealthChecker(), nil, logger,
+			config.GRPCConfig{Addr: "127.0.0.1:0"}, false, mgr, nil, nil, newDaemonHealthChecker(), nil, logger, nil,
 		),
 	}
 	for name, srv := range servers {

@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 
 	"connectrpc.com/connect/v2"
@@ -22,7 +23,7 @@ var (
 	// microClient is the ConnectRPC MicroBFDService client (RFC 7130).
 	microClient bfdv1connect.MicroBFDServiceClient
 
-	// outputFormat controls the output format for all commands (table or json).
+	// outputFormat controls the output format for all commands (table, json, or yaml).
 	outputFormat string
 
 	// serverAddr is the daemon endpoint: host:port, http://, https:// or
@@ -39,15 +40,11 @@ var rootCmd = &cobra.Command{
 	Short: "CLI client for the GoBFD daemon",
 	Long:  "gobfdctl communicates with the gobfd daemon via ConnectRPC to manage BFD sessions.",
 	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
-		ep, err := apiclient.ParseEndpoint(serverAddr)
+		// These clients retain the transport for the lifetime of the CLI or shell.
+		rpc, _, err := managementRPC()
 		if err != nil {
-			return fmt.Errorf("--addr: %w", err)
+			return err
 		}
-		httpClient, err := ep.HTTPClientTLS(tlsFiles)
-		if err != nil {
-			return fmt.Errorf("--tls-*: %w", err)
-		}
-		rpc := connect.NewClient(connecthttp.NewTransport(httpClient, ep.BaseURL))
 		client = bfdv1connect.NewBfdServiceClient(rpc)
 		echoClient = bfdv1connect.NewEchoServiceClient(rpc)
 		microClient = bfdv1connect.NewMicroBFDServiceClient(rpc)
@@ -57,6 +54,22 @@ var rootCmd = &cobra.Command{
 	// Silence cobra's built-in usage/error printing so we control it.
 	SilenceUsage:  true,
 	SilenceErrors: true,
+}
+
+func managementRPC() (*connect.Client, func(), error) {
+	ep, err := apiclient.ParseEndpoint(serverAddr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("--addr: %w", err)
+	}
+	httpClient, err := ep.HTTPClientTLS(tlsFiles)
+	if err != nil {
+		return nil, nil, fmt.Errorf("--tls-*: %w", err)
+	}
+	cleanup := func() {}
+	if httpClient != http.DefaultClient {
+		cleanup = httpClient.CloseIdleConnections
+	}
+	return connect.NewClient(connecthttp.NewTransport(httpClient, ep.BaseURL)), cleanup, nil
 }
 
 //nolint:gochecknoinits // Cobra command flags and subcommands are registered during package initialization.
@@ -75,8 +88,10 @@ func init() {
 	rootCmd.AddCommand(sessionCmd())
 	rootCmd.AddCommand(echoCmd())
 	rootCmd.AddCommand(microCmd())
+	rootCmd.AddCommand(capabilitiesCmd())
 	rootCmd.AddCommand(monitorCmd())
 	rootCmd.AddCommand(versionCmd())
+	rootCmd.AddCommand(certificateCmd())
 	rootCmd.AddCommand(shellCmd())
 }
 

@@ -173,21 +173,3 @@ dockers_v2:
       org.opencontainers.image.source: https://github.com/dantte-lp/gobfd
       org.opencontainers.image.base.name: docker.io/library/debian:trixie-slim
     sbom: true
-
-  - id: gobfd-oraclelinux10
-    dockerfile: deployments/docker/Containerfile.release.oraclelinux
-    ids: [gobfd, gobfdctl, gobfd-haproxy-agent, gobfd-exabgp-bridge]
-    images:
-      - ghcr.io/dantte-lp/gobfd
-    tags:
-      - "{{ .Version }}-oraclelinux10"
-    platforms:
-      - linux/amd64
-      - linux/arm64
-    labels:
-      org.opencontainers.image.title: gobfd
-      org.opencontainers.image.version: "{{ .Version }}"
-      org.opencontainers.image.revision: "{{ .FullCommit }}"
-      org.opencontainers.image.source: https://github.com/dantte-lp/gobfd
-      org.opencontainers.image.base.name: docker.io/library/oraclelinux:10-slim
-    sbom: true

@@ -29,7 +29,7 @@ type countingSenderFactory struct {
 func (f *countingSenderFactory) CreateSender(
 	_ netip.Addr,
 	ifName string,
-	_ bool,
+	_ bfd.SessionType,
 	_ bool,
 	_ *slog.Logger,
 ) (bfd.PacketSender, uint16, error) {

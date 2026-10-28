@@ -177,12 +177,14 @@ func flightRecorderHandler(fr *trace.FlightRecorder) http.HandlerFunc {
 // Includes standard gRPC health checking (grpc.health.v1).
 func newGRPCServer(
 	cfg config.GRPCConfig,
+	microEnabled bool,
 	mgr *bfd.Manager,
 	sf server.SenderFactory,
 	echoSF server.SenderFactory,
 	checker *grpchealth.StaticChecker,
 	fr *trace.FlightRecorder,
 	logger *slog.Logger,
+	capabilities server.CapabilitySource,
 ) *http.Server {
 	mux := http.NewServeMux()
 
@@ -202,7 +204,8 @@ func newGRPCServer(
 	}
 	server.Register(rpc, mgr, sf, logger)
 	server.RegisterEcho(rpc, mgr, echoSF, logger)
-	server.RegisterMicroBFD(rpc, mgr, logger)
+	server.RegisterMicroBFD(rpc, mgr, microEnabled, logger)
+	server.RegisterCapabilities(rpc, capabilities)
 	connecthttp.Mount(mux, rpc)
 
 	// gRPC health check (grpc.health.v1) on its own server without the RPC

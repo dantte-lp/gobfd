@@ -1,327 +1,207 @@
 # Benchmark Guide
 
-![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)
-![Bench](https://img.shields.io/badge/go_test-bench-1a73e8?style=for-the-badge)
-![Allocs](https://img.shields.io/badge/Allocs-Measured_Per_Benchmark-ffc107?style=for-the-badge)
-![Reports](https://img.shields.io/badge/Reports-Reproducible-ffc107?style=for-the-badge)
+Micro-benchmarks measure named operations. They do not establish UDP throughput,
+loss, timer accuracy, GC immunity or supported session scale.
+[Performance analysis](14-performance-analysis.md) describes the separate
+runtime measurement and qualification boundaries.
 
-> How to run, read, and interpret GoBFD benchmark results.
+## Run benchmarks
 
----
+The benchmark commands below run in the pinned Podman development environment.
+Use `make up` first. Host bootstrap and the separate `benchmark-report` target
+have the limitations described in [Development](09-development.md) and the
+report section below.
 
-## Table of Contents
+| Command | Input and output |
+|---|---|
+| `make benchmark` | `internal/bfd`, six runs with `-benchmem`; stdout and `benchmark.txt` |
+| `make benchmark-all` | All packages, six runs with `-benchmem`; stdout and `benchmark.txt` |
+| `make benchmark-save BENCH_VERSION=local-doc-audit` | BFD/netio samples and metadata under `testdata/benchmarks/local-doc-audit/` |
+| `make benchmark-compare OLD=v0.4.0 NEW=local-doc-audit` | `benchstat` comparison and HTML under `reports/benchmarks/` |
+| `make profile` | BFD CPU and heap profiles, `cpu.prof` and `mem.prof` |
+| `make benchmark-cross` | Go operations and local C replicas, sequentially; `bench-results/` |
 
-- [Running Benchmarks](#running-benchmarks)
-- [Understanding Go Benchmark Output](#understanding-go-benchmark-output)
-- [Benchmark Categories](#benchmark-categories)
-- [What "Good" Looks Like](#what-good-looks-like)
-- [Zero Allocation Policy](#zero-allocation-policy)
-- [Comparing Versions](#comparing-versions)
-- [CI Benchmark Policy](#ci-benchmark-policy)
-- [Generating Reports](#generating-reports)
+Use a new snapshot identifier to preserve previous samples; it does not create
+a release tag. `benchmark-save` runs BFD and netio separately with
+`-bench=. -benchmem -count=6 -run='^$' -timeout=120s`.
+`benchmark` and `benchmark-all` do not enable the race detector or write CPU/
+heap profiles. Race qualification belongs to the test gate; profiling is separate.
 
----
+`benchmark`, `benchmark-all`, `benchmark-save` and `benchmark-compare` require
+Bash on the host and use `errexit` with `pipefail`. A failed benchmark,
+`benchstat` or `tee` makes the target fail; later metadata and HTML writes do
+not run. `benchmark-save` also stops if reading the Go version fails. Raw output
+already written remains available for diagnosis. A failed rerun can leave older
+metadata or HTML alongside partial new samples: use a new snapshot identifier
+and require a successful target exit and complete expected samples before
+accepting results.
+The Go-owned CI/release runners retain their separate failure handling.
 
-### Running Benchmarks
+### Paired CI comparison
 
-GoBFD provides several Makefile targets for benchmarks. All commands run inside the Podman dev container — no local Go toolchain required.
+The CI job uses `cictl benchmark-pair --old old.txt --new new.txt`, with the
+existing `BENCH_REGEX`, `GITHUB_BASE_REF` and `RUNNER_TEMP` inputs. Ten pairs
+alternate base/head and head/base order. Each invocation runs one non-race
+sample with `-benchtime=100ms` and the existing package and timeout bounds.
+Each package/name group must have exactly ten valid records per output;
+incomplete or malformed collection fails before normalization and reporting.
+The base worktree is created once and removed with bounded cancellation-safe
+cleanup. Failed raw output remains diagnostic evidence.
 
-```bash
-# Quick run — stdout + benchmark.txt (BFD package only)
-make benchmark
+The pinned [benchstat guidance](https://github.com/golang/perf/blob/19be9d8e6c701dc8ccabaad34bf705f773fd398b/cmd/benchstat/main.go#L363)
+recommends at least ten repeats, preferably twenty, and interleaving before/
+after runs. The fixed ten-pair CI budget does not justify rerunning until a
+desired p-value appears. Inspect uncertainty and tool notes; the existing
+warning-only regression policy remains unchanged. These component samples
+do not qualify UDP latency, supported scale or the final release workload.
 
-# All packages — stdout + benchmark.txt
-make benchmark-all
+The six-run Make/release snapshots and standalone `benchmark-run`/
+`benchmark-base` commands remain non-interleaved diagnostics. They are not
+equivalent to this paired CI comparison.
 
-# Save by version — testdata/benchmarks/<version>/
-make benchmark-save                          # uses current git tag
-make benchmark-save BENCH_VERSION=v0.5.0     # explicit version
+### Snapshot files
 
-# Statistical comparison between two versions
-make benchmark-compare OLD=v0.4.0 NEW=v0.5.0
-```
+| Saved file | Content |
+|---|---|
+| `benchmark-bfd.txt` | BFD benchmark samples |
+| `benchmark-netio.txt` | Network codec and metadata benchmark samples |
+| `benchmark.txt` | Combined samples |
+| `meta.json` | Snapshot identifier, commit, date, Go version and run count |
 
-Each `benchmark-save` run produces:
+## Read output
 
-```
-testdata/benchmarks/v0.4.0/
-    benchmark-bfd.txt       # internal/bfd benchmarks (22 benchmarks, 6 runs each)
-    benchmark-netio.txt     # internal/netio benchmarks (6 benchmarks, 6 runs each)
-    benchmark.txt           # combined output
-    meta.json               # version, commit, date, Go version, run count
-```
-
-Parameters: `-bench=. -benchmem -count=6 -run='^$' -timeout=120s`. The `-count=6` flag provides enough samples for `benchstat` statistical analysis. The `-run='^$'` flag skips unit tests (only runs benchmarks).
-
----
-
-### Understanding Go Benchmark Output
-
-```
+```text
 BenchmarkControlPacketMarshal-8    195605820    5.869 ns/op    0 B/op    0 allocs/op
-                              |          |          |            |           |
-                          GOMAXPROCS  iterations  time/op    bytes/op  allocs/op
 ```
 
-| Column | Meaning |
-|--------|---------|
-| `-8` | GOMAXPROCS (number of CPUs available to the Go runtime) |
-| `195605820` | Number of iterations the benchmark ran (higher = faster operation) |
-| `5.869 ns/op` | Time per operation in nanoseconds (lower = better) |
-| `0 B/op` | Heap bytes allocated per operation (lower = better) |
-| `0 allocs/op` | Heap allocations per operation (0 = zero-allocation hot path) |
-
-With `-count=6`, each benchmark line appears 6 times. The `benchstat` tool computes the **median** (not mean) and 95% confidence interval across these runs.
-
----
-
-### Benchmark Categories
-
-GoBFD has 34 benchmarks across 7 categories in two packages (`internal/bfd` and `internal/netio`).
-
-#### 1. Packet Codec (`internal/bfd`)
-
-| Benchmark | What It Measures | Why It Matters |
-|-----------|-----------------|----------------|
-| `ControlPacketMarshal` | Serialize BFD control packet (24 bytes) to wire format | Called on every TX interval for every session |
-| `ControlPacketMarshalWithAuth` | Marshal with SHA1 authentication section | Auth adds HMAC computation overhead |
-| `ControlPacketUnmarshal` | Parse wire bytes into control packet struct | Called on every received packet |
-| `ControlPacketUnmarshalWithAuth` | Unmarshal with auth section validation | Auth parsing requires heap allocation for digest copy |
-| `ControlPacketRoundTrip` | Marshal + Unmarshal combined | End-to-end codec cost |
-
-#### 2. FSM Transitions (`internal/bfd`)
-
-| Benchmark | What It Measures | Why It Matters |
-|-----------|-----------------|----------------|
-| `FSMTransitionUpRecvUp` | Steady-state keepalive (Up -> recv Up -> Up) | Most frequent transition in production |
-| `FSMTransitionDownRecvDown` | Three-way handshake first step | Session establishment hot path |
-| `FSMTransitionUpTimerExpired` | Detection timeout (Up -> timer -> Down) | Critical failure detection path |
-| `FSMTransitionIgnored` | No-op transition (invalid event for current state) | Must be fast to not slow RX path |
-
-#### 3. Timer Calculations (`internal/bfd`)
-
-| Benchmark | What It Measures | Why It Matters |
-|-----------|-----------------|----------------|
-| `ApplyJitter` | RFC 5880 jitter calculation (up to 25% random) | Applied before every TX to prevent synchronization |
-| `ApplyJitterDetectMultOne` | Jitter with DetectMult=1 (stricter, up to 90%) | Additional 10% jitter per RFC 5880 section 6.8.7 |
-| `DetectionTimeCalc` | `DetectMult * max(RequiredMinRxInterval, remoteDesiredMinTxInterval)` | Evaluated on every parameter change |
-| `CalcTxInterval` | TX interval negotiation between local and remote | Determines actual packet send rate |
-
-#### 4. Session Infrastructure (`internal/bfd`)
-
-| Benchmark | What It Measures | Why It Matters |
-|-----------|-----------------|----------------|
-| `PacketPool` | `sync.Pool` Get/Put cycle for packet buffers | Amortizes allocation cost across sessions |
-| `RecvStateToEvent` | Map BFD state field to FSM event | Called on every received packet |
-| `SessionRecvPacket` | Channel send cost (packet -> session goroutine) | Per-packet demux overhead |
-
-#### 5. Receive and Transmit Stages (`internal/bfd`)
-
-| Benchmark | What It Measures | Why It Matters |
-|-----------|-----------------|----------------|
-| `RecvDecodeLookupEnqueue` | Unmarshal + discriminator lookup + attempted buffered-channel enqueue | Cost before session processing begins |
-| `RecvDecodeFSM` | Unmarshal + state-to-event mapping + stateless FSM transition | Codec and FSM compute cost only |
-| `TxMarshalJitter` | Marshal a pre-built packet + calculate jitter | TX compute stage without socket send |
-
-None of these benchmarks is end to end. In particular,
-`RecvDecodeLookupEnqueue` does not wait for authentication, session-state
-mutation, FSM commit, timer reset, or notification delivery.
-
-#### 6. Session Scaling (`internal/bfd`)
-
-| Benchmark | What It Measures | Why It Matters |
-|-----------|-----------------|----------------|
-| `ManagerCreate100Sessions` | Create + destroy 100 sessions throughput | Session churn during config reload |
-| `ManagerCreate1000Sessions` | Create + destroy 1000 sessions throughput | Large-scale provisioning |
-| `ManagerDemux1000Sessions` | Packet dispatch with 1000 active sessions | O(1) Swiss table map lookup verification |
-| `ManagerReconcile` | Config reconciliation (add 10, remove 5 from 100 sessions) | Incremental config update cost |
-
-#### 7. Overlay Codec (`internal/netio`)
-
-| Benchmark | What It Measures | Why It Matters |
-|-----------|-----------------|----------------|
-| `BuildInnerPacketInto` | Assemble inner packet in a caller-owned buffer | Production VXLAN/Geneve TX path |
-| `BuildInnerPacket` | Assemble Ethernet + IPv4 + UDP + BFD inner packet | Allocating compatibility wrapper |
-| `StripInnerPacket` | Extract BFD payload from inner packet | RX path for overlay sessions |
-| `VXLANHeaderMarshal` | VXLAN header serialization (RFC 7348) | Per-packet TX overhead for VXLAN BFD |
-| `VXLANHeaderUnmarshal` | VXLAN header parsing | Per-packet RX overhead for VXLAN BFD |
-| `GeneveHeaderMarshal` | Geneve header serialization (RFC 8926) | Per-packet TX overhead for Geneve BFD |
-| `GeneveHeaderUnmarshal` | Geneve header parsing | Per-packet RX overhead for Geneve BFD |
-
----
-
-### What "Good" Looks Like
-
-Target metrics for GoBFD based on BFD protocol requirements and production constraints:
-
-| Category | Target | Rationale |
-|----------|--------|-----------|
-| Packet codec (marshal/unmarshal) | 0 allocs/op, <10 ns/op | Called every TX/RX interval (potentially thousands of times per second) |
-| FSM transitions | 0 allocs/op, <25 ns/op | Most frequent operation in the hot path |
-| Timer calculations | <1 ns/op | Pure arithmetic, no memory access required |
-| Decode + lookup + enqueue stage | Observed allocations and latency | Regression evidence for the named stage only |
-| Marshal + jitter stage | Observed allocations and latency | Regression evidence without the socket send |
-| Session demux (any count) | O(1), ~50 ns/op | Swiss table map lookup, independent of session count |
-| Overlay headers | 0 allocs/op, <5 ns/op | Thin wire format, fixed-size headers |
-
-#### v0.4.0 Baseline Results
-
-| Benchmark | ns/op | B/op | allocs/op | Status |
-|-----------|------:|-----:|----------:|--------|
-| ControlPacketMarshal | 5.9 | 0 | 0 | Target met |
-| ControlPacketUnmarshal | 11.0 | 0 | 0 | Target met |
-| ControlPacketRoundTrip | 17.9 | 0 | 0 | Target met |
-| FSMTransitionUpRecvUp | 20.1 | 0 | 0 | Target met |
-| ApplyJitter | 9.6 | 0 | 0 | Target met |
-| DetectionTimeCalc | 0.7 | 0 | 0 | Target met |
-| FullRecvPath (historical name) | 64.2 | 0 | 0 | v0.4.0 sample; ends at enqueue |
-| FullTxPath (historical name) | 6.7 | 0 | 0 | v0.4.0 sample; excludes socket send |
-| ManagerDemux1000Sessions | 50.7 | 0 | 0 | Target met |
-| VXLANHeaderMarshal | 2.8 | 0 | 0 | Target met |
-| GeneveHeaderUnmarshal | 3.8 | 0 | 0 | Target met |
-
----
-
-### Zero Allocation Policy
-
-GoBFD targets zero heap allocations for selected named operations. Current
-evidence does not enforce a repository-wide zero-allocation invariant for all
-per-packet and per-timer runtime paths.
-
-#### Why Zero Allocation Matters for BFD
-
-BFD sessions send and receive packets at intervals as low as 10ms. With 1,000 sessions at 100ms intervals, that is 10,000 packets per second in each direction. Any allocation in the hot path means:
-
-1. **GC pressure** — more frequent garbage collection pauses
-2. **Latency jitter** — GC stop-the-world pauses add unpredictable delay
-3. **False positives** — if a GC pause exceeds the detection time, the remote peer declares the session Down
-
-Production images do not set an unqualified `GOMEMLIMIT` and retain the default
-`GOGC`. Set a deployment-qualified soft limit with headroom only after measuring
-the target workload. Override `GOGC` only after representative deployment
-measurements justify it; zero-allocation results for selected operations do not
-eliminate GC from the process or guarantee pause-free BFD operation.
-
-#### Verification Methods
-
-1. **`-benchmem` flag** — each benchmark reports allocations made by its body
-2. **`testing.AllocsPerRun`** — one explicit assertion protects
-   `BuildInnerPacketInto`; it is not a repository-wide gate
-3. **`benchstat` comparison** — CI reports timing and allocation samples, while
-   the current >=10% regression policy remains a warning
-
-#### Known Exceptions
-
-- `ControlPacketUnmarshalWithAuth`: 1 alloc/op (64 B) — copies the authentication digest for HMAC verification. This is intentional: the digest must outlive the input buffer.
-- `BuildInnerPacketInto`: 0 alloc/op — writes the inner packet into the connection-owned TX buffer used by production VXLAN/Geneve paths.
-- `BuildInnerPacket`: 1 alloc/op (80 B) — allocating compatibility wrapper for standalone callers and tests.
-- `ManagerCreate*` / `ManagerReconcile`: allocations expected — session lifecycle operations are not hot path.
-
----
-
-### Comparing Versions
-
-Use `benchstat` via the Makefile to compare benchmark results between versions:
-
-```bash
-# Save current benchmarks
-make benchmark-save BENCH_VERSION=v0.5.0
-
-# Compare with previous version
-make benchmark-compare OLD=v0.4.0 NEW=v0.5.0
-```
-
-#### Reading benchstat Output
-
-```
-                           │  v0.4.0   │              v0.5.0              │
-                           │  sec/op   │   sec/op     vs base             │
-ControlPacketMarshal-8       5.87n ± 3%   5.52n ± 1%  -5.96% (p=0.002 n=6)
-FSMTransitionUpRecvUp-8      20.1n ± 1%   20.3n ± 2%       ~ (p=0.485 n=6)
-```
-
-| Symbol | Meaning |
-|--------|---------|
-| `± 3%` | 95% confidence interval — lower means more stable measurements |
-| `-5.96%` | Statistically significant improvement (negative = faster) |
-| `~` | No statistically significant difference |
-| `p=0.002` | p-value — below 0.05 means the difference is statistically significant |
-| `n=6` | Number of samples used for comparison |
-
-A regression shows as a positive percentage (e.g., `+12.3%`). Investigate any regression >5% in hot-path benchmarks before release.
-
-### CI Benchmark Policy
-
-| Gate | Requirement |
-|------|-------------|
-| Pull request benchmark gate | GitHub Actions `Benchmark comparison` runs stable hot-path benchmarks only. |
-| E2E evidence gate | `.github/workflows/e2e.yml` publishes E2E artifacts separately from benchmark artifacts. |
-| E2E timing data | Diagnostic only; not a performance regression gate. |
-| Vendor profile timing | Diagnostic only; not comparable across licensed or operator-provided images. |
-| Regression scope | Protocol hot paths in `internal/bfd` and `internal/netio`. |
-| Regression action | A significant `sec/op` increase of at least 10% is classified as critical or report-only by the existing duration thresholds; CI emits a warning and keeps the decision non-blocking. |
-| Evidence | The artifact keeps normalized `old.txt` and `new.txt`, Markdown, escaped HTML, benchstat CSV/notes, and schema `gobfd.benchmark-comparison.v1` JSON. |
-
-The CI helper runs the head and base benchmark commands directly, without a
-workflow shell program. The base checkout is a detached temporary Git worktree
-below `RUNNER_TEMP` and is removed on both success and benchmark failure. The
-JSON artifact contains one row per benchstat comparison with the unit,
-benchmark name, base and head values, formatted delta, significance, and
-`none`, `reported`, or `critical` regression classification. This is the
-stable machine-readable input for dashboards; `bench-report.md` remains the PR
-comment source.
-
-#### HTML Report
-
-`make benchmark-compare` also generates `reports/benchmarks/comparison.html` — a standalone HTML table with color-coded results. Open it in any browser.
-
----
-
-### Generating Reports
-
-#### Test Report (JUnit XML + HTML)
-
-```bash
-make test-report
-```
-
-Produces:
-- `reports/tests/unit-report.xml` — JUnit XML (for CI integration)
-- `reports/tests/unit-report.json` — JSON format (for programmatic analysis)
-- `reports/tests/unit-report.html` — standalone HTML report (for humans)
-
-#### Benchmark Comparison Report
-
-```bash
-make benchmark-compare OLD=v0.4.0 NEW=v0.5.0
-```
-
-Produces:
-- `reports/benchmarks/comparison.txt` — text table
-- `reports/benchmarks/comparison.html` — standalone HTML table
-
-#### Full Pipeline
-
-```bash
-make report-all OLD=v0.4.0
-```
-
-Runs `test-report` + `benchmark-save` + `benchmark-compare` in sequence. All output goes to the `reports/` directory (gitignored — regenerate with `make report-all`).
-
-#### Developer Workflow
-
-```bash
-# When releasing a new version:
-make benchmark-save BENCH_VERSION=v0.5.0
-
-# Compare with previous:
-make benchmark-compare OLD=v0.4.0 NEW=v0.5.0
-# -> open reports/benchmarks/comparison.html in browser
-
-# Test report:
-make test-report
-# -> open reports/tests/unit-report.html in browser
-
-# Everything at once:
-make report-all OLD=v0.4.0
-```
+| Field | Meaning |
+|---|---|
+| `-8` | Effective benchmark `GOMAXPROCS` |
+| `195605820` | Adaptive iteration count; compare time/op rather than counts alone |
+| `ns/op` | Elapsed time per operation |
+| `B/op`, `allocs/op` | Reported heap bytes and allocations per operation |
+
+Keep raw samples. Repetition alone does not remove host contention, CPU
+throttling, cache effects or timer noise. Compare equivalent benchmark bodies,
+compiler, architecture, limits and environment; inspect statistical uncertainty
+before attributing a change to source code. Do not compare race and non-race
+costs as the same workload.
+
+## Operation boundaries
+
+| Benchmark family | Measured work | Important exclusion or limit |
+|---|---|---|
+| Control marshal | Serialize the packet into a supplied buffer | With-auth marshal serializes an already prepared auth section; it does not sign |
+| Control unmarshal | Parse and validate wire fields | Authentication metadata and its bounded payload are owned by value |
+| `BenchmarkAuthentication` | Built-in `Sign` and `VerifyKnownSequence` with an immutable static key store | Verify uses decoded signed wire and resets the prior sequence; excludes sockets, retained-wire copies and owner commit |
+| FSM | Indexed transition lookup | No owner loop, socket, timer or notification |
+| Jitter and interval arithmetic | The named calculation | No timer wake-up or scheduling delay |
+| `RecvDecodeLookupEnqueue` | Decode, discriminator lookup, attempted buffered enqueue | Enqueue is not packet processing or owner commit |
+| `RecvDecodeFSM` | Decode and stateless FSM transition | No live owner state or transport |
+| `ReceiveOwnerCollector` | Actual owner commit with the real collector | Synthetic timing; excludes UDP, wire decoding and authentication |
+| `ReceiveOwnerCollectorAuthentication` | Sign, marshal, decode, demux, Verify and owner commit with real metrics | Reuses wire only after commit; steady Up handshake precedes timing; excludes sockets and kernel RX |
+| `TxMarshalJitter` | Marshal and jitter calculation | No socket send or peer arrival |
+| Create/reconcile | Session lifecycle | B/op is not total retained RSS per session |
+| `BuildInnerPacketInto` | Inner assembly into caller-owned storage | Production overlay TX path |
+| `BuildInnerPacket` | Allocating compatibility wrapper | Separate cost and ownership |
+| Metadata/timer/metrics | The named parser or observer | No complete packet pipeline or scale guarantee |
+
+Definitions live in [`internal/bfd/`](../../internal/bfd/),
+[`internal/netio/`](../../internal/netio/) and
+[`internal/metrics/`](../../internal/metrics/). Read the benchmark body when its
+name or boundary changes. Avoid fixed benchmark counts in documentation.
+
+## Allocation policy
+
+Selected codec, FSM, timer, lookup and caller-buffer operations target
+zero allocations, including authenticated decode with value-owned auth metadata.
+The bounded payload is copied into the packet; hash verification separately
+requires retained immutable wire. [ADR-0011](adr/0011-bfd-auth-inline-payload.md)
+records packet and wire ownership.
+The compatibility inner-packet builder allocates its returned slice. Session
+construction and reconciliation allocate lifecycle state. A zero result for
+one body neither proves all hot paths allocate zero nor bounds runtime GC pauses.
+
+### Authentication methods — 2026-10-26
+
+The digest-result change at `972946c59bbe8d9bc36fbe51edb9f6c82f3bfc33`
+recorded these historical linux/amd64 samples: the pinned compiler, three runs of 200000
+iterations, and a 16-byte key. Returning the shared digest as a fixed array
+removes one digest allocation without changing wire or payload ownership.
+
+| Modes | Sign before, B/op and allocs/op | Sign after, B/op and allocs/op | Verify before, B/op and allocs/op | Verify after, B/op and allocs/op |
+|---|---|---|---|---|
+| Simple Password | 16 / 1 | 16 / 1 | 0 / 0 | 0 / 0 |
+| Keyed MD5, Meticulous Keyed MD5 | 48 / 3 | 32 / 2 | 16 / 1 | 0 / 0 |
+| Keyed SHA1, Meticulous Keyed SHA1 | 72 / 3 | 48 / 2 | 24 / 1 | 0 / 0 |
+
+These are successful method allocation samples, not a statistical latency
+comparison. Signing still allocated caller-owned payloads in that revision.
+The digest change is accepted under `gobfd-qj0.8.2.8.6.3.2.1`.
+
+### Inline payload — 2026-10-26
+
+The ADR-0011 candidate under `gobfd-qj0.8.2.8.6.3.2.2` uses a 20-byte inline
+payload and an independent logical length. Local linux/amd64 samples report
+0 B/op and 0 allocs/op for all five built-in Sign and Verify methods, three
+runs of 200000 iterations with a 16-byte key.
+
+`ReceiveOwnerCollectorAuthentication` also reports 0 B/op and 0 allocs/op in
+the same sample matrix. It signs, marshals, decodes, queues and verifies each
+packet, then waits for owner commit with the real collector. The fixture reaches
+Up before timing and checks exact receive/commit counts; wire is reused only
+after commit. Its clock input is synthetic. Socket receive, retained-wire
+allocation, kernel timestamps, loss, supported scale and latency distributions
+remain separate; the full comparison `gobfd-qj0.8.2.8.6.3.2` is not closed by
+these allocation samples.
+
+The local layout changes from 64/32 to 60/28 bytes for packet/auth section.
+Receive queue elements remain 160 bytes due to alignment. Like-for-like
+linux/amd64 validation builds with CGO disabled, trimpath and no release ldflags
+change the daemon from 31445503 to 31434427 bytes; the other three binaries are
+unchanged. These are validation binary sizes, not release asset or retained RSS
+measurements. The plain in-memory RX fixture remains 128 B/op and 1 alloc/op.
+
+### Micro-BFD dispatch logging — 2026-10-26
+
+The pre-change matrix records 11 allocs/op with no actuator and 15 with a
+noop actuator, both before and after inline authentication storage. Typed
+`LogAttrs` calls remove boxed log attributes without changing levels, fields
+or state delivery. Local linux/amd64 samples, three runs of 200000 iterations,
+report 0 B/op and 0 allocs/op without an actuator, including enabled JSON
+encoding after the legacy notification queue fills. The fixture retains 64
+groups and alternates member Up/Down transitions.
+
+The noop actuator path reports 272 B/op and 4 allocs/op. Allocation profiles
+attribute the remaining four allocations to the fresh bounded context and
+timer; the five-second deadline, cancellation and ordered dispatch remain
+unchanged. The logging change is tracked by `gobfd-qj0.8.2.8.6.3.2.3.1`;
+the full zero-allocation target remains open in `gobfd-qj0.8.2.8.6.3.2.3`.
+These samples do not qualify actuator backend I/O, supported scale or latency
+distributions and do not close the overall allocation gate.
+
+Historical Go 1.26 samples remain in
+[`testdata/benchmarks/v0.4.0/`](../../testdata/benchmarks/v0.4.0/).
+Their ns/op are not Go 1.27.3 acceptance and must not be marked as meeting
+an unrelated threshold. [BENCHMARKS.md](../../BENCHMARKS.md) points to the
+retained samples and more recent scoped owner observations.
+
+## CI policy and reports
+
+The current benchmark report emits a warning for classified critical time/op
+regressions of at least 10%; a warning does not itself fail the job. A calibrated blocking
+regression policy remains Beads `gobfd-qj0.8.2.1.6.4`. Preserve malformed-output
+failures and do not describe the warning as a release performance gate.
+
+`make test-report` runs the race test suite and creates JUnit/HTML under
+`reports/tests/`; `make report-all` also saves and compares Go benchmarks.
+`benchmark-report` is a legacy Make target that directly invokes `go run`;
+run its generator in the pinned container rather than using host Go.
+Keep analysis UIs on loopback. Profiles can contain sensitive operational data.
+
+## Related documents
+
+- [Development](09-development.md) — pinned tools and quality workflow.
+- [Comparisons](13-competitive-analysis.md) — C-model and deployment limitations.
+- [Performance](14-performance-analysis.md) — telemetry, workload and resources.
+- [Workload ADR](adr/0007-workload-phase-accounting.md) — phase and ledger policy.

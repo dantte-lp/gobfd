@@ -443,6 +443,11 @@ func TestProtoVerifyRunsFixedCommandsWithChildOnlyPATH(t *testing.T) {
 			args: []string{"diff", "--exit-code", "--", "pkg/bfdpb"},
 			dir:  root,
 		},
+		{
+			name: "git",
+			args: []string{"status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "pkg/bfdpb"},
+			dir:  root,
+		},
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
 		t.Errorf("protobuf invocations = %#v, want %#v", runner.calls, want)
@@ -502,19 +507,32 @@ func TestProtoVerifyRejectsUnsafePathsWithoutRunningCommands(t *testing.T) {
 func TestProtoVerifyWrapsCommandFailureAndStops(t *testing.T) {
 	t.Parallel()
 
-	wantErr := errors.New("buf failed")
-	runner := &recordingSpecRunner{failAt: 3, err: wantErr}
-	err := ProtoVerify(context.Background(), ProtoOptions{
-		Root: t.TempDir(), RunnerTemp: t.TempDir(), Environment: []string{"PATH=/usr/bin"}, Runner: runner,
-	})
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("ProtoVerify() error = %v, want wrapped buf error", err)
-	}
-	if !strings.Contains(err.Error(), "generate protobuf code") {
-		t.Errorf("ProtoVerify() error = %q, want generation context", err)
-	}
-	if got := len(runner.calls); got != 3 {
-		t.Errorf("runner calls = %d, want stop at third call", got)
+	for _, tc := range []struct {
+		name    string
+		failAt  int
+		context string
+	}{
+		{name: "generation", failAt: 3, context: "generate protobuf code"},
+		{name: "status", failAt: 5, context: "inspect generated protobuf code"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			wantErr := errors.New("command failed")
+			runner := &recordingSpecRunner{failAt: tc.failAt, err: wantErr}
+			err := ProtoVerify(t.Context(), ProtoOptions{
+				Root: t.TempDir(), RunnerTemp: t.TempDir(), Environment: []string{"PATH=/usr/bin"}, Runner: runner,
+			})
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("ProtoVerify() error = %v, want wrapped command error", err)
+			}
+			if !strings.Contains(err.Error(), tc.context) {
+				t.Errorf("ProtoVerify() error = %q, want context %q", err, tc.context)
+			}
+			if got := len(runner.calls); got != tc.failAt {
+				t.Errorf("runner calls = %d, want stop at %d", got, tc.failAt)
+			}
+		})
 	}
 }
 

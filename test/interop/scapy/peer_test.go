@@ -2,11 +2,25 @@ package main
 
 import (
 	"io"
+	"reflect"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 )
+
+func TestPeerPollProbePreservesDemandAndPhase(t *testing.T) {
+	t.Parallel()
+	loop := &peerLoop{crafted: newPeer(), next: 5}
+	loop.crafted.demand = true
+	if err := loop.signal(syscall.SIGUSR2); err != nil {
+		t.Fatal(err)
+	}
+	if !loop.crafted.poll || !loop.crafted.demand || loop.next != 5 {
+		t.Fatal("probe changed Demand/phase or failed to start Poll")
+	}
+}
 
 const testRemoteDiscriminator = 0x1111
 
@@ -244,7 +258,7 @@ func TestPeerPacketsUseRepositoryCodec(t *testing.T) {
 		t.Fatalf("repository codec rejected peer packet: %v", err)
 	}
 	decoded.Length = 0
-	if decoded != packet {
+	if !reflect.DeepEqual(decoded, packet) {
 		t.Fatalf("decoded = %+v, want %+v", decoded, packet)
 	}
 	if err := crafted.apply("unknown"); err == nil {
@@ -279,5 +293,39 @@ func TestPeerLoopDeadlineFollowsUpTransition(t *testing.T) {
 	// A Final counts as a transmission for the remote Detection Time.
 	if sent != 1 || !loop.lastSent.After(last) {
 		t.Fatalf("Final sends=%d lastSent=%v, want one send after %v", sent, loop.lastSent, last)
+	}
+}
+
+// Fault injection: lost Final replies keep the remote Poll outstanding while
+// the peer still transmits periodically and can cross it with its own Poll.
+func TestPeerFinalLossDropsOnlyFinals(t *testing.T) {
+	t.Parallel()
+
+	crafted := upPeer(t)
+	for _, phase := range []string{phaseFinalLoss, phasePoll} {
+		if err := crafted.apply(phase); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if reply, ok := crafted.receive(pollControl(remoteControl(bfd.StateUp))); ok {
+		t.Fatalf("lost Final transmitted: %+v", reply)
+	}
+	// RFC 5880 Section 6.5: the crossing Poll never carries Final.
+	if packet := mustPeriodic(t, crafted); !packet.Poll || packet.Final {
+		t.Fatalf("crossing packet = %+v, want P only", packet)
+	}
+	crafted.receive(finalControl(remoteControl(bfd.StateUp)))
+	if crafted.poll {
+		t.Fatal("remote Final did not end the crossing Poll under Final loss")
+	}
+	if err := crafted.apply(phaseFinalRestore); err != nil {
+		t.Fatal(err)
+	}
+	if reply, ok := crafted.receive(pollControl(remoteControl(bfd.StateUp))); !ok || !reply.Final || reply.Poll {
+		t.Fatalf("restored Final = %+v ok=%t", reply, ok)
+	}
+	phases := peerPhases()
+	if got := phases[len(phases)-3:]; got[0] != phaseFinalLoss || got[1] != phasePoll || got[2] != phaseFinalRestore {
+		t.Fatalf("scenario tail = %v", got)
 	}
 }

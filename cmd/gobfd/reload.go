@@ -145,17 +145,15 @@ func applyBaseSessionCandidates(
 	sf declarativeSenderFactory,
 	logger *slog.Logger,
 ) bfd.ReconcileResult {
-	desired := make([]bfd.ReconcileConfig, 0, len(candidates))
-	for _, candidate := range candidates {
-		rc := candidate.reconcile
-		rc.SenderLeaseFactory = declarativeSenderLeaseFactoryFor(
+	desired := baseReconcileConfigs(candidates)
+	for i, candidate := range candidates {
+		desired[i].SenderLeaseFactory = declarativeSenderLeaseFactoryFor(
 			sf,
 			candidate.senderLocal,
 			candidate.multiHop,
 			logger,
 			candidate.senderOpts...,
 		)
-		desired = append(desired, rc)
 	}
 
 	return mgr.ReconcileSessionsForOwnerDetailed(
@@ -163,6 +161,14 @@ func applyBaseSessionCandidates(
 		bfd.ConfigReconciliationOwner(),
 		desired,
 	)
+}
+
+func baseReconcileConfigs(candidates []baseSessionCandidate) []bfd.ReconcileConfig {
+	desired := make([]bfd.ReconcileConfig, len(candidates))
+	for i, candidate := range candidates {
+		desired[i] = candidate.reconcile
+	}
+	return desired
 }
 
 func reconcileErrorCodes(result bfd.ReconcileResult) []string {
@@ -290,7 +296,7 @@ func reconcileEchoSessions(
 		return echoReconcileOutcome{Err: err}
 	}
 
-	result := applyEchoSessionCandidates(ctx, candidates, mgr, sf, logger)
+	result := applyEchoSessionCandidates(ctx, candidates, mgr, sf, logger, nil)
 	if err := result.Err(); err != nil {
 		logger.Error("echo session reconciliation had errors",
 			slog.String("error", err.Error()),
@@ -318,22 +324,52 @@ func applyEchoSessionCandidates(
 	mgr *bfd.Manager,
 	sf declarativeSenderFactory,
 	logger *slog.Logger,
+	listeners *listenerOwner,
 ) bfd.ReconcileResult {
 	desired := make([]bfd.EchoReconcileConfig, 0, len(candidates))
 	for _, candidate := range candidates {
+		local, opts := singleHopSenderBinding(
+			candidate.config.LocalAddr, candidate.config.Interface,
+			[]netio.SenderOption{netio.WithDstPort(netio.PortEcho)},
+		)
+		factory := declarativeSenderLeaseFactoryFor(sf, local, false, logger, opts...)
+		if listeners != nil {
+			//nolint:contextcheck // Receivers are owner-scoped, not bound to one reconciliation pass.
+			factory = echoReceiveSenderLeaseFactory(listeners, candidate.config, factory)
+		}
 		desired = append(desired, bfd.EchoReconcileConfig{
-			Key: candidate.key, EchoSessionConfig: candidate.config,
-			SenderLeaseFactory: declarativeSenderLeaseFactoryFor(
-				sf,
-				candidate.config.LocalAddr,
-				false,
-				logger,
-				netio.WithDstPort(netio.PortEcho),
-			),
+			Key: candidate.key, EchoSessionConfig: candidate.config, SenderLeaseFactory: factory,
 		})
 	}
 
 	return mgr.ReconcileEchoSessionsDetailed(ctx, desired)
+}
+
+// The physical wire retains RX when its original config claim is withdrawn.
+func echoReceiveSenderLeaseFactory(
+	listeners *listenerOwner, cfg bfd.EchoSessionConfig, factory bfd.SenderLeaseFactory,
+) bfd.SenderLeaseFactory {
+	return func() (*bfd.SenderLease, error) {
+		key, err := listeners.claimAPI(netio.ListenerConfig{
+			Addr: cfg.LocalAddr, IfName: cfg.Interface, Port: netio.PortEcho, ExpectedTTL: netio.TTLEchoLoopback,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("claim Echo runtime receive listener: %w", err)
+		}
+		lease, err := factory()
+		if err != nil {
+			listeners.releaseAPI(key)
+			return lease, err
+		}
+		return bfd.NewSenderLease(lease.Sender(), func() error {
+			closeErr := lease.Close()
+			listeners.releaseAPI(key)
+			if closeErr != nil {
+				return fmt.Errorf("close Echo runtime sender: %w", closeErr)
+			}
+			return nil
+		}), nil
+	}
 }
 
 // configEchoToBFD converts a config.EchoPeerConfig to a bfd.EchoSessionConfig,
@@ -375,8 +411,8 @@ func configEchoToBFD(ep config.EchoPeerConfig, defaults config.EchoConfig) (bfd.
 // udpSenderFactory implements server.SenderFactory using real UDP sockets
 // with RFC 5881 source port allocation and TTL=255 (GTSM).
 type udpSenderFactory struct {
-	portAlloc       *netio.SourcePortAllocator
-	writeBufferSize int
-	senders         map[uint16]*netio.UDPSender
-	mu              sync.Mutex
+	portAlloc *netio.SourcePortAllocator
+	socket    config.SocketConfig
+	senders   map[uint16]*netio.UDPSender
+	mu        sync.Mutex
 }

@@ -84,6 +84,28 @@ func isolateSupportedEnv(t *testing.T) {
 	}
 }
 
+func TestMicroPreviewEnvironmentOptIn(t *testing.T) {
+	isolateSupportedEnv(t)
+
+	path := filepath.Join(t.TempDir(), "gobfd.yml")
+	if err := os.WriteFile(path, []byte("micro_bfd:\n  groups:\n    - lag_interface: bond0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"false", "true", "invalid"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("GOBFD_MICRO_BFD_ENABLED", value)
+			cfg, err := Load(path)
+			if value == "true" {
+				if err != nil || !cfg.MicroBFD.Enabled {
+					t.Fatalf("environment opt-in failed: %v", err)
+				}
+			} else if err == nil {
+				t.Fatalf("environment %q accepted without opt-in", value)
+			}
+		})
+	}
+}
+
 func TestLoadEmptyYAMLLayerPreservesSocketDefaults(t *testing.T) {
 	t.Parallel()
 

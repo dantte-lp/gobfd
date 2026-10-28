@@ -194,7 +194,7 @@ func TestReconcileUnresolvedInterfaceIsPendingDependency(t *testing.T) {
 		if source != sourceBase {
 			return sourceApplyResult{} // Only the base source is under test.
 		}
-		return applyCompiledSourceWithInterfaceChecker(ctx, source, candidate, mgr, sf, logger, available)
+		return applyCompiledSourceWithInterfaceChecker(ctx, source, candidate, mgr, sf, logger, nil, available)
 	}
 	coordinator := newReconciliationCoordinator(config.DefaultConfig(), logger, nil)
 	first := coordinator.applyCandidate(context.Background(), compiledControlSessionCandidate{base: base}, apply)

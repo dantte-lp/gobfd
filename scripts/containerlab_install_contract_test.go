@@ -8,32 +8,6 @@ import (
 	"testing"
 )
 
-func TestContainerlabBootstrapSecurityBoundaries(t *testing.T) {
-	t.Parallel()
-
-	bootstrap := readContractFile(t, "../test/internal/clabbootstrap/vendor_images.go")
-	for _, required := range []string{
-		`parsed.Scheme != "https"`,
-		`parsed.Hostname() == "api.github.com"`,
-		`parsed.Hostname() == "github.com"`,
-		`parsed.Hostname() == "release-assets.githubusercontent.com"`,
-		`parsed.User != nil`,
-		`parsed.Port() != "443"`,
-		"CheckRedirect",
-		"maxISOSize",
-		"maxNestedArchive",
-	} {
-		if !strings.Contains(bootstrap, required) {
-			t.Errorf("native vendor bootstrap lacks security contract %q", required)
-		}
-	}
-	for _, forbidden := range []string{"exec.Command", `Executable: "sh"`, `Executable: "bash"`} {
-		if strings.Contains(bootstrap, forbidden) {
-			t.Errorf("native vendor bootstrap retains shell boundary %q", forbidden)
-		}
-	}
-}
-
 func TestContainerlabBootstrapOwnedOrchestrationUsesGo(t *testing.T) {
 	t.Parallel()
 
@@ -43,7 +17,7 @@ func TestContainerlabBootstrapOwnedOrchestrationUsesGo(t *testing.T) {
 	}
 	for _, path := range []string{
 		filepath.Join(repositoryRoot, "test", "internal", "clabbootstrap", "orchestration.go"),
-		filepath.Join(repositoryRoot, "test", "internal", "clabbootstrap", "vendor_images.go"),
+		filepath.Join(repositoryRoot, "test", "internal", "vendorprofiles", "manifest.go"),
 		filepath.Join(repositoryRoot, "test", "cmd", "clabbootstrap", "main.go"),
 	} {
 		info, statErr := os.Stat(path)
@@ -69,14 +43,8 @@ func TestContainerlabBootstrapOwnedOrchestrationUsesGo(t *testing.T) {
 	}
 
 	makefile := readContractFile(t, "../Makefile")
-	for _, required := range []string{
-		"interop-clab-bootstrap:",
-		"go run ./test/cmd/clabbootstrap",
-	} {
-		if !strings.Contains(makefile, required) {
-			t.Errorf("Makefile lacks bootstrap split contract %q", required)
-		}
-	}
+	// TestMakeClabTargetsUseIsolatedColdController executes the actual Make targets;
+	// keep this contract focused on source retention and the removed Python entrypoint.
 	if strings.Contains(makefile, "test/interop-clab/bootstrap.py") {
 		t.Error("Makefile still references the legacy Python bootstrap")
 	}

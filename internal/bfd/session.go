@@ -190,6 +190,7 @@ type StateChange struct {
 	Cause              Cause
 	ObservationVersion uint64
 	Ref                SessionRef
+	TransitionTiming   TransitionTiming
 
 	// Timestamp is when the transition occurred.
 	Timestamp time.Time
@@ -347,6 +348,7 @@ type Session struct {
 	// remote facts separately until its final local pair can commit with them.
 	observation      Observation
 	observationClock *atomic.Uint64
+	transitionTiming TransitionTiming
 	stagedRemote     Observation
 	remoteStaged     bool
 
@@ -433,6 +435,9 @@ type Session struct {
 
 	// --- Cached packet (FRR bfdd pattern) ---
 	cachedPacket []byte
+	// waitingPacket is the latest proposal's preallocated growth buffer.
+	// Admission owns it under mu; only the event loop installs it for TX.
+	waitingPacket []byte
 
 	// paddedPduSize is the RFC 9764 padded PDU size. Zero means no padding.
 	paddedPduSize uint16
@@ -483,6 +488,7 @@ type Session struct {
 
 	sender         PacketSender
 	metrics        MetricsReporter
+	timerEvent     timerObservation
 	delivery       DeliveryReporter
 	cleanupWake    chan<- struct{}
 	publicLossWake chan<- struct{}
@@ -498,8 +504,9 @@ type Session struct {
 // recvItem carries a received BFD Control packet along with the raw
 // wire bytes needed for authentication verification (RFC 5880 Section 6.7).
 type recvItem struct {
-	pkt  ControlPacket
-	wire []byte // raw wire bytes for auth digest verification
+	pkt    ControlPacket
+	wire   []byte // raw wire bytes for auth digest verification
+	timing ReceiveTiming
 }
 
 type sessionControlKind uint8
@@ -820,8 +827,8 @@ func (s *Session) Type() SessionType { return s.sessionType }
 // transportOutcome checks a demultiplexed packet against the session transport:
 // the transport class for every session type, the bound interface for
 // single-hop and the hop policy for multihop. It returns DeliveryFound,
-// DeliveryScopeMismatch or DeliveryTTLRejected; the fields it reads are
-// immutable after construction.
+// DeliveryScopeMismatch or DeliveryTTLRejected. The multihop floor is sampled
+// under mu; the remaining transport identity is immutable.
 func (s *Session) transportOutcome(meta PacketMeta) DeliveryOutcome {
 	if (s.sessionType == SessionTypeMultiHop) != meta.MultiHop {
 		return DeliveryScopeMismatch
@@ -840,7 +847,10 @@ func (s *Session) transportOutcome(meta PacketMeta) DeliveryOutcome {
 			return DeliveryScopeMismatch
 		}
 	case SessionTypeMultiHop:
-		if meta.TTL < s.minTTL {
+		s.mu.RLock()
+		floor := s.minTTL
+		s.mu.RUnlock()
+		if meta.TTL < floor {
 			return DeliveryTTLRejected
 		}
 	default:
@@ -849,7 +859,11 @@ func (s *Session) transportOutcome(meta PacketMeta) DeliveryOutcome {
 }
 
 // PaddedPduSize returns the RFC 9764 padded PDU size. Zero means no padding.
-func (s *Session) PaddedPduSize() uint16 { return s.paddedPduSize }
+func (s *Session) PaddedPduSize() uint16 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.paddedPduSize
+}
 
 // AuthType returns the RFC 5880 authentication type configured for this session.
 func (s *Session) AuthType() AuthType {
@@ -874,7 +888,11 @@ func (s *Session) RequiredMinRxInterval() time.Duration {
 }
 
 // DetectMultiplier returns the configured detection multiplier.
-func (s *Session) DetectMultiplier() uint8 { return s.detectMult }
+func (s *Session) DetectMultiplier() uint8 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.detectMult
+}
 
 // NegotiatedTxInterval returns the current negotiated TX interval.
 // RFC 5880 Section 6.8.7: max(bfd.DesiredMinTxInterval, bfd.RemoteMinRxInterval).
@@ -931,11 +949,15 @@ func (s *Session) RecvPacket(pkt *ControlPacket, wire ...[]byte) DeliveryOutcome
 	if len(wire) > 0 {
 		w = wire[0]
 	}
+	return s.recvPacket(pkt, w, ReceiveTiming{})
+}
+
+func (s *Session) recvPacket(pkt *ControlPacket, wire []byte, timing ReceiveTiming) DeliveryOutcome {
 	s.mu.Lock()
 	outcome := DeliveryClosed
 	if !s.updateClosed {
 		select {
-		case s.recvCh <- recvItem{pkt: *pkt, wire: w}:
+		case s.recvCh <- recvItem{pkt: *pkt, wire: wire, timing: timing}:
 			outcome = DeliveryQueued
 		default:
 			outcome = DeliveryQueueFull

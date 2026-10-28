@@ -31,9 +31,9 @@ func TestSessionTimerUpdateLatestAndSeparation(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		s, sender, tx, detect := newRemoteTxTestSession(t)
-		a := timerTuple{200 * time.Millisecond, 50 * time.Millisecond}
-		b := timerTuple{300 * time.Millisecond, 200 * time.Millisecond}
-		original := timerTuple{s.desiredMinTxInterval, s.requiredMinRxInterval}
+		a := timerTuple{200 * time.Millisecond, 50 * time.Millisecond, 5, 0, 0}
+		b := timerTuple{300 * time.Millisecond, 200 * time.Millisecond, 7, 0, 0}
+		original := timerTuple{s.desiredMinTxInterval, s.requiredMinRxInterval, 3, 0, 0}
 		admit := func(tuple timerTuple, generation uint64) timerUpdateStatus {
 			t.Helper()
 			status, err := s.admitTimerUpdate(t.Context(), tuple, generation)
@@ -67,7 +67,7 @@ func TestSessionTimerUpdateLatestAndSeparation(t *testing.T) {
 			t.Fatal(err)
 		}
 		if reply.DesiredMinTxInterval != microsecondsFromDuration(a.TX) ||
-			reply.RequiredMinRxInterval != microsecondsFromDuration(a.RX) {
+			reply.RequiredMinRxInterval != microsecondsFromDuration(a.RX) || reply.DetectMult != a.DetectMult {
 			t.Fatal("crossed Final changed active advertisement")
 		}
 		synctest.Sleep(10 * time.Millisecond)
@@ -103,7 +103,7 @@ func TestSessionTimerUpdateExpiry(t *testing.T) {
 			t.Parallel()
 			synctest.Test(t, func(t *testing.T) {
 				s, _, tx, detect := newRemoteTxTestSession(t)
-				tuple := timerTuple{200 * time.Millisecond, 50 * time.Millisecond}
+				tuple := timerTuple{200 * time.Millisecond, 50 * time.Millisecond, 3, 0, 0}
 				first, err := s.admitTimerUpdate(t.Context(), tuple, 1)
 				if err != nil {
 					t.Fatal(err)
@@ -158,7 +158,7 @@ func TestSessionTimerUpdateRecovery(t *testing.T) {
 			t.Parallel()
 			synctest.Test(t, func(t *testing.T) {
 				s, sender, tx, detect := newRemoteTxTestSession(t)
-				tuple := timerTuple{proposedTX, 0}
+				tuple := timerTuple{proposedTX, 0, 3, 0, 0}
 				if _, err := s.admitTimerUpdate(t.Context(), tuple, 1); err != nil {
 					t.Fatal(err)
 				}
@@ -235,7 +235,7 @@ func TestSessionTimerUpdateCancellationAndNonUp(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		s, _, tx, detect := newRemoteTxTestSession(t)
-		tuple := timerTuple{200 * time.Millisecond, 0}
+		tuple := timerTuple{200 * time.Millisecond, 0, 3, 0, 0}
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 		if _, err := s.admitTimerUpdate(ctx, tuple, 1); !errors.Is(err, context.Canceled) || s.waitingUpdate.Present {
@@ -280,7 +280,7 @@ func TestSessionTimerUpdateMatrix(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				s, sender, tx, detect := newRemoteTxTestSession(t)
 				s.remoteMinRxInterval = time.Microsecond
-				if _, err := s.admitTimerUpdate(t.Context(), timerTuple{tc.tx, tc.rx}, 1); err != nil {
+				if _, err := s.admitTimerUpdate(t.Context(), timerTuple{tc.tx, tc.rx, 3, 0, 0}, 1); err != nil {
 					t.Fatal(err)
 				}
 				s.processTimerUpdates(tx, detect)
@@ -329,7 +329,7 @@ func TestSessionTimerUpdateDeadlines(t *testing.T) {
 		synctest.Sleep(50 * time.Millisecond)
 		// TX increase and RX decrease defer both effects until Final:
 		// merely advertising them must not re-jitter existing deadlines.
-		if _, err := s.admitTimerUpdate(t.Context(), timerTuple{200 * time.Millisecond, 0}, 1); err != nil {
+		if _, err := s.admitTimerUpdate(t.Context(), timerTuple{200 * time.Millisecond, 0, 3, 0, 0}, 1); err != nil {
 			t.Fatal(err)
 		}
 		s.processTimerUpdates(tx, detect)
@@ -351,7 +351,7 @@ func TestSessionTimerUpdateDeadlines(t *testing.T) {
 		s2.remoteDesiredMinTxInterval, s2.remoteDetectMult = time.Microsecond, 3
 		s2.recordValidReceivedPacket()
 		synctest.Sleep(50 * time.Millisecond)
-		proposal := timerTuple{100 * time.Millisecond, 200 * time.Millisecond}
+		proposal := timerTuple{100 * time.Millisecond, 200 * time.Millisecond, 3, 0, 0}
 		if _, err := s2.admitTimerUpdate(t.Context(), proposal, 1); err != nil {
 			t.Fatal(err)
 		}
@@ -432,13 +432,13 @@ func TestTimerUpdateExistingOwnerContract(t *testing.T) {
 	mgr.sessionsByKey[key] = &sessionEntry{
 		session: session, effective: effective, owners: map[SessionOwner]struct{}{owner: {}},
 	}
-	if _, _, err := mgr.claimExisting(key, effective, owner, false); !errors.Is(err, ErrDuplicateSession) {
+	if _, _, err := mgr.claimExisting(t.Context(), key, effective, owner, false); !errors.Is(err, ErrDuplicateSession) {
 		t.Fatalf("existing API claim lost duplicate contract: %v", err)
 	}
-	if _, _, err := mgr.claimExisting(key, effective, owner, true); err != nil {
+	if _, _, err := mgr.claimExisting(t.Context(), key, effective, owner, true); err != nil {
 		t.Fatalf("existing idempotent claim lost ownership: %v", err)
 	}
-	_, _, claimErr := mgr.claimExisting(key, effective, ConfigReconciliationOwner(), true)
+	_, _, claimErr := mgr.claimExisting(t.Context(), key, effective, ConfigReconciliationOwner(), true)
 	if !errors.Is(claimErr, ErrSessionParameterConflict) {
 		t.Fatal("new sharing claim accepted while Poll unresolved")
 	}
@@ -473,7 +473,7 @@ func BenchmarkSessionTimerUpdate(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for b.Loop() {
-			_, err := s.admitTimerUpdate(ctx, timerTuple{time.Second, time.Second}, s.timerRevision+1)
+			_, err := s.admitTimerUpdate(ctx, timerTuple{time.Second, time.Second, 3, 0, 0}, s.timerRevision+1)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -509,7 +509,7 @@ func TestTimerUpdateAppliesWhileNotUp(t *testing.T) {
 		if s.State() != StateDown {
 			t.Fatalf("state after silent peer = %s, want Down", s.State())
 		}
-		restore := timerTuple{300 * time.Millisecond, 300 * time.Millisecond}
+		restore := timerTuple{300 * time.Millisecond, 300 * time.Millisecond, 3, 0, 0}
 		if _, err := s.admitTimerUpdate(t.Context(), restore, 1); err != nil {
 			t.Fatal(err)
 		}
@@ -564,7 +564,7 @@ func TestTimerRestoreAfterInterruptedPollIsNotFalselyApplied(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		s, sender, tx, detect := newRemoteTxTestSession(t)
-		if _, err := s.admitTimerUpdate(t.Context(), timerTuple{100 * time.Millisecond, 0}, 1); err != nil {
+		if _, err := s.admitTimerUpdate(t.Context(), timerTuple{100 * time.Millisecond, 0, 3, 0, 0}, 1); err != nil {
 			t.Fatal(err)
 		}
 		s.processTimerUpdates(tx, detect)
@@ -573,7 +573,7 @@ func TestTimerRestoreAfterInterruptedPollIsNotFalselyApplied(t *testing.T) {
 		if s.State() != StateDown || s.requiredMinRxInterval != 0 {
 			t.Fatalf("interrupted Poll: state=%s effective RX=%s", s.State(), s.requiredMinRxInterval)
 		}
-		restore := timerTuple{100 * time.Millisecond, 100 * time.Millisecond}
+		restore := timerTuple{100 * time.Millisecond, 100 * time.Millisecond, 3, 0, 0}
 		if _, err := s.admitTimerUpdate(t.Context(), restore, 2); err != nil {
 			t.Fatal(err)
 		}
@@ -616,7 +616,7 @@ func TestTimerUpdateOutsideUpKeepsFloorUntilUpPoll(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		s, sender, tx, detect := newRemoteTxTestSession(t)
 		setTimerTestState(s, StateDown, DiagNone)
-		fast := timerTuple{50 * time.Millisecond, 50 * time.Millisecond}
+		fast := timerTuple{50 * time.Millisecond, 50 * time.Millisecond, 3, 0, 0}
 		if _, err := s.admitTimerUpdate(t.Context(), fast, 1); err != nil {
 			t.Fatal(err)
 		}
@@ -660,7 +660,7 @@ func TestTimerUpdateOutsideUpExpiresWithoutFinal(t *testing.T) {
 		s, sender, tx, detect := newRemoteTxTestSession(t)
 		setTimerTestState(s, StateDown, DiagNone)
 		s.role, s.remoteDiscr = RolePassive, 0
-		first, err := s.admitTimerUpdate(t.Context(), timerTuple{200 * time.Millisecond, 200 * time.Millisecond}, 1)
+		first, err := s.admitTimerUpdate(t.Context(), timerTuple{200 * time.Millisecond, 200 * time.Millisecond, 3, 0, 0}, 1)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -670,7 +670,7 @@ func TestTimerUpdateOutsideUpExpiresWithoutFinal(t *testing.T) {
 		if s.timerUpdateSnapshot().State != timerUpdateFailed || sender.attempts != 0 {
 			t.Fatal("unsendable outside-Up Poll did not fail at its deadline")
 		}
-		status, err := s.admitTimerUpdate(t.Context(), timerTuple{300 * time.Millisecond, 300 * time.Millisecond}, 2)
+		status, err := s.admitTimerUpdate(t.Context(), timerTuple{300 * time.Millisecond, 300 * time.Millisecond, 3, 0, 0}, 2)
 		if err != nil || status.State != timerUpdatePending {
 			t.Fatalf("later generation after outside-Up expiry: %+v %v", status, err)
 		}
@@ -685,7 +685,7 @@ func TestTimerUpdateOutsideUpRXDecreaseIsImmediate(t *testing.T) {
 		s, _, tx, detect := newRemoteTxTestSession(t)
 		setTimerTestState(s, StateDown, DiagNone)
 		s.remoteDesiredMinTxInterval, s.remoteDetectMult = 10*time.Millisecond, 3
-		decrease := timerTuple{100 * time.Millisecond, 50 * time.Millisecond}
+		decrease := timerTuple{100 * time.Millisecond, 50 * time.Millisecond, 3, 0, 0}
 		if _, err := s.admitTimerUpdate(t.Context(), decrease, 1); err != nil {
 			t.Fatal(err)
 		}
@@ -721,7 +721,7 @@ func TestTimerUpdateOutsideUpWaitsForPollAndSeparation(t *testing.T) {
 				if tc.separate {
 					s.separateUntil = time.Now().Add(10 * time.Millisecond)
 				}
-				tuple := timerTuple{200 * time.Millisecond, 300 * time.Millisecond}
+				tuple := timerTuple{200 * time.Millisecond, 300 * time.Millisecond, 3, 0, 0}
 				if _, err := s.admitTimerUpdate(t.Context(), tuple, 1); err != nil {
 					t.Fatal(err)
 				}

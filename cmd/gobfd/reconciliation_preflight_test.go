@@ -100,7 +100,7 @@ func TestCompiledSourceInterfacePreflightClassifiesCompleteBatch(t *testing.T) {
 			checkerCalls := 0
 			result := applyCompiledSourceWithInterfaceChecker(
 				context.Background(), sourceBase, candidate, mgr, factory,
-				slog.New(slog.DiscardHandler),
+				slog.New(slog.DiscardHandler), nil,
 				func(got []string) (int, error) {
 					checkerCalls++
 					if !slices.Equal(got, []string{"base0", "base1"}) {
@@ -141,7 +141,7 @@ func TestBaseSourcePendingPreflightPreservesOldClaimAndEmptyDesiredReleasesIt(t 
 	seed := basePreflightTestCandidates(t, "192.0.2.230", "old0")
 	seedResult := applyCompiledSourceWithInterfaceChecker(
 		context.Background(), sourceBase,
-		compiledControlSessionCandidate{base: seed}, mgr, seedFactory, logger,
+		compiledControlSessionCandidate{base: seed}, mgr, seedFactory, logger, nil,
 		func(got []string) (int, error) {
 			if !slices.Equal(got, []string{"old0"}) {
 				t.Fatalf("seed interfaces = %v, want [old0]", got)
@@ -161,7 +161,7 @@ func TestBaseSourcePendingPreflightPreservesOldClaimAndEmptyDesiredReleasesIt(t 
 	replacement := basePreflightTestCandidates(t, "192.0.2.231", "missing0")
 	pendingResult := applyCompiledSourceWithInterfaceChecker(
 		context.Background(), sourceBase,
-		compiledControlSessionCandidate{base: replacement}, mgr, newFactory, logger,
+		compiledControlSessionCandidate{base: replacement}, mgr, newFactory, logger, nil,
 		func(got []string) (int, error) {
 			if !slices.Equal(got, []string{"missing0"}) {
 				t.Fatalf("replacement interfaces = %v, want [missing0]", got)
@@ -184,7 +184,7 @@ func TestBaseSourcePendingPreflightPreservesOldClaimAndEmptyDesiredReleasesIt(t 
 	emptyFactory := newNthFailureDeclarativeSenderFactory(0)
 	emptyResult := applyCompiledSourceWithInterfaceChecker(
 		context.Background(), sourceBase, compiledControlSessionCandidate{},
-		mgr, emptyFactory, logger,
+		mgr, emptyFactory, logger, nil,
 		func([]string) (int, error) {
 			t.Fatal("empty desired source invoked interface checker")
 			return 0, nil

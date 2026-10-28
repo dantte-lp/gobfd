@@ -1,168 +1,53 @@
 # Документация GoBFD
 
-![Version](https://img.shields.io/badge/Version-0.6.1-1a73e8?style=for-the-badge)
-![Language](https://img.shields.io/badge/Lang-Русский-ea4335?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
+[Английская документация](../en/README.md) является исходной; русский раздел
+содержит её перевод. Эти страницы описывают текущую реализацию в `dev`.
+Принятая стабильная линия в `master` и `release/v0.6` имеет другие настройки
+управления по умолчанию и контракты GoBGP. Описанная здесь функция не обязательно
+входит в опубликованный релиз. Используйте документацию того же commit, что и бинарник.
 
-> Русский перевод каноничной технической документации **GoBFD** -- production-oriented демона протокола BFD (RFC 5880/5881) на Go 1.27.
+## Документы по задачам
 
----
+| Задача | Документ |
+|---|---|
+| Разобраться во владельцах компонентов и жизненном цикле | [Архитектура](01-architecture.md) |
+| Изучить обработку пакетов, таймеры и аутентификацию | [Протокол BFD](02-protocol.md) |
+| Настроить сессии, транспорт и перезагрузку конфигурации | [Конфигурация](03-configuration.md) |
+| Управлять демоном и обновить сертификат управления | [CLI](04-cli.md) |
+| Запустить квалификацию пиров и поведения на проводе | [Совместимость](05-interop.md) |
+| Установить службу, пакет или контейнер | [Развёртывание](06-deployment.md) |
+| Интерпретировать метрики и оповещения | [Мониторинг](07-monitoring.md) |
+| Проверить реализованные процедуры и неподдерживаемую область RFC | [Соответствие RFC](08-rfc-compliance.md) |
+| Собрать, проверить код и внести изменения | [Разработка](09-development.md) |
+| Вести журнал изменений и готовить релиз | [Changelog и выпуск](10-changelog.md) |
+| Использовать примеры BGP, HAProxy, ExaBGP, наблюдаемости и Kubernetes | [Интеграции](11-integrations.md) |
+| Запустить и сравнить микробенчмарки | [Руководство по бенчмаркам](12-benchmarks.md) |
+| Оценить сравнения с другими реализациями | [Границы сравнения](13-competitive-analysis.md) |
+| Интерпретировать телеметрию приёма и измерения нагрузки | [Анализ производительности](14-performance-analysis.md) |
+| Защитить управление, учётные данные и сетевой доступ | [Безопасность](15-security.md) |
+| Проверить изолированное развёртывание и отказ | [Эксплуатационные инструкции](16-production-runbooks.md) |
 
-## Карта документации
+## Решения, источники и статус
 
-```mermaid
-graph TD
-    IDX["docs/ru/README.md"]
+| Материал | Назначение |
+|---|---|
+| [ADR](adr/README.md) | Принятые решения и предложения; принятие решения отделено от квалификации |
+| [Справочники](reference/README.md) | Риски зависимостей и вспомогательные технические материалы |
+| [Тексты RFC](../rfc/) | Локальные нормативные источники; наличие текста не означает поддержку |
+| [Roadmap](roadmap.md) | Датированная проекция статуса и исторические результаты |
+| [Снимок внешнего аудита](gist-audit-reconciliation.md) | Историческая сверка с неизменяемыми ссылками на источники |
+| [Changelog](../../CHANGELOG.ru.md) | Изменения для пользователей; `Unreleased` не является опубликованным релизом |
 
-    subgraph "Архитектура"
-        A1["01-architecture.md"]
-        A2["02-protocol.md"]
-    end
+Beads является единственным исполняемым планом. `bd show gobfd-qj0.8` и
+`bd ready` показывают текущие приоритеты, зависимости и критерии приёмки.
+Документация не разрешает публикацию и не заменяет квалификацию точного
+кандидата по поведению на проводе, безопасности, интеграциям и работе под нагрузкой.
 
-    subgraph "Операции"
-        B1["03-configuration.md"]
-        B2["04-cli.md"]
-        B3["06-deployment.md"]
-        B4["15-security.md"]
-        B5["16-production-runbooks.md"]
-    end
+## Локальный запуск
 
-    subgraph "Тестирование и качество"
-        C1["05-interop.md"]
-        C2["07-monitoring.md"]
-        C3["09-development.md"]
-    end
-
-    subgraph "Производительность"
-        E1["12-benchmarks.md"]
-        E2["13-competitive-analysis.md"]
-        E3["14-performance-analysis.md"]
-    end
-
-    subgraph "Справочник"
-        D1["08-rfc-compliance.md"]
-        D2["10-changelog.md"]
-        D3["11-integrations.md"]
-        D4["adr/"]
-        D5["reference/"]
-        D6["rfc/"]
-    end
-
-    IDX --> A1
-    IDX --> A2
-    IDX --> B1
-    IDX --> B2
-    IDX --> B3
-    IDX --> B4
-    IDX --> B5
-    IDX --> C1
-    IDX --> C2
-    IDX --> C3
-    IDX --> D1
-    IDX --> D2
-    IDX --> D3
-    IDX --> D4
-    IDX --> D5
-    IDX --> D6
-    IDX --> E1
-    IDX --> E2
-    IDX --> E3
-
-    A1 --> A2
-    A2 --> D1
-    B1 --> B2
-    B3 --> C2
-    C1 --> C3
-    D1 --> D6
-    E1 --> E2
-    E2 --> E3
-
-    style IDX fill:#1a73e8,color:#fff
-```
-
----
-
-## Содержание
-
-### Архитектура
-
-| # | Документ | Описание |
-|---|---|---|
-| 01 | [**Архитектура**](./01-architecture.md) | Архитектура системы, диаграмма пакетов, путь пакета, дизайн FSM |
-| 02 | [**Протокол BFD**](./02-protocol.md) | FSM, таймеры, джиттер, формат пакета, аутентификация (RFC 5880) |
-
-### Операции
-
-| # | Документ | Описание |
-|---|---|---|
-| 03 | [**Конфигурация**](./03-configuration.md) | Справочник YAML-конфига, переменные окружения, горячая перезагрузка |
-| 04 | [**Справочник CLI**](./04-cli.md) | Команды `gobfdctl`, интерактивная оболочка, форматы вывода |
-| 05 | [**Тесты совместимости**](./05-interop.md) | Наборы тестов: 4-пировый, BGP+BFD, RFC-специфичный, вендорные NOS |
-| 06 | [**Развёртывание**](./06-deployment.md) | systemd, Podman Compose, контейнерный образ, production |
-| 07 | [**Мониторинг**](./07-monitoring.md) | Метрики Prometheus, дашборд Grafana, алертинг |
-| 15 | [**Политика безопасности**](./15-security.md) | API, GoBGP, BFD auth, контейнеры, vulnerability gate |
-| 16 | [**Production Runbooks**](./16-production-runbooks.md) | Kubernetes, BGP, Prometheus, packet verification, failure drills |
-
-### Справочник
-
-| # | Документ | Описание |
-|---|---|---|
-| 08 | [**Соответствие RFC**](./08-rfc-compliance.md) | Матрица соответствия RFC, заметки по реализации |
-| 09 | [**Разработка**](./09-development.md) | Рабочий процесс, Make-цели, тестирование, линтинг |
-| 10 | [**Руководство по Changelog**](./10-changelog.md) | Ведение CHANGELOG.md, процесс релиза, семантическое версионирование |
-| 11 | [**Интеграции**](./11-integrations.md) | BGP failover, HAProxy, наблюдаемость, ExaBGP, Kubernetes |
-| -- | [**Дорожная карта**](./roadmap.md) | Публикуемая проекция актуального релизного плана Beads |
-
-### Производительность
-
-| # | Документ | Описание |
-|---|---|---|
-| 12 | [**Бенчмарки**](./12-benchmarks.md) | Как запускать, читать и интерпретировать результаты бенчмарков |
-| 13 | [**Конкурентный анализ**](./13-competitive-analysis.md) | Сравнение с FRR, BIRD, Holo, аппаратными платформами |
-| 14 | [**Анализ производительности**](./14-performance-analysis.md) | GoBFD vs реализации на C: бенчмарки, архитектура, поведение при нагрузке |
-
-### Architecture Decision Records
-
-Живые decision-записи под [`adr/`](./adr/README.md). Каждая запись фиксирует
-контекст, решение и последствия. Запись несёт неизменяемую дату и
-переходит в статус `Superseded` при замене.
-
-### Справочные материалы
-
-Живые технические справочники под [`reference/`](./reference/README.md):
-реестр рисков зависимостей и прочие вспомогательные материалы.
-
-### Исходные тексты RFC
-
-| Файл | RFC | Название |
-|---|---|---|
-| [rfc5880.txt](../rfc/rfc5880.txt) | RFC 5880 | Bidirectional Forwarding Detection (BFD) |
-| [rfc5881.txt](../rfc/rfc5881.txt) | RFC 5881 | BFD for IPv4 and IPv6 (Single Hop) |
-| [rfc5882.txt](../rfc/rfc5882.txt) | RFC 5882 | Generic Application of BFD |
-| [rfc5883.txt](../rfc/rfc5883.txt) | RFC 5883 | BFD for Multihop Paths |
-| [rfc5884.txt](../rfc/rfc5884.txt) | RFC 5884 | BFD for MPLS Label Switched Paths |
-| [rfc5885.txt](../rfc/rfc5885.txt) | RFC 5885 | BFD for PW VCCV |
-| [rfc7130.txt](../rfc/rfc7130.txt) | RFC 7130 | Bidirectional Forwarding Detection (BFD) on LAG |
-| [rfc7419.txt](../rfc/rfc7419.txt) | RFC 7419 | Common Interval Support |
-| [rfc9384.txt](../rfc/rfc9384.txt) | RFC 9384 | BGP Cease Notification Subcode for BFD |
-| [rfc9468.txt](../rfc/rfc9468.txt) | RFC 9468 | Unsolicited BFD for Sessionless Applications |
-| [rfc9747.txt](../rfc/rfc9747.txt) | RFC 9747 | Unaffiliated BFD Echo |
-| [rfc8971.txt](../rfc/rfc8971.txt) | RFC 8971 | BFD for VXLAN |
-| [rfc9521.txt](../rfc/rfc9521.txt) | RFC 9521 | BFD for Geneve |
-| [rfc9764.txt](../rfc/rfc9764.txt) | RFC 9764 | BFD Encapsulated in Large Packets |
-| [rfc9985.txt](../rfc/rfc9985.txt) | RFC 9985 | Optimizing BFD Authentication |
-| [rfc9986.txt](../rfc/rfc9986.txt) | RFC 9986 | Meticulous Keyed ISAAC for Optimized BFD Authentication |
-
----
-
-## Быстрый старт
-
-```bash
-git clone https://github.com/dantte-lp/gobfd.git && cd gobfd
-make build
-make test
-sudo ./gobfd -config configs/gobfd.example.yml
-```
-
-См. [06-deployment.md](./06-deployment.md) для развёртывания в production и
-[09-development.md](./09-development.md) для полного рабочего процесса разработки.
+Подготовьте закреплённое окружение Podman по разделу [Разработка](09-development.md),
+затем настройте привилегии демона и доступ к сокету по разделу
+[Развёртывание](06-deployment.md). Точка управления по умолчанию —
+`/run/gobfd/gobfd.sock`; метрики слушают `127.0.0.1:9100`.
+Перед включением TCP-управления или предварительного профиля прочитайте
+[Безопасность](15-security.md).

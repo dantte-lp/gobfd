@@ -77,16 +77,17 @@ type overlayKey struct {
 type ownedBackend struct {
 	conn   scopedOverlayConn
 	scopes []bfd.TransportScope
+	refs   map[bfd.TransportScope]int
 	stop   context.CancelFunc
 }
 
 // overlayOwner is the lifecycle owner of the VXLAN and Geneve backends. The
 // VXLAN and Geneve sources claim the identities of their desired set before
 // the Manager apply: a missing local endpoint opens a backend, an existing
-// one widens to the union of its current and desired identities. After an
+// one retains the union of its live and desired identities. After an
 // apply without failed or resource-pending entries the source narrows every
 // backend to its desired identities and closes a backend left without one.
-// A failed apply keeps the superset, so live sessions keep their identity.
+// A failed apply keeps live scopes and current retry preparations.
 type overlayOwner struct {
 	mu       sync.Mutex
 	backends map[overlayKey]*ownedBackend
@@ -163,8 +164,8 @@ type overlayClaim struct {
 
 // acquire claims scopes of one kind per local endpoint. An endpoint that
 // cannot open or widen reports its error and leaves its new scopes
-// unclaimed; scopes it already holds and every other endpoint stay claimed,
-// so one unassigned address pends only its own identities.
+// unclaimed. Live scopes stay claimed; obsolete unused preparations are pruned
+// after pure preflight. Endpoint errors are classified before a source apply.
 func (o *overlayOwner) acquire(kind bfd.TransportScopeKind, scopes []bfd.TransportScope) (overlayClaim, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -172,6 +173,10 @@ func (o *overlayOwner) acquire(kind bfd.TransportScopeKind, scopes []bfd.Transpo
 		return overlayClaim{}, errOverlayOwnerClosed
 	}
 	groups := overlayScopeGroups(scopes)
+	if err := o.validateScopeChangesLocked(kind, groups); err != nil {
+		return overlayClaim{}, err
+	}
+	o.pruneLocked(kind, scopes)
 	claim := overlayClaim{
 		conns:    make(map[bfd.TransportScope]netio.OverlayConn, len(scopes)),
 		failures: make(map[netip.Addr]error),
@@ -193,6 +198,28 @@ func (o *overlayOwner) acquire(kind bfd.TransportScopeKind, scopes []bfd.Transpo
 		}
 	}
 	return claim, nil
+}
+
+// Same-wire scopes cannot coexist during the old session's drain.
+func (o *overlayOwner) validateScopeChangesLocked(
+	kind bfd.TransportScopeKind, groups map[netip.Addr][]bfd.TransportScope,
+) error {
+	for local, group := range groups {
+		backend := o.backends[overlayKey{kind: kind, local: local}]
+		for i, scope := range group {
+			if slices.ContainsFunc(group[:i], func(other bfd.TransportScope) bool {
+				return netio.SameOverlayWireIdentity(scope, other)
+			}) {
+				return fmt.Errorf("duplicate overlay wire identity: %w", bfd.ErrSessionParameterConflict)
+			}
+			if backend != nil && slices.ContainsFunc(backend.scopes, func(current bfd.TransportScope) bool {
+				return backend.refs[current] > 0 && current != scope && netio.SameOverlayWireIdentity(current, scope)
+			}) {
+				return fmt.Errorf("overlay scope replacement requires separate removal: %w", bfd.ErrSessionParameterConflict)
+			}
+		}
+	}
+	return nil
 }
 
 // claimLocked merges group into the backend of key, or opens it.
@@ -222,7 +249,7 @@ func (o *overlayOwner) startLocked(key overlayKey, conn scopedOverlayConn, scope
 		name = "VXLAN receiver"
 	}
 	stop := o.receivers.start(name, o.receive(conn))
-	o.backends[key] = &ownedBackend{conn: conn, scopes: scopes, stop: stop}
+	o.backends[key] = &ownedBackend{conn: conn, scopes: scopes, refs: make(map[bfd.TransportScope]int), stop: stop}
 	o.logger.Info("overlay backend started", slog.String("receiver", name),
 		slog.String("local", key.local.String()), slog.Int("identities", len(scopes)))
 }
@@ -239,18 +266,26 @@ func (o *overlayOwner) stopLocked(keys []overlayKey) {
 	}
 }
 
-// release narrows every backend of kind to the desired scopes and closes a
-// backend left without one.
+// release prunes scopes absent from desired after their last session lease closes.
 func (o *overlayOwner) release(kind bfd.TransportScopeKind, scopes []bfd.TransportScope) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	o.pruneLocked(kind, scopes)
+}
+
+func (o *overlayOwner) pruneLocked(kind bfd.TransportScopeKind, scopes []bfd.TransportScope) {
 	groups := overlayScopeGroups(scopes)
 	var empty []overlayKey
 	for key, backend := range o.backends {
 		if key.kind != kind {
 			continue
 		}
-		want := groups[key.local]
+		want := make([]bfd.TransportScope, 0, len(backend.scopes))
+		for _, scope := range backend.scopes {
+			if backend.refs[scope] > 0 || slices.Contains(groups[key.local], scope) {
+				want = append(want, scope)
+			}
+		}
 		if len(want) == 0 {
 			empty = append(empty, key)
 			continue
@@ -266,6 +301,32 @@ func (o *overlayOwner) release(kind bfd.TransportScopeKind, scopes []bfd.Transpo
 		backend.scopes = want
 	}
 	o.stopLocked(empty)
+}
+
+// A physical session retains its exact scope through retirement and sender cleanup.
+func (o *overlayOwner) senderLeaseFactory(conn netio.OverlayConn, scope bfd.TransportScope) bfd.SenderLeaseFactory {
+	return func() (*bfd.SenderLease, error) {
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		if o.closed {
+			return nil, fmt.Errorf("lease overlay scope: %w", errOverlayOwnerClosed)
+		}
+		backend := o.backends[overlayKey{kind: scope.Kind, local: scope.OuterLocalAddr.Unmap()}]
+		if backend == nil || backend.conn != conn || !slices.Contains(backend.scopes, scope) {
+			return nil, fmt.Errorf("lease overlay scope: %w", netio.ErrOverlayIdentityMismatch)
+		}
+		backend.refs[scope]++
+		return bfd.NewSenderLease(netio.NewOverlaySender(conn, scope), func() error {
+			o.mu.Lock()
+			defer o.mu.Unlock()
+			if backend.refs[scope] <= 1 {
+				delete(backend.refs, scope)
+			} else {
+				backend.refs[scope]--
+			}
+			return nil
+		}), nil
+	}
 }
 
 // run returns the first backend receiver loss.
@@ -293,10 +354,8 @@ func overlayScopeGroups(scopes []bfd.TransportScope) map[netip.Addr][]bfd.Transp
 	return groups
 }
 
-// mergeOverlayScopes keeps every desired scope and each current scope with
-// another wire identity. A desired scope replaces a current one with the same
-// wire identity, such as a VXLAN peer whose local MAC changed, because one
-// socket can hold only one scope per wire identity.
+// mergeOverlayScopes widens a prevalidated identity set. Preflight excludes
+// unequal scopes sharing one wire identity; exact duplicates are retained once.
 func mergeOverlayScopes(current, desired []bfd.TransportScope) []bfd.TransportScope {
 	merged := slices.Clone(desired)
 	for _, scope := range current {
@@ -325,9 +384,8 @@ func overlayScopeKind(source reconciliationSource) bfd.TransportScopeKind {
 
 // claimOverlaySource wraps an overlay source apply with backend claims; the
 // conns are resolved at apply time, so a retry never reuses a closed one.
-// Identities of endpoints that could not claim are left out of the apply:
-// pending for an unassigned local address, failed otherwise. The rest apply,
-// including removals.
+// An incomplete acquisition leaves the previous source untouched: pending for
+// unavailable addresses, failed otherwise. Acquired supersets stay owned for retry.
 func (c *reconciliationCoordinator) claimOverlaySource(
 	ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate,
 	apply sourceApplyFunc,
@@ -345,6 +403,9 @@ func (c *reconciliationCoordinator) claimOverlaySource(
 	//nolint:contextcheck // Backend receivers are owner-scoped, not bound to one reconciliation pass.
 	claim, err := c.overlays.acquire(kind, scopes)
 	if err != nil {
+		if errors.Is(err, bfd.ErrSessionParameterConflict) {
+			return failedSourceResult(bfd.ReconcileErrorConflict, fmt.Errorf("claim %s backends: %w", source, err))
+		}
 		return failedSourceResult(bfd.ReconcileErrorCreate, fmt.Errorf("claim %s backends: %w", source, err))
 	}
 	claimed := compiledOverlayCandidate{owner: overlay.owner}
@@ -361,22 +422,24 @@ func (c *reconciliationCoordinator) claimOverlaySource(
 			}
 			continue
 		}
+		desired.SenderLeaseFactory = c.overlays.senderLeaseFactory(conn, scopes[i])
 		claimed.desired = append(claimed.desired, desired)
 		claimed.conns = append(claimed.conns, conn)
 		appliedScopes = append(appliedScopes, scopes[i])
+	}
+	failures := make([]error, 0, len(claim.failures))
+	for _, local := range slices.SortedFunc(maps.Keys(claim.failures), netip.Addr.Compare) {
+		failures = append(failures, fmt.Errorf("claim %s backend: %w", source, claim.failures[local]))
+	}
+	if unclaimed.Pending != 0 || unclaimed.Failed != 0 {
+		unclaimed.Err = errors.Join(failures...)
+		return unclaimed
 	}
 	candidate.overlays[index] = claimed
 	result := apply(ctx, source, candidate)
 	if result.Failed == 0 && result.Pending == result.TimerPending {
 		c.overlays.release(kind, appliedScopes)
 	}
-	failures := make([]error, 0, len(claim.failures))
-	for _, local := range slices.SortedFunc(maps.Keys(claim.failures), netip.Addr.Compare) {
-		failures = append(failures, fmt.Errorf("claim %s backend: %w", source, claim.failures[local]))
-	}
-	result.Pending += unclaimed.Pending
-	result.Failed += unclaimed.Failed
-	result.Errors[bfd.ReconcileErrorCreate] += unclaimed.Errors[bfd.ReconcileErrorCreate]
 	result.Err = errors.Join(append([]error{result.Err}, failures...)...)
 	return result
 }

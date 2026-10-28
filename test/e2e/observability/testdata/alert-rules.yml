@@ -1,0 +1,118 @@
+rule_files:
+  - alert-rules.yml
+
+evaluation_interval: 1s
+
+tests:
+  - name: healthy fresh-empty exporter is independent of another job
+    interval: 1s
+    input_series:
+      - series: 'up{job="gobfd",instance="node-a:9100"}'
+        values: '1+0x30'
+      - series: 'gobfd_bfd_sessions{job="other",instance="node-a:9100",peer_addr="192.0.2.1"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 9s
+        alertname: BFDNoActiveSessions
+        exp_alerts: []
+      - eval_time: 10s
+        alertname: BFDNoActiveSessions
+        exp_alerts: &no_sessions
+          - exp_labels:
+              job: gobfd
+              instance: node-a:9100
+              severity: warning
+            exp_annotations:
+              summary: No active BFD Control sessions
+              description: GoBFD has no configured active Control sessions. Check daemon configuration or dynamic session provisioning.
+      - eval_time: 20s
+        alertname: BFDExporterUnavailable
+        exp_alerts: []
+
+  - name: healthy exporter with only zero-count series
+    interval: 1s
+    input_series:
+      - series: 'up{job="gobfd",instance="node-a:9100"}'
+        values: '1+0x30'
+      - series: 'gobfd_bfd_sessions{job="gobfd",instance="node-a:9100",peer_addr="192.0.2.1"}'
+        values: '0+0x30'
+      - series: 'gobfd_bfd_sessions{job="gobfd",instance="node-a:9100",peer_addr="192.0.2.2"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 10s
+        alertname: BFDNoActiveSessions
+        exp_alerts: *no_sessions
+
+  - name: last session removal starts a new ten-second hold
+    interval: 1s
+    input_series:
+      - series: 'up{job="gobfd",instance="node-a:9100"}'
+        values: '1+0x30'
+      - series: 'gobfd_bfd_sessions{job="gobfd",instance="node-a:9100",peer_addr="192.0.2.1"}'
+        values: '1+0x10 0+0x20'
+    alert_rule_test:
+      - eval_time: 10s
+        alertname: BFDNoActiveSessions
+        exp_alerts: []
+      - eval_time: 20s
+        alertname: BFDNoActiveSessions
+        exp_alerts: []
+      - eval_time: 21s
+        alertname: BFDNoActiveSessions
+        exp_alerts: *no_sessions
+
+  - name: a populated instance cannot hide an empty instance
+    interval: 1s
+    input_series:
+      - series: 'up{job="gobfd",instance="node-a:9100"}'
+        values: '1+0x30'
+      - series: 'up{job="gobfd",instance="node-b:9100"}'
+        values: '1+0x30'
+      - series: 'gobfd_bfd_sessions{job="gobfd",instance="node-b:9100",peer_addr="192.0.2.1"}'
+        values: '1+0x30'
+      - series: 'gobfd_bfd_sessions{job="gobfd",instance="node-b:9100",peer_addr="192.0.2.2"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 10s
+        alertname: BFDNoActiveSessions
+        exp_alerts: *no_sessions
+      - eval_time: 20s
+        alertname: BFDExporterUnavailable
+        exp_alerts: []
+
+  - name: failed scrape with retained zero series is exporter failure
+    interval: 1s
+    input_series:
+      - series: 'up{job="gobfd",instance="node-a:9100"}'
+        values: '0+0x30'
+      - series: 'gobfd_bfd_sessions{job="gobfd",instance="node-a:9100",peer_addr="192.0.2.1"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 20s
+        alertname: BFDNoActiveSessions
+        exp_alerts: []
+      - eval_time: 10s
+        alertname: BFDExporterUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: gobfd
+              instance: node-a:9100
+              severity: critical
+            exp_annotations: &unavailable
+              summary: BFD metrics exporter unavailable
+              description: GoBFD metrics cannot be scraped or job gobfd has no scrape target. Check exporter availability and Prometheus target configuration.
+
+  - name: missing scrape target is not an empty daemon
+    interval: 1s
+    input_series: []
+    alert_rule_test:
+      - eval_time: 20s
+        alertname: BFDNoActiveSessions
+        exp_alerts: []
+      - eval_time: 10s
+        alertname: BFDExporterUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: gobfd
+              severity: critical
+            exp_annotations: *unavailable

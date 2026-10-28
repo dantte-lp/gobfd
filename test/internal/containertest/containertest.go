@@ -3,6 +3,8 @@ package containertest
 
 import (
 	"context"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -20,6 +22,55 @@ import (
 
 const rootfulPodmanSocket = "/run/podman/podman.sock"
 
+// DebianImage is the shared immutable trixie runtime for copied Go test binaries.
+const DebianImage = "docker.io/library/debian:trixie-slim@sha256:" +
+	"62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad"
+
+var errImageProvenance = errors.New("invalid image provenance")
+
+// ValidateImageProvenance returns only the required public OCI annotations.
+func ValidateImageProvenance(metadata podmanapi.ImageMetadata, revision string) (map[string]string, error) {
+	if !IsImageDigest(metadata.ID) {
+		return nil, fmt.Errorf("image identity is not an immutable SHA-256 digest: %w", errImageProvenance)
+	}
+	labels := make(map[string]string, 9)
+	for _, name := range []string{
+		"source", "revision", "created", "version", "licenses", "title", "description", "base.name", "base.digest",
+	} {
+		key := "org.opencontainers.image." + name
+		value := metadata.Labels[key]
+		if strings.TrimSpace(value) == "" {
+			return nil, fmt.Errorf("image annotation %s is empty: %w", key, errImageProvenance)
+		}
+		labels[key] = value
+	}
+	if labels["org.opencontainers.image.source"] != "https://github.com/dantte-lp/gobfd" ||
+		labels["org.opencontainers.image.revision"] != revision {
+		return nil, fmt.Errorf("image source does not match the candidate: %w", errImageProvenance)
+	}
+	if _, err := time.Parse(time.RFC3339, labels["org.opencontainers.image.created"]); err != nil {
+		return nil, fmt.Errorf("parse image creation time: %w", err)
+	}
+	if labels["org.opencontainers.image.base.name"] != "docker.io/library/debian:trixie-slim" ||
+		!IsImageDigest(labels["org.opencontainers.image.base.digest"]) {
+		return nil, fmt.Errorf("image base is not pinned Debian trixie: %w", errImageProvenance)
+	}
+	return labels, nil
+}
+
+// IsImageDigest accepts a full lowercase SHA-256 content identity.
+func IsImageDigest(value string) bool {
+	digest, found := strings.CutPrefix(value, "sha256:")
+	if !found || len(digest) != 64 || digest != strings.ToLower(digest) {
+		return false
+	}
+	_, err := hex.DecodeString(digest)
+	return err == nil
+}
+
+// Required reports whether missing fixture prerequisites must fail the run.
+func Required() bool { return envTrue(os.Getenv("GOBFD_REQUIRE_PODMAN")) }
+
 // RequirePodman configures testcontainers for the local Podman API socket.
 // Missing Podman skips optional local tests and fails required CI/test targets.
 func RequirePodman(tb testing.TB) string {
@@ -27,7 +78,7 @@ func RequirePodman(tb testing.TB) string {
 
 	endpoint, found := resolvePodmanEndpoint(os.Getenv, isSocket)
 	if !found {
-		if envTrue(os.Getenv("GOBFD_REQUIRE_PODMAN")) {
+		if Required() {
 			tb.Fatal(
 				"Podman socket is required but was not found; start podman.socket or set " +
 					"DOCKER_HOST, PODMAN_HOST, or CONTAINER_HOST to an existing unix:// socket",

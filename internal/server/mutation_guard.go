@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"strings"
 
 	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 )
@@ -19,8 +19,8 @@ var ErrIdentityNotMutating = errors.New("mTLS identity is read-only for the mana
 
 // MutationPolicy decides which callers may call mutating RPCs.
 type MutationPolicy struct {
-	// AllowAnonymous admits callers without a principal (plain loopback
-	// TCP): grpc.unsafe_loopback_mutations.
+	// AllowAnonymous admits callers without a principal only on verified
+	// plaintext loopback TCP: grpc.unsafe_loopback_mutations.
 	AllowAnonymous bool
 	// MutatingIdentities, when not empty, lists the mTLS identities that may
 	// mutate; other mTLS identities are read-only. Unix socket principals
@@ -63,28 +63,34 @@ func MutationGuardInterceptor(policy MutationPolicy) connect.ServerInterceptor {
 }
 
 func (p MutationPolicy) check(ctx context.Context) error {
-	principal, ok := PrincipalFromContext(ctx)
+	principal, ok := transportPrincipalFromContext(ctx)
+	loopback, _ := ctx.Value(loopbackTCPKey{}).(bool)
+	info, httpTransport := connecthttp.ServerInfoForContext(ctx)
+	p.AllowAnonymous = p.AllowAnonymous && loopback && httpTransport && info.TLS() == nil
 	return p.allows(principal, ok)
 }
 
-func (p MutationPolicy) allows(principal string, ok bool) error {
+func (p MutationPolicy) allows(principal transportPrincipal, ok bool) error {
 	switch {
 	case !ok && !p.AllowAnonymous:
 		return ErrAnonymousMutation
-	case !ok, strings.HasPrefix(principal, "uid:"), len(p.MutatingIdentities) == 0:
+	case !ok, principal.kind == principalUnix, len(p.MutatingIdentities) == 0:
 		return nil
-	case slices.Contains(p.MutatingIdentities, principal):
+	case slices.Contains(p.MutatingIdentities, principal.display()):
 		return nil
 	default:
 		return ErrIdentityNotMutating
 	}
 }
 
-// apiOwnerFromContext is the API claim owner of a request: its principal, or
-// "local" for an anonymous caller admitted by the unsafe opt-in.
+// apiOwnerFromContext keeps TLS URI/DNS owners separate from Unix peer UIDs
+// and "local" for an anonymous caller admitted by the unsafe opt-in.
 func apiOwnerFromContext(ctx context.Context) bfd.SessionOwner {
-	if principal, ok := PrincipalFromContext(ctx); ok {
-		return bfd.APISessionOwner(principal)
+	if principal, ok := transportPrincipalFromContext(ctx); ok {
+		if principal.kind == principalUnix {
+			return bfd.APISessionOwner(principal.identity)
+		}
+		return bfd.APISessionOwner(string(principal.kind) + ":" + principal.identity)
 	}
 	return bfd.APISessionOwner("local")
 }
@@ -96,7 +102,7 @@ func apiOwnerFromContext(ctx context.Context) bfd.SessionOwner {
 func RequirePrincipal(policy MutationPolicy, next http.Handler) http.Handler {
 	policy.AllowAnonymous = false
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		principal, ok := PrincipalFromRequest(r)
+		principal, ok := transportPrincipalFromRequest(r)
 		if err := policy.allows(principal, ok); err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return

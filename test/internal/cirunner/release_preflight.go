@@ -202,7 +202,6 @@ func verifyAbsentReleasePackageTags(
 	for _, tag := range []string{
 		inputs.version,
 		inputs.version + "-debian-trixie",
-		inputs.version + "-oraclelinux10",
 	} {
 		if _, exists := existingTags[tag]; exists {
 			return fmt.Errorf("versioned OCI tag already exists: %s: %w", tag, errInvalidConfig)

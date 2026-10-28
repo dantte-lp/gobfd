@@ -28,7 +28,6 @@ func (s *Session) handleRecvPacket(
 		s.recordDelivery(DeliveryPacketOwner, outcome)
 		return
 	}
-	defer s.recordDelivery(DeliveryPacketOwner, DeliveryCommitted)
 
 	s.recordValidReceivedPacket()
 	s.expireUnsolicitedSetup()
@@ -82,15 +81,12 @@ func (s *Session) handleRecvPacket(
 	if s.pendingFinal {
 		s.sendControl(ctx)
 		s.resetTxTimer(txTimer)
-		return
-	}
-
-	// RFC 5880 Sections 6.8.3 and 6.8.6: apply peer-driven changes
-	// immediately, measuring the new interval from the previous send.
-	// Unchanged receives must not postpone the outstanding TX deadline.
-	if oldTxInterval != s.calcTxIntervalHot() || oldTxAllowed != s.periodicTxAllowed() {
+	} else if oldTxInterval != s.calcTxIntervalHot() || oldTxAllowed != s.periodicTxAllowed() {
+		// RFC 5880 Sections 6.8.3 and 6.8.6: unchanged receives must not
+		// postpone TX; peer-driven changes use the previous send as origin.
 		s.scheduleTxTimer(txTimer, s.lastPacketSent)
 	}
+	s.recordReceiveCommit(item.timing)
 }
 
 func (s *Session) checkReceivedPacket(item recvItem) DeliveryOutcome {
@@ -118,9 +114,8 @@ func (s *Session) verifyReceivedAuth(item recvItem) DeliveryOutcome {
 	// Expire the old sequence window before authenticating a restarted peer.
 	s.maybeResetAuthSeqKnown()
 	pkt := item.pkt
-	if err := s.auth.Verify(s.authState, s.authKeys, &pkt, item.wire, len(item.wire)); err != nil {
+	if err := s.auth.Verify(s.authState, s.authKeys, pkt, item.wire, len(item.wire)); err != nil {
 		s.logger.Debug("auth verification failed",
-			slog.String("peer", s.peerAddr.String()),
 			slog.String("error", err.Error()),
 		)
 		return DeliveryAuthFailed
@@ -204,12 +199,17 @@ func (s *Session) executeFSMActions(
 			// These actions do not select a diagnostic.
 		}
 	}
+	var observation Observation
+	var changed bool
 	if result.Changed {
-		// Timer interruption captures the OLD advertised state before commit.
-		s.timerStateChange(result.OldState, result.NewState)
+		observation, changed = s.commitTransitionObservation(result, diag, cause)
+	} else {
+		observation, changed = s.commitObservation(result.NewState, diag, cause)
 	}
-	observation, changed := s.commitObservation(result.NewState, diag, cause)
 	s.cachedState = result.NewState
+	if result.Changed && result.NewState == StateDown && cause == CauseDetectionTimeout {
+		s.timerEvent.effect(s.metrics, TimerControlDetection, time.Now())
+	}
 	if changed {
 		s.logStateChange(ctx, result, observation)
 	}
@@ -267,6 +267,7 @@ func (s *Session) executeAction(
 func (s *Session) emitNotification(result FSMResult, observation Observation) {
 	s.mu.RLock()
 	attempt := s.unsolicitedAttempt
+	timing := s.transitionTiming
 	failed := s.unsolicitedClaimWanted && s.unsolicitedCleanupAllowedLocked(attempt) &&
 		(attempt != 0 || (observation.State == StateDown &&
 			(observation.Cause == CauseDetectionTimeout || observation.Cause == CausePathDown)))
@@ -279,6 +280,9 @@ func (s *Session) emitNotification(result FSMResult, observation Observation) {
 	}
 	sc := stateChangeOf(snapshotForObservation(s, observation), result.OldState)
 	sc.unsolicitedAttempt = attempt
+	if timing.Version != 0 && timing.Version == observation.ObservationVersion {
+		sc.TransitionTiming = timing
+	}
 	select {
 	case s.notifyCh <- sc:
 		s.recordDelivery(DeliveryControlNotification, DeliveryQueued)
@@ -377,18 +381,7 @@ func (s *Session) scheduleTxTimer(txTimer *time.Timer, previousSend time.Time) {
 // Uses cached state for hot-path performance.
 func (s *Session) resetDetectTimer(detectTimer *time.Timer) {
 	detectTime := s.calcDetectionTimeHot()
-	if !detectTimer.Stop() {
-		drainTimer(detectTimer)
-	}
 	detectTimer.Reset(detectTime)
-}
-
-// drainTimer non-blockingly drains the timer channel.
-func drainTimer(t *time.Timer) {
-	select {
-	case <-t.C:
-	default:
-	}
 }
 
 // -------------------------------------------------------------------------
@@ -590,7 +583,7 @@ func (s *Session) buildControlPacket() ControlPacket {
 		AuthPresent:               false,
 		Demand:                    false, // Demand mode not implemented in MVP.
 		Multipoint:                false, // RFC 5880 Section 6.8.7: MUST be zero.
-		DetectMult:                s.detectMult,
+		DetectMult:                wire.DetectMult,
 		MyDiscriminator:           s.localDiscr,
 		YourDiscriminator:         s.remoteDiscr,
 		DesiredMinTxInterval:      microsecondsFromDuration(wire.TX),

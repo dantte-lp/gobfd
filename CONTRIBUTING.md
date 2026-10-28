@@ -12,10 +12,12 @@
 
 ## Getting Started
 
-1. Fork the repository and clone it locally
-2. Set up the development environment:
+1. Fork the repository and clone its `dev` branch for next-line development.
+   For a supported-line fix, select the branch in [Branch Selection](#branch-selection).
+2. Select the pinned Compose provider using
+   [Deployment](docs/en/06-deployment.md#podman-compose), then start the environment:
    ```bash
-   podman compose -f deployments/compose/compose.dev.yml up -d --build
+   make up
    ```
 3. Make your changes on a feature branch
 4. Submit a pull request
@@ -30,12 +32,16 @@
   request.
 - Release-preparation changes start from and target the applicable supported
   `release/vMAJOR.MINOR` line.
-- After a maintenance fix is accepted, maintainers assess whether it also
-  needs a separate forward-port to `master` or `dev`.
+- After publishing a maintenance patch, its accepted stable history and both
+  changelogs must reach `master` before closeout. Assess the forward-port to
+  `dev` separately.
 
 ### Build and Test
 
-All Go commands run inside Podman containers. No local Go toolchain required.
+Build, test and lint commands below run inside Podman containers. Some host
+bootstrap, integration and report targets still invoke `go run` directly;
+run those entrypoints explicitly inside the pinned container. The full target
+and exception inventory is in [Development](docs/en/09-development.md).
 
 ```bash
 make up            # Start dev container
@@ -118,7 +124,7 @@ make lint-commit MSG='fix(interop): run RFC tests from the dev container'
 ### Linting
 
 The project uses golangci-lint v2 with a strict 92-linter base configuration
-and 17 build-tag profiles. Your code must pass the canonical wrapper:
+and 18 build-tag profiles. Your code must pass the canonical wrapper:
 
 ```bash
 make lint
@@ -126,7 +132,9 @@ make lint
 
 ### Security
 
-- Never use the `unsafe` package -- GoBFD handles untrusted network input
+- Never introduce `unsafe` in handwritten code. Generated protobuf descriptor
+  code uses the standard generator implementation; regenerate it with
+  `make proto-gen` rather than editing it manually.
 - Never use `math/rand` -- use `math/rand/v2` or `crypto/rand`
 - Run `make vulncheck` before adding new dependencies
 
@@ -145,7 +153,7 @@ make lint
 - [ ] Tests added or updated
 - [ ] `make verify` passes
 - [ ] `make lint-docs` passes for documentation changes
-- [ ] `buf lint` passes (if proto files changed)
+- [ ] `make proto-lint` passes (if proto files changed)
 - [ ] Documentation updated (if applicable)
 - [ ] CHANGELOG.md updated (if user-facing change)
 - [ ] Commit messages are descriptive

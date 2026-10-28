@@ -140,7 +140,7 @@ func TestManagerDetailedReconcileCountsSharedWireOwnerClaims(t *testing.T) {
 	}
 }
 
-func TestManagerDetailedReconcilePreservesStaleReleaseAndRollsBackCreations(t *testing.T) {
+func TestManagerDetailedReconcileRetainsStaleClaimsAndRollsBackCreations(t *testing.T) {
 	mgr := NewManager(slog.New(slog.DiscardHandler))
 	defer mgr.Close()
 
@@ -184,15 +184,15 @@ func TestManagerDetailedReconcilePreservesStaleReleaseAndRollsBackCreations(t *t
 		},
 	)
 
-	assertReconcileResult(t, result, 0, 1, 2, []ReconcileErrorCode{
+	assertReconcileResult(t, result, 0, 0, 2, []ReconcileErrorCode{
 		ReconcileErrorCreate,
 		ReconcileErrorCreate,
 	})
 	if !errors.Is(result.Err(), firstFailure) || !errors.Is(result.Err(), secondFailure) {
 		t.Fatalf("detailed reconciliation error = %v, want both sender failures", result.Err())
 	}
-	if got := len(mgr.Sessions()); got != 0 {
-		t.Fatalf("sessions after failed creation pass rollback = %d, want 0", got)
+	if got := mgr.Sessions(); len(got) != 1 || got[0].PeerAddr != netip.MustParseAddr("192.0.2.211") {
+		t.Fatalf("sessions after failed creation pass rollback = %+v, want the retained stale claim", got)
 	}
 }
 

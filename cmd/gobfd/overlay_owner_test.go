@@ -32,7 +32,12 @@ func newFakeScopedOverlayConn(scopes []bfd.TransportScope) *fakeScopedOverlayCon
 
 func (*fakeScopedOverlayConn) SendEncapsulated(context.Context, []byte, netip.Addr) error { return nil }
 
-func (*fakeScopedOverlayConn) SendEncapsulatedFor(context.Context, []byte, bfd.TransportScope) error {
+func (c *fakeScopedOverlayConn) SendEncapsulatedFor(_ context.Context, _ []byte, scope bfd.TransportScope) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.isClosed() || !slices.Contains(c.scopes[len(c.scopes)-1], scope) {
+		return netio.ErrOverlayIdentityMismatch
+	}
 	return nil
 }
 
@@ -113,7 +118,7 @@ func newTestOverlayOwner(
 	t.Helper()
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
-	owner := newOverlayOwner(config.DefaultConfig(), newUDPSenderFactory(0), mgr, readiness,
+	owner := newOverlayOwner(config.DefaultConfig(), newUDPSenderFactory(config.SocketConfig{}), mgr, readiness,
 		slog.New(slog.DiscardHandler))
 	owner.open = opener.open
 	t.Cleanup(owner.close)
@@ -241,8 +246,8 @@ func TestOverlayBackendOpenFailureClassification(t *testing.T) {
 				appliedEntries = len(applied.overlays[0].desired)
 				return sourceApplyResult{}
 			})(t.Context(), sourceVXLAN, candidate)
-			if appliedEntries != 0 || result.Pending != tc.wantPending || result.Failed != tc.wantFailed {
-				t.Fatalf("applied entries=%d result=%+v, want the identity left out, pending=%d failed=%d",
+			if appliedEntries != -1 || result.Pending != tc.wantPending || result.Failed != tc.wantFailed {
+				t.Fatalf("applied entries=%d result=%+v, want no source apply, pending=%d failed=%d",
 					appliedEntries, result, tc.wantPending, tc.wantFailed)
 			}
 		})
@@ -323,7 +328,8 @@ func TestOverlayOwnerRealBackendsWidenInPlace(t *testing.T) {
 	mgr := bfd.NewManager(logger)
 	t.Cleanup(mgr.Close)
 	coordinator, _ := newConvergedReadinessCoordinator(t)
-	owner := newOverlayOwner(config.DefaultConfig(), newUDPSenderFactory(0), mgr, coordinator.readiness, logger)
+	owner := newOverlayOwner(config.DefaultConfig(), newUDPSenderFactory(config.SocketConfig{}),
+		mgr, coordinator.readiness, logger)
 	t.Cleanup(owner.close)
 	for index, kind := range []bfd.TransportScopeKind{bfd.TransportScopeVXLAN, bfd.TransportScopeGeneve} {
 		local := netip.AddrFrom4([4]byte{127, 0, 57, byte(index + 1)})
@@ -367,16 +373,16 @@ func sendOverlayFor(t *testing.T, conn netio.OverlayConn, scope bfd.TransportSco
 	return netio.NewOverlaySender(conn, scope).SendPacket(t.Context(), make([]byte, 24), scope.InnerPeerAddr)
 }
 
-// VXLAN identities that differ only in local MAC share one wire identity, so
-// the desired scope replaces the claimed one instead of joining it.
-func TestOverlayOwnerReplacesSameWireIdentity(t *testing.T) {
+// Unequal scopes sharing a wire identity cannot coexist during session drain.
+func TestOverlayOwnerRejectsSameWireReplacement(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.DiscardHandler)
 	mgr := bfd.NewManager(logger)
 	t.Cleanup(mgr.Close)
 	coordinator, _ := newConvergedReadinessCoordinator(t)
-	owner := newOverlayOwner(config.DefaultConfig(), newUDPSenderFactory(0), mgr, coordinator.readiness, logger)
+	owner := newOverlayOwner(config.DefaultConfig(), newUDPSenderFactory(config.SocketConfig{}),
+		mgr, coordinator.readiness, logger)
 	t.Cleanup(owner.close)
 	old := bfd.TransportScope{
 		Kind: bfd.TransportScopeVXLAN, Owner: "overlay-test", Backend: "userspace-udp", VNI: 100,
@@ -392,19 +398,28 @@ func TestOverlayOwnerReplacesSameWireIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	replaced, err := acquireAll(owner, bfd.TransportScopeVXLAN, []bfd.TransportScope{changed})
+	lease, err := owner.senderLeaseFactory(opened[old], old)()
 	if err != nil {
-		t.Fatalf("claim with only a new local MAC: %v", err)
+		t.Fatal(err)
 	}
-	if replaced[changed] != opened[old] {
-		t.Fatal("same wire identity reopened the socket")
+	t.Cleanup(func() {
+		if closeErr := lease.Close(); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	_, err = acquireAll(owner, bfd.TransportScopeVXLAN, []bfd.TransportScope{changed})
+	if !errors.Is(err, bfd.ErrSessionParameterConflict) {
+		t.Fatalf("claim with only a new local MAC = %v, want parameter conflict", err)
 	}
-	if err := sendOverlayFor(t, replaced[changed], changed); err != nil {
-		t.Fatalf("send for the replacing identity: %v", err)
+	if err := sendOverlayFor(t, opened[old], old); err != nil {
+		t.Fatalf("send for the retained identity: %v", err)
+	}
+	if err := sendOverlayFor(t, opened[old], changed); !errors.Is(err, netio.ErrOverlayIdentityMismatch) {
+		t.Fatalf("send for rejected identity = %v, want identity mismatch", err)
 	}
 }
 
-func TestReloadOverlayLocalMACChangeConverges(t *testing.T) {
+func TestReloadOverlayLocalMACChangeRetainsPreviousSource(t *testing.T) {
 	t.Parallel()
 
 	peer := config.VXLANPeerConfig{
@@ -416,20 +431,33 @@ func TestReloadOverlayLocalMACChangeConverges(t *testing.T) {
 	owner, mgr := newTestOverlayOwner(t, coordinator.readiness, opener)
 	coordinator.overlays = owner
 	sf := newNthFailureDeclarativeSenderFactory(0)
-	for _, localMAC := range []string{"02:00:00:00:00:0a", "02:00:00:00:00:0b"} {
-		peer.LocalMAC = localMAC
-		if err := coordinator.reconcile(t.Context(), overlayReloadConfig(peer), mgr, sf, nil); err != nil {
-			t.Fatal(err)
-		}
-		if snapshot := coordinator.Snapshot(); snapshot.Stale {
-			t.Fatalf("local MAC %s: snapshot = %+v, want converged", localMAC, snapshot)
-		}
+	if err := coordinator.reconcile(t.Context(), startup, mgr, sf, nil); err != nil {
+		t.Fatal(err)
+	}
+	original := mgr.Sessions()[0]
+	backend := opener.opened(netip.MustParseAddr(peer.Local))[0]
+	scopes := slices.Clone(backend.current())
+	peer.LocalMAC = "02:00:00:00:00:0b"
+	if err := coordinator.reconcile(t.Context(), overlayReloadConfig(peer), mgr, sf, nil); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := coordinator.Snapshot()
+	receipt := snapshot.LastReceipt.Sources[sourceVXLAN]
+	if !snapshot.Stale || snapshot.AppliedGeneration != 1 || receipt.Failed != 1 ||
+		receipt.Errors[bfd.ReconcileErrorConflict] != 1 || receipt.Created != 0 || receipt.Released != 0 {
+		t.Fatalf("same-wire rejection receipt = %+v, snapshot = %+v", receipt, snapshot)
+	}
+	if _, exists := mgr.LookupByDiscriminator(original.LocalDiscr); !exists ||
+		backend.isClosed() || !slices.Equal(backend.current(), scopes) {
+		t.Fatal("same-wire rejection changed the previous session or backend")
+	}
+	if err := sendOverlayFor(t, backend, scopes[0]); err != nil {
+		t.Fatalf("retained scoped send = %v", err)
 	}
 }
 
-// One unassigned local address pends only its own identities: identities on
-// available endpoints apply, and removed peers are released.
-func TestReloadOverlayAppliesAvailableEndpointsWhileOthersPend(t *testing.T) {
+// One unassigned endpoint postpones the source apply and retains all old claims.
+func TestReloadOverlayKeepsPreviousSourceWhileEndpointPending(t *testing.T) {
 	t.Parallel()
 
 	available := config.VXLANPeerConfig{
@@ -456,16 +484,18 @@ func TestReloadOverlayAppliesAvailableEndpointsWhileOthersPend(t *testing.T) {
 	}
 	snapshot := coordinator.Snapshot()
 	vxlan := snapshot.LastReceipt.Sources[sourceVXLAN]
-	if vxlan.Pending != 1 || vxlan.Failed != 0 {
+	if vxlan.Pending != 1 || vxlan.Failed != 0 || vxlan.Released != 0 || !snapshot.Stale {
 		t.Fatalf("VXLAN receipt = %+v, want only the unassigned identity pending", vxlan)
 	}
 	sessions := mgr.Sessions()
-	if len(sessions) != 1 || sessions[0].PeerAddr != netip.MustParseAddr(available.Peer) {
-		t.Fatalf("sessions = %+v, want only the available peer (removed peer released)", sessions)
+	if len(sessions) != 2 || !slices.ContainsFunc(sessions, func(session bfd.SessionSnapshot) bool {
+		return session.PeerAddr == netip.MustParseAddr(removed.Peer)
+	}) {
+		t.Fatalf("sessions = %+v, want both previous peers retained", sessions)
 	}
 	endpoint := opener.opened(netip.MustParseAddr(available.Local))
-	if len(endpoint) != 1 || endpoint[0].isClosed() || len(endpoint[0].current()) != 1 {
-		t.Fatal("available endpoint must keep one socket narrowed to the remaining identity")
+	if len(endpoint) != 1 || endpoint[0].isClosed() || len(endpoint[0].current()) != 2 {
+		t.Fatal("available endpoint must keep the previous identity set")
 	}
 
 	// Retries for the pending identity leave the available backend alone.
@@ -474,7 +504,7 @@ func TestReloadOverlayAppliesAvailableEndpointsWhileOthersPend(t *testing.T) {
 			coordinator.withListeners(func(
 				ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate,
 			) sourceApplyResult {
-				return applyCompiledSource(ctx, source, candidate, mgr, sf, slog.New(slog.DiscardHandler))
+				return applyCompiledSource(ctx, source, candidate, mgr, sf, slog.New(slog.DiscardHandler), coordinator.listeners)
 			}))
 	}
 	if endpoint := opener.opened(netip.MustParseAddr(available.Local)); len(endpoint) != 1 || endpoint[0].isClosed() {
@@ -495,4 +525,54 @@ func acquireAll(
 		failures = append(failures, failure)
 	}
 	return claim.conns, errors.Join(failures...)
+}
+
+func TestOverlayScopeLeasesRetainBackendUntilLastClose(t *testing.T) {
+	t.Parallel()
+	coordinator, _ := newConvergedReadinessCoordinator(t)
+	opener := newFakeOverlayOpener()
+	owner, _ := newTestOverlayOwner(t, coordinator.readiness, opener)
+	scope := testVXLANScope("198.51.100.1", 1)
+	conns, err := acquireAll(owner, scope.Kind, []bfd.TransportScope{scope})
+	if err != nil {
+		t.Fatal(err)
+	}
+	factory := owner.senderLeaseFactory(conns[scope], scope)
+	first, err := factory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := factory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	backend := opener.opened(scope.OuterLocalAddr)[0]
+	for range 2 {
+		if err := first.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	owner.release(scope.Kind, nil)
+	if backend.isClosed() || !slices.Equal(backend.current(), []bfd.TransportScope{scope}) {
+		t.Fatal("duplicate close released a scope with another active lease")
+	}
+	if err := second.Sender().SendPacket(t.Context(), make([]byte, 24), scope.InnerPeerAddr); err != nil {
+		t.Fatalf("retained scoped sender: %v", err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+	owner.release(scope.Kind, nil)
+	if !backend.isClosed() {
+		t.Fatal("backend survived pruning after its last lease closed")
+	}
+	if _, err := factory(); !errors.Is(err, netio.ErrOverlayIdentityMismatch) {
+		t.Fatalf("obsolete factory = %v, want identity mismatch", err)
+	}
+	owner.close()
+	if _, err := factory(); !errors.Is(err, errOverlayOwnerClosed) {
+		t.Fatalf("closed owner factory = %v, want owner closed", err)
+	}
 }

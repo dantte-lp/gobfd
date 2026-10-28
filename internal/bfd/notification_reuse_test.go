@@ -77,7 +77,7 @@ func TestRawLossRecoverySnapshotsCrossFamilyReplacement(t *testing.T) {
 					}
 					mgr.ownershipMu.Lock()
 					mgr.registerEchoAndStart(t.Context(), es, NewSenderLease(echoLeaseSender{}, nil),
-						canonicalEchoSessionKey(cfg), echoSessionSourceCompatibility)
+						canonicalEchoSessionKey(cfg), compatibilityAPISessionOwner())
 					mgr.ownershipMu.Unlock()
 				} else {
 					ccfg := senderLeaseTestConfig("192.0.2.86")

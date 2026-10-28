@@ -59,6 +59,10 @@ type BenchmarkBaseOptions struct {
 
 // BenchmarkBase benchmarks a base ref in a temporary worktree and always removes it.
 func BenchmarkBase(ctx context.Context, options BenchmarkBaseOptions) error {
+	return benchmarkBase(ctx, options, "")
+}
+
+func benchmarkBase(ctx context.Context, options BenchmarkBaseOptions, headOutput string) error {
 	root, rootErr := validateAbsoluteExistingDirectory(options.Root, "repository root")
 	if rootErr != nil {
 		return rootErr
@@ -76,12 +80,9 @@ func BenchmarkBase(ctx context.Context, options BenchmarkBaseOptions) error {
 	if options.Runner == nil {
 		return fmt.Errorf("benchmark command runner is required: %w", errInvalidConfig)
 	}
-	output, outputErr := validateRootFile(root, options.Output, "base benchmark output", true)
+	output, headPath, outputErr := prepareBenchmarkCollectionOutputs(root, options.Output, headOutput)
 	if outputErr != nil {
 		return outputErr
-	}
-	if err := resetArtifact(output, "base benchmark output"); err != nil {
-		return err
 	}
 
 	worktree := filepath.Join(runnerTemp, "gobfd-benchmark-base")
@@ -110,7 +111,8 @@ func BenchmarkBase(ctx context.Context, options BenchmarkBaseOptions) error {
 		)
 	}
 
-	runErr := runBenchmarkCommand(ctx, worktree, output, options.Regex, options.Runner)
+	options.Root = root
+	runErr := runBenchmarkCollection(ctx, options, worktree, output, headPath)
 	cleanupErr := removeBenchmarkWorktree(ctx, root, worktree, gitPrefix, options.Runner)
 	if runErr != nil || cleanupErr != nil {
 		return errors.Join(
@@ -223,7 +225,7 @@ func NormalizeBenchmarks(root string, names []string) error {
 		if pathErr != nil {
 			return pathErr
 		}
-		data, readErr := readRegularFile(path, "benchmark input", benchmarkInputLimit)
+		data, readErr := readRegularFile(path, "benchmark input")
 		if readErr != nil {
 			return readErr
 		}
@@ -368,7 +370,7 @@ func validateNonemptyRegularFile(path, purpose string) error {
 	return nil
 }
 
-func readRegularFile(path, purpose string, limit int64) ([]byte, error) {
+func readRegularFile(path, purpose string) ([]byte, error) {
 	if err := validateNonemptyRegularFile(path, purpose); err != nil {
 		return nil, err
 	}
@@ -376,13 +378,13 @@ func readRegularFile(path, purpose string, limit int64) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open %s %s: %w", purpose, path, err)
 	}
-	data, readErr := io.ReadAll(io.LimitReader(file, limit+1))
+	data, readErr := io.ReadAll(io.LimitReader(file, benchmarkInputLimit+1))
 	closeErr := file.Close()
 	if readErr != nil || closeErr != nil {
 		return nil, errors.Join(wrapOptional("read "+purpose, readErr), wrapOptional("close "+purpose, closeErr))
 	}
-	if int64(len(data)) > limit {
-		return nil, fmt.Errorf("%s %s exceeds %d bytes: %w", purpose, path, limit, errInvalidConfig)
+	if len(data) > benchmarkInputLimit {
+		return nil, fmt.Errorf("%s %s exceeds %d bytes: %w", purpose, path, benchmarkInputLimit, errInvalidConfig)
 	}
 	return data, nil
 }

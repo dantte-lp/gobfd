@@ -10,6 +10,23 @@ import (
 	"testing"
 )
 
+func TestValidateGoRecordRejectsInvalidMetricsAndNonRecords(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		line  string
+		valid bool
+	}{
+		{line: "BenchmarkExample-2 1 10 ns/op 0 B/op 0 allocs/op", valid: true},
+		{line: "BenchmarkExample-2 0 10 ns/op"},
+		{line: "BenchmarkExample-2 1 NaN ns/op"},
+		{line: "garbage 1 10 ns/op"},
+	} {
+		if err := ValidateGoRecord(tc.line); (err == nil) != tc.valid {
+			t.Errorf("ValidateGoRecord(%q)=%v, want valid=%v", tc.line, err, tc.valid)
+		}
+	}
+}
+
 func TestRenderPublishesCompatibleReportAtomically(t *testing.T) {
 	t.Parallel()
 

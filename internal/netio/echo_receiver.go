@@ -20,8 +20,7 @@ var ErrNoEchoListeners = fmt.Errorf("echo receiver run: %w", ErrNoListeners)
 // This interface decouples the echo receiver from the bfd.Manager.
 type EchoDemuxer interface {
 	// DemuxEcho routes a returned echo packet by MyDiscriminator.
-	// RFC 9747: echo packets are self-originated, so MyDiscriminator
-	// in the returned packet identifies the local echo session.
+	// This preview path lacks RFC 9747's bootstrap/YourDiscriminator procedure.
 	DemuxEcho(myDiscr uint32) (bfd.DeliveryOutcome, error)
 	bfd.DeliveryReporter
 }
@@ -38,9 +37,9 @@ type EchoDemuxer interface {
 //   - Packet unmarshaling to extract MyDiscriminator
 //   - Context-aware graceful shutdown
 //
-// Unlike the control Receiver, the EchoReceiver does not perform full
-// packet validation (RFC 5880 Section 6.3) because echo packets are
-// self-originated. Only MyDiscriminator extraction is needed for demux.
+// The preview omits full return validation and authentication. Self-originated
+// packets remain spoofable; MyDiscriminator-only routing is an implementation
+// gap, not an exemption from RFC 9747 Section 2 or RFC 5880 Section 6.3.
 type EchoReceiver struct {
 	demuxer EchoDemuxer
 	logger  *slog.Logger

@@ -14,6 +14,7 @@ import (
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
 	"github.com/dantte-lp/gobfd/internal/netio"
+	"github.com/dantte-lp/gobfd/internal/server"
 )
 
 const (
@@ -103,6 +104,13 @@ func (h reconciliationErrorHistogram) Count(code bfd.ReconcileErrorCode) uint32 
 	return h[code]
 }
 
+type pendingResourceKinds uint8
+
+const (
+	pendingInterface pendingResourceKinds = 1 << iota
+	pendingAddress
+)
+
 type sourceReceipt struct {
 	Source       reconciliationSource
 	Created      int
@@ -110,8 +118,10 @@ type sourceReceipt struct {
 	Released     int
 	Pending      int
 	TimerPending int
-	Failed       int
-	Errors       reconciliationErrorHistogram
+	// Retain only fixed classes; resource identities remain transient diagnostics.
+	PendingResources pendingResourceKinds
+	Failed           int
+	Errors           reconciliationErrorHistogram
 }
 
 type generationReceipt struct {
@@ -148,6 +158,8 @@ type sourceApplyFunc func(
 
 type interfaceAvailabilityChecker func([]string) (int, error)
 
+type localAddressAvailabilityChecker func([]netio.LocalAddress) (int, error)
+
 // reconciliationCoordinator serializes complete five-source applies,
 // generation-scoped pending-source retries, and interface availability events
 // while publishing status through a separately readable immutable snapshot.
@@ -176,6 +188,8 @@ type reconciliationCoordinator struct {
 	// overlays owns the VXLAN and Geneve backends; nil when no daemon runtime
 	// exists, so a non-empty overlay source fails as backend-unavailable.
 	overlays *overlayOwner
+	// checkAddresses is installed with the Linux runtime resource owners.
+	checkAddresses localAddressAvailabilityChecker
 }
 
 func newReconciliationCoordinator(
@@ -215,15 +229,24 @@ func (c *reconciliationCoordinator) reconcile(
 	if err != nil {
 		return err
 	}
+	var retained, working compiledControlSessionCandidate
+	var generation uint64
+	if err := mgr.AdmitSessionReload(
+		baseReconcileConfigs(c.retainedCandidate.base), baseReconcileConfigs(candidate.base), func() {
+			retained, working, generation = c.acceptCandidateLocked(candidate, logLevel)
+		},
+	); err != nil {
+		return fmt.Errorf("validate session reload: %w", err)
+	}
 	if c.onConfiguredPeers != nil {
 		c.onConfiguredPeers(goBGPManagedPeers(cfg.Sessions))
 	}
-	c.applyCandidateLocked(ctx, candidate, logLevel, c.withListeners(func(
+	c.applyAcceptedCandidateLocked(ctx, retained, working, generation, c.withListeners(func(
 		ctx context.Context,
 		source reconciliationSource,
 		candidate compiledControlSessionCandidate,
 	) sourceApplyResult {
-		return applyCompiledSource(ctx, source, candidate, mgr, sf, c.logger)
+		return applyCompiledSource(ctx, source, candidate, mgr, sf, c.logger, c.listeners)
 	}))
 	return nil
 }
@@ -237,6 +260,11 @@ func (c *reconciliationCoordinator) withListeners(apply sourceApplyFunc) sourceA
 	return func(
 		ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate,
 	) sourceApplyResult {
+		if c.checkAddresses != nil {
+			if result := c.preflightSourceResources(source, candidate, netio.CheckInterfacesAvailable); result.Err != nil {
+				return result
+			}
+		}
 		if source == sourceVXLAN || source == sourceGeneve {
 			if c.overlays == nil {
 				return apply(ctx, source, candidate)
@@ -291,6 +319,16 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 	logLevel *slog.LevelVar,
 	applySource sourceApplyFunc,
 ) reconciliationSnapshot {
+	retained, working, generation := c.acceptCandidateLocked(candidate, logLevel)
+	return c.applyAcceptedCandidateLocked(ctx, retained, working, generation, applySource)
+}
+
+// acceptCandidateLocked publishes only local state; it must not call Manager
+// or resource owners while session admission holds ownershipMu.
+func (c *reconciliationCoordinator) acceptCandidateLocked(
+	candidate compiledControlSessionCandidate,
+	logLevel *slog.LevelVar,
+) (compiledControlSessionCandidate, compiledControlSessionCandidate, uint64) {
 	retainedCandidate := cloneCompiledControlSessionCandidate(candidate)
 	workingCandidate := cloneCompiledControlSessionCandidate(retainedCandidate)
 
@@ -303,7 +341,7 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 	}
 	c.unboundSources = unboundInterfaceSources(retainedCandidate)
 	c.statusMu.Unlock()
-	c.readiness.setSources(0)
+	c.readiness.beginCapabilities(retainedCandidate.capabilities)
 	for i := range retainedCandidate.base {
 		retainedCandidate.base[i].reconcile.DesiredGeneration = generation
 		workingCandidate.base[i].reconcile.DesiredGeneration = generation
@@ -311,7 +349,15 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 	if logLevel != nil {
 		logLevel.Set(workingCandidate.logLevel)
 	}
+	return retainedCandidate, workingCandidate, generation
+}
 
+func (c *reconciliationCoordinator) applyAcceptedCandidateLocked(
+	ctx context.Context,
+	retainedCandidate, workingCandidate compiledControlSessionCandidate,
+	generation uint64,
+	applySource sourceApplyFunc,
+) reconciliationSnapshot {
 	receipt := generationReceipt{Generation: generation}
 	c.timerUpdates = nil
 	transientErrors := make([]error, 0, sourceCount)
@@ -320,11 +366,7 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 		if source == sourceBase {
 			c.timerUpdates = slices.Clone(result.TimerUpdates)
 		}
-		receipt.Sources[i] = sourceReceipt{
-			Source: source, Created: result.Created, Updated: result.Updated, Released: result.Released,
-			Pending: result.Pending, Failed: result.Failed, Errors: result.Errors,
-			TimerPending: result.TimerPending,
-		}
+		receipt.Sources[i] = mergedSourceReceipt(source, sourceReceipt{}, result)
 		if result.Err != nil {
 			transientErrors = append(transientErrors, result.Err)
 		}
@@ -426,7 +468,7 @@ func (c *reconciliationCoordinator) reconcileUnavailableInterfaceLocked(
 		if !selected.contains(source) || prior.Failed != 0 {
 			continue
 		}
-		result := preflightCompiledSourceInterfaces(
+		result := c.preflightSourceResources(
 			source, c.retainedCandidate, checkInterfaces,
 		)
 		if result.Err == nil {
@@ -446,6 +488,10 @@ func mergedSourceReceipt(
 	prior sourceReceipt,
 	result sourceApplyResult,
 ) sourceReceipt {
+	var resources pendingResourceKinds
+	if result.Pending > result.TimerPending {
+		resources, _ = unavailableResourceKinds(result.Err)
+	}
 	return sourceReceipt{
 		Source:  source,
 		Created: prior.Created + result.Created, Released: prior.Released + result.Released,
@@ -453,7 +499,8 @@ func mergedSourceReceipt(
 		// consumable event count. Reinspection must not double-count them.
 		Updated: max(prior.Updated, result.Updated),
 		Pending: result.Pending, Failed: result.Failed, Errors: result.Errors,
-		TimerPending: result.TimerPending,
+		TimerPending:     result.TimerPending,
+		PendingResources: resources,
 	}
 }
 
@@ -551,6 +598,8 @@ func sourceReceiptLogGroup(receipt sourceReceipt) slog.Attr {
 		slog.Int("updated", receipt.Updated),
 		slog.Int("released", receipt.Released),
 		slog.Int("pending", receipt.Pending),
+		slog.Bool("interface_pending", receipt.PendingResources&pendingInterface != 0),
+		slog.Bool("address_pending", receipt.PendingResources&pendingAddress != 0),
 		slog.Int("timer_pending", receipt.TimerPending),
 		slog.Int("failed", receipt.Failed),
 		slog.Group("errors",
@@ -567,11 +616,12 @@ func sourceReceiptLogGroup(receipt sourceReceipt) slog.Attr {
 }
 
 type compiledControlSessionCandidate struct {
-	base        []baseSessionCandidate
-	echo        []echoSessionCandidate
-	microGroups []bfd.MicroBFDReconcileConfig
-	overlays    [2]compiledOverlayCandidate
-	logLevel    slog.Level
+	capabilities server.CapabilitySnapshot
+	base         []baseSessionCandidate
+	echo         []echoSessionCandidate
+	microGroups  []bfd.MicroBFDReconcileConfig
+	overlays     [2]compiledOverlayCandidate
+	logLevel     slog.Level
 	// listeners are the receive sockets each source needs.
 	listeners [sourceCount][]netio.ListenerConfig
 }
@@ -612,6 +662,13 @@ func compileControlSessionCandidate(cfg *config.Config) (compiledControlSessionC
 
 	return compiledControlSessionCandidate{
 		base: base, echo: echo, microGroups: microGroups,
+		capabilities: server.CapabilitySnapshot{
+			Unsolicited: server.CapabilityRuntime{Known: true, Enabled: cfg.Unsolicited.Enabled},
+			Echo:        server.CapabilityRuntime{Known: true, Enabled: cfg.Echo.Enabled},
+			MicroBFD:    server.CapabilityRuntime{Known: true, Enabled: cfg.MicroBFD.Enabled},
+			VXLAN:       server.CapabilityRuntime{Known: true, Enabled: cfg.VXLAN.Enabled},
+			Geneve:      server.CapabilityRuntime{Known: true, Enabled: cfg.Geneve.Enabled},
+		},
 		overlays: overlays, logLevel: config.ParseLogLevel(cfg.Log.Level),
 		listeners: compileListenerConfigs(cfg),
 	}, nil
@@ -624,9 +681,10 @@ func applyCompiledSource(
 	mgr *bfd.Manager,
 	sf declarativeSenderFactory,
 	logger *slog.Logger,
+	listeners *listenerOwner,
 ) sourceApplyResult {
 	return applyCompiledSourceWithInterfaceChecker(
-		ctx, source, candidate, mgr, sf, logger, netio.CheckInterfacesAvailable,
+		ctx, source, candidate, mgr, sf, logger, listeners, netio.CheckInterfacesAvailable,
 	)
 }
 
@@ -637,6 +695,7 @@ func applyCompiledSourceWithInterfaceChecker(
 	mgr *bfd.Manager,
 	sf declarativeSenderFactory,
 	logger *slog.Logger,
+	listeners *listenerOwner,
 	checkInterfaces interfaceAvailabilityChecker,
 ) sourceApplyResult {
 	if result := preflightCompiledSourceInterfaces(source, candidate, checkInterfaces); result.Err != nil {
@@ -650,7 +709,7 @@ func applyCompiledSourceWithInterfaceChecker(
 		))
 	case sourceEcho:
 		return sourceResultFromBFD(applyEchoSessionCandidates(
-			ctx, candidate.echo, mgr, sf, logger,
+			ctx, candidate.echo, mgr, sf, logger, listeners,
 		))
 	case sourceMicro:
 		return sourceResultFromBFD(applyMicroBFDCandidates(
@@ -787,8 +846,10 @@ func applyCompiledOverlay(
 	desired := make([]bfd.ReconcileConfig, len(candidate.desired))
 	copy(desired, candidate.desired)
 	for i := range desired {
-		sender := netio.NewOverlaySender(candidate.conns[i], desired[i].SessionConfig.TransportScope)
-		desired[i].SenderLeaseFactory = bfd.NonOwningSenderLeaseFactory(sender)
+		if desired[i].SenderLeaseFactory == nil {
+			sender := netio.NewOverlaySender(candidate.conns[i], desired[i].SessionConfig.TransportScope)
+			desired[i].SenderLeaseFactory = bfd.NonOwningSenderLeaseFactory(sender)
+		}
 	}
 	return sourceResultFromBFD(applyOverlayDesiredSessions(
 		ctx, mgr, candidate.owner, desired,
@@ -867,38 +928,47 @@ func failedSourceResult(code bfd.ReconcileErrorCode, err error) sourceApplyResul
 }
 
 func resourceErrorSourceResult(pendingClaims int, err error) sourceApplyResult {
-	if pendingClaims > 0 && onlyUnavailableResourceErrors(err) {
+	if _, valid := unavailableResourceKinds(err); pendingClaims > 0 && valid {
 		return sourceApplyResult{Pending: pendingClaims, Err: err}
 	}
 	return failedSourceResult(bfd.ReconcileErrorCreate, err)
 }
 
-func onlyUnavailableResourceErrors(err error) bool {
+func unavailableResourceKinds(err error) (pendingResourceKinds, bool) {
 	if err == nil {
-		return false
+		return 0, false
 	}
 	if joined, ok := err.(interface{ Unwrap() []error }); ok {
 		children := joined.Unwrap()
 		if len(children) == 0 {
-			return false
+			return 0, false
 		}
+		var kinds pendingResourceKinds
 		for _, child := range children {
-			if !onlyUnavailableResourceErrors(child) {
-				return false
+			childKinds, valid := unavailableResourceKinds(child)
+			if !valid {
+				return 0, false
 			}
+			kinds |= childKinds
 		}
-		return true
+		return kinds, true
 	}
 	unavailableErr, unavailable := errors.AsType[*bfd.ResourceUnavailableError](err)
 	_, wrappedUnavailable := errors.AsType[*bfd.ResourceUnavailableError](errors.Unwrap(err))
 	if unavailable && !wrappedUnavailable {
-		_, valid := bfd.UnavailableResource(unavailableErr)
-		return valid
+		resource, valid := bfd.UnavailableResource(unavailableErr)
+		if !valid {
+			return 0, false
+		}
+		if resource.Kind == bfd.ResourceKindAddress {
+			return pendingAddress, true
+		}
+		return pendingInterface, true
 	}
 	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
-		return onlyUnavailableResourceErrors(wrapped.Unwrap())
+		return unavailableResourceKinds(wrapped.Unwrap())
 	}
-	return false
+	return 0, false
 }
 
 func startReloadAfterStartup(reconcileStartup, startReload func()) {

@@ -4,6 +4,12 @@ This example demonstrates GoBFD driving GoBGP peer control while peering with
 FRR. It is a generic lab topology for validating BFD-assisted route withdrawal;
 it does not encode vendor-specific or private network assumptions.
 
+This is a lab procedure for current `dev` source, not a fresh execution receipt
+or stable-release acceptance. Final-candidate qualification and publication
+authorization remain separate. Русские руководства:
+[интеграции](../../../docs/ru/11-integrations.md#быстрое-переключение-bgp) и
+[эксплуатационная проверка](../../../docs/ru/16-production-runbooks.md#проверка-быстрого-переключения-bgp).
+
 ## Topology
 
 | Component | Address | Role |
@@ -21,9 +27,14 @@ FRR 10.7.1 and GoBGP v4.10.0 use the shared Debian trixie recipes in
 `test/interop/frr/` and `test/interop/gobgp/`. GoBGP v4.10.0 is built from
 upstream commit `da824d99912e02124b53741245ee4186c381adcc` with Go 1.27.3.
 GoBFD on `dev` requires a GoBGP v4 daemon; a GoBGP v3 daemon is
-wire-incompatible. GoBGP v4 native BFD is disabled by default and is not
-enabled in this example. Builds are limited to 2 CPUs and 2 GiB;
+wire-incompatible. This example does not enable GoBGP native BFD; GoBFD owns
+the BFD session. Builds are limited to 2 CPUs and 2 GiB;
 each runtime container is limited to 1 CPU, 256 MiB and 128 PIDs.
+
+The configured management TCP listener is loopback-only `127.0.0.1:50052`;
+the default Unix management socket remains available inside GoBFD. Sharing
+GoBFD/GoBGP networking does not share the socket filesystem path. The lab
+metrics listener is `:9100` without authentication; keep this network isolated.
 
 ## RFC Baseline
 
@@ -44,9 +55,15 @@ update latency.
 
 ## Run
 
+First follow the pinned [Compose-provider setup](../../../docs/en/06-deployment.md#podman-compose),
+render the selected Compose file and admit resources. The manual topology uses
+fixed container names and `172.22.0.0/24`, which overlaps the RFC interop lab.
+Do not run those networks concurrently on the same Podman engine. The selected
+build and runtime limits are source contracts, not measured resource admission.
+
 Use the authoritative Go testcontainers gate for automated validation. It
 writes packet, container, and JSON test evidence under
-`reports/e2e/bgp-fast-failover/<UTC run>/` and removes its exact test-owned
+`reports/e2e/bgp-fast-failover/run.*/` and removes its exact test-owned
 resources:
 
 ```bash
@@ -61,9 +78,13 @@ capture stays in container storage; copy it before `-down` if needed:
 make int-bgp-failover-up
 podman exec gobgp-bgp-failover gobgp neighbor
 podman exec gobgp-bgp-failover gobgp global rib
-make int-bgp-failover-logs
-make int-bgp-failover-down
+podman exec gobfd-bgp-failover gobfdctl session list
+# Optional: follow logs in a separate terminal.
+# make int-bgp-failover-logs
 ```
+
+After retaining the required evidence, use `make int-bgp-failover-down` only
+for the verified owned topology and with the required deletion approval.
 
 ## Failure Drill
 
@@ -74,21 +95,19 @@ The Go testcontainers gate performs this sequence:
 3. Verify that `10.20.0.0/24` is present in the GoBGP RIB.
 4. Capture BFD packets with tshark.
 5. Pause FRR to stop BFD and BGP control-plane progress.
-6. Verify that GoBFD reports Down and GoBGP withdraws the route.
+6. Require the exact route to disappear from the GoBGP RIB within the test's 20-second bound.
 7. Unpause FRR and verify route restoration.
 
-Run the same checks manually when debugging:
+The gate directly asserts GoBGP neighbor/RIB state; it does not directly query
+GoBFD Down or measure a 900 ms detection bound. Packet capture retention also
+does not establish forwarding continuity or the full RFC matrix. Source:
+[`testcontainers_test.go`](../../../test/e2e/bgp-failover/testcontainers_test.go).
+Use the existing Go-owned lifecycle for the failure sequence. Stop the
+verified owned manual topology first to release its fixed names:
 
 ```bash
-podman pause frr-bgp-failover
-sleep 5
-podman exec gobgp-bgp-failover gobgp neighbor
-podman exec gobgp-bgp-failover gobgp global rib
-
-podman unpause frr-bgp-failover
-sleep 15
-podman exec gobgp-bgp-failover gobgp neighbor
-podman exec gobgp-bgp-failover gobgp global rib
+make int-bgp-failover-down
+make int-bgp-failover
 ```
 
 ## Packet Verification

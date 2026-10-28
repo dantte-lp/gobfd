@@ -4,7 +4,6 @@ package haproxy_health_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -40,6 +39,12 @@ type haproxyHealthContract struct {
 }
 
 type bfdSessionView struct {
+	ObservationVersion  uint64 `json:"observation_version"`
+	RemoteKnown         bool   `json:"remote_known"`
+	RemoteDiagnostic    string `json:"remote_diagnostic"`
+	LocalC              bool   `json:"local_control_plane_independent"`
+	RemoteC             bool   `json:"remote_control_plane_independent"`
+	Cause               string `json:"cause"`
 	PeerAddress         string `json:"peer_address"`
 	LocalAddress        string `json:"local_address"`
 	InterfaceName       string `json:"interface_name,omitempty"`
@@ -50,6 +55,7 @@ type bfdSessionView struct {
 	LocalDiscriminator  uint32 `json:"local_discriminator"`
 	RemoteDiscriminator uint32 `json:"remote_discriminator"`
 	DetectMultiplier    uint32 `json:"detect_multiplier"`
+	PaddedPduSize       uint32 `json:"padded_pdu_size"`
 	DesiredMinTx        string `json:"desired_min_tx_interval,omitempty"`
 	RequiredMinRx       string `json:"required_min_rx_interval,omitempty"`
 	RemoteMinRx         string `json:"remote_min_rx_interval,omitempty"`
@@ -64,12 +70,6 @@ type haproxyServerState struct {
 	Name     string
 	Status   string
 	Eligible bool
-}
-
-type ownedImageClient interface {
-	ImageExists(ctx context.Context, image string) (bool, error)
-	ImageID(ctx context.Context, image string) (string, error)
-	RemoveImage(ctx context.Context, image string) error
 }
 
 func newHAProxyHealthContract(root string) haproxyHealthContract {
@@ -277,6 +277,9 @@ func prepareHAProxyGoBFDBuildContext(t *testing.T, root string) string {
 	}
 	const containerfile = `FROM docker.io/library/golang:1.27.3-trixie@sha256:` +
 		`604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c AS builder
+ARG VCS_REF
+ARG BUILD_DATE
+ENV GOTOOLCHAIN=local GOMAXPROCS=2 GOMEMLIMIT=1500MiB GOFLAGS=-p=1
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download && go mod verify
@@ -285,11 +288,29 @@ COPY cmd/gobfdctl ./cmd/gobfdctl
 COPY cmd/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
 COPY internal ./internal
 COPY pkg ./pkg
-RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfd ./cmd/gobfd
-RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfdctl ./cmd/gobfdctl
-RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-X github.com/dantte-lp/gobfd/internal/version.GitCommit=${VCS_REF} \
+-X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" -o /bin/gobfd ./cmd/gobfd
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-X github.com/dantte-lp/gobfd/internal/version.GitCommit=${VCS_REF} \
+-X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" -o /bin/gobfdctl ./cmd/gobfdctl
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-X github.com/dantte-lp/gobfd/internal/version.GitCommit=${VCS_REF} \
+-X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
+    -o /bin/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
 FROM docker.io/library/debian:trixie-slim@sha256:` +
-		`a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
+		`62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+ARG VCS_REF
+ARG BUILD_DATE
+LABEL org.opencontainers.image.source="https://github.com/dantte-lp/gobfd" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.version="${VCS_REF}" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.title="GoBFD HAProxy health fixture" \
+      org.opencontainers.image.description="GoBFD daemon, CLI and HAProxy bridge from the qualified candidate" \
+      org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
+      org.opencontainers.image.base.digest="sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad"
 COPY --from=builder /bin/gobfd /bin/gobfd
 COPY --from=builder /bin/gobfdctl /bin/gobfdctl
 COPY --from=builder /bin/gobfd-haproxy-agent /bin/gobfd-haproxy-agent

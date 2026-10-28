@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dantte-lp/gobfd/test/internal/toolbootstrap"
 )
 
 const holoInterfaceConfig = `{"name":"eth0","type":"iana-if-type:ethernetCsmacd","ietf-ip:ipv4":{}}`
@@ -705,7 +707,9 @@ func runInteropFakeCommand(mode, command string, args []string) int {
 		if code := fakeAppend("INTEROP_FAKE_COMMAND_LOG", "", joined); code != 0 {
 			return code
 		}
-		if strings.Contains(joined, "-test.run=^(TestTimerReload)$") && os.Getenv("INTEROP_FAKE_TIMER_FAIL") == "true" {
+		timerBatch := strings.Contains(joined, "-test.run=^(TestTimerReload)$") ||
+			strings.Contains(joined, "-test.run=^(TestMeticulousTimerReload)$")
+		if timerBatch && os.Getenv("INTEROP_FAKE_TIMER_FAIL") == "true" {
 			fmt.Fprintln(os.Stderr, "timer phase failed")
 			return 17
 		}
@@ -728,6 +732,10 @@ func runInteropFakeCommand(mode, command string, args []string) int {
 			}
 			return 0
 		case "compose":
+			if slices.Equal(args[1:], []string{"version", "--short"}) {
+				fmt.Fprintln(os.Stdout, toolbootstrap.ComposeVersion)
+				return 0
+			}
 			if len(args) >= 5 && args[1] == "-p" && args[2] == "custom-bgp" && args[3] == "-f" && filepath.IsAbs(args[4]) {
 				if slices.Equal(args[5:], []string{"config", "--format", "json"}) {
 					fmt.Fprintln(os.Stdout,
@@ -770,6 +778,10 @@ func runInteropFakeCommand(mode, command string, args []string) int {
 			}
 			if code := fakeAppend("INTEROP_FAKE_COMMAND_LOG", "", joined); code != 0 {
 				return code
+			}
+			if slices.Equal(args, []string{"version", "--short"}) {
+				fmt.Fprintln(os.Stdout, toolbootstrap.ComposeVersion)
+				return 0
 			}
 			validPrefix := len(args) >= 4 &&
 				args[0] == "-p" && args[1] == "gobfd-interop" &&

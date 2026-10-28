@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -17,19 +18,25 @@ import (
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/test/internal/containertest"
 )
 
 // The crafted peer reuses the fuzzer address and fixed container name; the
 // fuzzer never runs in this topology.
 const (
-	craftedPeerConfig    = "test/interop/gobfd/crafted-peer.yml"
-	craftedBaseInterval  = 300000
-	craftedReloadTimer   = "500ms"
-	craftedReloadMicros  = 500000
-	craftedQuietMultiple = 10
-	craftedResumeMinimum = 3
-	craftedClockSlack    = 1000
+	craftedPeerConfig   = "test/interop/gobfd/crafted-peer.yml"
+	craftedBaseInterval = 300000
+	craftedReloadTimer  = "500ms"
+	craftedReloadMicros = 500000
+	// Queued tuples: the second waits behind the first under lost Finals.
+	craftedQueuedFirst        = "400ms"
+	craftedQueuedFirstMicros  = 400000
+	craftedQueuedSecond       = "800ms"
+	craftedQueuedSecondMicros = 800000
+	craftedQuietMultiple      = 10
+	craftedResumeMinimum      = 3
+	craftedClockSlack         = 1000
 	// craftedStateChangeBound bounds the immediate state-change send after the reset.
 	craftedStateChangeBound = 50000
 )
@@ -77,9 +84,12 @@ func parseCraftedFrames(rows [][]string) ([]craftedFrame, error) {
 
 // craftedPlan carries the values the capture is checked against.
 type craftedPlan struct {
-	DetectionMicroseconds uint64 `json:"detection_microseconds"`
-	ReloadTX              uint64 `json:"reload_tx"`
-	ReloadRX              uint64 `json:"reload_rx"`
+	DetectionMicroseconds uint64        `json:"detection_microseconds"`
+	ReloadTX              uint64        `json:"reload_tx"`
+	ReloadRX              uint64        `json:"reload_rx"`
+	QueuedFirst           uint64        `json:"queued_first"`
+	QueuedSecond          uint64        `json:"queued_second"`
+	DetectUpdates         []detectPhase `json:"detect_updates,omitempty"`
 }
 
 type craftedRX0Evidence struct {
@@ -122,6 +132,20 @@ type craftedEvidence struct {
 	RX0     craftedRX0Evidence     `json:"rx0"`
 	Silence craftedSilenceEvidence `json:"silence"`
 	Demand  craftedDemandEvidence  `json:"demand"`
+	Queued  craftedQueuedEvidence  `json:"queued"`
+}
+
+type craftedQueuedEvidence struct {
+	FirstPoll              uint64 `json:"first_poll_frame"`
+	FirstPolls             int    `json:"first_polls"`
+	CrossPoll              uint64 `json:"cross_poll_frame"`
+	CrossFinal             uint64 `json:"cross_final_frame"`
+	ResumedPolls           int    `json:"resumed_polls"`
+	PeerFinal              uint64 `json:"peer_final_frame"`
+	SecondPoll             uint64 `json:"second_poll_frame"`
+	SecondPeerFinal        uint64 `json:"second_peer_final_frame"`
+	ExchangeMicroseconds   int64  `json:"exchange_us"`
+	SeparationMicroseconds int64  `json:"separation_us"`
 }
 
 func craftedNext(frames []craftedFrame, from int, match func(craftedFrame) bool) int {
@@ -168,6 +192,10 @@ func evaluateCraftedPeerCapture(frames []craftedFrame, plan craftedPlan) (crafte
 	for _, frame := range frames {
 		toGoBFD := frame.Source == fuzzIP && frame.Destination == gobfdIP
 		toPeer := frame.Source == gobfdIP && frame.Destination == fuzzIP
+		// RFC 5880 Section 6.5: "A BFD Control packet MUST NOT have both the Poll (P) and Final (F) bits set."
+		if frame.Poll == 1 && frame.Final == 1 {
+			return evidence, fmt.Errorf("frame %d sets Poll and Final: %w", frame.Number, errCraftedEvidence)
+		}
 		if !toGoBFD && !toPeer {
 			return evidence, fmt.Errorf("frame %d direction %s->%s: %w",
 				frame.Number, frame.Source, frame.Destination, errCraftedEvidence)
@@ -181,7 +209,13 @@ func evaluateCraftedPeerCapture(frames []craftedFrame, plan craftedPlan) (crafte
 	if err != nil {
 		return evidence, err
 	}
-	return evidence, evaluateCraftedDemand(frames, recovered, plan, &evidence)
+	if err := evaluateCraftedDemand(frames, recovered, plan, &evidence); err != nil {
+		return evidence, err
+	}
+	clearFinal := craftedNext(frames, 0, func(frame craftedFrame) bool {
+		return frame.Number == evidence.Demand.ClearFinal
+	})
+	return evidence, evaluateCraftedQueued(frames, clearFinal+1, plan, &evidence.Queued)
 }
 
 func evaluateCraftedRX0(frames []craftedFrame, plan craftedPlan, evidence *craftedEvidence) (int, int, error) {
@@ -285,7 +319,7 @@ func evaluateCraftedSilence(frames []craftedFrame, last, resume int, evidence *c
 	if len(intervals) < craftedResumeMinimum {
 		return 0, fmt.Errorf("Down intervals=%d, want >=%d: %w", len(intervals), craftedResumeMinimum, errCraftedEvidence)
 	}
-	if err := checkIntervalBounds(intervals, int64(first.TX)); err != nil {
+	if err := checkIntervalBounds(intervals, int64(first.TX), 3); err != nil {
 		return 0, err
 	}
 	evidence.Silence.Resume, evidence.Silence.ResumeMicroseconds = first.Number, elapsed
@@ -349,6 +383,9 @@ func evaluateCraftedDemand(frames []craftedFrame, from int, plan craftedPlan, ev
 				peerFinal = index
 			}
 		case frame.Poll == 1:
+			if peerFinal >= 0 && craftedDetectPoll(frame, plan.DetectUpdates) {
+				continue
+			}
 			if peerFinal >= 0 || frame.TX != plan.ReloadTX || frame.RX != plan.ReloadRX || frame.State != 3 {
 				return fmt.Errorf("GoBFD Poll %+v, want new timers before the peer Final (RFC 5880 6.5, 6.8.3): %w",
 					frame, errCraftedEvidence)
@@ -368,6 +405,9 @@ func evaluateCraftedDemand(frames []craftedFrame, from int, plan craftedPlan, ev
 	if firstPoll < 0 || peerFinal < 0 {
 		return fmt.Errorf("no GoBFD Poll Sequence completed under remote Demand (RFC 5880 6.6): %w", errCraftedEvidence)
 	}
+	if err := evaluateCraftedDetect(frames, frames[peerFinal].Number, frames[clearIndex].Number, plan); err != nil {
+		return err
+	}
 	polls, _, err := craftedPairPolls(frames, start, clearIndex)
 	if err != nil {
 		return err
@@ -382,8 +422,12 @@ func evaluateCraftedDemand(frames []craftedFrame, from int, plan craftedPlan, ev
 	if frames[clearFinalIndex].TX != plan.ReloadTX || frames[clearFinalIndex].RX != plan.ReloadRX {
 		return fmt.Errorf("Demand clear Final %+v lacks the reloaded timers: %w", frames[clearFinalIndex], errCraftedEvidence)
 	}
+	// The resumed window ends at the last peer frame or at the next GoBFD Poll.
 	lastPeer := clearIndex
 	for index := clearIndex; index < len(frames); index++ {
+		if !frames[index].fromPeer() && frames[index].Poll == 1 && index > clearFinalIndex {
+			break
+		}
 		if frames[index].fromPeer() {
 			lastPeer = index
 		}
@@ -409,7 +453,7 @@ func evaluateCraftedDemand(frames []craftedFrame, from int, plan craftedPlan, ev
 		}
 		previous = &frames[index]
 	}
-	mean, err := checkJitteredIntervals(intervals, int64(resumed))
+	mean, err := checkJitteredIntervals(intervals, int64(resumed), 3)
 	if err != nil {
 		return err
 	}
@@ -421,12 +465,97 @@ func evaluateCraftedDemand(frames []craftedFrame, from int, plan craftedPlan, ev
 	return nil
 }
 
+// craftedPeerFinal matches a Final sent by the crafted peer.
+func craftedPeerFinal(frame craftedFrame) bool { return frame.fromPeer() && frame.Final == 1 }
+
+// evaluateCraftedQueued checks the lost-Final phase. GoBFD repeats its Poll
+// until the peer Final (RFC 5880 Section 6.5), answers the peer's crossing Poll
+// with Final only and the active tuple, then resumes its own Poll. A queued tuple
+// is advertised only after that Final and after the elapsed-time separation of
+// Section 6.8.3, so the two proposals never share one Final.
+func evaluateCraftedQueued(frames []craftedFrame, from int, plan craftedPlan, evidence *craftedQueuedEvidence) error {
+	first := craftedNext(frames, from, func(frame craftedFrame) bool {
+		return !frame.fromPeer() && frame.Poll == 1 && frame.TX == plan.QueuedFirst
+	})
+	if first < 0 {
+		return fmt.Errorf("no GoBFD Poll for the first queued tuple: %w", errCraftedEvidence)
+	}
+	peerFinal := craftedNext(frames, first+1, craftedPeerFinal)
+	crossPoll := craftedNext(frames, first+1, func(frame craftedFrame) bool { return frame.fromPeer() && frame.Poll == 1 })
+	if peerFinal < 0 || crossPoll < 0 || crossPoll > peerFinal {
+		return fmt.Errorf("no peer crossing Poll before the peer Final: %w", errCraftedEvidence)
+	}
+	crossFinal := craftedNext(frames, crossPoll+1, func(frame craftedFrame) bool { return !frame.fromPeer() })
+	if crossFinal < 0 || crossFinal > peerFinal || frames[crossFinal].Final != 1 ||
+		frames[crossFinal].TX != plan.QueuedFirst || frames[crossFinal].RX != plan.QueuedFirst {
+		return fmt.Errorf("crossing Poll not answered by a Final with the active tuple (RFC 5880 6.5): %w",
+			errCraftedEvidence)
+	}
+	for index := first; index < peerFinal; index++ {
+		frame := frames[index]
+		if frame.fromPeer() {
+			continue
+		}
+		if frame.TX != plan.QueuedFirst || frame.RX != plan.QueuedFirst || frame.State != 3 ||
+			(index != crossFinal && frame.Poll != 1) {
+			return fmt.Errorf("GoBFD frame %+v during the outstanding Poll, want the active tuple with P: %w",
+				frame, errCraftedEvidence)
+		}
+		evidence.FirstPolls += int(frame.Poll)
+		if index > crossFinal {
+			evidence.ResumedPolls++
+		}
+	}
+	if evidence.FirstPolls < 2 || evidence.ResumedPolls == 0 {
+		return fmt.Errorf("Polls=%d resumed=%d, want a repeated Poll that resumes after the crossing Final: %w",
+			evidence.FirstPolls, evidence.ResumedPolls, errCraftedEvidence)
+	}
+	second := craftedNext(frames, peerFinal+1, func(frame craftedFrame) bool {
+		return !frame.fromPeer() && frame.Poll == 1
+	})
+	if second < 0 || frames[second].TX != plan.QueuedSecond || frames[second].RX != plan.QueuedSecond {
+		return fmt.Errorf("no separate Poll for the queued tuple after the Final: %w", errCraftedEvidence)
+	}
+	for _, frame := range frames[peerFinal+1 : second] {
+		if !frame.fromPeer() && (frame.TX != plan.QueuedFirst || frame.RX != plan.QueuedFirst) {
+			return fmt.Errorf("queued tuple advertised without its own Poll: %+v: %w", frame, errCraftedEvidence)
+		}
+	}
+	exchange := craftedMicros(frames[first], frames[peerFinal])
+	separation := craftedMicros(frames[peerFinal], frames[second])
+	if separation < exchange-timerSlack(0) {
+		return fmt.Errorf("queued Poll %d us after the Final, want at least the %d us exchange (RFC 5880 6.8.3): %w",
+			separation, exchange, errCraftedEvidence)
+	}
+	secondFinal := craftedNext(frames, second+1, craftedPeerFinal)
+	if secondFinal < 0 {
+		return fmt.Errorf("no peer Final for the queued Poll: %w", errCraftedEvidence)
+	}
+	evidence.FirstPoll, evidence.CrossPoll, evidence.CrossFinal = frames[first].Number, frames[crossPoll].Number,
+		frames[crossFinal].Number
+	evidence.PeerFinal, evidence.SecondPoll, evidence.SecondPeerFinal = frames[peerFinal].Number, frames[second].Number,
+		frames[secondFinal].Number
+	evidence.ExchangeMicroseconds, evidence.SeparationMicroseconds = exchange, separation
+	return nil
+}
+
 func TestCraftedPeerTestcontainers(t *testing.T) {
+	runCraftedPeerTopology(t, craftedSingleHop, runCraftedPeerScenario)
+}
+
+func TestCraftedMultihopTTLTestcontainers(t *testing.T) {
+	runCraftedPeerTopology(t, craftedMultihopTTL, runTTLScenario)
+}
+
+func runCraftedPeerTopology(t *testing.T, profile craftedProfile,
+	scenario func(context.Context, *testing.T, []byte, testcontainers.Container),
+) {
+	t.Helper()
 	t.Setenv("DOCKER_CONFIG", t.TempDir())
 	endpoint := containertest.RequirePodman(t)
 	resources := new(fourPeerResources)
 
-	if !t.Run("remote RX0 silence and Demand", func(t *testing.T) {
+	if !t.Run("crafted peer scenario", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 12*time.Minute)
 		t.Cleanup(cancel)
 		root := fourPeerRepositoryRoot(t)
@@ -434,7 +563,16 @@ func TestCraftedPeerTestcontainers(t *testing.T) {
 		assertFourPeerNamesAvailable(ctx, t, endpoint)
 		t.Setenv("INTEROP_PROJECT_NAME", projectName)
 		ensureFourPeerArtifactDirectory(t)
-		peer := startCraftedPeerTopology(ctx, t, endpoint, root, projectName, resources)
+		input, err := os.ReadFile(filepath.Join(root, craftedPeerConfig))
+		if err != nil {
+			t.Fatalf("read crafted startup baseline: %v", err)
+		}
+		baseline, err := selectCraftedConfig(input, profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		configPath := writeTimerArtifact(t, "crafted-startup", "yml", baseline)
+		peer := startCraftedPeerTopology(ctx, t, endpoint, root, projectName, resources, configPath, profile)
 		registerFourPeerArtifactCleanup(ctx, t, func(artifactCtx context.Context) {
 			for name, container := range map[string]string{"daemon": "gobfd-interop", "crafted-peer": "scapy-interop"} {
 				logs, err := projectContainerLogs(artifactCtx, container)
@@ -447,7 +585,7 @@ func TestCraftedPeerTestcontainers(t *testing.T) {
 		}, func(artifactCtx context.Context) {
 			captureFourPeerPCAP(artifactCtx, t, resources.tshark)
 		})
-		runCraftedPeerScenario(ctx, t, root, peer)
+		scenario(ctx, t, baseline, peer)
 	}) {
 		t.Error("crafted peer testcontainers topology failed")
 	}
@@ -465,31 +603,35 @@ func TestCraftedPeerTestcontainers(t *testing.T) {
 
 func startCraftedPeerTopology(
 	ctx context.Context, t *testing.T, endpoint, root, projectName string, resources *fourPeerResources,
+	configPath string, profile craftedProfile,
 ) testcontainers.Container {
 	t.Helper()
 	buildID := time.Now().UnixNano()
 	gobfdImage := buildFourPeerImage(ctx, t, endpoint, prepareFourPeerGoContext(t, root),
-		fmt.Sprintf("localhost/gobfd-interop-test:%d", buildID), resources, nil)
+		fmt.Sprintf("localhost/gobfd-interop-test:%d", buildID), resources)
 	tsharkImage := buildFourPeerImage(ctx, t, endpoint, filepath.Join(root, "test/interop/tshark"),
-		fmt.Sprintf("localhost/tshark-interop-test:%d", buildID), resources, nil)
+		fmt.Sprintf("localhost/tshark-interop-test:%d", buildID), resources)
 	peerImage := buildFourPeerImage(ctx, t, endpoint, prepareCraftedPeerContext(t, root),
-		fmt.Sprintf("localhost/bfd-crafted-peer-test:%d", buildID), resources, nil)
+		fmt.Sprintf("localhost/bfd-crafted-peer-test:%d", buildID), resources)
 	networkName, labels := startFourPeerNetwork(ctx, t, projectName, "crafted-peer-testcontainers", resources)
-	gobfd := startFourPeerGoBFD(ctx, t, gobfdImage, filepath.Join(root, craftedPeerConfig), networkName, labels, resources)
+	gobfd := startFourPeerGoBFD(ctx, t, gobfdImage, configPath, networkName, labels, resources)
 	resources.tshark = startFourPeerTshark(ctx, t, tsharkImage, gobfd, labels, resources)
 	// Fail before the scenario when the dissector lacks a queried field.
-	code, registry, err := containertest.Exec(ctx, resources.tshark, []string{"tshark", "-G", "fields"})
-	for _, field := range craftedFrameFields() {
-		if err != nil || code != 0 || !strings.Contains(registry, "\t"+field+"\t") {
-			t.Fatalf("tshark field %s unavailable: exit=%d error=%v", field, code, err)
-		}
+	fields := append(paddingFrameFields(), "bfd.diag")
+	if profile == craftedMultihopTTL {
+		fields = append(fields, "ip.ttl", "udp.dstport")
+	}
+	requireCaptureFields(ctx, t, fields)
+	command := "peer"
+	if profile == craftedMultihopTTL {
+		command = "peer-multihop"
 	}
 	peer := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
 		Image:                    peerImage,
 		Name:                     "scapy-interop",
 		Labels:                   labels,
 		Networks:                 []string{networkName},
-		Cmd:                      []string{"peer"},
+		Cmd:                      []string{command},
 		Env:                      map[string]string{"GOBFD_IP": gobfdIP},
 		WaitingFor:               wait.ForLog(`"event":"start"`).WithStartupTimeout(20 * time.Second),
 		HostConfigModifier:       addFourPeerCapabilities,
@@ -539,7 +681,7 @@ func waitCrafted(ctx context.Context, duration time.Duration) error {
 	}
 }
 
-func waitCraftedUp(ctx context.Context, t *testing.T) {
+func waitCraftedUp(ctx context.Context, t *testing.T, localRX uint64) {
 	t.Helper()
 	upCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -553,7 +695,7 @@ func waitCraftedUp(ctx context.Context, t *testing.T) {
 		return err == nil, err == nil && state.LocalState == "Up" && state.RemoteState == "Up", err
 	})
 	if err == nil {
-		err = waitTimerQuiet(ctx, fuzzIP, craftedBaseInterval)
+		err = waitTimerQuietRX(ctx, fuzzIP, craftedBaseInterval, localRX)
 	}
 	if err != nil {
 		t.Fatalf("crafted peer session Up with baseline timers: %v", err)
@@ -584,18 +726,14 @@ func advanceCrafted(ctx context.Context, t *testing.T, peer testcontainers.Conta
 	}
 }
 
-func runCraftedPeerScenario(ctx context.Context, t *testing.T, root string, peer testcontainers.Container) {
+func runCraftedPeerScenario(ctx context.Context, t *testing.T, baseline []byte, peer testcontainers.Container) {
 	t.Helper()
-	baseline, err := os.ReadFile(filepath.Join(root, craftedPeerConfig))
-	if err != nil {
-		t.Fatalf("read crafted peer daemon baseline: %v", err)
-	}
 	hold := func(duration time.Duration) {
 		if waitErr := waitCrafted(ctx, duration); waitErr != nil {
 			t.Fatal(waitErr)
 		}
 	}
-	waitCraftedUp(ctx, t)
+	waitCraftedUp(ctx, t, craftedBaseInterval)
 	// (a) RFC 5880 Section 6.8.7: remote Required Min RX 0 stops periodic TX; a Poll still gets a Final.
 	advanceCrafted(ctx, t, peer, "rx0", true)
 	hold(4 * time.Second)
@@ -610,7 +748,7 @@ func runCraftedPeerScenario(ctx context.Context, t *testing.T, root string, peer
 	advanceCrafted(ctx, t, peer, "silent", false)
 	hold(6 * time.Second)
 	advanceCrafted(ctx, t, peer, "recover", false)
-	waitCraftedUp(ctx, t)
+	waitCraftedUp(ctx, t, craftedBaseInterval)
 	// (c) RFC 5880 Section 6.6: remote Demand stops periodic TX; a timer change uses a Poll Sequence.
 	receipts := readTimerReceipts(ctx, t, "crafted-demand-before")
 	previous := receipts[len(receipts)-1].Applied
@@ -618,8 +756,41 @@ func runCraftedPeerScenario(ctx context.Context, t *testing.T, root string, peer
 	hold(3 * time.Second)
 	appliedAt := reloadCraftedTimers(ctx, t, string(baseline), previous)
 	hold(3 * time.Second)
+	detectBaseline, err := timerConfig(string(baseline), fuzzIP, craftedReloadTimer, craftedReloadTimer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detectUpdates := make([]detectPhase, 0, 2)
+	for _, multiplier := range []uint64{5, 3} {
+		phase := runDetectGeneration(ctx, t, detectBaseline, fuzzIP,
+			fmt.Sprintf("crafted-detect-%d", multiplier), multiplier, timerReceiptPoll)
+		detectUpdates = append(detectUpdates, phase)
+	}
+	observer := newPaddingObserver(ctx, t, []byte(detectBaseline), fuzzIP, bfd.AuthTypeNone)
+	candidate, err := paddingConfig(detectBaseline, fuzzIP, 192)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runPaddingCandidate(ctx, t, candidate, "crafted-demand-padding-rejected", 128, true, observer)
 	advanceCrafted(ctx, t, peer, "demand-clear", true)
 	hold(8 * time.Second)
+	// RFC 5880 Sections 6.5 and 6.8.3: lost Finals, a crossed Poll and a queued
+	// tuple that must wait for its own Poll Sequence.
+	receipts = readTimerReceipts(ctx, t, "crafted-queued-before")
+	previous = receipts[len(receipts)-1].Applied
+	advanceCrafted(ctx, t, peer, "final-loss", false)
+	boundary := hupCraftedTimers(ctx, t, string(baseline), craftedQueuedFirst, "crafted-queued-first")
+	gobfdFrames := "bfd && ip.src == " + gobfdIP + " && ip.dst == " + fuzzIP
+	boundary = waitCraftedFrame(ctx, t, gobfdFrames+" && bfd.flags.p == 1 && bfd.desired_min_tx_interval == 400000",
+		boundary)
+	advanceCrafted(ctx, t, peer, "poll", false)
+	boundary = waitCraftedFrame(ctx, t, gobfdFrames+" && bfd.flags.f == 1", boundary)
+	hupCraftedTimers(ctx, t, string(baseline), craftedQueuedSecond, "crafted-queued-second")
+	waitCraftedFrame(ctx, t, gobfdFrames+" && bfd.flags.p == 1 && bfd.desired_min_tx_interval == 400000", boundary)
+	hold(500 * time.Millisecond)
+	advanceCrafted(ctx, t, peer, "final-restore", false)
+	queuedAt := waitCraftedGeneration(ctx, t, previous, previous+2, "crafted-queued-after")
+	hold(2 * time.Second)
 
 	stopTimeout := 10 * time.Second
 	if err := peer.Stop(ctx, &stopTimeout); err != nil {
@@ -631,26 +802,98 @@ func runCraftedPeerScenario(ctx context.Context, t *testing.T, root string, peer
 	evaluateCraftedPeerRun(ctx, t, craftedPlan{
 		DetectionMicroseconds: uint64(detection / time.Microsecond),
 		ReloadTX:              craftedReloadMicros, ReloadRX: craftedReloadMicros,
-	}, appliedAt)
+		QueuedFirst: craftedQueuedFirstMicros, QueuedSecond: craftedQueuedSecondMicros,
+		DetectUpdates: detectUpdates,
+	}, appliedAt, queuedAt)
+}
+
+// hupCraftedTimers writes the peer timers into the daemon configuration,
+// signals SIGHUP and returns the capture boundary taken before the signal.
+func hupCraftedTimers(ctx context.Context, t *testing.T, baseline, timer, name string) uint64 {
+	t.Helper()
+	config, err := timerConfig(baseline, fuzzIP, timer, timer)
+	if err != nil {
+		t.Fatalf("crafted timer config: %v", err)
+	}
+	path := writeTimerArtifact(t, name+"-config", "yml", []byte(config))
+	if copyErr := copyTimerConfig(ctx, "gobfd-interop", path, "/etc/gobfd/gobfd.yml"); copyErr != nil {
+		t.Fatalf("crafted timer config copy: %v", copyErr)
+	}
+	boundary, err := lastFrameForFilter(ctx, timerTraffic(fuzzIP))
+	if err != nil {
+		t.Fatalf("crafted timer boundary: %v", err)
+	}
+	output, err := signalTimerReload(ctx)
+	writeTimerArtifact(t, name+"-hup", "txt", []byte(fmt.Sprintf("output=%s\nerror=%v\n", output, err)))
+	if err != nil {
+		t.Fatalf("crafted timer HUP: %v", err)
+	}
+	return boundary
+}
+
+// waitCraftedFrame returns the first captured frame after boundary that matches filter.
+func waitCraftedFrame(ctx context.Context, t *testing.T, filter string, boundary uint64) uint64 {
+	t.Helper()
+	frameCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	frame, err := pollUntil(frameCtx, 100*time.Millisecond, func(pollCtx context.Context) (uint64, bool, error) {
+		// tshark -c limits frames read, not matches, so read the whole capture.
+		rows, queryErr := tsharkFields(pollCtx, frameBoundary(filter, boundary), []string{"frame.number"}, 0)
+		if queryErr != nil || len(rows) == 0 {
+			return 0, false, queryErr
+		}
+		number, parseErr := strconv.ParseUint(rows[0][0], 10, 64)
+		return number, parseErr == nil, parseErr
+	})
+	if err != nil {
+		t.Fatalf("crafted frame %q after %d: %v", filter, boundary, err)
+	}
+	return frame
+}
+
+// waitCraftedGeneration waits until target is applied and no generation after
+// previous failed, and returns the converged receipt time.
+func waitCraftedGeneration(ctx context.Context, t *testing.T, previous, target uint64, name string) time.Time {
+	t.Helper()
+	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	var lastRaw string
+	appliedAt, err := pollUntil(waitCtx, 100*time.Millisecond, func(pollCtx context.Context) (time.Time, bool, error) {
+		logs, logErr := projectContainerLogs(pollCtx, "gobfd-interop")
+		if logs != "" {
+			lastRaw = logs
+		}
+		if logErr != nil {
+			return time.Time{}, false, logErr
+		}
+		receipts, parseErr := parseTimerReceipts(logs)
+		if parseErr != nil {
+			return time.Time{}, false, parseErr
+		}
+		for _, receipt := range receipts {
+			if receipt.Desired <= previous {
+				continue
+			}
+			if receipt.Failed != 0 || receipt.Base.Failed != 0 || receipt.Desired > target {
+				return time.Time{}, false, fmt.Errorf("receipt %+v: %w", receipt, errTimerEvidence)
+			}
+			if receipt.Desired == target && receipt.Applied == target && !receipt.Stale && receipt.Pending == 0 {
+				return receipt.PublishedAt, true, nil
+			}
+		}
+		return time.Time{}, false, nil
+	})
+	if evidenceErr := retainTimerPollEvidence(ctx, name, target, lastRaw, err); evidenceErr != nil {
+		t.Fatalf("crafted timer generation %d: %v", target, evidenceErr)
+	}
+	return appliedAt
 }
 
 // reloadCraftedTimers applies a daemon timer change under remote Demand and
 // returns the converged receipt time.
 func reloadCraftedTimers(ctx context.Context, t *testing.T, baseline string, previous uint64) time.Time {
 	t.Helper()
-	config, err := timerConfig(baseline, fuzzIP, craftedReloadTimer, craftedReloadTimer)
-	if err != nil {
-		t.Fatalf("crafted timer config: %v", err)
-	}
-	path := writeTimerArtifact(t, "crafted-demand-config", "yml", []byte(config))
-	if copyErr := copyTimerConfig(ctx, "gobfd-interop", path, "/etc/gobfd/gobfd.yml"); copyErr != nil {
-		t.Fatalf("crafted timer config copy: %v", copyErr)
-	}
-	output, err := signalTimerReload(ctx)
-	writeTimerArtifact(t, "crafted-demand-hup", "txt", []byte(fmt.Sprintf("output=%s\nerror=%v\n", output, err)))
-	if err != nil {
-		t.Fatalf("crafted timer HUP: %v", err)
-	}
+	hupCraftedTimers(ctx, t, baseline, craftedReloadTimer, "crafted-demand")
 	reloadCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	var lastRaw string
@@ -666,7 +909,7 @@ func reloadCraftedTimers(ctx context.Context, t *testing.T, baseline string, pre
 		if parseErr != nil {
 			return time.Time{}, false, parseErr
 		}
-		applied, receiptErr := timerGenerationApplied(receipts, previous)
+		applied, receiptErr := timerGenerationApplied(receipts, previous, timerReceiptPoll)
 		return applied, !applied.IsZero(), receiptErr
 	})
 	if evidenceErr := retainTimerPollEvidence(ctx, "crafted-demand-after", previous+1, lastRaw, err); evidenceErr != nil {
@@ -675,7 +918,7 @@ func reloadCraftedTimers(ctx context.Context, t *testing.T, baseline string, pre
 	return appliedAt
 }
 
-func evaluateCraftedPeerRun(ctx context.Context, t *testing.T, plan craftedPlan, appliedAt time.Time) {
+func evaluateCraftedPeerRun(ctx context.Context, t *testing.T, plan craftedPlan, appliedAt, queuedAt time.Time) {
 	t.Helper()
 	fields := craftedFrameFields()
 	rows, err := tsharkFields(ctx, timerTraffic(fuzzIP), fields, 0)
@@ -710,17 +953,26 @@ func evaluateCraftedPeerRun(ctx context.Context, t *testing.T, plan craftedPlan,
 		peerFinal := craftedNext(frames, 0, func(frame craftedFrame) bool {
 			return frame.Number == evidence.Demand.PeerFinal
 		})
-		if !appliedAt.After(frames[peerFinal].Epoch) {
-			err = fmt.Errorf("applied=%s Final=%s: %w", appliedAt.Format(time.RFC3339Nano),
-				frames[peerFinal].Epoch.Format(time.RFC3339Nano), errTimerReceiptBeforeFinal)
+		queuedFinal := craftedNext(frames, 0, func(frame craftedFrame) bool {
+			return frame.Number == evidence.Queued.SecondPeerFinal
+		})
+		for _, pair := range []struct {
+			at    time.Time
+			final craftedFrame
+		}{{appliedAt, frames[peerFinal]}, {queuedAt, frames[queuedFinal]}} {
+			if err == nil && !pair.at.After(pair.final.Epoch) {
+				err = fmt.Errorf("applied=%s Final=%s: %w", pair.at.Format(time.RFC3339Nano),
+					pair.final.Epoch.Format(time.RFC3339Nano), errTimerReceiptBeforeFinal)
+			}
 		}
 	}
 	summary, marshalErr := json.Marshal(struct {
 		Plan      craftedPlan     `json:"plan"`
 		AppliedAt time.Time       `json:"applied_at"`
+		QueuedAt  time.Time       `json:"queued_applied_at"`
 		Evidence  craftedEvidence `json:"evidence"`
 		Error     string          `json:"error"`
-	}{plan, appliedAt, evidence, fmt.Sprint(err)})
+	}{plan, appliedAt, queuedAt, evidence, fmt.Sprint(err)})
 	if marshalErr != nil {
 		t.Fatalf("crafted peer summary: %v", marshalErr)
 	}

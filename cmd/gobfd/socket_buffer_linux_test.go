@@ -104,12 +104,12 @@ func TestAPIPaddedPDURequiresDF(t *testing.T) {
 	for index, target := range []uint32{0, 128} {
 		t.Run(strconv.FormatUint(uint64(target), 10), func(t *testing.T) {
 			local := netip.MustParseAddr(fmt.Sprintf("127.0.28.%d", index+1))
-			sf := newUDPSenderFactory(0)
+			sf := newUDPSenderFactory(config.SocketConfig{})
 			t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 			mgr := bfd.NewManager(logger)
 			t.Cleanup(mgr.Close)
-			srv := newGRPCServer(config.GRPCConfig{UnsafeLoopbackMutations: true},
-				mgr, sf, sf, newDaemonHealthChecker(), nil, logger)
+			srv := newGRPCServer(config.GRPCConfig{UnsafeLoopbackMutations: true}, false,
+				mgr, sf, sf, newDaemonHealthChecker(), nil, logger, nil)
 			ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 			if err != nil {
 				t.Fatal(err)
@@ -155,6 +155,7 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 			}
 			cfg.Echo.Enabled = true
 			cfg.Echo.Peers = []config.EchoPeerConfig{{Peer: "192.0.2.3", Local: local.String()}}
+			cfg.MicroBFD.Enabled = true
 			cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
 				LAGInterface: "test-bond", LocalAddr: local.String(), MemberLinks: []string{"lo"},
 			}}
@@ -168,11 +169,11 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 			}
 			for _, kind := range []string{"api", "echo", "micro", "unsolicited"} {
 				t.Run(kind, func(t *testing.T) {
-					sf := newUDPSenderFactory(cfg.Socket.WriteBufferSize)
+					sf := newUDPSenderFactory(cfg.Socket)
 					var err error
 					switch kind {
 					case "api":
-						_, _, err = sf.CreateSender(local, "", false, false, logger)
+						_, _, err = sf.CreateSender(local, "", bfd.SessionTypeSingleHop, false, logger)
 					case "echo":
 						_, _, err = sf.createSenderForSession(local, false, logger, netio.WithDstPort(netio.PortEcho))
 					case "micro":
@@ -248,7 +249,7 @@ func TestDaemonOverlaySocketBufferPolicy(t *testing.T) {
 				PeerMAC: "02:00:00:00:00:01", LocalMAC: "02:00:00:00:00:02",
 			}}
 			cfg.VXLAN.Enabled, cfg.Geneve.Enabled = true, true
-			sf := newUDPSenderFactory(cfg.Socket.WriteBufferSize)
+			sf := newUDPSenderFactory(cfg.Socket)
 			mgr := bfd.NewManager(logger)
 			t.Cleanup(mgr.Close)
 			owner := newOverlayOwner(cfg, sf, mgr, newDaemonReadiness(newDaemonHealthChecker()), logger)

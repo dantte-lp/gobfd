@@ -46,12 +46,6 @@ func TestRunKeepsOwnedAndVendorPhasesInGo(t *testing.T) {
 
 	root := bootstrapTestRoot(t)
 	options := DefaultOptions(root)
-	options.Archives = VendorArchives{Arista: filepath.Join(root, "ceos.tar"), Cisco: filepath.Join(root, "xrd.tar")}
-	for _, archive := range []string{options.Archives.Arista, options.Archives.Cisco} {
-		if err := os.WriteFile(archive, []byte("fixture"), 0o600); err != nil {
-			t.Fatalf("write vendor archive fixture: %v", err)
-		}
-	}
 	options.Deploy = true
 	options.DryRun = true
 	options.Jobs = 1
@@ -69,9 +63,13 @@ func TestRunKeepsOwnedAndVendorPhasesInGo(t *testing.T) {
 			pulls++
 		case command.Executable == "podman" && slices.Contains(command.Arguments, "build"):
 			builds++
-			buildImage = argumentAfter(command.Arguments, "-t")
+			if reference := argumentAfter(command.Arguments, "-t"); strings.HasPrefix(reference, gobfdImageRepo+":") {
+				buildImage = reference
+			}
 		case command.Executable == "podman" && slices.Contains(command.Arguments, "run"):
-			runImage = command.Arguments[len(command.Arguments)-2]
+			if argumentAfter(command.Arguments, "--name") == gobfdContainer {
+				runImage = command.Arguments[len(command.Arguments)-2]
+			}
 		case command.Executable == "podman" &&
 			(slices.Contains(command.Arguments, "tag") || slices.Contains(command.Arguments, "load")):
 			vendorCalls++
@@ -79,17 +77,17 @@ func TestRunKeepsOwnedAndVendorPhasesInGo(t *testing.T) {
 			t.Errorf("owned phase invokes Python directly: %q", command.Arguments)
 		}
 	}
-	if pulls != 6 {
-		t.Errorf("public image pulls = %d, want 6", pulls)
+	if pulls != 2 {
+		t.Errorf("application dependency pulls = %d, want 2", pulls)
 	}
-	if builds != 1 {
-		t.Errorf("GoBFD image builds = %d, want 1", builds)
+	if builds != 2 {
+		t.Errorf("application image builds = %d, want 2", builds)
 	}
 	if buildImage != dryRunImage || runImage != dryRunImage {
 		t.Errorf("dry-run build/run images = %q/%q, want %q", buildImage, runImage, dryRunImage)
 	}
-	if vendorCalls != 2 {
-		t.Errorf("dry-run vendor image operations = %d, want 2", vendorCalls)
+	if vendorCalls != 0 {
+		t.Errorf("unqualified vendor image operations = %d, want 0", vendorCalls)
 	}
 	if len(runner.commands) == 0 {
 		t.Fatal("bootstrap issued no commands")
@@ -109,16 +107,15 @@ func TestRunAggregatesPhaseFailureAndSkipsDeploy(t *testing.T) {
 	options.Deploy = true
 	options.DryRun = true
 	options.Jobs = 1
-	failingReference := "quay.io/frrouting/frr:10.7.0@sha256:" +
-		"65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68"
+	failingReference := publicImages()[0].reference
 	runner := &recordingRunner{failPull: failingReference}
 
 	err := Run(t.Context(), options, runner)
 	if !errors.Is(err, ErrBootstrapFailed) {
 		t.Fatalf("bootstrap error = %v, want errors.Is(ErrBootstrapFailed)", err)
 	}
-	if !strings.Contains(err.Error(), "pull:frr") {
-		t.Fatalf("bootstrap error = %v, want pull:frr context", err)
+	if !strings.Contains(err.Error(), "pull:golang") {
+		t.Fatalf("bootstrap error = %v, want pull:golang context", err)
 	}
 	for _, command := range runner.commands {
 		if command.Executable == executableContainerlab && slices.Contains(command.Arguments, "deploy") {
@@ -134,11 +131,25 @@ func bootstrapTestRoot(t *testing.T) string {
 	if err := os.MkdirAll(topologyDir, 0o700); err != nil {
 		t.Fatalf("create topology directory: %v", err)
 	}
-	topology := []byte("topology:\n  nodes:\n    frr:\n      image: " +
-		"quay.io/frrouting/frr:10.7.0@sha256:" +
-		"65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68\n")
+	topology := []byte("topology:\n  nodes:\n    frr:\n      kind: ext-container\n")
 	if err := os.WriteFile(filepath.Join(topologyDir, "gobfd-vendors.clab.yml"), topology, 0o600); err != nil {
 		t.Fatalf("write topology fixture: %v", err)
 	}
+	copyVendorPolicyFixture(t, root)
 	return root
+}
+
+func copyVendorPolicyFixture(t *testing.T, root string) {
+	t.Helper()
+	policy, err := os.ReadFile(filepath.Join("..", "..", "e2e", "vendor", "profiles.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyDir := filepath.Join(root, "test", "e2e", "vendor")
+	if err := os.MkdirAll(policyDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(policyDir, "profiles.json"), policy, 0o600); err != nil {
+		t.Fatal(err)
+	}
 }

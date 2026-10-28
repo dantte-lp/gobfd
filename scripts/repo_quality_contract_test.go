@@ -100,6 +100,33 @@ func TestRepositoryQualityGatesHaveNoNodeRuntime(t *testing.T) {
 	}
 }
 
+func TestV1ReleaseUsesOnlyDebianOCIAndKeepsRPM(t *testing.T) {
+	t.Parallel()
+
+	configuration := readContractFile(t, "../.goreleaser.yml")
+	requireContractStrings(t, "GoReleaser configuration", configuration, []string{
+		"  - id: gobfd-debian-trixie\n",
+		"    formats:\n      - deb\n      - rpm\n",
+	})
+	for _, path := range []string{
+		"../.goreleaser.yml",
+		"../.github/workflows/e2e.yml",
+		"../test/package-lifecycle/lifecycle_test.go",
+		"../test/internal/cirunner/release_preflight.go",
+		"../test/internal/cirunner/release_oci.go",
+		"../test/internal/cirunner/release_evidence.go",
+		"../test/internal/cirunner/release_promote.go",
+		"../test/internal/cirunner/release_publish.go",
+	} {
+		if strings.Contains(strings.ToLower(readContractFile(t, path)), "oracle") {
+			t.Errorf("%s retains the retired Oracle Linux OCI product", path)
+		}
+	}
+	if _, err := os.Stat("../deployments/docker/Containerfile.release.oraclelinux"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("retired Oracle Linux recipe: stat error = %v, want not exist", err)
+	}
+}
+
 func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 	t.Parallel()
 

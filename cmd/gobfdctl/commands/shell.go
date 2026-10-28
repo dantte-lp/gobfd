@@ -18,6 +18,7 @@ var shellCommands = []struct {
 	{"session show <id>", "Show details of a BFD session"},
 	{"session add --peer <ip>", "Create a new BFD session"},
 	{"session delete <discr>", "Delete a BFD session"},
+	{"capabilities", "Show preview capability maturity, enablement, and readiness"},
 	{"monitor [--current]", "Stream BFD session events"},
 	{"version", "Print build information"},
 	{"help", "Show this help message"},
@@ -66,6 +67,7 @@ func makeShellCommands() *cobra.Command {
 	}
 
 	root.AddCommand(sessionCmd())
+	root.AddCommand(capabilitiesCmd())
 	root.AddCommand(monitorCmd())
 	root.AddCommand(versionCmd())
 	root.AddCommand(shellHelpCmd())

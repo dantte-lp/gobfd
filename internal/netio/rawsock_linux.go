@@ -5,8 +5,10 @@ package netio
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"net"
 	"net/netip"
@@ -55,12 +57,17 @@ func (c *LinuxPacketConn) ReadPacket(buf []byte) (int, PacketMeta, error) {
 		return 0, PacketMeta{}, fmt.Errorf("read BFD packet: %w", err)
 	}
 
-	if flags&unix.MSG_TRUNC != 0 {
-		return 0, PacketMeta{}, fmt.Errorf("read BFD packet: %w", ErrPacketTruncated)
+	meta := PacketMeta{SocketDropsInvalid: flags&unix.MSG_CTRUNC != 0}
+	if flags&unix.MSG_CTRUNC == 0 {
+		meta = parseMeta(src, oob[:oobn])
+		meta.IfName = c.ifName
 	}
-
-	meta := parseMeta(src, oob[:oobn])
-	meta.IfName = c.ifName
+	if flags&unix.MSG_TRUNC != 0 {
+		return 0, meta, fmt.Errorf("read BFD packet: %w", ErrPacketTruncated)
+	}
+	if flags&unix.MSG_CTRUNC != 0 {
+		return 0, meta, fmt.Errorf("read BFD ancillary data: %w", ErrAncillaryTruncated)
+	}
 
 	return n, meta, nil
 }
@@ -219,11 +226,9 @@ func NewGenericListener(
 // -------------------------------------------------------------------------
 
 // oobSize is the buffer size for ancillary (out-of-band) data.
-// Must accommodate the largest control message set:
-// IPv4: IP_PKTINFO (28 bytes) + IP_TTL (16 bytes) = 44 bytes
-// IPv6: IPV6_PKTINFO (36 bytes) + IPV6_HOPLIMIT (16 bytes) = 52 bytes
-// Rounded up to 64 for alignment safety.
-const oobSize = 64
+// It covers PKTINFO, TTL/HopLimit, time64 timestamp and socket drops:
+// the largest set occupies 120 bytes including alignment on 64-bit Linux.
+const oobSize = 128
 
 // ErrUnexpectedConnType indicates the net.ListenPacket returned an
 // unexpected connection type instead of *net.UDPConn.
@@ -298,6 +303,12 @@ func applySockOptsCommon(fd int, ifName string, multiHop bool) error {
 	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1); err != nil {
 		return fmt.Errorf("set SO_REUSEADDR: %w", err)
 	}
+	if err := enableReceiveTelemetry(fd, unix.SO_TIMESTAMPNS_NEW); err != nil {
+		return fmt.Errorf("set SO_TIMESTAMPNS_NEW: %w", err)
+	}
+	if err := enableReceiveTelemetry(fd, unix.SO_RXQ_OVFL); err != nil {
+		return fmt.Errorf("set SO_RXQ_OVFL: %w", err)
+	}
 
 	// SO_BINDTODEVICE: bind to specific interface (single-hop only).
 	// RFC 5881 Section 4 requires interface-specific binding.
@@ -307,6 +318,14 @@ func applySockOptsCommon(fd int, ifName string, multiHop bool) error {
 		}
 	}
 
+	return nil
+}
+
+func enableReceiveTelemetry(fd, option int) error {
+	// Unsupported measurement must not raise the BFD host-kernel requirement.
+	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, option, 1); err != nil && !errors.Is(err, unix.ENOPROTOOPT) {
+		return fmt.Errorf("enable receive telemetry option %d: %w", option, err)
+	}
 	return nil
 }
 
@@ -379,6 +398,7 @@ func parseMeta(src *net.UDPAddr, oob []byte) PacketMeta {
 
 	msgs, err := unix.ParseSocketControlMessage(oob)
 	if err != nil {
+		meta.SocketDropsInvalid = true
 		return meta
 	}
 
@@ -402,19 +422,49 @@ func parseControlMessages(msgs []unix.SocketControlMessage, meta *PacketMeta) {
 			parsePktInfoMessage(msgs[i].Data, meta)
 		// IPv6 Hop Limit — equivalent to IPv4 TTL for GTSM (RFC 5082).
 		case msgs[i].Header.Level == unix.IPPROTO_IPV6 && msgs[i].Header.Type == unix.IPV6_HOPLIMIT:
-			parseHopLimitMessage(msgs[i].Data, meta)
+			parseTTLMessage(msgs[i].Data, meta)
 		// IPv6 PKTINFO — equivalent to IPv4 IP_PKTINFO (struct in6_pktinfo).
 		case msgs[i].Header.Level == unix.IPPROTO_IPV6 && msgs[i].Header.Type == unix.IPV6_PKTINFO:
 			parsePktInfo6Message(msgs[i].Data, meta)
+		case msgs[i].Header.Level == unix.SOL_SOCKET && msgs[i].Header.Type == unix.SO_TIMESTAMPNS_NEW:
+			meta.KernelRXUnixNano = parseKernelRXTimestamp(msgs[i].Data)
+		case msgs[i].Header.Level == unix.SOL_SOCKET && msgs[i].Header.Type == unix.SO_RXQ_OVFL:
+			parseSocketDropsMessage(msgs[i].Data, meta)
 		}
 	}
 }
 
-// parseTTLMessage extracts the TTL value from an IP_TTL control message.
-// The kernel returns TTL as a 4-byte int in native byte order.
+func parseSocketDropsMessage(data []byte, meta *PacketMeta) {
+	if meta.SocketDropsKnown || meta.SocketDropsInvalid || len(data) != 4 {
+		meta.SocketDrops, meta.SocketDropsKnown, meta.SocketDropsInvalid = 0, false, true
+		return
+	}
+	meta.SocketDrops, meta.SocketDropsKnown = binary.NativeEndian.Uint32(data), true
+}
+
+// SO_TIMESTAMPNS_NEW uses two signed native-endian 64-bit timespec fields.
+func parseKernelRXTimestamp(data []byte) int64 {
+	const nanosPerSecond = uint64(1_000_000_000)
+	if len(data) != 16 {
+		return 0
+	}
+	sec := binary.NativeEndian.Uint64(data[:8])
+	nsec := binary.NativeEndian.Uint64(data[8:])
+	// Negative signed fields decode above the bounds and are rejected too.
+	if nsec >= nanosPerSecond || sec > (math.MaxInt64-nsec)/nanosPerSecond {
+		return 0
+	}
+	return int64(sec*nanosPerSecond + nsec) // #nosec G115 -- the bound above proves this fits int64.
+}
+
+// parseTTLMessage decodes the native 4-byte int used by IP_TTL and IPV6_HOPLIMIT.
 func parseTTLMessage(data []byte, meta *PacketMeta) {
-	if len(data) >= 1 {
-		meta.TTL = data[0]
+	if len(data) != 4 {
+		return
+	}
+	ttl := binary.NativeEndian.Uint32(data)
+	if ttl <= math.MaxUint8 {
+		meta.TTL = uint8(ttl) // #nosec G115 -- bounded to uint8 above.
 	}
 }
 
@@ -422,7 +472,7 @@ func parseTTLMessage(data []byte, meta *PacketMeta) {
 // an IP_PKTINFO control message (struct in_pktinfo).
 func parsePktInfoMessage(data []byte, meta *PacketMeta) {
 	// struct in_pktinfo is 12 bytes:
-	//   int       ipi_ifindex  (4 bytes, little-endian on x86)
+	//   int       ipi_ifindex  (4 bytes, native endian)
 	//   in_addr   ipi_spec_dst (4 bytes)
 	//   in_addr   ipi_addr     (4 bytes)
 	const pktInfoSize = 12
@@ -430,9 +480,7 @@ func parsePktInfoMessage(data []byte, meta *PacketMeta) {
 		return
 	}
 
-	// ipi_ifindex is a C int (4 bytes, native endian). On Linux x86/x86_64
-	// this is little-endian. Values are always small positive integers.
-	ifIdx := uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24
+	ifIdx := binary.NativeEndian.Uint32(data[:4])
 	meta.IfIndex = int(ifIdx)
 
 	// ipi_addr is the destination address (bytes 8-11, network byte order).
@@ -441,23 +489,12 @@ func parsePktInfoMessage(data []byte, meta *PacketMeta) {
 	meta.DstAddr = netip.AddrFrom4(ip4)
 }
 
-// parseHopLimitMessage extracts the IPv6 Hop Limit from an IPV6_HOPLIMIT
-// control message. The kernel returns hop limit as a 4-byte int in native
-// byte order. The hop limit is stored in PacketMeta.TTL — the field serves
-// as TTL for IPv4 and Hop Limit for IPv6 (semantically equivalent per
-// RFC 5082 GTSM).
-func parseHopLimitMessage(data []byte, meta *PacketMeta) {
-	if len(data) >= 1 {
-		meta.TTL = data[0]
-	}
-}
-
 // parsePktInfo6Message extracts destination address and interface index from
 // an IPV6_PKTINFO control message (struct in6_pktinfo).
 func parsePktInfo6Message(data []byte, meta *PacketMeta) {
 	// struct in6_pktinfo is 20 bytes:
 	//   struct in6_addr ipi6_addr    (16 bytes, network byte order)
-	//   unsigned int    ipi6_ifindex (4 bytes, native endian)
+	//   int             ipi6_ifindex (4 bytes, native endian)
 	const pktInfo6Size = 20
 	if len(data) < pktInfo6Size {
 		return
@@ -468,8 +505,7 @@ func parsePktInfo6Message(data []byte, meta *PacketMeta) {
 	copy(ip6[:], data[0:16])
 	meta.DstAddr = netip.AddrFrom16(ip6)
 
-	// ipi6_ifindex at offset 16 (4 bytes, native endian / little-endian on x86).
-	ifIdx := uint32(data[16]) | uint32(data[17])<<8 | uint32(data[18])<<16 | uint32(data[19])<<24
+	ifIdx := binary.NativeEndian.Uint32(data[16:20])
 	meta.IfIndex = int(ifIdx)
 }
 

@@ -16,6 +16,9 @@ const clabFakeMode = "GOBFD_CLABBOOTSTRAP_FAKE_MODE"
 
 func TestMain(m *testing.M) {
 	if mode := os.Getenv(clabFakeMode); mode != "" {
+		if root, ok := strings.CutPrefix(mode, launcherFakePrefix); ok {
+			os.Exit(runLauncherFakeCommand(root))
+		}
 		os.Exit(runClabFakeCommand(mode))
 	}
 	os.Exit(m.Run())

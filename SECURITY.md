@@ -32,14 +32,15 @@ network. Security-relevant areas include:
 - **BFD packet parsing** (`internal/bfd/packet.go`): Buffer handling,
   length validation, malformed packet handling
 - **Authentication** (`internal/bfd/auth.go`): Sequence number validation,
-  HMAC verification, key management
+  RFC keyed-hash verification, key management
 - **Raw socket operations** (`internal/netio/`): TTL validation (GTSM),
   interface binding, privilege management
 - **gRPC API** (`internal/server/`): Input validation, authorization
 
 ## Security Measures
 
-- The `unsafe` package is never used
+- Handwritten runtime code does not use `unsafe`; generated protobuf bindings
+  retain the standard generator's descriptor implementation and are never hand-edited
 - All packet parsing uses bounds-checked operations via `encoding/binary`
 - Fuzz testing is implemented for the BFD packet parser
 - `gosec` linter runs with `audit: true` in CI
@@ -71,13 +72,14 @@ network. Security-relevant areas include:
 the BGP NEXT_HOP path attribute.
 
 On `dev`, GoBFD uses `github.com/osrg/gobgp/v4 v4.10.0` and imports only
-`github.com/osrg/gobgp/v4/api`. GHSA-4p9m-8gc4-rw2h lists v4.4.0 as patched
-(upstream commit `583080a`). The Go vulnerability database lists no fixed
-GoBGP v4 version but limits the advisory to the symbol
-`fsmHandler.recvMessageloop` in `github.com/osrg/gobgp/v4/pkg/server`, which
-GoBFD does not import. Strict `govulncheck` reports the advisory only at
-module level; module-level `osv-scanner` also reports it. By maintainer
-decisions of 2026-10-13 (`dev`) and 2026-10-21 (stable v1, `gobfd-qj0.8.4.1`),
+`github.com/osrg/gobgp/v4/api`. The acceptance rationale recorded in
+[`scripts/vuln-audit.go`](scripts/vuln-audit.go) cites patched v4.4.0 and
+upstream commit `583080a`, with the Go vulnerability database then lacking a
+fixed v4 version and limiting the advisory to the unimported
+`fsmHandler.recvMessageloop` in `github.com/osrg/gobgp/v4/pkg/server`.
+That is a dated decision, not a statement of current database contents or a
+fresh scanner result. By maintainer decisions of 2026-10-13 (`dev`) and
+2026-10-21 (stable v1, `gobfd-qj0.8.4.1`),
 `scripts/vuln-audit.go` accepts only that module-level finding for the exact
 `github.com/osrg/gobgp/v4` module (`ModuleOnly`); an imported affected package
 or a reachable symbol fails the audit. Stable v1 additionally requires
@@ -87,8 +89,8 @@ expiry (review) date: 2026-12-31. Remove the entry once the Go vulnerability
 database records a fixed GoBGP v4 version; the audit fails on an entry that
 matches no scanner finding.
 
-`release/v0.6` keeps `github.com/osrg/gobgp/v3 v3.37.0`, which has no fixed
-GoBGP v3 version. By maintainer decision of 2026-10-13, the v0.6 line accepts
+`release/v0.6` keeps `github.com/osrg/gobgp/v3 v3.37.0`; the recorded decision
+had no fixed GoBGP v3 version. By maintainer decision of 2026-10-13, the v0.6 line accepts
 this risk until 2026-12-31 as a support boundary, with the mitigation that the
 GoBGP API is exposed only on localhost or a trusted management network.
 Delivery of this decision to the stable branch is tracked by Beads
@@ -102,10 +104,12 @@ untrusted peers.
 
 ### GO-2026-5932 — x/crypto/openpgp denial of service
 
-`golang.org/x/crypto v0.58.0` is reported at module level for
-[GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932). The advisory affects the
-unmaintained `golang.org/x/crypto/openpgp` package, which is absent from the
-runtime and tools build dependency graphs (`go list -deps`).
+The recorded exception for `golang.org/x/crypto v0.58.0` concerns module-level
+[GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932) and the
+`golang.org/x/crypto/openpgp` package. The acceptance requires that package to
+remain absent from the runtime and tools build dependency graphs. Recheck
+both graphs and fresh scanner output on the final candidate; a recorded
+exception does not establish current reachability or database status.
 
 The module-inventory exception expires on 2026-12-31. It accepts only findings
 for the exact `golang.org/x/crypto` module from `govulncheck` or `osv-scanner`.

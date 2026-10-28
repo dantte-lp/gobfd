@@ -14,8 +14,9 @@
 GoBFD has four security surfaces:
 
 - BFD packet processing on UDP ports 3784, 3785, 4784, 6784, 4789, and 6081.
-- The ConnectRPC control API exposed by `grpc.addr`.
-- The optional GoBGP gRPC client integration.
+- The ConnectRPC control API on the default Unix socket and optional `grpc.addr` TCP listener.
+- The optional GoBGP gRPC client integration and explicit certificate-renewal
+  client for an external Smallstep CA.
 - Container, systemd, and Kubernetes privileges needed for raw sockets and
   interface-bound networking.
 
@@ -28,17 +29,18 @@ is possible.
 
 RFC 9468 unsolicited BFD remains disabled by default. When enabled, GoBFD admits
 a session only from the subnet of the receiving local address, within
-`allowed_prefixes`, below `max_sessions` (required, >= 1) and at up to 10 new
-sessions per second, and only from single-hop TTL 255 packets. The admission
-rate is global, so an on-link host that spoofs sources can delay legitimate
-peers; RFC 9468 Section 6.1 allows the feature only where participants are not
-anonymous. Set `unsolicited.auth` (Meticulous Keyed SHA1) where both sides can
+`allowed_prefixes`, below `max_sessions` (required, >= 1), and only from
+single-hop TTL 255 packets. Admission uses a global token bucket replenished
+at 10 sessions per second with a burst of 20, so an on-link host that spoofs
+sources can delay legitimate peers; RFC 9468 Section 6.1 allows the feature
+only where participants are not anonymous. Set `unsolicited.auth` (Meticulous Keyed SHA1) where both sides can
 share a key: the packet that would create a session is then verified first.
 Do not enable unsolicited BFD on an anonymous shared segment.
 
-RFC 9747 unaffiliated Echo inherits RFC 5880/5881 considerations and adds a
-spoofing concern for looped-back Echo packets. Use BFD authentication for Echo
-packets when the deployment can coordinate keys.
+RFC 9747 unaffiliated Echo adds a spoofing concern for returned packets.
+The current Echo preview has no authentication setting and transmits
+unauthenticated packets. Control-session authentication does not protect it.
+Keep it disabled on untrusted segments and isolate any opt-in lab profile.
 
 ## ConnectRPC API
 
@@ -68,18 +70,35 @@ Production rules:
 - Treat `AddSession`, `DeleteSession`, `AddEchoSession`,
   `DeleteEchoSession`, `AddMicroBFDGroup` and `DeleteMicroBFDGroup` as
   write-sensitive network-control operations.
-- Do not enable `grpc.unsafe_loopback_mutations` on shared hosts or with
+- Keep `grpc.unsafe_loopback_mutations` disabled with mTLS, on shared hosts or with
   Kubernetes `hostNetwork`, where loopback is reachable by every host
   process.
 
 API session claims belong to the caller's principal: one principal cannot
 release another's session (`PermissionDenied`, logged), and
-`grpc.mutating_identities` makes unlisted mTLS identities read-only. Echo and
-Micro-BFD API objects are not yet principal-scoped.
+a nonempty `grpc.mutating_identities` makes unlisted recognized mTLS identities read-only.
+CA-verified clients without URI/DNS SANs cannot mutate, including with the
+unsafe opt-in enabled. That opt-in requires a direct plaintext TCP connection
+with both endpoints on loopback; unknown transport proof is refused. Headers
+cannot grant permission, and local proxies remain local processes. See the
+[transport requirements](03-configuration.md#grpc----connectrpc-server).
+Control,
+Micro-BFD and Echo API claims are principal-scoped. Compatible Echo claims share
+one wire with configuration or other principals; release never removes another
+owner's claim. An admitted identical Echo retry is idempotent. List/Watch remain
+daemon-wide read-only observation. See [ADR-0009](adr/0009-echo-principal-claims.md);
+these management rights do not authenticate returned Echo packets.
+
+Transport provenance is independent of the displayed identity. A certificate
+URI such as `uid:0` remains a TLS identity subject to the configured role list.
+Unix UID, TLS URI and TLS DNS owners occupy distinct namespaces; issuing a
+certificate never grants Unix socket privileges.
 
 The flight recorder dump (`grpc.flight_recorder`, off by default) is served only on
-the management server and only to callers with a principal; the metrics listener
-serves no debug endpoint.
+the management server to Unix-socket principals or mTLS identities permitted by
+`grpc.mutating_identities`; anonymous callers are refused even in unsafe mode.
+The metrics listener serves no debug endpoint. Trace files contain sensitive
+runtime details; keep analysis HTTP servers on loopback.
 
 ## GoBGP Integration
 
@@ -87,32 +106,59 @@ GoBFD can connect to GoBGP through `gobgp.addr`. Plaintext mode is acceptable
 only for loopback or trusted management networks. Enable `gobgp.tls.enabled`
 for remote or non-loopback GoBGP endpoints.
 
-The current GoBGP module has allowlisted advisory `GO-2026-4736`. Upstream
-fixed it in v4.4.0 (GHSA-4p9m-8gc4-rw2h) and the pinned v4.10.0 contains the
-fix, but the Go vulnerability database records no fixed v4 version. The
-advisory affects `github.com/osrg/gobgp/v4/pkg/server`; GoBFD imports only the
-`api` package, so govulncheck reports the finding at module level. The
-maintainer decision of 2026-10-21 for stable v1 (`gobfd-qj0.8.4.1`) permits
-this module-only entry while GHSA/OSV list a fixed version at or below the pin
-and the final candidate's govulncheck reports `GO-2026-4736` only at module
-level (no imported package or reachable symbol). The entry is removed when the
-database records a fixed v4 version; the audit fails on an entry that matches
-no scanner finding. Keep the GoBGP API on localhost or a trusted management
-network. The allowlist entry in `scripts/vuln-audit.go` names owner
-`@dantte-lp`, the expiry (review) date 2026-12-31, reason, and mitigation;
-expiry turns the vulnerability gate into a failure.
+[`scripts/vuln-audit.go`](../../scripts/vuln-audit.go) records the
+`GO-2026-4736` exception for the exact `github.com/osrg/gobgp/v4` module,
+with owner `@dantte-lp` and expiry (review) date 2026-12-31. The stable-v1
+decision of 2026-10-21 (`gobfd-qj0.8.4.1`) requires a fixed version at or below
+the pin in GHSA/OSV and a final-candidate govulncheck finding only at module
+level, with no imported affected package or reachable symbol. The repository
+imports the GoBGP `api` package; that source fact alone does not establish
+the result of a fresh scan. Expired, broadened or stale exceptions fail the
+audit. See the [dependency risk register](reference/dependency-risk.md) for
+the recorded rationale, other exceptions and removal triggers. This policy
+is not a statement of current advisory-database contents or final-candidate
+acceptance.
+
+For successfully collected and parsed scanner input, the audit lists all
+unallowed findings even when an exception is expired or stale. Allowlist
+failures retain exit code 2; otherwise unallowed findings return 1. Neither
+failure path emits a success summary. Scanner execution and parsing failures
+remain fail-closed.
 
 CI scans the runtime and isolated tool module manifests separately. Raw
 runtime and tools vulnerability reports and their separate CycloneDX SBOMs are
 retained in the `dependency-security-reports` artifact so tool-only findings
 cannot be attributed to the shipped daemon.
 
+## Management Certificate Renewal
+
+`gobfdctl certificate renew` implements renewal of an existing identity;
+initial enrollment, CA operation and unattended scheduling are outside its
+scope. The command uses an explicit CA HTTPS origin, roots and existing
+certificate/key, validates the returned identity and atomically replaces only
+the certificate. This is a separate outbound mTLS client, not a daemon RPC or
+an API authorization grant. The [actual-provider profile](../../test/stepca/README.md)
+qualifies bounded renewal and negative cases with a disposable CA; it does not
+qualify production CA operation or its complete dependency graph for deployment. See the
+[CLI contract](04-cli.md#certificate-renewal) and
+[`internal/stepca`](../../internal/stepca/client.go).
+
+CA renewal policy and GoBFD access control are separate. Smallstep passive
+revocation prevents renewal; it does not cancel an established GoBFD TLS
+connection. GoBFD performs no CRL or OCSP revocation check, including on a new
+handshake. Certificate renewal or CA revocation alone is therefore not an
+immediate API access-removal mechanism. See
+[ADR-0005](adr/0005-smallstep-management-certificates.md).
+
 ## Secrets
 
 RFC 5880 auth secrets may be supplied through YAML or gRPC `AddSession`.
 Production deployments should mount YAML secrets read-only and avoid committing
-real key material. Rotate keys by deploying a new config and reloading during a
-maintenance window; dynamic key rotation is not implemented yet.
+real key material. Reload rejects authentication changes on a retained session
+identity. Changing deployed keys requires a coordinated maintenance restart
+or explicit claim release/recreation with session interruption. Multiple stored
+keys alone do not provide qualified live rotation; see
+[ADR-0006](adr/0006-session-preserving-reload-policy.md).
 
 ## Container And Kubernetes Boundary
 
@@ -139,3 +185,5 @@ make lint-commit MSG='docs(security): define production hardening policy'
 All commands must run through the project Podman targets. The vulnerability
 audit may report allowlisted findings, but any unallowlisted or expired finding
 is a release blocker.
+
+*Reviewed against `dev` source: 2026-10-25 (`706991db9433b13cec47e0bb8ea2549b01e948d9`).*

@@ -109,11 +109,11 @@ func TestMarshalUnmarshalRoundTrip(t *testing.T) {
 				YourDiscriminator:     200,
 				DesiredMinTxInterval:  1000000,
 				RequiredMinRxInterval: 1000000,
-				Auth: &bfd.AuthSection{
-					Type:     bfd.AuthTypeSimplePassword,
-					Len:      7,
-					KeyID:    1,
-					AuthData: []byte("test"),
+				Auth: bfd.AuthSection{
+					Type:    bfd.AuthTypeSimplePassword,
+					Len:     7,
+					KeyID:   1,
+					DataLen: 4, Data: [20]byte{0x74, 0x65, 0x73, 0x74},
 				},
 			},
 		},
@@ -129,12 +129,12 @@ func TestMarshalUnmarshalRoundTrip(t *testing.T) {
 				YourDiscriminator:     200,
 				DesiredMinTxInterval:  1000000,
 				RequiredMinRxInterval: 1000000,
-				Auth: &bfd.AuthSection{
+				Auth: bfd.AuthSection{
 					Type:           bfd.AuthTypeKeyedMD5,
 					Len:            24,
 					KeyID:          5,
 					SequenceNumber: 42,
-					Digest:         make([]byte, 16),
+					DataLen:        16,
 				},
 			},
 		},
@@ -150,12 +150,12 @@ func TestMarshalUnmarshalRoundTrip(t *testing.T) {
 				YourDiscriminator:     200,
 				DesiredMinTxInterval:  1000000,
 				RequiredMinRxInterval: 1000000,
-				Auth: &bfd.AuthSection{
+				Auth: bfd.AuthSection{
 					Type:           bfd.AuthTypeMeticulousKeyedSHA1,
 					Len:            28,
 					KeyID:          3,
 					SequenceNumber: 0xDEAD,
-					Digest:         make([]byte, 20),
+					DataLen:        20,
 				},
 			},
 		},
@@ -231,9 +231,9 @@ func TestMarshalUnmarshalRoundTrip(t *testing.T) {
 			}
 
 			// Compare auth section if present.
-			if tt.pkt.AuthPresent && tt.pkt.Auth != nil {
-				if got.Auth == nil {
-					t.Fatal("Auth: got nil, want non-nil")
+			if tt.pkt.AuthPresent && !tt.pkt.Auth.IsZero() {
+				if got.Auth.IsZero() {
+					t.Fatal("Auth: got empty section, want populated")
 				}
 				if got.Auth.Type != tt.pkt.Auth.Type {
 					t.Errorf("Auth.Type: got %d, want %d", got.Auth.Type, tt.pkt.Auth.Type)
@@ -245,9 +245,9 @@ func TestMarshalUnmarshalRoundTrip(t *testing.T) {
 					t.Errorf("Auth.KeyID: got %d, want %d", got.Auth.KeyID, tt.pkt.Auth.KeyID)
 				}
 				if tt.pkt.Auth.Type == bfd.AuthTypeSimplePassword {
-					if string(got.Auth.AuthData) != string(tt.pkt.Auth.AuthData) {
-						t.Errorf("Auth.AuthData: got %q, want %q",
-							got.Auth.AuthData, tt.pkt.Auth.AuthData)
+					if string(got.Auth.Data[:got.Auth.DataLen]) != string(tt.pkt.Auth.Data[:tt.pkt.Auth.DataLen]) {
+						t.Errorf("Auth.Data: got %q, want %q",
+							got.Auth.Data, tt.pkt.Auth.Data)
 					}
 				} else {
 					if got.Auth.SequenceNumber != tt.pkt.Auth.SequenceNumber {
@@ -255,13 +255,13 @@ func TestMarshalUnmarshalRoundTrip(t *testing.T) {
 							got.Auth.SequenceNumber, tt.pkt.Auth.SequenceNumber)
 					}
 				}
-			} else if got.Auth != nil {
-				t.Errorf("Auth: got non-nil, want nil")
+			} else if !got.Auth.IsZero() {
+				t.Errorf("Auth: got populated section, want empty")
 			}
 
 			// Verify Length field was set correctly by marshal.
 			expectedLen := uint8(bfd.HeaderSize)
-			if tt.pkt.AuthPresent && tt.pkt.Auth != nil {
+			if tt.pkt.AuthPresent && !tt.pkt.Auth.IsZero() {
 				expectedLen += tt.pkt.Auth.Len
 			}
 			if got.Length != expectedLen {
@@ -782,11 +782,11 @@ func TestAuthSectionMarshal(t *testing.T) {
 				YourDiscriminator:     2,
 				DesiredMinTxInterval:  1000000,
 				RequiredMinRxInterval: 1000000,
-				Auth: &bfd.AuthSection{
-					Type:     bfd.AuthTypeSimplePassword,
-					Len:      7, // 3 + len("test")
-					KeyID:    1,
-					AuthData: []byte("test"),
+				Auth: bfd.AuthSection{
+					Type:    bfd.AuthTypeSimplePassword,
+					Len:     7, // 3 + len("test")
+					KeyID:   1,
+					DataLen: 4, Data: [20]byte{0x74, 0x65, 0x73, 0x74},
 				},
 			},
 			checkBuf: func(t *testing.T, buf []byte, n int) {
@@ -821,12 +821,12 @@ func TestAuthSectionMarshal(t *testing.T) {
 				YourDiscriminator:     2,
 				DesiredMinTxInterval:  1000000,
 				RequiredMinRxInterval: 1000000,
-				Auth: &bfd.AuthSection{
+				Auth: bfd.AuthSection{
 					Type:           bfd.AuthTypeKeyedMD5,
 					Len:            24,
 					KeyID:          5,
 					SequenceNumber: 0x12345678,
-					Digest: []byte{
+					DataLen:        16, Data: [20]byte{
 						0x01,
 						0x02,
 						0x03,
@@ -869,7 +869,7 @@ func TestAuthSectionMarshal(t *testing.T) {
 				if seq != 0x12345678 {
 					t.Errorf("sequence: got 0x%08X, want 0x12345678", seq)
 				}
-				// Digest at offset 32-47.
+				// Data at offset 32-47.
 				for i := range 16 {
 					if buf[32+i] != byte(i+1) {
 						t.Errorf("digest[%d]: got 0x%02X, want 0x%02X", i, buf[32+i], byte(i+1))
@@ -888,12 +888,12 @@ func TestAuthSectionMarshal(t *testing.T) {
 				YourDiscriminator:     2,
 				DesiredMinTxInterval:  1000000,
 				RequiredMinRxInterval: 1000000,
-				Auth: &bfd.AuthSection{
+				Auth: bfd.AuthSection{
 					Type:           bfd.AuthTypeMeticulousKeyedSHA1,
 					Len:            28,
 					KeyID:          3,
 					SequenceNumber: 0xDEADBEEF,
-					Digest:         make([]byte, 20),
+					DataLen:        20,
 				},
 			},
 			checkBuf: func(t *testing.T, buf []byte, n int) {
@@ -918,7 +918,7 @@ func TestAuthSectionMarshal(t *testing.T) {
 				if seq != 0xDEADBEEF {
 					t.Errorf("sequence: got 0x%08X, want 0xDEADBEEF", seq)
 				}
-				// Digest at offset 32-51 (20 bytes, all zero).
+				// Data at offset 32-51 (20 bytes, all zero).
 				for i := range 20 {
 					if buf[32+i] != 0 {
 						t.Errorf("digest[%d]: got 0x%02X, want 0x00", i, buf[32+i])
@@ -937,12 +937,12 @@ func TestAuthSectionMarshal(t *testing.T) {
 				YourDiscriminator:     2,
 				DesiredMinTxInterval:  1000000,
 				RequiredMinRxInterval: 1000000,
-				Auth: &bfd.AuthSection{
+				Auth: bfd.AuthSection{
 					Type:           bfd.AuthTypeKeyedSHA1,
 					Len:            28,
 					KeyID:          7,
 					SequenceNumber: 1,
-					Digest:         make([]byte, 20),
+					DataLen:        20,
 				},
 			},
 			checkBuf: func(t *testing.T, buf []byte, n int) {
@@ -972,12 +972,12 @@ func TestAuthSectionMarshal(t *testing.T) {
 				YourDiscriminator:     2,
 				DesiredMinTxInterval:  1000000,
 				RequiredMinRxInterval: 1000000,
-				Auth: &bfd.AuthSection{
+				Auth: bfd.AuthSection{
 					Type:           bfd.AuthTypeMeticulousKeyedMD5,
 					Len:            24,
 					KeyID:          9,
 					SequenceNumber: 100,
-					Digest:         make([]byte, 16),
+					DataLen:        16,
 				},
 			},
 			checkBuf: func(t *testing.T, buf []byte, n int) {
@@ -1019,7 +1019,7 @@ func TestAuthSectionMarshal(t *testing.T) {
 			if err := bfd.UnmarshalControlPacket(buf[:n], &got); err != nil {
 				t.Fatalf("UnmarshalControlPacket round-trip: %v", err)
 			}
-			if got.Auth == nil {
+			if got.Auth.IsZero() {
 				t.Fatal("round-trip: Auth is nil after unmarshal")
 			}
 			if got.Auth.Type != tt.pkt.Auth.Type {
@@ -1077,12 +1077,12 @@ func TestMarshalAuthBufferTooSmall(t *testing.T) {
 		YourDiscriminator:     2,
 		DesiredMinTxInterval:  1000000,
 		RequiredMinRxInterval: 1000000,
-		Auth: &bfd.AuthSection{
+		Auth: bfd.AuthSection{
 			Type:           bfd.AuthTypeKeyedSHA1,
 			Len:            28,
 			KeyID:          1,
 			SequenceNumber: 1,
-			Digest:         make([]byte, 20),
+			DataLen:        20,
 		},
 	}
 
@@ -1292,7 +1292,7 @@ func FuzzControlPacket(f *testing.F) {
 		}
 
 		// Compare auth section fields if present.
-		if pkt.AuthPresent && pkt2.AuthPresent && pkt.Auth != nil && pkt2.Auth != nil {
+		if pkt.AuthPresent && pkt2.AuthPresent && !pkt.Auth.IsZero() && !pkt2.Auth.IsZero() {
 			if pkt2.Auth.Type != pkt.Auth.Type {
 				t.Errorf("round-trip Auth.Type mismatch: %d vs %d",
 					pkt2.Auth.Type, pkt.Auth.Type)
@@ -1557,11 +1557,11 @@ func TestLengthFieldAutoSet(t *testing.T) {
 				MyDiscriminator:       1,
 				DesiredMinTxInterval:  1000000,
 				RequiredMinRxInterval: 1000000,
-				Auth: &bfd.AuthSection{
-					Type:     bfd.AuthTypeSimplePassword,
-					Len:      7, // 3 + 4
-					KeyID:    1,
-					AuthData: []byte("abcd"),
+				Auth: bfd.AuthSection{
+					Type:    bfd.AuthTypeSimplePassword,
+					Len:     7, // 3 + 4
+					KeyID:   1,
+					DataLen: 4, Data: [20]byte{0x61, 0x62, 0x63, 0x64},
 				},
 			},
 			wantLen: 31, // 24 + 7
@@ -1576,12 +1576,12 @@ func TestLengthFieldAutoSet(t *testing.T) {
 				MyDiscriminator:       1,
 				DesiredMinTxInterval:  1000000,
 				RequiredMinRxInterval: 1000000,
-				Auth: &bfd.AuthSection{
+				Auth: bfd.AuthSection{
 					Type:           bfd.AuthTypeKeyedMD5,
 					Len:            24,
 					KeyID:          1,
 					SequenceNumber: 1,
-					Digest:         make([]byte, 16),
+					DataLen:        16,
 				},
 			},
 			wantLen: 48, // 24 + 24
@@ -1596,12 +1596,12 @@ func TestLengthFieldAutoSet(t *testing.T) {
 				MyDiscriminator:       1,
 				DesiredMinTxInterval:  1000000,
 				RequiredMinRxInterval: 1000000,
-				Auth: &bfd.AuthSection{
+				Auth: bfd.AuthSection{
 					Type:           bfd.AuthTypeKeyedSHA1,
 					Len:            28,
 					KeyID:          1,
 					SequenceNumber: 1,
-					Digest:         make([]byte, 20),
+					DataLen:        20,
 				},
 			},
 			wantLen: 52, // 24 + 28

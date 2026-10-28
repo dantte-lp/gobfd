@@ -9,12 +9,12 @@
 [![RFC 9468](https://img.shields.io/badge/RFC_9468-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9468)
 [![RFC 9747](https://img.shields.io/badge/RFC_9747-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9747)
 [![RFC 7130](https://img.shields.io/badge/RFC_7130-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7130)
-[![RFC 8971](https://img.shields.io/badge/RFC_8971-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
-[![RFC 9521](https://img.shields.io/badge/RFC_9521-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
+[![RFC 8971](https://img.shields.io/badge/RFC_8971-Incomplete_Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
+[![RFC 9521](https://img.shields.io/badge/RFC_9521-Incomplete_Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
 [![RFC 9764](https://img.shields.io/badge/RFC_9764-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9764)
 [![RFC 7880](https://img.shields.io/badge/RFC_7880-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7880)
 [![RFC 7881](https://img.shields.io/badge/RFC_7881-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7881)
-[![RFC 5884](https://img.shields.io/badge/RFC_5884-Stub-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5884)
+[![RFC 5884](https://img.shields.io/badge/RFC_5884-Not_implemented-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5884)
 
 > RFC compliance matrix, per-section implementation notes, design rationale, and links to RFC source texts.
 
@@ -36,7 +36,7 @@
 - [RFC 9521 Implementation Notes](#rfc-9521-implementation-notes)
 - [RFC 9764 Implementation Notes](#rfc-9764-implementation-notes)
 - [RFC 7880/7881 (Planned)](#rfc-78807881-planned)
-- [Stub Interfaces](#stub-interfaces)
+- [Unimplemented MPLS and VCCV](#unimplemented-mpls-and-vccv)
 - [Reference RFCs](#reference-rfcs)
 - [RFC Source Files](#rfc-source-files)
 
@@ -44,7 +44,7 @@
 
 | RFC | Title | Status | Notes |
 |---|---|---|---|
-| [RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) | BFD Base Protocol | **Asynchronous core; partial** | Incoming Poll reply exists; local/crossed Poll and Demand procedures are incomplete |
+| [RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) | BFD Base Protocol | **Asynchronous core; partial** | Local timer Poll/Final and remote Demand handling implemented; scoped wire receipts retained; final unified qualification open; local Demand and affiliated Echo deferred |
 | [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD for IPv4/IPv6 Single-Hop | **Partial; numbered-multiaccess profile** | UDP 3784, TTL=255, per-session transport-class and receive-interface checks, single-hop TX device binding; point-to-point initial demux remains deferred |
 | [RFC 5882](https://datatracker.ietf.org/doc/html/rfc5882) | Generic Application of BFD | **Application integration partial** | State delivery and actuator convergence remain incomplete; penalty dampening is implementation policy |
 | [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD for Multihop Paths | **Constrained GTSM profile** | UDP 4784; per-session hop policy `multihop_max_hops` (default 1: TTL>=254) is GoBFD policy, not an RFC 5883 rule; real 2/5-hop path qualification is pending |
@@ -53,13 +53,21 @@
 | [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Unsafe preview** | Connected-subnet, session-limit and rate admission enforced; replies from the receiving local tuple; optional Meticulous Keyed SHA1 admission |
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Preview** | Echo session and port 3785 wiring exist; full RFC qualification is pending |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Preview; owner integration partial** | Protocol and selected actuators exist; production ownership remains constrained |
-| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Unsafe preview** | Exact supported-profile identity is bound; owner-specific dataplane integration remains incomplete |
-| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD for Geneve Tunnels | **Unsafe preview** | Explicit IPv4 Format A VAP identity is bound; unsupported formats and missing identity fail closed |
+| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Incomplete preview** | Exact supported-profile identity is bound; owner-specific dataplane integration remains incomplete |
+| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD for Geneve Tunnels | **Incomplete preview** | Explicit IPv4 Format A VAP identity is bound; unsupported formats and missing identity fail closed |
 | [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Partial** | PDU-length authentication covered locally; padded TX qualified with FRR/BIRD |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Planned** | Stateless reflector + initiator for infrastructure liveness |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD for IPv4/IPv6 | **Planned** | Port 7784 encapsulations for S-BFD |
-| [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD for MPLS LSPs | **Stub** | Interfaces defined, pending LSP Ping (RFC 4379) |
-| [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD for PW VCCV | **Stub** | Interfaces defined, pending VCCV/LDP |
+| [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD for MPLS LSPs | **Not implemented** | No MPLS session implementation or stub API |
+| [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD for PW VCCV | **Not implemented** | No VCCV session implementation or stub API |
+
+`gobfdctl capabilities` and `CapabilityService.ListCapabilities` report the five
+preview profiles separately from this normative matrix. Maturity, validated
+enablement and local receive-path readiness are distinct. `ready` requires an
+owned profile receive path plus source/runtime/binding readiness; it proves
+neither peer health, external forwarding ownership nor RFC qualification.
+Missing runtime observations remain `unknown`. Unsafe/incomplete profiles above
+remain unsafe/incomplete even when enabled and locally ready.
 
 > Traditional Echo Mode (RFC 5880 Section 6.4, affiliated with a control
 > session) is not implemented. Remote Demand suppresses periodic TX when both
@@ -77,11 +85,24 @@ AdminDown before local PathDown, preserving diagnostic 7. RFC 5880 Section
 6.8.16 also permits AdminDown with PathDown; diagnostic 7 is this daemon's
 policy, not a universal RFC requirement.
 
+Under the selected [Held Erratum 5205](https://www.rfc-editor.org/errata/rfc5880)
+policy, an initially Down session can publish diagnostic 1 after a silent
+Detection Time even if it never received a packet. This changes the causal
+diagnostic, not the state-transition count. The erratum remains Held for
+Document Update; adopting it is an explicit project choice, not a claim that
+the original RFC text requires this behavior. See `gobfd-9ro`.
+
 #### Section 4.1: BFD Control Packet Format
 
 **Implementation**: [`internal/bfd/packet.go`](../../internal/bfd/packet.go)
 
-The 24-byte mandatory header is encoded/decoded using `encoding/binary.BigEndian` directly on a caller-owned byte buffer. No reflection, no `unsafe`, no gopacket. Zero-allocation codec using `sync.Pool` for buffers.
+The mandatory 24-byte header uses `encoding/binary.BigEndian` on caller-owned
+storage. Valid parse paths and selected marshal paths allocate zero.
+Authentication metadata and the bounded payload are held by value; logical
+payload length is checked independently of wire length. Hash verification
+leaves received wire unchanged and receivers retain the complete authenticated
+datagram. The internal ownership is recorded in [ADR-0011](adr/0011-bfd-auth-inline-payload.md).
+See [codec lifetime](02-protocol.md) before reusing a receive buffer.
 
 See [02-protocol.md](./02-protocol.md) for the complete packet format table.
 
@@ -89,7 +110,9 @@ See [02-protocol.md](./02-protocol.md) for the complete packet format table.
 
 **Implementation**: [`internal/bfd/session.go`](../../internal/bfd/session.go)
 
-All mandatory state variables are implemented. Thread safety via `atomic.Uint32` for state fields that are read by the gRPC server goroutine.
+Local state and diagnostic use one packed atomic pair. `Observation` returns
+coherent committed local/remote facts under `Session.mu`; remote getters do
+not read independent atomics. Local Demand remains unimplemented.
 
 See [02-protocol.md](./02-protocol.md#state-variables) for the full variable mapping table.
 
@@ -97,15 +120,17 @@ See [02-protocol.md](./02-protocol.md#state-variables) for the full variable map
 
 **Implementation**: [`internal/bfd/fsm.go`](../../internal/bfd/fsm.go)
 
-Table-driven FSM with `map[stateEvent]transition`. Pure function -- no side effects. All 16 transitions from Section 6.8.6 are implemented.
+Pure indexed FSM lookup uses an array built from the declarative
+`map[stateEvent]transition` at initialization. Session executes the actions.
+The Down timeout diagnostic follows the explicit Held-erratum policy above.
 
 #### Section 6.3: Demultiplexing
 
-**Implementation**: [`internal/bfd/manager.go`](../../internal/bfd/manager.go)
+**Implementation**: [`internal/bfd/manager_session.go`](../../internal/bfd/manager_session.go)
 
 Two-tier demultiplexing:
 - Tier 1: O(1) lookup by Your Discriminator (fast path)
-- Tier 2: Composite key (SrcIP, DstIP, Interface) for session establishment
+- Tier 2: Composite key (SrcIP, DstIP, Interface, transport scope) for session establishment or re-establishment
 
 #### Section 6.5: Poll Sequences
 
@@ -128,8 +153,9 @@ effective tuple equals the confirmed one. If that Poll gets no Final before the
 deadline, the receipt fails, the tuple stays effective and later generations
 queue behind the Poll. Entering Up through a Final keeps the one-second TX
 floor until a recovery Poll carries a faster Desired Min TX. Full Section 6.5
-qualification remains pending, including live FRR/BIRD reload evidence and the
-deployed RTT envelope.
+qualification remains pending. Scoped FRR/BIRD reload receipts are recorded
+in [Interop](05-interop.md); final unified candidate and deployment RTT
+qualification remain separate.
 
 Peer receive-interval changes reschedule TX from the last successful send;
 unchanged incoming packets do not postpone it. A zero peer receive interval
@@ -181,8 +207,17 @@ Down 900.4 ms after the last peer frame (DT 900 ms) and the first Down packet
 after 900.5 ms, followed by 6 slow-rate intervals; a 7.24 s Demand window with
 one GoBFD Poll at 500 ms; periodic TX 425 ms after the Demand clear with 17
 intervals, mean 434.1 ms. Before `b72b3c7` the first Down packet waited for
-the next slow-rate interval (1.862 s after silence on 2026-10-21). FRR/BIRD
-interop for nonzero remote TX/RX changes remains open.
+the next slow-rate interval (1.862 s after silence on 2026-10-21).
+
+The same topology proves crossed and queued Poll sequences (Sections 6.5 and
+6.8.3): with the peer Final lost, GoBFD repeats P=1 with the active 400 ms tuple,
+answers the peer crossing Poll with a Final-only packet carrying that tuple,
+resumes its own Poll, and advertises a queued 800 ms tuple only in a separate
+Poll after the peer Final and at least the measured exchange time. No captured
+frame sets both P and F. Run on 2026-10-22 at `1e19026`: 8 Polls before the
+Final, 5 of them after the crossing Final, exchange 2.620 s, separation
+2.720 s, and the 800 ms receipt published after its own Final. FRR/BIRD interop
+for nonzero remote TX/RX changes remains open.
 
 The session receive path rejects the reserved zero Desired Min TX before
 updating peer state or timers, including packets supplied through `RecvPacket`.
@@ -203,9 +238,21 @@ All five RFC-defined auth types implemented:
 | Meticulous Keyed SHA1 (5) | Complete | `MeticulousKeyedSHA1Auth` |
 
 Key features:
-- Meticulous variants increment sequence on every packet; non-meticulous on state change only
-- Sequence window: `3 * DetectMult` for non-meticulous
-- `AuthKeyStore` supports multiple keys for hitless rotation
+- All keyed variants increment TX sequence on each signing call
+- Inclusive receive windows use received Detect Multiplier: `[last, last + 3 * DetectMult]` for non-meticulous, `[last + 1, last + 3 * DetectMult]` for meticulous
+- `AuthKeyStore` represents multiple keys; this does not qualify live rotation
+
+RFC 5880 §6.7 leaves authentication coordination outside BFD. Same-identity
+base reload rejects unqualified enable/disable, algorithm, key IDs/material,
+selected TX key and receive-key-set changes before generation acceptance.
+Immutable fingerprints are checked against both retained accepted desired
+state, including absent runtime entries, and live sessions regardless of
+API/shared ownership. Startup/new/removed identities and semantically identical
+fresh stores remain admissible. A later API claim still encounters normal
+fail-closed reconciliation; the boundary does not make whole-source apply atomic.
+[ADR-0006](adr/0006-session-preserving-reload-policy.md) defines the policy;
+`gobfd-qj0.8.2.2.7.3` tracks admission qualification. Coordinated rotation remains
+after-v1 P2 `gobfd-khr`, not a qualified wire capability or seamless rollback.
 
 RFC 5880 Section 6.8.1 receive-sequence expiry uses the owner loop's monotonic
 last-valid-receive timestamp. At `2 × DetectionTime` without a valid packet,
@@ -234,24 +281,46 @@ anchored to the last valid receive.
 
 #### Section 6.8.6: Reception of BFD Control Packets
 
-Validation split across two layers:
+Receive processing spans three layers. The numbered groups in code comments
+are implementation shorthand; the RFC also requires session selection between
+header and authentication validation.
 
-| Layer | Steps | File |
+| Layer | Responsibility | File |
 |---|---|---|
-| Codec | 1-7 (stateless) | `packet.go` |
-| Session | 8-18 (stateful) | `session.go` |
-
-Steps 1-7 (codec): version, length, detect mult, multipoint, discriminators.
-Steps 8-18 (session): auth consistency, auth verification, state variable update, FSM event, timer reset.
+| Codec | Header and authentication-section shape, discriminator validity | [`packet.go`](../../internal/bfd/packet.go) |
+| Manager | Session selection, transport scope, interface and TTL admission | [`manager_session.go`](../../internal/bfd/manager_session.go) |
+| Session | Zero Desired Min TX, auth consistency/verification, variables, FSM and timers | [`session_packet.go`](../../internal/bfd/session_packet.go) |
 
 #### Section 6.8.7: Jitter
 
-**Implementation**: `bfd.ApplyJitter`
+**Implementation**: [`applyJitterWithRand` and `Session.applyJitter`](../../internal/bfd/session_packet.go); `ApplyJitter` is also used by the Echo preview.
 
 - Normal (DetectMult > 1): 75-100% of interval
 - DetectMult == 1: 75-90% of interval
-- Uses a crypto-seeded session-local PRNG; jitter is not a security boundary,
-  but the seed is non-predictable and avoids global RNG contention on the hot path
+- Session-local PRNG prefers cryptographic seed and falls back to time-based
+  seed on read failure; jitter is not a security boundary
+
+#### Section 6.8.12: Detect Multiplier Reload
+
+Solely config-owned base sessions with stable wire identity accept
+`detect_mult` through the existing TX/RX timer tuple and generation/revision
+receipts (`gobfd-qj0.8.2.2.7.1`). A detect-only Async update applies locally
+without Poll and is advertised in the next Control packet. Remote Demand
+with both ends Up requires Poll/Final under Section 6.6; its receipt remains
+pending until the relevant Final. Combined TX/RX changes retain Section 6.8.3
+direction rules, one active advertised tuple and the latest queued proposal.
+Changing to or from DetectMult 1 reschedules TX for Section 6.8.7 jitter.
+
+`internal/bfd/session_detect_update_test.go` contains regression cases for
+serialized Control fields, Async versus remote-Demand confirmation, repeated
+intent, shared-owner/unsupported rejection, the DetectMult 1 deadline,
+failure/retirement and concurrent getters/snapshots. Final validation results
+belong to the frozen-source evidence; this section asserts no final PASS.
+Bounded Detect Multiplier wire slices are recorded in [Interop](05-interop.md);
+final unified candidate qualification remains open. Shared-owner/API,
+Micro-BFD, overlay and authentication changes remain outside this slice;
+bounded minimum-TTL/padding reload is documented below. [ADR-0006](adr/0006-session-preserving-reload-policy.md)
+accepts the policy without graduating overall Poll/Demand or RFC compliance.
 
 #### Section 6.8.16: Administrative Control
 
@@ -271,7 +340,15 @@ Final Control-session claim release uses this drain before cancel/join and
 lease release, including reconciliation rollback.
 The private ten-second cap honors earlier caller cancellation; incomplete drain
 and release errors are preserved. Non-final claims do not change wire state.
-Reconciliation shares one concurrent drain budget. RFC 9468 Section 2 failure
+Reconciliation shares one concurrent drain budget.
+Rekey keeps the captured old sender lease and discriminator until its actual
+AdminDown/drain completes or reports typed incomplete failure, outside Manager
+and lifecycle mutation locks, then cleans up once. Prepared replacement
+cancellation before publication keeps the old identity; after peer-visible
+cutover this is no hitless rollback. Client effects remain governed by
+[RFC 5880 §6.8.16](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.16)
+and [RFC 5882 §3.2](https://www.rfc-editor.org/rfc/rfc5882.html#section-3.2).
+RFC 9468 Section 2 failure
 cleanup of unsolicited Down sessions cancels without this administrative
 exchange, because the passive side must stop Control transmission.
 Standalone Echo and
@@ -296,7 +373,7 @@ retained without OOM. Evidence: `reports/h12-wire-20261016/`; PCAP SHA256
 | Section | Feature | Rationale |
 |---|---|---|
 | 6.4 | Affiliated Echo Mode | Requires control session; RFC 9747 unaffiliated echo is provided instead, as a preview |
-| 6.5 | Complete Poll Sequence procedures | Config-owned timer transactions, confirmed Poll transmission, Final retry and P/F exclusion exist; live reload/RTT qualification remains pending |
+| 6.5 | Complete Poll Sequence procedures | Config-owned timer transactions, confirmed Poll transmission, Final retry, P/F exclusion, crossed Poll and queued-tuple separation exist; live FRR/BIRD reload and crafted-peer crossed/queued Poll wire evidence pass. Qualification of the deployed RTT envelope remains pending |
 | 6.6 | Full Demand Mode | Remote periodic-TX suppression, a local timer Poll under remote Demand and the Section 6.8.18 reset are proven on the wire with the crafted Go peer (`TestCraftedPeerTestcontainers`); pinned FRR/BIRD cannot send Demand. Local Demand and complete Poll procedures remain open |
 | 4.1 | Multipoint bit | Reserved for future P2MP extensions |
 
@@ -307,7 +384,7 @@ retained without OOM. Evidence: `reports/h12-wire-20261016/`; PCAP SHA256
 | Requirement | Implementation |
 |---|---|
 | Destination port 3784 | `netio.PortSingleHop = 3784` |
-| Source port 49152-65535 | `SourcePortAllocator` |
+| Source port 49152-65535 | `SourcePortAllocator`; `NewUDPSender` rejects out-of-range values, including zero, before options or socket creation |
 | TTL=255 outgoing | `IP_TTL` / `IPV6_UNICAST_HOPS` set with `unix.SetsockoptInt` |
 | TTL=255 incoming check | `IP_RECVTTL` / `IPV6_RECVHOPLIMIT` + listener pre-filter; the demultiplexed session also requires a single-hop transport class (Section 5) |
 | Transport class | A packet from the 4784 multihop listener never reaches a single-hop session, by Your Discriminator or by peer key (`scope_mismatch`) |
@@ -316,6 +393,19 @@ retained without OOM. Evidence: `reports/h12-wire-20261016/`; PCAP SHA256
 | IPv6 link-local demux | Zones are not part of the demux key; without `interface`, the link-local zone selects the session interface, listener device and sender device; a zone that contradicts `interface` is rejected (`ErrInvalidSessionZone`) |
 | TTL in the session (Section 5) | The demultiplexed single-hop session also requires TTL/Hop Limit 255 (`demux`/`ttl_rejected`) |
 | Separate IPv4/IPv6 listeners | Separate `udp4` / `udp6` sockets |
+
+The shared UDP sender retains the same source-port range for Echo as a product
+policy; RFC 5881 Section 4 leaves the Echo source port unspecified. Destination
+overrides do not relax this constructor contract. Production factories already
+allocate in range, so session source-port selection is unchanged.
+
+Linux TTL/Hop Limit ancillary values are decoded as four-byte native-endian
+integers and accepted only in 0-255. Packet-info interface indices use native
+byte order; destination addresses retain network byte order. The intended
+platforms remain `linux/amd64` and `linux/arm64`. Native kernel qualification
+for both platforms is tracked in `gobfd-qj0.8.2.1.16.2`; cross-compilation alone
+does not close that gate. Source corrections are tracked in
+`gobfd-qj0.8.2.1.16.1`.
 
 The implemented boundary is the numbered-multiaccess single-hop profile: each
 session is bound to one receive interface, explicit or derived from its local
@@ -357,6 +447,12 @@ production-qualified.
 | Echo (Section 3: MUST NOT be used over multiple hops) | Multihop Control packets advertise Required Min Echo RX Interval 0; RFC 9747 Echo has no multihop type |
 | Demux (Section 4.1) | Your Discriminator, or (source, destination) when it is zero; `Manager.DemuxWithWire` |
 
+For a stable sole-config multihop session with unchanged authentication,
+`multihop_max_hops` reload updates the local `255 - N` floor under `Session.mu`
+at the receive gate. A TTL-only change needs no Poll even under remote Demand.
+The tuple/receipt tracks MinTTL alongside TX/RX, DetectMult and PaddedPduSize;
+this local policy does not add a normative RFC 5883 TTL rule.
+
 **Authentication guidance (Sections 3 and 6).** TTL/Hop Limit 255 on receive
 cannot protect a multihop path; RFC 5883 Section 3 assigns spoofing protection
 to BFD authentication, and Section 6 says implementations SHOULD use
@@ -372,14 +468,17 @@ sufficient TTL and matching discriminators.
 
 RFC 7419 defines a set of common BFD timer interval values to ensure interoperability between software-based and hardware-based implementations.
 
-| Common Interval | Use Case |
+| Common Interval | Wire value (microseconds) |
 |---|---|
-| 3.3 ms | MPLS-TP (GR-253-CORE) |
-| 10 ms | General consensus minimum |
-| 20 ms | Software-based minimum |
-| 50 ms | Widely deployed |
-| 100 ms | G.8013/Y.1731 reuse |
-| 1 s | RFC 5880 slow rate |
+| 3.3 ms | 3300 |
+| 10 ms | 10000 |
+| 20 ms | 20000 |
+| 50 ms | 50000 |
+| 100 ms | 100000 |
+| 1 s | 1000000 |
+
+These are the common values from [RFC 7419 Section 3](../rfc/rfc7419.txt),
+not universal minimum timers for a deployment class.
 
 Additionally, 10s is recommended for graceful restart (multiplier 255 = 42.5 min timeout).
 
@@ -392,7 +491,10 @@ Additionally, 10s is recommended for graceful restart (multiplier 255 = 42.5 min
 | Config option | `bfd.align_intervals: true` in YAML config |
 | Graceful restart interval | `GracefulRestartInterval = 10s` |
 
-When `bfd.align_intervals` is enabled, `DesiredMinTxInterval` and `RequiredMinRxInterval` are aligned to the nearest common interval (rounded up) during session creation. This prevents negotiation mismatches with hardware BFD implementations from Arista, Nokia, Juniper, and Cisco.
+When `bfd.align_intervals` is enabled, session creation rounds intervals up
+within the common set; values above its 1 s maximum remain unchanged.
+Alignment alone establishes neither hardware/cloud interoperability nor timer
+accuracy. Verify the selected peer procedure and intervals on the target path.
 
 ### RFC 9384 Implementation Notes
 
@@ -463,15 +565,34 @@ only request cleanup and do not publish a fabricated state transition.
 
 ### RFC 9747 Implementation Notes
 
-**Status**: Preview
+**Status**: Preview; default-off
+
+`echo.enabled: true` is required for declarative peers and API creation.
+Each Add, including an idempotent retry, also requires local receive-path
+readiness; otherwise it returns `FailedPrecondition`. List/Delete retain their
+management authorization rules. A valid SIGHUP candidate updates the enablement
+opt-in; a rejected candidate preserves it. See
+[`EchoServer.AddEchoSession`](../../internal/server/echo.go) and
+[`TestEchoPreviewReloadUpdatesAdmission`](../../cmd/gobfd/echo_admission_test.go).
 
 **Implementation**: [`internal/bfd/echo.go`](../../internal/bfd/echo.go), [`internal/netio/echo_receiver.go`](../../internal/netio/echo_receiver.go)
 
-RFC 9747 defines the unaffiliated BFD echo function for forwarding-path liveness detection without requiring the remote system to run BFD. The local system sends BFD Control packets (echo packets) to the remote, which forwards them back via normal IP routing.
+RFC 9747 defines unaffiliated BFD Echo for single-hop forwarding-path liveness
+without a BFD implementation on the adjacent device. Packets use a local IP
+destination and traverse that device's forwarding path back to the originator
+([Section 1](../rfc/rfc9747.txt)). The current preview's peer-address send path
+does not establish that forwarding behavior; interhost qualification remains open.
 
-| Requirement | Implementation |
+The table describes the current preview, not a list of satisfied RFC
+requirements. [RFC 9747 Section 2](../rfc/rfc9747.txt) requires the RFC 5880
+state machine without AdminDown, initial address/source-port demultiplexing
+when Your Discriminator is zero, and subsequent Your Discriminator-based
+demultiplexing. Section 5 recommends packet authentication. The current
+two-state loop and My Discriminator-only receive path are implementation gaps.
+
+| Surface | Current implementation |
 |---|---|
-| UDP port 3785 | `netio.PortEcho = 3785`, listener in `createListeners()` |
+| UDP port 3785 | `netio.PortEcho = 3785`; `echoListenerConfigs()` and API listener claims in `cmd/gobfd/listeners.go` |
 | Standard BFD Control packet format | Reuses `MarshalControlPacket` codec |
 | DiagEchoFailed on timeout | `DiagEchoFailed` (value 2) |
 | Locally provisioned timers | `EchoSessionConfig.TxInterval`, no negotiation |
@@ -481,17 +602,33 @@ RFC 9747 defines the unaffiliated BFD echo function for forwarding-path liveness
 | Session type | `SessionTypeEcho` constant |
 | TTL 255 send, exact TTL 254 receive | `netio.ValidateExpectedTTL` on the Echo listener |
 | Declarative echo peers | `echo.peers[]` in config, reconciled on SIGHUP |
-| Sender with port 3785 destination | `WithDstPort(PortEcho)` functional option |
+| Sender with port 3785 destination | Declarative and API-created Echo use `WithDstPort(PortEcho)`; base and multihop API sessions retain destinations 3784 and 4784 |
+| TX interface | `singleHopSenderBinding` applies the optional `SO_BINDTODEVICE` and scopes an unzoned IPv6 link-local source for declarative and API senders; source-port lease and write-buffer policy remain shared |
 
-Key differences from BFD control sessions:
+Management ownership is separate from RFC packet validation. Compatible config
+and API principal claims share one Echo wire; retry and final-claim cleanup
+follow [ADR-0009](adr/0009-echo-principal-claims.md). These rights do not
+authenticate returned packets or close the preview qualification gates.
+
+Current preview behavior and gaps:
 - No three-way handshake (no Init state)
 - No timer negotiation with remote (locally provisioned)
-- No authentication (echo packets are self-originated)
+- No returned-packet authentication; self-originated packets remain spoofable
 - Separate `EchoSession` type with simplified FSM
+
+Beads `gobfd-qj0.8.2.1.20` owns the FSM gap,
+`gobfd-qj0.8.2.1.13` owns returned-packet identity/authentication, and
+`gobfd-qj0.8.2.1.12` owns slow pacing before Up and after Down. Management
+transport or ownership checks do not close these protocol tasks.
 
 ### RFC 7130 Implementation Notes
 
-**Status**: Preview; protocol implemented, production integration partial
+**Status**: Preview; default-off, member L2 qualification incomplete
+
+`micro_bfd.enabled: true` is required for configured groups, actuation and
+API group creation. The default rejects creation with `FailedPrecondition`;
+List/Delete remain available. Enable changes require restart. This boundary
+does not close the dedicated multicast MAC or enslaved-member wire gates.
 
 **Implementation**: [`internal/bfd/micro.go`](../../internal/bfd/micro.go)
 
@@ -499,13 +636,13 @@ RFC 7130 defines Micro-BFD — independent BFD sessions on every LAG member link
 
 | Requirement | Implementation |
 |---|---|
-| UDP port 6784 | `netio.PortMicroBFD = 6784`, per-member listeners in `createMicroBFDListeners()` |
+| UDP port 6784 | `netio.PortMicroBFD = 6784`; per-member `microListenerConfigs()` in `cmd/gobfd/micro_bfd.go` |
 | One BFD session per member link (Sections 2, 2.2) | `microBFDMemberSessionConfig()` derives one `SessionTypeMicroBFD` session per member link from its group; one group owns each member link (`ErrMicroBFDMemberOwned`) |
 | Member session contract (Section 2.2) | `ValidateMicroBFDConfig()` applies RFC 5880 session validation (peer address, interval wire bounds, detect multiplier) to every member session on the daemon and direct Manager/API paths; groups store and report the shared timers |
 | `SO_BINDTODEVICE` per member | `WithBindDevice()` functional option on sender |
 | Aggregate state tracking | `upCount >= minActive` threshold |
 | Member Down handling | `UpdateMemberState()` records member state and triggers aggregate threshold changes |
-| Dedicated multicast MAC | `01-00-5E-90-00-01` for initial packets |
+| Dedicated multicast MAC (Section 2.3) | `01-00-5E-90-00-01` is not sent: the UDP sender resolves the peer MAC. The separate wire gate is red; see `gobfd-rle` and `gobfd-j8r`. |
 | Asynchronous mode only | Standard RFC 5880 procedures per member |
 | Session type | `SessionTypeMicroBFD` constant |
 | Per-group configuration | `MicroBFDGroupConfig` with LAG interface + member links |
@@ -521,7 +658,7 @@ RFC 7130 defines Micro-BFD — independent BFD sessions on every LAG member link
 | NetworkManager backend | `NetworkManagerLAGBackend` deactivates and activates NM-owned bond port profiles through D-Bus |
 
 Aggregate state logic:
-- Group starts with all members Down, aggregate Down
+- New member sessions start Down; an existing shared session can seed its current state
 - When `upCount >= MinActiveLinks`, aggregate transitions to Up
 - When `upCount < MinActiveLinks`, aggregate transitions to Down
 - State changes are reported only on aggregate transitions (threshold crossing)
@@ -545,7 +682,7 @@ explicit.
 
 ### RFC 8971 Implementation Notes
 
-**Status**: Unsafe/incomplete preview; owner-specific backends planned
+**Status**: Incomplete preview; owner-specific backends planned
 
 **Implementation**: [`internal/netio/vxlan.go`](../../internal/netio/vxlan.go), [`internal/netio/vxlan_conn.go`](../../internal/netio/vxlan_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
@@ -554,14 +691,14 @@ RFC 8971 defines BFD encapsulated in VXLAN for forwarding-path liveness detectio
 | Requirement | Implementation |
 |---|---|
 | Outer UDP port 4789 | `netio.VXLANPort = 4789`, `VXLANConn` through explicit `userspace-udp` backend |
-| Inner UDP port 3784 | `BuildInnerPacket()` with dst port 3784 |
+| Inner UDP port 3784 | `BuildInnerPacketInto()` with dst port 3784 |
 | VXLAN header codec | `MarshalVXLANHeader` / `UnmarshalVXLANHeader` |
 | Management VNI | `VXLANConfig.ManagementVNI`, VNI mismatch rejection |
 | VNI validation (24-bit) | `ErrInvalidVXLANVNI` config validation |
 | I flag validation | `ErrVXLANInvalidFlags` sentinel |
 | Inner destination MAC | `VXLANBFDInnerMAC = 00:52:02:00:00:00` (IANA) |
 | Inner source MAC | Per-peer remote/local originating VTEP MACs are required and matched exactly |
-| Inner TTL=255 | `BuildInnerPacket()` sets TTL=255 (RFC 5881 GTSM) |
+| Inner TTL=255 | `BuildInnerPacketInto()` sets TTL=255 (RFC 5881 GTSM) |
 | Inner IPv4 checksum | `ipv4HeaderChecksum()` per RFC 1071 |
 | Session type | `SessionTypeVXLAN` constant |
 | OverlaySender adapter | `OverlaySender` implements `bfd.PacketSender` |
@@ -571,11 +708,12 @@ RFC 8971 defines BFD encapsulated in VXLAN for forwarding-path liveness detectio
 | Declarative peers | `vxlan.peers[]` in config, reconciled on SIGHUP |
 | Config validation | VNI range, concrete IPv4 endpoints, remote/local unicast source MACs, detect_mult, and duplicate wire identity detection |
 
-Packet encapsulation stack:
-```
-Outer IP → Outer UDP (4789) → VXLAN Header (8B) →
-Inner Ethernet (14B) → Inner IPv4 (20B) → Inner UDP (8B, dst 3784) → BFD Control
-```
+Packet encapsulation, outer to inner:
+
+| Layer | Supported profile |
+|---|---|
+| Outer | IP, UDP destination 4789, VXLAN fixed header 8 B |
+| Inner | Ethernet 14 B, IPv4 20 B, UDP destination 3784, BFD Control |
 
 The VXLAN header codec handles the 8-byte fixed format with I flag (VNI valid) and 24-bit VNI encoding. Management VNI packets are processed locally and not forwarded to tenant networks.
 
@@ -587,8 +725,8 @@ same local address/namespace, GoBFD fails closed for reserved backend names
 until an owner-specific integration exists. Sender reconciliation reuses the
 runtime backend already serving the receiver and does not bind a second socket.
 Listeners are grouped by local VTEP and each session sender retains its exact
-tunnel scope. The userspace backend remains unsafe where another dataplane owns
-the same UDP socket.
+tunnel scope. A deployment that shares the UDP endpoint with another dataplane is outside
+this backend's qualified ownership profile.
 
 VXLAN and Geneve listeners each own one allocated inner source-port lease;
 closing the listener returns it exactly once. Session senders borrow the shared
@@ -598,13 +736,29 @@ listener or leave a deadline on subsequent operations. `Close` unblocks pending
 socket I/O. Receive payloads borrow the listener buffer until the next receive,
 so each listener has one receiver loop.
 
+Reload preflight checks one complete overlay source before the first backend
+open or `SetScopes`. Unequal scopes sharing a live/draining wire identity,
+including VXLAN local-MAC changes, require separate explicit removal/recreation.
+An unused never-committed preparation may be superseded; duplicate desired wire
+identities still fail preflight. Successful preflight removes obsolete unused
+preparations before further claims. Incomplete
+acquisition returns Pending/Failed before Manager apply/release for that source,
+preserving live/draining exact scopes/backends. Pruning keeps existing scopes
+in current desired union positive physical-session lease refs. Registered
+sessions retain refs through drain until idempotent lease close; unused or
+unpublished leases use ordinary once-only cleanup without drain. Current desired
+preparations may remain for retry. This does not add global pre-generation admission or all-source
+atomicity. Mandatory P0 wire gate `gobfd-qj0.8.2.2.7.5` depends on
+`gobfd-qj0.8.2.2.7.4` and must cover all five reload fields before v1 using the
+existing harness. Source unit tests are not interoperability qualification.
+
 The [overlay wire qualification](./09-development.md#overlay-wire-qualification)
 checks this userspace IPv4 profile with real UDP and capture-correlatable
 results. It does not qualify owner-specific backends or vendor forwarding paths.
 
 ### RFC 9521 Implementation Notes
 
-**Status**: Unsafe preview; explicit Format A VAP identity required
+**Status**: Incomplete preview; explicit Format A VAP identity required
 
 **Implementation**: [`internal/netio/geneve.go`](../../internal/netio/geneve.go), [`internal/netio/geneve_conn.go`](../../internal/netio/geneve_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
@@ -621,7 +775,7 @@ RFC 9521 defines BFD encapsulated in Geneve for forwarding-path liveness detecti
 | Version validation | `ErrGeneveInvalidVersion` (only version 0 supported) |
 | Ethernet payload (Format A) | `GeneveProtocolEthernet = 0x6558` |
 | Variable-length options | `GeneveHeader.OptLen` + `TotalHeaderSize()` |
-| Inner TTL=255 | `BuildInnerPacket()` sets TTL=255 (RFC 5881 GTSM) |
+| Inner TTL=255 | `BuildInnerPacketInto()` sets TTL=255 (RFC 5881 GTSM) |
 | Session type | `SessionTypeGeneve` constant |
 | OverlaySender adapter | `OverlaySender` implements `bfd.PacketSender` |
 | OverlayReceiver loop | Reaches `Manager.DemuxWithWire` only after exact configured VAP identity matches |
@@ -630,11 +784,12 @@ RFC 9521 defines BFD encapsulated in Geneve for forwarding-path liveness detecti
 | Declarative peers | `geneve.peers[]` in config, per-peer VNI override, reconciled on SIGHUP |
 | Config validation | VNI range, concrete outer IPv4 endpoints, detect_mult, duplicate keys, and complete unicast VAP MAC/IPv4 identity are checked |
 
-Packet encapsulation stack (Format A):
-```
-Outer IP → Outer UDP (6081) → Geneve Header (8B, O=1, C=0, Proto=0x6558) →
-Inner Ethernet (14B) → Inner IPv4 (20B) → Inner UDP (8B, dst 3784) → BFD Control
-```
+Packet encapsulation, outer to inner (Format A):
+
+| Layer | Supported profile |
+|---|---|
+| Outer | IP, UDP destination 6081, Geneve base header 8 B; O=1, C=0, Protocol=0x6558 |
+| Inner | Ethernet 14 B, IPv4 20 B, UDP destination 3784, BFD Control |
 
 Key differences from VXLAN BFD (RFC 8971):
 - Geneve supports variable-length TLV options (VXLAN has fixed 8-byte header)
@@ -652,7 +807,7 @@ integrate with kernel Geneve, OVS/OVN, or NSX dataplane socket ownership.
 
 **Status**: Partial
 
-**Implementation**: [`internal/bfd/session.go`](../../internal/bfd/session.go) (padding), [`internal/netio/sender.go`](../../internal/netio/sender.go) (DF bit)
+**Implementation**: [`internal/bfd/session_packet.go`](../../internal/bfd/session_packet.go) (PDU construction), [`internal/bfd/session_loop.go`](../../internal/bfd/session_loop.go) (padded send), [`internal/netio/sender.go`](../../internal/netio/sender.go) (DF bit), [`internal/bfd/session_update.go`](../../internal/bfd/session_update.go) (reload policy)
 
 RFC 9764 defines BFD Large Packets for MTU path verification. A BFD implementation pads Control packets to a configured size and sets the IP Don't Fragment (DF) bit. If the padded packet is larger than the path MTU, it will be dropped, causing BFD to detect the MTU issue.
 
@@ -665,6 +820,26 @@ RFC 9764 defines BFD Large Packets for MTU path verification. A BFD implementati
 | Public session status | `BfdSession.padded_pdu_size` carries the configured target in bytes; an authenticated PDU may be larger |
 | Global default | `bfd.default_padded_pdu_size` in YAML config |
 | Configured target range | 0 disables padding; 24-9000 bytes without authentication, 26-9000 with authentication (v1 policy) |
+
+In-place reload is limited to positive-to-positive targets on a sole-config
+base session with stable identity, unchanged authentication and a sender whose
+immutable `PaddingPrepared` proves successful constructor-time DF preparation.
+It does not establish socket liveness. Remote Demand, unknown/unprepared
+senders, zero transitions and shared-owner base padding updates reject the
+complete candidate before desired-generation/log/resource mutation. The
+coordinator admission guard receives only `candidate.base`. Micro-BFD and
+overlay remain outside this qualified profile; their configuration gains no
+padding/minTTL fields, and other-source conflict/stale behavior is unchanged.
+Queued policy is rechecked before any field commit; newly active Demand fails
+the whole pending tuple, including a reversal to confirmed values. TX/RX Poll
+directions and active/queued generation rules remain unchanged.
+
+Capacity growth prepares one waiting buffer at control admission and swaps it
+on the owner before field commit; growth allocation does not occur in the
+packet loop. Padding enable/disable and dynamic DF remain after-v1 P2
+`gobfd-ebu`; zero-target DF defaults are unchanged. Final live peer/MTU
+qualification belongs to mandatory P0 `gobfd-qj0.8.2.2.7.5`, after
+`gobfd-qj0.8.2.2.7.4` and before v1; component checks do not close it.
 
 Keyed MD5 and SHA1 verification hashes exactly the declared BFD `Length`,
 including any PDU extension bytes, after checking that the digest fits within
@@ -679,7 +854,8 @@ The approved v1 configuration policy rejects authenticated targets of 24 or
 25 bytes. RFC 9764's YANG typedef also permits raising a smaller configured
 target to the session minimum; rejection is the selected GoBFD policy.
 Valid targets such as 26 never truncate a larger authenticated PDU: transmission
-uses `max(actual PDU length, configured target)`. YAML global defaults and
+uses `max(actual PDU length, configured target)` in transport payload bytes,
+excluding IP/UDP headers. YAML global defaults and
 per-session overrides apply the same policy before runtime changes; raw
 numeric inputs are checked before weak decoding can wrap or truncate them.
 
@@ -723,14 +899,15 @@ RFC 7881 defines S-BFD encapsulation for IPv4 and IPv6 using destination port 77
 No `SBFDReflector`, `SBFDInitiator`, or port-7784 listener exists in the
 current codebase; the names above describe planned roles, not APIs.
 
-### Stub Interfaces
+### Unimplemented MPLS and VCCV
 
-The following RFCs have stub interfaces defined for future implementation:
+These transport families have no session implementation or stub interfaces in
+the current codebase. Retained RFC texts are references, not implementation.
 
 | RFC | Dependency | Status |
 |---|---|---|
-| RFC 5884 (BFD for MPLS) | LSP Ping (RFC 4379) | Interfaces defined in `internal/bfd` |
-| RFC 5885 (BFD for VCCV) | VCCV (RFC 5085), LDP (RFC 4447) | Interfaces defined |
+| RFC 5884 (BFD for MPLS) | LSP Ping (RFC 4379) | Not implemented |
+| RFC 5885 (BFD for VCCV) | VCCV (RFC 5085), LDP (RFC 4447) | Not implemented |
 
 ### Reference RFCs
 
@@ -772,4 +949,4 @@ Full RFC text files are available in the `docs/rfc/` directory:
 
 ---
 
-*Last updated: 2026-02-23*
+*Reviewed against `dev` source: 2026-10-25.*

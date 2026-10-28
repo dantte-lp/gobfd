@@ -86,6 +86,18 @@ type PacketMeta struct {
 	// IfName is the interface name on which the packet was received.
 	// It is the listener's device binding, empty for an unbound listener.
 	IfName string
+
+	// KernelRXUnixNano is a software CLOCK_REALTIME receive timestamp.
+	// Zero means unavailable; convert clock domains before measuring latency.
+	// It must never set a protocol detection deadline.
+	KernelRXUnixNano int64
+
+	// SocketDrops is the cumulative uint32 SO_RXQ_OVFL sample, not a delta.
+	// SocketDropsKnown distinguishes an absent cmsg from a reported zero.
+	SocketDrops      uint32
+	SocketDropsKnown bool
+	// SocketDropsInvalid excludes malformed or truncated ancillary data.
+	SocketDropsInvalid bool
 }
 
 // -------------------------------------------------------------------------
@@ -128,6 +140,9 @@ var (
 	// RFC 5881 Section 4 range (49152-65535).
 	ErrPortExhausted = errors.New("no source ports available in range 49152-65535")
 
+	// ErrSourcePortInvalid indicates a sender port outside the fixed session range.
+	ErrSourcePortInvalid = errors.New("UDP source port is outside 49152-65535")
+
 	// ErrSocketClosed indicates an operation on a closed socket.
 	ErrSocketClosed = errors.New("socket closed")
 
@@ -137,6 +152,9 @@ var (
 
 	// ErrPacketTruncated indicates that the complete UDP datagram did not fit the read buffer.
 	ErrPacketTruncated = errors.New("BFD UDP datagram truncated")
+
+	// ErrAncillaryTruncated indicates recvmsg lost required transport metadata.
+	ErrAncillaryTruncated = errors.New("BFD UDP ancillary data truncated")
 
 	// ErrInvalidReadSize indicates a transport returned a size outside its caller-owned buffer.
 	ErrInvalidReadSize = errors.New("invalid packet read size")

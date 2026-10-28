@@ -48,5 +48,7 @@ same normalization as startup validation.
 
 ## References
 
+- [Shared backend parser](../../../internal/overlay/backend.go)
+- [Backend constructor admission](../../../internal/netio/overlay_backend.go)
 - [Go 1.27 specification: Import declarations](https://go.dev/ref/spec#Import_declarations)
 - [ADR-0003: Linux applicability of Micro-BFD, VXLAN BFD, and Geneve BFD](./0003-linux-advanced-bfd-applicability.md)

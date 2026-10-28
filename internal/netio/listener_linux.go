@@ -6,12 +6,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	"github.com/dantte-lp/gobfd/internal/bfd"
 )
 
 // NewListener creates a Listener from the given configuration.
 // Returns an error if the underlying socket cannot be created.
 // When ReadBufferSize is set, SO_RCVBUF is applied to reduce packet loss.
 func NewListener(cfg ListenerConfig) (*Listener, error) {
+	clock := bfd.NewReceiveClock()
 	conn, err := createConn(cfg)
 	if err != nil {
 		return nil, err
@@ -32,11 +35,13 @@ func NewListener(cfg ListenerConfig) (*Listener, error) {
 	}
 
 	return &Listener{
-		conn:        conn,
-		multiHop:    cfg.MultiHop,
-		expectedTTL: cfg.ExpectedTTL,
-		delivery:    cfg.Delivery,
-		echo:        cfg.Port == PortEcho,
+		conn:         conn,
+		multiHop:     cfg.MultiHop,
+		expectedTTL:  cfg.ExpectedTTL,
+		delivery:     cfg.Delivery,
+		echo:         cfg.Port == PortEcho,
+		receiveClock: clock,
+		socketDrops:  newSocketDropObserver(cfg.Delivery, true),
 	}, nil
 }
 

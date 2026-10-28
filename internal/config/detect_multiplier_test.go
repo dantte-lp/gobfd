@@ -19,7 +19,7 @@ func TestLoadRejectsWrappedDetectMultiplier(t *testing.T) {
 		{"echo peer", "echo:\n  peers:\n    - detect_mult: %s\n"},
 		{"vxlan peer", "vxlan:\n  peers:\n    - detect_mult: %s\n"},
 		{"geneve peer", "geneve:\n  peers:\n    - detect_mult: %s\n"},
-		{"micro-BFD group", "micro_bfd:\n  groups:\n    - detect_mult: %s\n"},
+		{"micro-BFD group", "micro_bfd:\n  enabled: true\n  groups:\n    - detect_mult: %s\n"},
 	} {
 		t.Run(field.name, func(t *testing.T) {
 			t.Parallel()
@@ -69,7 +69,7 @@ func TestLoadRejectsCaseFoldedMultiplierOverflow(t *testing.T) {
 		"echo:\n  peers:\n    - DETECT_MULT: 4294967299\n",
 		"vxlan:\n  PEERS:\n    - detect_mult: 4294967299\n",
 		"GENEVE:\n  peers:\n    - detect_mult: 4294967299\n",
-		"micro_bfd:\n  GROUPS:\n    - detect_mult: 4294967299\n",
+		"micro_bfd:\n  enabled: true\n  GROUPS:\n    - detect_mult: 4294967299\n",
 		"bfd:\n  DEFAULT_DETECT_MULTIPLIER: 4294967299\n",
 		"unsolicited:\n  SESSION_DEFAULTS:\n    detect_mult: 4294967299\n",
 	} {

@@ -29,6 +29,8 @@ func (m *Manager) CreateSession(
 // CreateSessionAs claims a session for an API owner (see APISessionOwner).
 // A matching session claimed by other owners is shared; a second claim by
 // the same owner returns ErrDuplicateSession.
+// An exact key still retiring also returns ErrDuplicateSession before sender
+// acquisition; callers may retry after its destruction finishes.
 func (m *Manager) CreateSessionAs(
 	ctx context.Context,
 	cfg SessionConfig,
@@ -60,6 +62,9 @@ func (m *Manager) claimSession(
 	owner SessionOwner,
 	idempotent bool,
 ) (*Session, bool, *SenderLease, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, nil, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
+	}
 	key, err := sessionKeyFromConfig(cfg)
 	if err != nil {
 		return nil, false, nil, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
@@ -70,7 +75,7 @@ func (m *Manager) claimSession(
 		return nil, false, nil, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
 	}
 
-	if sess, found, claimErr := m.claimExisting(key, effective, owner, idempotent); found {
+	if sess, found, claimErr := m.claimExisting(ctx, key, effective, owner, idempotent); found {
 		return sess, false, nil, claimErr
 	}
 	if cfg, err = m.resolveSessionIfIndex(cfg); err != nil {
@@ -79,6 +84,9 @@ func (m *Manager) claimSession(
 
 	lease, err := acquireSenderLease(senderFactory)
 	if err != nil {
+		return nil, false, lease, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
+	}
+	if err = ctx.Err(); err != nil {
 		return nil, false, lease, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
 	}
 
@@ -150,6 +158,7 @@ func closeSenderLeaseError(lease *SenderLease) error {
 }
 
 func (m *Manager) claimExisting(
+	ctx context.Context,
 	key SessionKey,
 	effective effectiveSessionConfig,
 	owner SessionOwner,
@@ -157,6 +166,12 @@ func (m *Manager) claimExisting(
 ) (*Session, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, true, fmt.Errorf("claim existing session: %w", err)
+	}
+	if _, retiring := m.retiringSessions[key]; retiring {
+		return nil, true, fmt.Errorf("claim retiring session: %w", ErrDuplicateSession)
+	}
 
 	entry, exists := m.sessionsByKey[key]
 	if !exists {
@@ -232,6 +247,14 @@ func (m *Manager) registerAndStart(
 	demuxKey := demuxKeyFromSessionConfig(cfg)
 
 	m.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		m.mu.Unlock()
+		return nil, false, fmt.Errorf("register session: %w", err)
+	}
+	if _, retiring := m.retiringSessions[key]; retiring {
+		m.mu.Unlock()
+		return nil, false, fmt.Errorf("register retiring session: %w", ErrDuplicateSession)
+	}
 	if entry, exists := m.sessionsByKey[key]; exists {
 		session, err := entry.claimExisting(key, effective, owner, idempotent)
 		m.mu.Unlock()
@@ -244,7 +267,20 @@ func (m *Manager) registerAndStart(
 			key.PeerAddr, ErrDuplicateSession,
 		)
 	}
+	counts := m.insertSessionLocked(ctx, key, demuxKey, effective, owner, discr, sess, senderLease)
+	m.mu.Unlock()
+	m.reportFanoutDelivery(counts)
 
+	return sess, true, nil
+}
+
+// insertSessionLocked installs a prepared session after both registry keys have
+// been checked. Caller holds Manager.mu and the ownership mutation guard.
+func (m *Manager) insertSessionLocked(
+	ctx context.Context, key SessionKey, demuxKey packetDemuxKey,
+	effective effectiveSessionConfig, owner SessionOwner, discr uint32,
+	sess *Session, senderLease *SenderLease,
+) fanoutDelivery {
 	entry := &sessionEntry{
 		session:     sess,
 		senderLease: senderLease,
@@ -276,10 +312,7 @@ func (m *Manager) registerAndStart(
 	added.Added = true
 	counts := m.broadcastStateChange(added)
 	m.startSession(sessCtx, entry, sess)
-	m.mu.Unlock()
-	m.reportFanoutDelivery(counts)
-
-	return sess, true, nil
+	return counts
 }
 
 func (m *Manager) startSession(ctx context.Context, entry *sessionEntry, sess *Session) {
@@ -389,7 +422,18 @@ func (m *Manager) detachSessionClaimByDiscriminator(
 		return false, nil, nil
 	}
 
-	// Remove the wire session from every registry after its last claim.
+	// Detach the public wire identity after its last claim.
+	counts := m.removeSessionLocked(localDiscr, entry)
+	m.mu.Unlock()
+	m.reportFanoutDelivery(counts)
+
+	return true, &retiredSession{localDiscr: localDiscr, entry: entry}, nil
+}
+
+// removeSessionLocked detaches one physical identity. Its owner drains and
+// releases the captured entry after all Manager locks have been released.
+func (m *Manager) removeSessionLocked(localDiscr uint32, entry *sessionEntry) fanoutDelivery {
+	m.retiringSessions[entry.key] = entry
 	delete(m.sessions, localDiscr)
 	delete(m.sessionsByPeer, entry.demuxKey)
 	delete(m.sessionsByKey, entry.key)
@@ -400,11 +444,7 @@ func (m *Manager) detachSessionClaimByDiscriminator(
 	session.mu.Unlock()
 	deleted := stateChangeOf(snapshotForObservation(session, observation), observation.State)
 	deleted.Deleted = true
-	counts := m.broadcastStateChange(deleted)
-	m.mu.Unlock()
-	m.reportFanoutDelivery(counts)
-
-	return true, &retiredSession{localDiscr: localDiscr, entry: entry}, nil
+	return m.broadcastStateChange(deleted)
 }
 
 func (m *Manager) finishSessionDestroy(localDiscr uint32, entry *sessionEntry) {
@@ -434,6 +474,11 @@ func (m *Manager) finishSessionDestroyError(localDiscr uint32, entry *sessionEnt
 		entry.session.LocalAddr(),
 		entry.session.Type().String(),
 	)
+	m.mu.Lock()
+	if m.retiringSessions[entry.key] == entry {
+		delete(m.retiringSessions, entry.key)
+	}
+	m.mu.Unlock()
 
 	m.logger.Info("session destroyed",
 		slog.String("peer", entry.session.PeerAddr().String()),
@@ -539,16 +584,16 @@ func (m *Manager) Demux(pkt *ControlPacket, meta PacketMeta) (DeliveryOutcome, e
 	if outcome, err := m.checkSessionTransport(sess, meta); err != nil {
 		return outcome, err
 	}
-	return admitControlPacket(sess, pkt, nil)
+	return admitControlPacket(sess, pkt, nil, meta.ReceiveTiming)
 }
 
 // DemuxWithWire returns Queued only for admission, never owner commit. A
 // non-nil ancillary lease-close error can accompany a Queued outcome.
-func (m *Manager) DemuxWithWire(pkt *ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
+func (m *Manager) DemuxWithWire(pkt ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
 	if pkt.YourDiscriminator != 0 {
-		return m.demuxByDiscr(pkt, meta, wire)
+		return m.demuxByDiscr(&pkt, meta, wire)
 	}
-	return m.demuxByPeer(pkt, meta, wire)
+	return m.demuxByPeer(&pkt, meta, wire)
 }
 
 func (m *Manager) demuxByDiscr(pkt *ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
@@ -568,7 +613,7 @@ func (m *Manager) demuxByDiscr(pkt *ControlPacket, meta PacketMeta, wire []byte)
 	if outcome, err := m.checkSessionTransport(entry.session, meta); err != nil {
 		return outcome, err
 	}
-	return admitControlPacket(entry.session, pkt, wire)
+	return admitControlPacket(entry.session, pkt, wire, meta.ReceiveTiming)
 }
 
 func (m *Manager) demuxByPeer(pkt *ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
@@ -586,7 +631,7 @@ func (m *Manager) demuxByPeer(pkt *ControlPacket, meta PacketMeta, wire []byte) 
 		if outcome, err := m.checkSessionTransport(sess, meta); err != nil {
 			return outcome, err
 		}
-		return admitControlPacket(sess, pkt, wire)
+		return admitControlPacket(sess, pkt, wire, meta.ReceiveTiming)
 	}
 	m.RecordDelivery(DeliveryDemux, DeliveryUnknownSession)
 	if m.unsolicited != nil {
@@ -616,8 +661,8 @@ func (m *Manager) checkSessionTransport(sess *Session, meta PacketMeta) (Deliver
 	return outcome, nil
 }
 
-func admitControlPacket(sess *Session, pkt *ControlPacket, wire []byte) (DeliveryOutcome, error) {
-	outcome := sess.RecvPacket(pkt, wire)
+func admitControlPacket(sess *Session, pkt *ControlPacket, wire []byte, timing ReceiveTiming) (DeliveryOutcome, error) {
+	outcome := sess.recvPacket(pkt, wire, timing)
 	switch outcome {
 	case DeliveryQueued:
 		return outcome, nil
@@ -684,7 +729,7 @@ func unsolicitedRejection(policy *UnsolicitedPolicy, pkt *ControlPacket, err err
 		if policy.Auth == nil && pkt.AuthPresent {
 			return DeliveryAuthUnexpected
 		}
-		if !pkt.AuthPresent || pkt.Auth == nil {
+		if !pkt.AuthPresent || pkt.Auth.IsZero() {
 			return DeliveryAuthMissing
 		}
 		return DeliveryAuthFailed
@@ -725,7 +770,7 @@ func (m *Manager) activateUnsolicitedSession(
 		slog.String("interface", meta.IfName),
 		slog.Uint64("local_discr", uint64(sess.LocalDiscriminator())),
 	)
-	return admitControlPacket(sess, pkt, wire)
+	return admitControlPacket(sess, pkt, wire, meta.ReceiveTiming)
 }
 
 func (m *Manager) markSessionUnsolicited(localDiscr uint32) {
@@ -888,7 +933,7 @@ func (m *Manager) SubscribeStateChanges(ctx context.Context) (<-chan StateChange
 		return nil, ErrManagerClosed
 	}
 
-	ch := make(chan StateChange, notifyChSize)
+	ch := make(chan StateChange, m.notificationCapacity)
 
 	m.subMu.Lock()
 	m.subscribers[ch] = &subscriber{}
@@ -1008,20 +1053,26 @@ func (m *Manager) reconcileSessionsForOwner(
 		return failedReconcileResult(ReconcileErrorConflict, err)
 	}
 
-	result, retired := m.releaseStaleOwnerClaims(owner, desiredByKey, currentClaims)
-	claimResult, rollbackRetired, unusedLeases := m.claimDesiredOwnerSessions(
+	// A source retains every old claim until all resource claims are available.
+	// Timer negotiation is independent and does not block unrelated removals.
+	result, retired, unusedLeases := m.claimDesiredOwnerSessions(
 		ctx, owner, desiredByKey, desiredOrder, currentClaims,
 	)
-	result.Created = claimResult.Created
-	result.Updated = claimResult.Updated
-	result.Pending = claimResult.Pending
-	result.ResourcePending = claimResult.ResourcePending
-	result.resourceErrs = claimResult.resourceErrs
-	result.TimerUpdates = claimResult.TimerUpdates
-	result.wireCreated = claimResult.wireCreated
-	result.Errors = append(result.Errors, claimResult.Errors...)
-	result.Failed = len(result.Errors)
-	retired = append(retired, rollbackRetired...)
+	// Successful claims are already published. Cancellation before the release
+	// phase retains old claims without promising to undo those new identities.
+	if result.Failed == 0 && result.ResourcePending == 0 {
+		if err := ctx.Err(); err != nil {
+			addReconcileError(&result, ReconcileErrorLifecycle, fmt.Errorf("release stale source claims: %w", err))
+		}
+	}
+	if result.Failed == 0 && result.ResourcePending == 0 {
+		released, staleRetired := m.releaseStaleOwnerClaims(owner, desiredByKey, currentClaims)
+		result.Released += released.Released
+		result.wireDestroyed += released.wireDestroyed
+		result.Errors = append(result.Errors, released.Errors...)
+		result.Failed = len(result.Errors)
+		retired = append(retired, staleRetired...)
+	}
 	m.ownershipMu.Unlock()
 	op.unlockMutation()
 
@@ -1117,11 +1168,17 @@ func (m *Manager) ownerClaimSnapshot(
 	for _, key := range desiredOrder {
 		entry, exists := m.sessionsByKey[key]
 		if !exists {
+			if _, _, err := m.replacementEntryLocked(owner, key, desiredByKey); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		status := entry.refreshTimerSnapshot()
 		candidate := desiredByKey[key].effective
 		if entry.canUpdateTimers(owner, candidate) {
+			if err := entry.session.validatePacketPolicyUpdate(candidate.updateTuple()); err != nil {
+				return nil, fmt.Errorf("reconcile session policy: %w", err)
+			}
 			continue
 		}
 		_, owned := entry.owners[owner]
@@ -1176,6 +1233,7 @@ func (m *Manager) claimDesiredOwnerSessions(
 	var result ReconcileResult
 	var retired []retiredSession
 	var unusedLeases []*SenderLease
+	var replacements []sessionReplacement
 	newClaims := make([]uint32, 0, len(desiredOrder))
 	for _, key := range desiredOrder {
 		rc := desiredByKey[key].config
@@ -1183,11 +1241,21 @@ func (m *Manager) claimDesiredOwnerSessions(
 			m.reconcileExistingTimers(ctx, key, owner, desiredByKey[key], &result) {
 			continue
 		}
+		m.mu.RLock()
+		old, replacement, replacementErr := m.replacementEntryLocked(owner, key, desiredByKey)
+		m.mu.RUnlock()
+		if replacementErr != nil {
+			recordClaimError(&result, key, replacementErr)
+			continue
+		}
+		if replacement {
+			replacements = append(replacements, sessionReplacement{
+				key: key, config: rc, effective: desiredByKey[key].effective, old: old,
+			})
+			continue
+		}
 
-		m.logger.Info("reconcile: claiming desired owner session",
-			slog.Any("key", key),
-			slog.Any("owner", owner),
-		)
+		m.logger.Info("reconcile: claiming desired owner session", slog.Any("key", key), slog.Any("owner", owner))
 
 		sess, wireCreated, unusedLease, claimErr := m.claimSession(
 			ctx, rc.SessionConfig, rc.SenderLeaseFactory, owner, true,
@@ -1207,17 +1275,26 @@ func (m *Manager) claimDesiredOwnerSessions(
 			newClaims = append(newClaims, sess.LocalDiscriminator())
 		}
 	}
-	if result.Failed == 0 {
-		return result, nil, unusedLeases
+	if result.Failed == 0 && len(replacements) > 0 {
+		replaced, discarded := m.replaceSessions(ctx, owner, replacements, currentClaims, &result)
+		retired = append(retired, replaced...)
+		unusedLeases = append(unusedLeases, discarded...)
 	}
+	if result.Failed > 0 {
+		retired = append(retired, m.rollbackNewClaims(owner, newClaims, &result)...)
+	}
+	return result, retired, unusedLeases
+}
 
-	// Roll back claims added by this creation pass. This closes accepted
-	// sender leases for newly created physical sessions without attempting the
-	// broader stale-claim/full-reload rollback owned by a later lifecycle slice.
+// rollbackNewClaims releases only claims added by a failed preparation pass.
+func (m *Manager) rollbackNewClaims(
+	owner SessionOwner, newClaims []uint32, result *ReconcileResult,
+) []retiredSession {
+	var retired []retiredSession
 	for _, discr := range newClaims {
 		wireDestroyed, detached, err := m.detachSessionClaimByDiscriminator(discr, owner)
 		if err != nil {
-			addReconcileError(&result, ReconcileErrorRollback,
+			addReconcileError(result, ReconcileErrorRollback,
 				fmt.Errorf("rollback new session claim %d: %w", discr, err))
 			continue
 		}
@@ -1227,7 +1304,7 @@ func (m *Manager) claimDesiredOwnerSessions(
 			retired = append(retired, *detached)
 		}
 	}
-	return result, retired, unusedLeases
+	return retired
 }
 
 // recordClaimError records an unresolvable single-hop receive interface or a
@@ -1245,6 +1322,8 @@ func recordClaimError(result *ReconcileResult, key SessionKey, err error) {
 	addReconcileError(result, ReconcileErrorCreate, err)
 }
 
+// Caller holds ownershipMu and an active lifecycle operation. Buffer preparation
+// runs outside the registry lock so unrelated demux readers remain independent.
 func (m *Manager) reconcileExistingTimers(
 	ctx context.Context, key SessionKey, owner SessionOwner, candidate reconcileCandidate, result *ReconcileResult,
 ) bool {
@@ -1254,9 +1333,10 @@ func (m *Manager) reconcileExistingTimers(
 		m.mu.Unlock()
 		return false
 	}
+	m.mu.Unlock()
 	rc := candidate.config
-	status, updateErr := entry.session.admitTimerUpdate(ctx,
-		timerTuple{rc.SessionConfig.DesiredMinTxInterval, rc.SessionConfig.RequiredMinRxInterval}, rc.DesiredGeneration)
+	status, updateErr := entry.session.admitTimerUpdate(ctx, candidate.effective.updateTuple(), rc.DesiredGeneration)
+	m.mu.Lock()
 	entry.refreshTimerSnapshot()
 	m.mu.Unlock()
 	switch {
@@ -1268,6 +1348,8 @@ func (m *Manager) reconcileExistingTimers(
 			session: entry.session, LocalDiscriminator: entry.session.LocalDiscriminator(),
 			Revision: status.Requested.Revision, Generation: status.Requested.Generation,
 			DesiredMinTxInterval: status.Requested.Tuple.TX, RequiredMinRxInterval: status.Requested.Tuple.RX,
+			DetectMultiplier: status.Requested.Tuple.DetectMult,
+			MultiHopMinTTL:   status.Requested.Tuple.MinTTL, PaddedPduSize: status.Requested.Tuple.PaddedPduSize,
 		})
 	case status.Changed:
 		result.Updated++
@@ -1285,6 +1367,9 @@ func (entry *sessionEntry) canUpdateTimers(owner SessionOwner, candidate effecti
 	current := entry.effective
 	current.DesiredMinTxInterval = candidate.DesiredMinTxInterval
 	current.RequiredMinRxInterval = candidate.RequiredMinRxInterval
+	current.DetectMultiplier = candidate.DetectMultiplier
+	current.MultiHopMinTTL = candidate.MultiHopMinTTL
+	current.PaddedPduSize = candidate.PaddedPduSize
 	return current == candidate
 }
 
@@ -1294,6 +1379,9 @@ func (entry *sessionEntry) refreshTimerSnapshot() timerUpdateStatus {
 	status := entry.session.timerUpdateSnapshot()
 	entry.effective.DesiredMinTxInterval = status.Confirmed.TX
 	entry.effective.RequiredMinRxInterval = status.Confirmed.RX
+	entry.effective.DetectMultiplier = status.Confirmed.DetectMult
+	entry.effective.MultiHopMinTTL = status.Confirmed.MinTTL
+	entry.effective.PaddedPduSize = status.Confirmed.PaddedPduSize
 	return status
 }
 
@@ -1309,6 +1397,9 @@ type TimerUpdateRef struct {
 	LocalDiscriminator                          uint32
 	Revision, Generation                        uint64
 	DesiredMinTxInterval, RequiredMinRxInterval time.Duration
+	DetectMultiplier                            uint8
+	MultiHopMinTTL                              uint8
+	PaddedPduSize                               uint16
 }
 
 // ObserveTimerUpdates cannot create resources, admit intent or retry failures.
@@ -1326,7 +1417,10 @@ func (m *Manager) ObserveTimerUpdates(refs []TimerUpdateRef) ReconcileResult {
 		status := entry.session.timerUpdateSnapshot()
 		switch {
 		case status.Requested.Revision != ref.Revision || status.Requested.Generation != ref.Generation ||
-			status.Requested.Tuple != (timerTuple{ref.DesiredMinTxInterval, ref.RequiredMinRxInterval}) ||
+			status.Requested.Tuple != (timerTuple{
+				ref.DesiredMinTxInterval, ref.RequiredMinRxInterval,
+				ref.DetectMultiplier, ref.MultiHopMinTTL, ref.PaddedPduSize,
+			}) ||
 			status.State == timerUpdateFailed:
 			addReconcileError(&result, ReconcileErrorTimerFailed, ErrTimerUpdateFailed)
 		case status.State == timerUpdatePending:

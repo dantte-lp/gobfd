@@ -12,7 +12,8 @@
 //
 // Primary vendors: Arista cEOS, Nokia SR Linux, SONiC-VS, VyOS.
 // Baseline vendor: FRRouting. Deferred vendor: Cisco XRd.
-// Tests are skipped for vendors whose container images are not available.
+// Only manifest-approved profiles are executable; other definitions retain provenance.
+// Allowed profiles are skipped when their containers are not available.
 //
 // Container management uses the Podman REST API via unix socket
 // (/run/podman/podman.sock).
@@ -23,16 +24,21 @@
 //
 // Run with:
 //
-//	go test -tags interop_clab -v -count=1 -timeout 600s ./test/interop-clab/
+//	make interop-clab-test
 package interop_clab_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dantte-lp/gobfd/test/internal/vendorprofiles"
 )
 
 // =========================================================================
@@ -67,7 +73,17 @@ type vendorPeer struct {
 	upMatch   string   // Substring in show output indicating BFD Up.
 }
 
-func vendorPeers() []vendorPeer {
+func vendorPeers() ([]vendorPeer, error) {
+	// Precompiled suites must retain test/interop-clab as their working directory.
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		return nil, fmt.Errorf("resolve vendor manifest repository root: %w", err)
+	}
+	manifest, err := vendorprofiles.Load(root)
+	if err != nil {
+		return nil, fmt.Errorf("load native vendor execution policy: %w", err)
+	}
+
 	peers := []vendorPeer{
 		{
 			name:      "arista",
@@ -186,15 +202,24 @@ func vendorPeers() []vendorPeer {
 	for _, peer := range peers {
 		expected := fmt.Sprintf("clab-%s-%s", labName, peer.baseName)
 		if peer.container != expected {
-			panic(fmt.Sprintf("vendor %s container name mismatch: %s != %s", peer.name, peer.container, expected))
+			return nil, fmt.Errorf("vendor %s container name mismatch: %s != %s", peer.name, peer.container, expected)
 		}
 	}
 
-	return peers
+	peers = slices.DeleteFunc(peers, func(peer vendorPeer) bool {
+		return !manifest.AllowsNode(peer.baseName)
+	})
+	if len(peers) == 0 {
+		return nil, errors.New("native vendor execution policy allows no peers")
+	}
+	return peers, nil
 }
 
 func TestMain(m *testing.M) {
-	_ = vendorPeers()
+	if _, err := vendorPeers(); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "native vendor policy: %v\n", err)
+		os.Exit(2)
+	}
 	os.Exit(m.Run())
 }
 
@@ -202,33 +227,34 @@ func TestMain(m *testing.M) {
 // Helpers
 // =========================================================================
 
+func executableVendorPeers(t *testing.T) []vendorPeer {
+	t.Helper()
+	peers, err := vendorPeers()
+	if err != nil {
+		t.Fatalf("load executable vendor peers: %v", err)
+	}
+	return peers
+}
+
 // vendorAvailable checks if a vendor container is running.
 func vendorAvailable(ctx context.Context, v vendorPeer) bool {
 	return containerExists(ctx, v.container)
 }
 
-// gobfdBFDSessionUp checks GoBFD logs for a BFD session reaching Up state
-// for the given peer IP.
-func gobfdBFDSessionUp(ctx context.Context, peerIP string) (bool, error) {
-	// GoBFD runs via "podman exec -d" (not as PID 1), so container logs are
-	// empty. Use gobfdctl to query session state directly via gRPC.
-	output, err := containerExec(ctx, gobfdContainer,
-		"gobfdctl", "--addr", "localhost:50052", "session", "list")
+// gobfdBFDSessionUp requires the selected tuple's local and remote states to be Up.
+func gobfdBFDSessionUp(ctx context.Context, peer vendorPeer) (bool, error) {
+	row, err := readGoBFDSessionStatus(ctx, peer)
 	if err != nil {
-		return false, nil // gobfd may not be ready yet
+		return false, err
 	}
-	// gobfdctl output format: DISCRIMINATOR  PEER  LOCAL  TYPE  STATE  REMOTE-STATE  DIAG
-	// Look for a line containing the peer IP with "Up" state.
-	for line := range strings.SplitSeq(output, "\n") {
-		if strings.Contains(line, peerIP) && strings.Contains(line, "Up") {
-			return true, nil
-		}
-	}
-	return false, nil
+	return row.LocalState == "Up" && row.RemoteState == "Up", nil
 }
 
 // vendorBFDSessionUp checks the vendor's BFD session state via CLI.
 func vendorBFDSessionUp(ctx context.Context, v vendorPeer) (bool, error) {
+	if v.baseName == "frr" {
+		return frrBFDSessionUp(ctx, v)
+	}
 	output, err := containerExec(ctx, v.container, v.showCmd...)
 	if err != nil {
 		return false, nil //nolint:nilerr // vendor may not be ready yet
@@ -268,27 +294,19 @@ func waitBFDUp(ctx context.Context, t *testing.T, v vendorPeer) {
 	})
 
 	waitForCondition(t, v.name+" BFD Up (gobfd side)", bfdUpTimeout, func() (bool, error) {
-		return gobfdBFDSessionUp(ctx, v.peerIP)
+		return gobfdBFDSessionUp(ctx, v)
 	})
 }
 
 // bfdSessionStuck checks whether GoBFD's session with the given peer
 // is in a stuck state (remote AdminDown), indicating the vendor's BGP
 // session is broken and needs recovery.
-func bfdSessionStuck(ctx context.Context, peerIP string) bool {
-	output, err := containerExec(ctx, gobfdContainer,
-		"gobfdctl", "--addr", "localhost:50052", "session", "list")
+func bfdSessionStuck(ctx context.Context, peer vendorPeer) bool {
+	row, err := readGoBFDSessionStatus(ctx, peer)
 	if err != nil {
 		return false
 	}
-	for line := range strings.SplitSeq(output, "\n") {
-		if strings.Contains(line, peerIP) &&
-			strings.Contains(line, "Down") &&
-			strings.Contains(line, "AdminDown") {
-			return true
-		}
-	}
-	return false
+	return row.LocalState == "Down" && row.RemoteState == "AdminDown"
 }
 
 // ensureBFDUp waits for BFD session Up with automatic BGP recovery.
@@ -299,7 +317,7 @@ func bfdSessionStuck(ctx context.Context, peerIP string) bool {
 func ensureBFDUp(ctx context.Context, t *testing.T, v vendorPeer) {
 	t.Helper()
 
-	if bfdSessionStuck(ctx, v.peerIP) {
+	if bfdSessionStuck(ctx, v) {
 		t.Logf("BFD session with %s stuck (AdminDown), resetting BGP...", v.name)
 		resetGoBGPNeighbor(ctx, t, v)
 	}
@@ -322,7 +340,7 @@ func resetGoBGPNeighbor(ctx context.Context, t *testing.T, v vendorPeer) {
 
 	// Collect all peers sharing the same container (IPv4 + IPv6 siblings).
 	var siblings []vendorPeer
-	for _, peer := range vendorPeers() {
+	for _, peer := range executableVendorPeers(t) {
 		if peer.container == v.container {
 			siblings = append(siblings, peer)
 		}
@@ -377,7 +395,7 @@ func dumpDebugInfo(t *testing.T, v vendorPeer) {
 func TestVendorBFD_SessionEstablish(t *testing.T) {
 	ctx := t.Context()
 
-	for _, v := range vendorPeers() {
+	for _, v := range executableVendorPeers(t) {
 		t.Run(v.name, func(t *testing.T) {
 			if !vendorAvailable(ctx, v) {
 				t.Skipf("vendor %s container not available (image not installed)", v.name)
@@ -413,7 +431,7 @@ func TestVendorBFD_SessionEstablish(t *testing.T) {
 func TestVendorBFD_FailureDetection(t *testing.T) {
 	ctx := t.Context()
 
-	for _, v := range vendorPeers() {
+	for _, v := range executableVendorPeers(t) {
 		t.Run(v.name, func(t *testing.T) {
 			if !vendorAvailable(ctx, v) {
 				t.Skipf("vendor %s container not available", v.name)
@@ -452,16 +470,9 @@ func TestVendorBFD_FailureDetection(t *testing.T) {
 			foundDown := false
 			downDeadline := time.Now().Add(15 * time.Second)
 			for time.Now().Before(downDeadline) {
-				sessOut, sErr := containerExec(ctx, gobfdContainer,
-					"gobfdctl", "--addr", "localhost:50052", "session", "list")
-				if sErr == nil {
-					for line := range strings.SplitSeq(sessOut, "\n") {
-						if strings.Contains(line, v.peerIP) && strings.Contains(line, "Down") {
-							foundDown = true
-							t.Logf("BFD Down detected for %s: %s", v.name, strings.TrimSpace(line))
-							break
-						}
-					}
+				if down, err := gobfdBFDSessionDown(ctx, v); err == nil && down {
+					foundDown = true
+					t.Logf("BFD Down detected for %s: exact tuple localState=Down", v.name)
 				}
 				if foundDown {
 					break
@@ -494,63 +505,27 @@ func TestVendorBFD_FailureDetection(t *testing.T) {
 // =========================================================================
 
 func TestVendorBFD_RFC5880_PacketFormat(t *testing.T) {
-	ctx := t.Context()
-
-	// Capture BFD packets on the GoBFD container for a short period.
-	// tcpdump -c 20: capture 20 packets then exit.
-	captureCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	for _, peer := range executableVendorPeers(t) {
+		ensureBFDUp(t.Context(), t, peer)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
-	output, err := containerExec(captureCtx, gobfdContainer,
-		"tcpdump", "-c", "20", "-nn", "-v",
-		"-i", "any", "udp port 3784",
+	capture, err := containerExecResult(ctx, gobfdContainer,
+		"timeout", "--signal=TERM", "--kill-after=2s", "25s",
+		"tcpdump", "-i", "eth6", "-s", "256", "-U", "-c", "20", "-w", "-",
+		"udp and ((src host 10.0.6.1 and dst host 10.0.6.2) or "+
+			"(src host fd00:0:6:: and dst host fd00:0:6::1))",
 	)
-	if err != nil && !strings.Contains(err.Error(), "exited with code") {
-		t.Fatalf("tcpdump on gobfd: %v", err)
+	if err != nil {
+		t.Fatalf("capture FRR control packets: %v", err)
 	}
-
-	if output == "" {
-		t.Fatal("no BFD packets captured on gobfd container")
+	if err := validateFRRWireCapture([]byte(capture.Stdout)); err != nil {
+		t.Fatalf("validate RFC 5880/5881 FRR capture: %v; tcpdump stderr: %s", err, capture.Stderr)
 	}
-
-	t.Logf("captured BFD packets:\n%s", output)
-
-	// RFC 5881 §4: BFD Control packets MUST use dest port 3784.
-	if !strings.Contains(output, ".3784:") && !strings.Contains(output, ".3784 ") {
-		t.Error("RFC 5881 §4: no packets with dest port 3784 found")
-	}
-
-	// RFC 5881 §5: TTL MUST be 255 for single-hop.
-	if strings.Contains(output, "ttl 255") || strings.Contains(output, "TTL 255") {
-		t.Log("RFC 5881 §5: TTL=255 verified in captured packets")
-	}
-
-	// RFC 5880 §4.1: Version MUST be 1.
-	// tcpdump -v shows "BFDv1" in verbose output.
-	if strings.Contains(output, "BFDv1") {
-		t.Log("RFC 5880 §4.1: BFD version=1 verified")
-	}
-
-	// RFC 5881 §5: IPv6 BFD uses Hop Limit=255 (GTSM) instead of TTL.
-	if strings.Contains(output, "hlim 255") || strings.Contains(output, "hop limit 255") {
-		t.Log("RFC 5881 §5: Hop Limit=255 verified in IPv6 BFD packets")
-	}
-
-	// Verify packets come from the expected source port range.
-	// RFC 5881 §4: Source port SHOULD be in range 49152-65535.
-	// tcpdump output shows source.port format.
-	for line := range strings.SplitSeq(output, "\n") {
-		if !strings.Contains(line, ".3784:") && !strings.Contains(line, ".3784 ") {
-			continue
-		}
-		// Check that we see packets from/to our configured subnets (IPv4 and IPv6).
-		if strings.Contains(line, "10.0.") {
-			t.Logf("BFD packet on IPv4 subnet: %s", strings.TrimSpace(line))
-		}
-		if strings.Contains(line, "fd00:") {
-			t.Logf("BFD packet on IPv6 subnet: %s", strings.TrimSpace(line))
-		}
-	}
+	// Hex retains the bounded raw capture in the private test result without a writable artifact mount.
+	t.Logf("FRR_PCAP_HEX=%x", []byte(capture.Stdout))
+	t.Logf("tcpdump: %s", capture.Stderr)
 }
 
 // =========================================================================
@@ -562,7 +537,7 @@ func TestVendorBFD_SessionIndependence(t *testing.T) {
 
 	// Collect available vendors.
 	var available []vendorPeer
-	for _, v := range vendorPeers() {
+	for _, v := range executableVendorPeers(t) {
 		if vendorAvailable(ctx, v) {
 			available = append(available, v)
 		}
@@ -646,53 +621,36 @@ func TestVendorBFD_SessionIndependence(t *testing.T) {
 // =========================================================================
 
 func TestVendorBFD_TimerNegotiation(t *testing.T) {
-	ctx := t.Context()
-
-	for _, v := range vendorPeers() {
-		t.Run(v.name, func(t *testing.T) {
-			if !vendorAvailable(ctx, v) {
-				t.Skipf("vendor %s container not available", v.name)
+	for _, peer := range executableVendorPeers(t) {
+		t.Run(peer.name, func(t *testing.T) {
+			if !vendorAvailable(t.Context(), peer) {
+				t.Skipf("vendor %s container not available", peer.name)
 			}
-
-			t.Cleanup(func() { //nolint:contextcheck // cleanup uses own context after parent cancellation
+			t.Cleanup(func() {
 				if t.Failed() {
-					dumpDebugInfo(t, v)
+					dumpDebugInfo(t, peer)
 				}
 			})
-
-			ensureBFDUp(ctx, t, v)
-
-			// Check GoBFD side via gobfdctl.
-			gobfdOutput, err := containerExec(ctx, gobfdContainer,
-				"gobfdctl", "--addr", "localhost:50052", "session", "list")
-			if err != nil {
-				t.Logf("gobfdctl session list: %v (may not have gRPC client)", err)
-			} else {
-				t.Logf("gobfdctl sessions:\n%s", gobfdOutput)
-
-				// Verify the peer is listed and shows negotiated parameters.
-				if !strings.Contains(gobfdOutput, v.peerIP) {
-					t.Errorf("peer %s not found in gobfdctl output", v.peerIP)
+			ensureBFDUp(t.Context(), t, peer)
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+			defer cancel()
+			waitForCondition(t, peer.name+" exact FRR/GoBFD timer status", 30*time.Second, func() (bool, error) {
+				gobfd, err := containerExecResult(ctx, gobfdContainer,
+					"gobfdctl", "--addr", "localhost:50052", "--format", "json", "session", "list")
+				if err != nil {
+					return false, fmt.Errorf("query GoBFD timer status: %w", err)
 				}
-			}
-
-			// Check vendor side for timer values.
-			output, err := containerExec(ctx, v.container, v.showCmd...)
-			if err != nil {
-				t.Fatalf("exec show bfd on %s: %v", v.name, err)
-			}
-
-			// RFC 5880 §6.8.2: Negotiated TX interval = max(DesiredMinTx, RemoteMinRx).
-			// Both sides configured 300ms, so negotiated should be 300ms (300000μs).
-			// Detection time = DetectMult(3) × 300ms = 900ms.
-			t.Logf("%s BFD timers:\n%s", v.name, output)
-
-			// Verify interval values appear in output.
-			// Most vendors show 300 or 300ms or 300000 (microseconds for Nokia).
-			hasInterval := strings.Contains(output, "300") || strings.Contains(output, "300000")
-			if !hasInterval {
-				t.Errorf("could not verify 300ms interval in %s output — expected '300' or '300000'", v.name)
-			}
+				frr, err := containerExecResult(ctx, peer.container, "vtysh", "-c", "show bfd peers json")
+				if err != nil {
+					return false, fmt.Errorf("query FRR timer status: %w", err)
+				}
+				if err := validateFRRTimers(gobfd.Stdout, frr.Stdout, peer); err != nil {
+					return false, err
+				}
+				t.Logf("GoBFD_TIMER_JSON=%s", gobfd.Stdout)
+				t.Logf("FRR_TIMER_JSON=%s", frr.Stdout)
+				return true, nil
+			})
 		})
 	}
 }
@@ -704,7 +662,7 @@ func TestVendorBFD_TimerNegotiation(t *testing.T) {
 func TestVendorBFD_DetectionTiming(t *testing.T) {
 	ctx := t.Context()
 
-	for _, v := range vendorPeers() {
+	for _, v := range executableVendorPeers(t) {
 		t.Run(v.name, func(t *testing.T) {
 			if !vendorAvailable(ctx, v) {
 				t.Skipf("vendor %s container not available", v.name)
@@ -738,16 +696,9 @@ func TestVendorBFD_DetectionTiming(t *testing.T) {
 			deadline := time.Now().Add(10 * time.Second)
 			for time.Now().Before(deadline) {
 				time.Sleep(200 * time.Millisecond)
-				sessOut, sErr := containerExec(ctx, gobfdContainer,
-					"gobfdctl", "--addr", "localhost:50052", "session", "list")
-				if sErr == nil {
-					for line := range strings.SplitSeq(sessOut, "\n") {
-						if strings.Contains(line, v.peerIP) && strings.Contains(line, "Down") {
-							detected = true
-							detectionTime = time.Since(startTime)
-							break
-						}
-					}
+				if down, err := gobfdBFDSessionDown(ctx, v); err == nil && down {
+					detected = true
+					detectionTime = time.Since(startTime)
 				}
 				if detected {
 					break
@@ -786,7 +737,7 @@ func TestVendorBFD_AllAvailable(t *testing.T) {
 	ctx := t.Context()
 
 	availableCount := 0
-	for _, v := range vendorPeers() {
+	for _, v := range executableVendorPeers(t) {
 		if vendorAvailable(ctx, v) {
 			availableCount++
 			t.Logf("vendor %s: available (container %s)", v.name, v.container)
@@ -799,10 +750,10 @@ func TestVendorBFD_AllAvailable(t *testing.T) {
 		t.Fatal("no vendor containers available — deploy containerlab topology first")
 	}
 
-	t.Logf("%d/%d vendor containers available", availableCount, len(vendorPeers()))
+	t.Logf("%d/%d vendor containers available", availableCount, len(executableVendorPeers(t)))
 
 	// Wait for all available BFD sessions to establish.
-	for _, v := range vendorPeers() {
+	for _, v := range executableVendorPeers(t) {
 		if !vendorAvailable(ctx, v) {
 			continue
 		}

@@ -3,7 +3,6 @@ package bfd
 import (
 	"context"
 	"log/slog"
-	"runtime"
 	"time"
 )
 
@@ -40,13 +39,7 @@ func (s *Session) Run(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
-	// Pin the session goroutine to an OS thread for sub-millisecond timer
-	// precision. BFD detection intervals can be as low as 50ms; OS thread
-	// affinity reduces scheduler-induced jitter on timer wakeups.
 	s.cachedState = s.State()
-
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 
 	txInterval := s.calcTxIntervalHot()
 	txTimer := time.NewTimer(0)
@@ -102,11 +95,15 @@ func (s *Session) runLoop(
 			s.signalControlSpace()
 			s.handleControlCommand(ctx, cmd, txTimer, detectTimer)
 
-		case <-txTimer.C:
+		case due := <-txTimer.C:
+			s.timerEvent.begin(s.metrics, TimerControlTX, due)
 			s.handleTxTimer(ctx, txTimer)
+			s.timerEvent.finish(s.metrics)
 
-		case <-detectTimer.C:
+		case due := <-detectTimer.C:
+			s.timerEvent.begin(s.metrics, TimerControlDetection, due)
 			s.handleDetectTimer(ctx, txTimer, detectTimer)
+			s.timerEvent.finish(s.metrics)
 		case <-s.updateWake:
 		case <-updateTimer.C:
 		}
@@ -247,6 +244,7 @@ func (s *Session) sendControl(ctx context.Context) {
 		s.recordAdminDrainSendError(err)
 		return
 	}
+	s.timerEvent.effect(s.metrics, TimerControlTX, time.Now())
 	if final {
 		s.pendingFinal = false
 	} else if s.pollActive {
@@ -288,6 +286,7 @@ func (s *Session) handleDetectTimer(
 	// notification; a Passive session stays silent because bfd.RemoteDiscr is
 	// now zero (Section 6.8.7).
 	s.mu.Lock()
+	s.timerEvent.validatedRemoteDiscriminator = s.remoteDiscr
 	s.remoteDiscr = 0
 	s.remoteMinRxInterval, s.remoteDemandMode = initialRemoteMinRx, false
 	s.mu.Unlock()

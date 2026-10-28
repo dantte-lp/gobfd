@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
+	"github.com/dantte-lp/gobfd/internal/config"
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 	"github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
 )
@@ -43,6 +44,7 @@ var (
 type MicroBFDServer struct {
 	manager *bfd.Manager
 	logger  *slog.Logger
+	enabled bool
 }
 
 var _ bfdv1connect.MicroBFDServiceHandler = (*MicroBFDServer)(nil)
@@ -51,10 +53,12 @@ var _ bfdv1connect.MicroBFDServiceHandler = (*MicroBFDServer)(nil)
 func RegisterMicroBFD(
 	rpc *connect.Server,
 	mgr *bfd.Manager,
+	enabled bool,
 	logger *slog.Logger,
 ) {
 	srv := &MicroBFDServer{
 		manager: mgr,
+		enabled: enabled,
 		logger:  logger.With(slog.String("component", "micro-bfd-server")),
 	}
 	bfdv1connect.RegisterMicroBFDServiceHandler(rpc, srv)
@@ -65,6 +69,10 @@ func (s *MicroBFDServer) AddMicroBFDGroup(
 	ctx context.Context,
 	req *bfdv1.AddMicroBFDGroupRequest,
 ) (*bfdv1.AddMicroBFDGroupResponse, error) {
+	if !s.enabled {
+		err := config.ErrMicroBFDPreviewDisabled
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err.Error()).WithCause(err)
+	}
 	cfg, err := microBFDConfigFromProto(req)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)

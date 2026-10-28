@@ -216,11 +216,8 @@ jobs:
           path: /go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
-      - name: Run benchmarks (PR)
-        run: go run ./test/cmd/cictl benchmark-run --output new.txt
-
-      - name: Run benchmarks (base)
-        run: go run ./test/cmd/cictl benchmark-base --output old.txt
+      - name: Run paired benchmarks (base and PR)
+        run: go run ./test/cmd/cictl benchmark-pair --old old.txt --new new.txt
 
       - name: Normalize renamed benchmarks and validate inputs
         run: go run ./test/cmd/cictl benchmark-normalize --old old.txt --new new.txt
@@ -299,7 +296,7 @@ jobs:
           exit-code: "1"
 
       - name: Upload Trivy SARIF
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         if: always()
         with:
           sarif_file: trivy-results.sarif

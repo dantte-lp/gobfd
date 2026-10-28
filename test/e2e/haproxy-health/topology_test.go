@@ -24,6 +24,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/dantte-lp/gobfd/test/internal/containertest"
+	"github.com/dantte-lp/gobfd/test/internal/interopproject"
 	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
 
@@ -31,6 +32,8 @@ type haproxyHealthTopology struct {
 	contract                     haproxyHealthContract
 	endpoint, root               string
 	runID, reportDir             string
+	revision, buildDate          string
+	imageProvenance              map[string]map[string]string
 	networkName                  string
 	containerNames, containerIDs []string
 	containers                   []namedContainer
@@ -124,6 +127,10 @@ func newHAProxyHealthTopology(t *testing.T, endpoint string) *haproxyHealthTopol
 	t.Helper()
 	root := repositoryRoot(t)
 	runID, reportDir := haproxyReportDirectory(t, root)
+	revision, buildDate, err := interopproject.BuildMetadata(t.Context(), root, os.Getenv("GOBFD_BUILD_REVISION"))
+	if err != nil {
+		t.Fatalf("resolve HAProxy image provenance: %v", err)
+	}
 	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
 	if err != nil {
 		t.Fatalf("create exact-endpoint Podman client: %v", err)
@@ -131,6 +138,7 @@ func newHAProxyHealthTopology(t *testing.T, endpoint string) *haproxyHealthTopol
 	topology := &haproxyHealthTopology{
 		contract: newHAProxyHealthContract(root), endpoint: endpoint, root: root,
 		runID: runID, reportDir: reportDir, client: client,
+		revision: revision, buildDate: buildDate,
 		roleContainers: make(map[string]testcontainers.Container),
 	}
 	if err := topology.initializeResourceEvidence(); err != nil {
@@ -324,6 +332,7 @@ func (topology *haproxyHealthTopology) startNginx(
 	t.Helper()
 	return topology.startContainer(ctx, t, role, testcontainers.ContainerRequest{
 		Image: topology.contract.nginxImage, Networks: []string{topology.networkName},
+		Env:          map[string]string{"NGINX_ENTRYPOINT_WORKER_PROCESSES_AUTOTUNE": "1"},
 		ExposedPorts: []string{haproxyHTTPPort},
 		Files: []testcontainers.ContainerFile{{
 			Reader:            strings.NewReader(identity + "\n"),
@@ -389,7 +398,7 @@ func (topology *haproxyHealthTopology) startContainer(
 	if err := topology.recordOwnedContainer(name, ""); err != nil {
 		return nil, err
 	}
-	testContainer, err := containertest.Run(ctx, t, request)
+	testContainer, err := containertest.Run(ctx, t, haproxyContainerRequest(request))
 	var recordErr error
 	if testContainer != nil {
 		topology.containers = append(topology.containers, namedContainer{name: role, container: testContainer})
@@ -401,6 +410,19 @@ func (topology *haproxyHealthTopology) startContainer(
 		err = fmt.Errorf("start HAProxy health %s container: %w", role, err)
 	}
 	return testContainer, errors.Join(err, recordErr)
+}
+
+func haproxyContainerRequest(request testcontainers.ContainerRequest) testcontainers.ContainerRequest {
+	modifyRole := request.HostConfigModifier
+	request.HostConfigModifier = func(config *container.HostConfig) {
+		if modifyRole != nil {
+			modifyRole(config)
+		}
+		config.CPUPeriod, config.CPUQuota = 100000, 100000
+		config.Memory, config.MemorySwap = 256<<20, 256<<20
+		config.PidsLimit = new(int64(128))
+	}
+	return request
 }
 
 func (topology *haproxyHealthTopology) labels(role string) map[string]string {
@@ -700,9 +722,28 @@ func (topology *haproxyHealthTopology) assertRuntimeContract(ctx context.Context
 		if err != nil {
 			return fmt.Errorf("inspect %s mount contract: %w", item.name, err)
 		}
+		if err := validateHAProxyResources(item.name, inspection.HostConfig); err != nil {
+			return err
+		}
 		if len(inspection.Mounts) != 0 {
 			return fmt.Errorf("%s mounts = %+v, want no host mounts", item.name, inspection.Mounts)
 		}
+	}
+	return nil
+}
+
+func validateHAProxyResources(role string, config *container.HostConfig) error {
+	if config == nil {
+		return fmt.Errorf("exact %s runtime container has no host configuration", role)
+	}
+	pids := int64(0)
+	if config.PidsLimit != nil {
+		pids = *config.PidsLimit
+	}
+	if config.CPUPeriod != 100000 || config.CPUQuota != 100000 ||
+		config.Memory != 256<<20 || config.MemorySwap != config.Memory || pids != 128 {
+		return fmt.Errorf("exact %s runtime limits: CPU %d/%d, memory %d, memory+swap %d, PIDs %d",
+			role, config.CPUQuota, config.CPUPeriod, config.Memory, config.MemorySwap, pids)
 	}
 	return nil
 }

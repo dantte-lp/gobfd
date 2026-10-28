@@ -261,8 +261,9 @@ func runFakeGo() {
 }
 
 func runSecureFileHelper(path string) {
-	syscall.Umask(0o777)
+	previousMask := syscall.Umask(0o777)
 	file, err := secureFile(path)
+	syscall.Umask(previousMask)
 	if err == nil {
 		err = file.Close()
 	}

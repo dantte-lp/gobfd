@@ -1,5 +1,670 @@
 # GoBFD Roadmap
 
+Executable plans, priorities, dependencies and acceptance criteria live
+exclusively in Beads. This page is a dated status projection and historical
+record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
+
+## Authorized source delivery — 2026-10-28
+
+The maintainer authorized reviewing issue #88, integrating the accumulated
+source and open pull requests into `dev`, and retiring merged topic branches.
+Beads `gobfd-3e4` records this bounded authorization and its measured outcome.
+The earlier source/Dolt publication hold below is superseded for this operation;
+hosted workflow dispatch and release publication remain outside its scope.
+Validation stays local to conserve Actions minutes. Stable branches, tags and
+backup refs remain preserved. Issue #88 stays P2/after-v1 under `gobfd-5w0`.
+
+## Earlier local source integration — 2026-10-28
+
+Local consolidation is complete at
+`dev@b3ebbf91da2c26b076a37014ea826a19234b33c3`: 41 reviewed branch heads and
+three dirty-source snapshots are reachable, 220 obsolete local branch names
+and nine linked working trees are retired. Backup refs and archived evidence
+are retained. Unfinished netlink and Micro-BFD drafts remain after-v1 and are
+not active in the qualified source tree. Beads `gobfd-cs8` now owns the
+age-qualified Debian base refresh and its image/security acceptance.
+
+Package lifecycle acceptance is included in local `dev` at
+`50b79943e69a2a82dcc9a768d5f0ff8153e3a4fc`: Debian 13 installation, two
+version-only upgrades and active/enabled removal pass; both RPM architectures
+have native lifecycle programs and valid complete CPIO sizes. These fixtures
+qualify package phases and idempotence, not upgrades between daemon versions.
+
+The maintainer requested consolidation of local branches into `dev` and
+retirement of their working copies. The preferred unpin patch
+`dbbf0590b6ae2385af7241d3264b54309ba26164` is integrated as source. Native
+1,000-session Control/Echo A/B, the reference/24-hour run, final wire,
+Kubernetes and final security acceptance remain open. Publication stays on hold.
+Superseded drafts and unfinished after-v1 work retain recovery snapshots;
+Beads `gobfd-qj0.8.2.8.5.3.7` records their disposition and resume points.
+
+## Publication boundary — 2026-10-27
+
+The latest accepted local source baseline is
+`dev@43b5e5b326bff5bae0090efd3eb22ea924d276e1`. E2E runtime setup and diagnostics
+are Go-owned under closed `gobfd-qj0.8.2.8.2.2.8.4`; hosted-runner qualification
+remains separate from the accepted local source and critical fixtures.
+Echo owner-expiry witnesses, the real owner/independent UDP-return driver and
+typed workload assessment are accepted at
+`12cc9982c19df609f09291bb240797498de5de0b`,
+`7839788b04d016019e0498db26149f7735ba84bc` and
+`0973ae16432649d1d779ef79fb668420c5495a53`; the baseline adds the shared
+notification-queue population budget. The bounded actual-UDP Control/Echo
+160/240 matrix passes 8/8 cells across both sides with zero raw queue loss,
+subscriber gaps or stale dispatch. These results do not qualify native
+1,000-session/24h operation, timer p99.9, thread/RSS distributions or late timers.
+The held Containerlab candidate `4852538df409e0b0309b89505b6dc88861a49540`
+is receiving this accepted `dev` baseline for qualification. The current merge
+working tree is uncommitted and unaccepted; its historical source checks do not
+qualify the refreshed composite. Actual native FRR and strict wire/timer
+qualification must pass on the exact composite before candidate integration
+into `dev` under `gobfd-qj0.8.2.8.5.2.7.3.4`.
+Pending activation implementation `gobfd-qj0.8.2.2.6` is closed after acceptance
+of its six required children. Optional interface-validation consolidation
+`gobfd-qj0.8.2.2.6.5` (P2) and global VNI reload `gobfd-qj0.8.2.2.6.6` (P3)
+remain unchanged in post-v1 backlog `gobfd-qj0.8.7`; global VNI defaults still
+require restart. Thread-pin A/B, calibrated reference/24h, final wire and
+security qualification remain open in their existing Beads tasks. Publication
+remains held. The previous dated projection is preserved below.
+
+## Publication boundary — 2026-10-26
+
+This projection covers local
+`dev@1c535f9ac1de7a12f7d85054a9d0fe81216f02c0`. Owner-monotonic Down
+commit witnesses are accepted under `gobfd-qj0.8.2.1.6.3.4.3.6.2.1` and
+[ADR-0012](adr/0012-owner-down-transition-witness.md). The engineering schedule
+places full blackhole windows lasting one second at minutes 10 and 20 inside
+its 30 minutes of measurement; source acceptance is recorded under
+`gobfd-qj0.8.2.1.6.3.4.3.6.3` and [ADR-0007](adr/0007-workload-phase-accounting.md).
+Source checks, bounded UDP fixtures and samples with zero allocations do not
+qualify engineering with 5,000 sessions or reference with 1,000 sessions for
+24 hours.
+Scalar incarnation binding is accepted under
+`gobfd-qj0.8.2.1.6.3.4.3.6.2.2`; independent causal classification remains open
+under `gobfd-qj0.8.2.1.6.3.4.3.6.2`.
+The [release retrospective](audits/2026-10-26-release-retrospective.md)
+compares the previous audit with current code and Beads. Its engineering
+estimate is 40–65 active hours plus the required 24-hour reference run;
+the planning window is 30 October–1 November, subject to the stated native
+qualification risks and external waiting. Execution remains in Beads.
+Actual peer blackhole journaling is accepted under
+`gobfd-qj0.8.2.1.6.3.4.3.6.1`; causal correlation remains separate. Paired benchmark
+collection is accepted under `gobfd-qj0.8.2.8.8.1`; it does not qualify native
+performance. Intentional/false-Down correlation remains open under
+`gobfd-qj0.8.2.1.6.3.4.3.6`. Vulnerability-audit diagnostic
+completeness is accepted under `gobfd-qj0.8.2.8.10`; this does not close
+security qualification. Micro-BFD dispatch logging
+is accepted under `gobfd-qj0.8.2.8.6.3.2.3.1`; inline authentication payload
+is accepted under `gobfd-qj0.8.2.8.6.3.2.2`. Value metadata and immutable-wire
+verification are accepted under `gobfd-qj0.8.2.1.18` and `gobfd-qj0.8.2.1.18.1`;
+fixed digest results are accepted under `gobfd-qj0.8.2.8.6.3.2.1`.
+UDP source corrections are accepted under `gobfd-qj0.8.2.1.16.1`.
+Strict NetworkManager replies and
+profile ownership checks are accepted under `gobfd-qj0.8.2.2.11` and
+`gobfd-qj0.8.2.2.9`; property reads and Linux connection setup are accepted
+under `gobfd-qj0.8.2.2.10` and `gobfd-qj0.8.6.2.1`. The shared reply decoder
+rejects coercible types and wrong arity while retaining property sentinels.
+The UDP constructor rejects invalid source ports before options or socket
+creation; Linux TTL/Hop Limit and packet-info indices use native byte order.
+Native `linux/amd64` and `linux/arm64` qualification remains separate in
+`gobfd-qj0.8.2.1.16.2`; intended architecture support is unchanged.
+Authentication metadata and its bounded payload are held by value; hash
+verification preserves decoded wire. [ADR-0011](adr/0011-bfd-auth-inline-payload.md)
+records inline ownership and the separate qualification boundary.
+The 31-pair publication review is accepted under
+`gobfd-qj0.8.2.8.7.2.20`. API loopback fixtures and benchmark failure propagation
+are accepted locally under `gobfd-qj0.8.2.3.9` and
+`gobfd-qj0.8.2.8.7.2.5.1`; the affected English and Russian pages are updated.
+
+The Containerlab compiler/runtime and strict wire/timer changes remain separate
+in candidate `4852538df409e0b0309b89505b6dc88861a49540`. Its source acceptance
+includes CLI/API engine binding, mandatory FRR verdicts and compiler checkpoint
+recovery. The 635 named passes apply to its frozen tree, not to later `dev`
+changes. Native FRR qualification and candidate integration into `dev` remain
+open; local parser and Debian artifact-loader checks do not replace them.
+Its source combines baseline `1a3a0cb7e084d5b1fa1a5ed486fd378dd374c73a`
+with isolated Containerlab implementation
+`a14375c3ccca2c4e5e9f173e86d770ac0105d26e`, retaining the Kubernetes
+loopback/probe and Podman output-header fixes. The verdict, compiler checkpoint
+and engine-binding source fixes are accepted under
+`gobfd-qj0.8.2.8.5.2.7.3.4.1`, `gobfd-qj0.8.2.8.5.2.7.3.4.3` and
+`gobfd-qj0.8.2.8.5.2.7.3.4.4`.
+
+Publication remains held. Reference-load/24h, thread-pin A/B, final wire,
+integration and security qualification remain separate gates under
+`gobfd-qj0.8.2.6`. Alpha readiness `gobfd-qj0.8.2.6.4` does not yet provide a
+prerelease path. Beads, rather than this dated projection, owns their status.
+
+| Area | Current boundary | Beads authority |
+|---|---|---|
+| Documentation | The 31-pair English/source and Russian publication audit is accepted locally; later benchmark, NetworkManager and isolated Containerlab source documentation is updated separately | `gobfd-qj0.8.2.8.7.2.19`, `gobfd-qj0.8.2.8.7.2.20`, `gobfd-qj0.8.2.8.7.2` |
+| Management/reload | Unsafe-loopback policy changes reject before candidate acceptance; core pending activation is accepted locally; the parent retains separate P2 interface-validation and P3 runtime-VNI work | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6`, `gobfd-qj0.8.2.2.6.5`, `gobfd-qj0.8.2.2.6.6` |
+| Sender recovery | Same-socket IPv4/IPv6 rebind and denied-privilege failure pass locally; matching named scope no longer increases packet-loop allocations after recreation | `gobfd-qj0.8.2.2.6.7` |
+| Pending qualification | Typed reason classes and active-address checks retain generation, claims and sockets; all-five periodic resource checks also cover missing monitor events; local process evidence remains separate from final release qualification | `gobfd-qj0.8.2.2.6.8`, `gobfd-qj0.8.2.2.6.8.1`, `gobfd-qj0.8.2.2.6.8.2` |
+| Echo ownership | Idempotent principal claims share a canonical wire with config and retain RX through config withdrawal; this is management policy, not returned-packet authentication | `gobfd-qj0.8.2.2.8` |
+| Smallstep | Existing-certificate renewal locally qualified against a real CA with an isolated dependency profile; enrollment, scheduling, reconnect and root rollover remain separate post-v1 lifecycle work | `gobfd-qj0.8.2.3.7`, `gobfd-qj0.8.2.3.7.4`, `gobfd-qj0.8.2.3.7.5` |
+| Containerlab | The isolated candidate has the shared FRR recipe and schema-3 ownership/recovery guards; five NOS retain unavailable qualification with an explicit execution policy; native FRR and final integration remain open | `gobfd-qj0.8.2.8.5.2.7.3`, `gobfd-qj0.8.2.8.5.2.7.3.2`, `gobfd-qj0.8.2.8.5.2.7.4` |
+| Containerlab compiler/runtime | Fresh compilation is separated from engine-enabled execution; CLI/API IDs and owner/run labels are rechecked against the original receipt before preparation and runtime entry; native FRR qualification and integration remain open | `gobfd-qj0.8.2.8.5.2.7.3.4`, `gobfd-qj0.8.2.8.5.2.7.3.4.4` |
+| Containerlab verdict/wire | Ten named PASS results and package PASS are mandatory; strict PCAP/typed timer fixtures pass locally, while real commands and native FRR evidence remain unqualified | `gobfd-qj0.8.2.8.5.2.7.3.4.1`, `gobfd-qj0.8.2.8.5.2.7.3.5` |
+| NetworkManager | Context-bound setup, active/cached ownership with UUID bindings and exact reply types/arity are accepted locally; live ownership and member-wire acceptance remain open | `gobfd-qj0.8.2.2.10`, `gobfd-qj0.8.2.2.9`, `gobfd-qj0.8.6.2.1`, `gobfd-qj0.8.2.2.11` |
+| UDP transport | Constructor source-port validation and native-endian ancillary decoding are accepted locally; native architecture evidence remains separate | `gobfd-qj0.8.2.1.16.1`, `gobfd-qj0.8.2.1.16.2` |
+| Authentication | Inline payload preserves independent packet copies; built-in Sign/Verify and the authenticated owner fixture report zero allocations; Micro-BFD dispatch and final runtime acceptance remain separate | `gobfd-qj0.8.2.8.6.3.2.2`, `gobfd-qj0.8.2.8.6.3.2.3`, `gobfd-qj0.8.2.8.6.3.2` |
+| Micro-BFD dispatch | Typed logging samples report zero allocations without an actuator, including enabled JSON; noop actuator retains four allocations for its bounded context; the complete allocation target remains open | `gobfd-qj0.8.2.8.6.3.2.3.1`, `gobfd-qj0.8.2.8.6.3.2.3` |
+| Echo preview | Declarative and API IPv4/IPv6 TX binding, UDP/3785 and lease cleanup pass local checks; API receive claims honor the requested interface; full RFC qualification remains open | `gobfd-qj0.8.2.1.19`, `gobfd-qj0.8.2.1.17` |
+| Legacy demos | HAProxy/Kubernetes CLI and pod-selector drift require source fixes and actual execution | `gobfd-qj0.8.2.8.7.1.4.1` |
+| Kubernetes API exposure | Source binds GoBGP API to loopback and uses bounded exec API probes; live-cluster probe and resource qualification remains open | `gobfd-qj0.8.2.8.7.1.4.1.1` |
+| Runtime | Bounded CPU, GC, scheduler and fixed-manifest churn fixtures exist; calibrated distributions, clock qualification and thread-pin A/B remain incomplete | `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7` |
+| Wire/integrations | Retained development slices do not replace final exact-candidate qualification | `gobfd-qj0.8.2.2.7.5.5`, `gobfd-qj0.8.2.8.5.2` |
+| Security | The unsafe mutation opt-in is restricted to verified plaintext loopback TCP; TLS clients without a recognized principal cannot mutate. Local guard/CA regressions remain separate from final candidate security evidence | `gobfd-qj0.8.4.1`, `gobfd-qj0.8.2.3.8` |
+
+Oracle Linux 10 is outside v1 OCI/lifecycle scope; generic RPM generation and
+historical v0.6 evidence remain. These status rows neither close their owners
+nor create an executable plan. Use Beads for current priorities and acceptance.
+
+## Documentation acceptance history — 2026-10-25
+
+This projection describes local `dev` implementation, not published stable
+delivery. The full 30-pair source and translation audit is accepted at
+`f88872cc44c0422844cc52d61eb8e616d26335fe` under
+`gobfd-qj0.8.2.8.7.2.9`; workload report corrections follow at
+`308ce357f2c553fe71210f7888cf422c30f44f7b` under
+`gobfd-qj0.8.2.8.7.2.10`. The complete 31-pair documentation review is accepted
+at `dev@93b8d19867edd3731f1a964d37c2badefd6c6a68`, including Echo API transport,
+principal claims and the sender recovery regression boundary. Echo ownership
+is accepted locally under `gobfd-qj0.8.2.2.8` and
+[ADR-0009](adr/0009-echo-principal-claims.md). The sender follow-up uses verified
+socket device scope for matching named IPv6 zones: the native combined packet
+loop retains 3 allocations before and after two recreations, replacing the
+historical rise to 51. This is local fixture evidence, not whole-daemon or
+reference-load acceptance. Unrelated unmerged work is outside this projection.
+The documentation revalidation `gobfd-qj0.8.2.8.7.2.16` is accepted locally at
+`bb244a6d42a35f6c968ecd9fedf4354b86a95754`. The next source change,
+`abad22b2d9bd72042d337cdbee104f45946375c5`, replaces the Containerlab receipt
+writer atomically; its documentation review is accepted at
+`b944151bec08c44bdf0514e5945f257f0404c0dd` under
+`gobfd-qj0.8.2.8.7.2.17`. The subsequent transport authorization fix is
+accepted at `f43c9b5d87247cfdcee7aa5ac8414fb4515bf90f` under
+`gobfd-qj0.8.2.3.8`; `gobfd-qj0.8.2.8.7.2.18` is accepted at
+`29828d0723ce04e79eb52ab773cbe9aaea6ea107` after the English/source review
+and Russian translation. That review corrects
+MPLS/VCCV support claims, configuration and health semantics, HAProxy timing
+and the disclosed Containerlab/compiler and Kubernetes listener boundaries.
+The Kubernetes source correction is accepted at
+`041f571babed7c60a37169f98a00218fca5be19a`: GoBGP listens on loopback and
+bounded exec probes query its local API. Isolated native-process checks do
+not close live-cluster, peer-load or resource qualification. The follow-up
+`gobfd-qj0.8.2.8.7.2.19` revalidates the publication pages against this source
+and documents the unmerged Containerlab compiler/runtime changes separately.
+These documentation gates are separate from release qualification; later
+accepted source changes require review of the affected pages. Publication
+remains held; alpha readiness
+`gobfd-qj0.8.2.6.4` does not yet provide a prerelease path.
+
+The publication closeout `gobfd-qj0.8.2.8.7.2.14` is accepted at
+`d57e9ef277d477c0626d99279c83c29f668a5897`: 33 Markdown files, 31 EN/RU pairs,
+1018 local links and zero link failures. English/source corrections precede
+Russian translation. The pending-source follow-up updates configuration,
+monitoring, ADR-0006 and both changelogs against its own source and process
+evidence in `reports/pending-daemon-20261025/`. Earlier false-readiness and
+counts-only reason receipts remain historical defect evidence. This local
+work does not qualify calibrated/reference load, 24h, final wire or release.
+
+The pending-source follow-up is accepted at
+`7bd3bbaf8374f96301a93f2af2be9c4576608236`; its local process checks close
+`gobfd-qj0.8.2.2.6.8`. The current documentation baseline is reconciled under
+`gobfd-qj0.8.2.8.7.2.15`. Open parent counts do not represent the number of
+remaining v1 defects; use each child's scope, priority and acceptance criteria.
+
+## Down-journal source accounting — 2026-10-25
+
+`gobfd-qj0.8.2.1.6.3.4.3.5` adds lifetime source/notification accounting
+through joined owner shutdown. Final retained FSM `Up`→`Down` counts must
+equal observed before/after-cutoff notifications; only `[start,end)` events
+enter the measured journal. Missing notifications, gaps, omitted rows and
+invalid source counters fail completeness. Normal post-window flaps remain
+accounted without contaminating measurement rows. Existing production counters
+are reused without changing the BFD hot path.
+
+Evidence and acceptance belong to the Beads issue and
+`reports/workload-down-cutoff-20261025/`. This boundary does not classify
+intentional versus false Down, establish calibrated commit timestamps or
+close reference/24h, engineering-scale, thread-pin, wire or security gates.
+
+## Session-churn workload fixture — 2026-10-24
+
+`gobfd-qj0.8.2.1.6.3.4.3.4` adds default-off real final-claim retirement and
+recovery inside the existing owner workload. The independent-process mixed
+IPv4/IPv6 fixture passes in 56.18 s with an 11-second measurement window:
+two releases, two creations and two observed recoveries. Both peers record
+two Up transitions. For each cycle, actual known-peer/active registrations
+change from 2 to 1 and back to 2; two session and eight packet metric series
+remain retained. One insufficient trailing cycle is explicitly skipped.
+
+The lifetime ledger settles 190 successful peer writes as 174 commits and
+16 unknown-session terminal rejections. Retired generations account for 73
+commits and current generations for 101. All four owned containers are removed;
+the runner peaks at 216944640/536870912 bytes with zero max/OOM events and swap.
+Evidence: `reports/workload-churn-20261024/`.
+
+This fixed-manifest fixture neither introduces arbitrary unique peer labels nor
+qualifies reference distributions, scale, total clock uncertainty or stable
+delivery. The worker requires actual recovery, bounds waiting for Up and joins
+before measurement freeze. Down events outside the measurement interval are
+excluded. Reference/engineering runs, calibrated loss/blackhole/stress
+distributions, thread-pin A/B and final-candidate wire/security gates remain open.
+
+## Scheduler-pressure workload fixture — 2026-10-24
+
+`gobfd-qj0.8.2.1.6.3.4.3.3` adds bounded default-off compute/yield workers
+inside the existing owner quota. The local mixed IPv4/IPv6 independent-process
+fixture passes in 47.57 s: 79 lifetime peer writes settle as 79 owner commits.
+Four helpers complete 7680 rounds/yields in 120 worker windows and all join
+before measurement freeze. The process scheduler histogram retains 1094
+window samples; production timer and committed-RX histogram counts increase
+by 130 and 69 respectively. These window deltas exclude the initial snapshot;
+the lifetime packet ledger includes setup/drain.
+
+All four owned containers are removed. The runner peaks at
+293404672/536870912 bytes with zero max/OOM events and swap. Evidence:
+`reports/workload-scheduler-20261024/`. Yield calls do not establish OS context
+switches or queue depth; these process observations are not calibrated
+reference distributions. Clock uncertainty remains unknown and reference
+qualification false. At this checkpoint the churn driver was still pending;
+its later fixture is recorded above. Thread-pin A/B, calibrated distributions,
+reference/engineering runs and final-candidate wire/security gates remain open.
+
+## GC-pressure workload fixture — 2026-10-24
+
+`gobfd-qj0.8.2.1.6.3.4.3.2` adds an explicit default-off allocation variant
+inside the existing owner quota and common phase. The local mixed IPv4/IPv6
+independent-process fixture passes in 47.93 s: 79 peer writes settle as 79
+owner commits. In its three-second window, the helper allocates 125829120
+bytes in 1920 objects/30 batches, retains at most 256 references and drops the
+256 remaining references before measurement freeze. The owner observes nine
+process GC cycles and 18 pause samples at `GOGC=100`. All four owned containers
+are removed; the runner peaks at 220823552/536870912 bytes with zero max/OOM
+events and swap. Evidence: `reports/workload-gc-20261024/`.
+
+These are fixture observations, not calibrated reference distributions or
+sole-helper GC causality. Clock uncertainty remains unknown and reference
+qualification remains false. At this checkpoint scheduler/churn drivers were
+still pending; their later fixtures are recorded above. Calibrated distributions,
+thread-pin A/B, admitted reference/engineering runs and final-candidate wire
+gates remain open.
+
+## Historical checkpoints
+
+The following dated records retain their original scope and measurements.
+An old statement of remaining work or a closed development slice does not
+override the current code, Beads state or stable delivery boundary.
+
+<details>
+<summary>Expand dated development and release checkpoints</summary>
+
+## Alpha proposal and remote runner admission — 2026-10-24
+
+The maintainer proposes `v1.0.0-alpha.1` and authorizes a new qualification VM
+through `um-gate/netlab2`. Read-only admission confirms the intended hypervisor,
+128 logical CPUs, approximately 184 GB available memory and 2.58 TB free storage.
+No new VM or detached workload has been created. P0
+`gobfd-qj0.8.2.1.6.3.4.4.1` owns isolated Pulumi provisioning and actual guest
+admission. Moving the current candidate does not fix its per-session thread
+pinning or establish final 24-hour acceptance.
+
+[ADR-0008](./adr/0008-experimental-prerelease-boundary.md) proposes the separate
+experimental channel. P0 `gobfd-qj0.8.2.6.4` owns alpha acceptance and delivery;
+current release preflight/notes still reject prerelease tags. Typed pending
+activation, unsafe loopback policy reload, remaining stress profiles,
+integration/security acceptance and final qualification remain unclosed.
+An alpha proposal is not a stable release or permission to publish remotely.
+
+## CPU-pressure workload receipts — 2026-10-24 10:31 UTC
+
+P0 `gobfd-qj0.8.2.1.6.3.4.2` connects requested owner CPU duty to bounded
+workers and actual thread CPU-time receipts. The existing independent-process
+IPv4/IPv6 fixture passes in 52.08 s: 79 writes equal 79 commits; one worker
+records 751118863 ns CPU over 3000044323 ns wall time, with all 30 duty windows
+completed and none missed. The scheduled epoch matches the owner measurement;
+all four containers are absent after cleanup. Runner peak is 229322752 bytes
+under 512 MiB, with zero max/OOM events and swap. Evidence:
+`reports/workload-cpu-20261024/`. The updated critical race suites pass 82
+tests with no skips; scoped lint reports zero issues.
+
+The 25% fixture does not qualify a held 80% reference load, clock accuracy,
+supported scale or stable delivery. Remaining GC/scheduler/loss/churn profiles
+belong to P0 `gobfd-qj0.8.2.1.6.3.4.3`; admitted reference resources and all
+parent distributions remain required before regression policy, thread-pin A/B
+and final wire/24-hour qualification. Beads remains the executable authority.
+
+## Baseline task admission — 2026-10-24
+
+P0 `gobfd-qj0.8.2.1.6.3.4.1` adds the missing PID-limit preflight before
+named owner profiles create sessions. Every visible ancestor must retain
+`sessions + 64` additional tasks; missing data and insufficient headroom fail
+closed. The original admission accepted all five deliberately invalid cases;
+the corrected critical race suites pass 76 tests. Evidence:
+`reports/workload-admission-20261024/`. [ADR-0007](./adr/0007-workload-phase-accounting.md)
+defines this conservative baseline policy separately from capacity reservation.
+
+Reference distributions remain P0 in `gobfd-qj0.8.2.1.6.3.4`. The current
+shared runner has no admitted 8 GiB reference headroom; at this checkpoint the
+80% CPU field had no pressure-generator receipt. Full CPU/GC,
+scheduler, loss, churn and clock-validity evidence, regression policy,
+thread-pin A/B and final four-profile wire qualification remain mandatory.
+No reduced fixture or admission-only result closes those gates.
+
+## UDP workload phase integration — 2026-10-24
+
+P0 `gobfd-qj0.8.2.1.6.3.3` resumes the preserved workload implementation in
+`task/udp-resume-20261024`. The common phase now reaches both CLI roles and the
+existing owned topology: measurement ends before peer join and bounded owner
+drain. Critical race suites pass 71 tests, including refusal of an unaccounted
+write; scoped lint and the canonical dependency-inventory check pass. The
+required-Podman missing-binary path has a retained RED/GREEN check and now fails
+instead of silently skipping. [ADR-0007](./adr/0007-workload-phase-accounting.md)
+states the accounting and clock boundaries.
+
+The independent-process IPv4/IPv6 fixture passes in 47.98 s: 79 writes equal
+79 commits; repeated setup changes assigned/existing counts from 4/0 to 0/4 in
+the same private namespace; all four containers are removed. Runner peak is
+293216256 bytes under 512 MiB, with zero max/OOM events and swap. Both process
+reports retain `reference_qualified=false` and unknown total clock uncertainty.
+Corrective snapshot-presence assertions have a retained mutation RED/GREEN;
+malformed-peer JSON fails with retained diagnostics and four container removals.
+The corrected normal fixture passes in 47.67 s with the same 79/79 ledger and
+runner peak 203628544 bytes. Implementation is locally accepted at
+`b2e68ad2a13824a05a9b92528fe55c9a8d4fd6d1`: 73 critical race tests, lint, vet,
+tidy, 90 Markdown files, English spelling, inventory and fresh scanner pass;
+independent whole-branch review has no open findings. Evidence:
+`reports/udp-resume-20261024/`.
+Reference profiles, regression policy and thread-pin A/B stay P0 before the final
+four-profile wire gate. No supported-scale or stable-release claim follows.
+
+## Unified qualifier corrections — 2026-10-24
+
+The existing default FourPeer gate passes in 429.47 s on
+`task/final-wire-20261024@e4e79a8eee8e7c38bfc78321bdc5e9030909c214`:
+10 scenarios, initial Down and DetectionPrecision both executed, measured
+detection gap 0.901 s. The sole RFC skip is the source-backed BIRD Linux
+source-port range deviation. All six first-party image IDs and nine required
+annotations per image survive cleanup as artifacts; the images themselves are
+absent. All 867 source hashes and 310 artifact sidecars match; 14 readiness
+probes return 28 SERVING results. Runner peak is 414269440 bytes under the
+unchanged 512 MiB cap, with zero max/OOM events and swap.
+
+Final unified qualification remains P0 after committed-load and Session/Echo
+thread-pin work (`gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7`). Repeat all four
+profiles on the resulting production candidate; this development receipt does
+not replace final scale, security, OCI or stable-release qualification.
+
+P0 `gobfd-qj0.8.2.2.7.5.5` remains in progress. Offline analysis of the retained
+capture reproduces the TShark read-limit defect: `-c 1` yields no matching row,
+whereas the same filter without it yields 13 rows, beginning at frame 511.
+The qualifier limits decoded matching rows instead; missing initial Down and
+detection-expiry evidence now fails the mandatory assertions. The known BIRD
+source-port deviation remains separate. Evidence: `reports/final-wire-20261024/`.
+
+P0 `.5.5.2` extends the existing image builder to retain immutable IDs and nine
+allowlisted OCI annotations before cleanup. Critical race/shuffle tests verify
+the provenance boundary and bounded Podman JSON parsing, including duplicate
+members and invalid UTF-8 compatibility. Actual final-candidate topology runs,
+independent review, scale/latency and security qualification remain required.
+No stable-release or remote-publication acceptance is implied.
+
+## Multihop TTL wire qualification — 2026-10-24
+
+P0 `gobfd-qj0.8.2.2.7.5.4` passed local wire qualification on
+`task/ttl-wire-20261024@491b2214994f07e017eb93ab67a29a95378c619e`.
+The unchanged crafted baseline passes in 162.94 s; authenticated UDP/4784
+multihop passes in 81.98 s. Seven probes cover floors 254→250→254 in Async
+and remote Demand, then a rejected auth+hop-policy candidate. Each window
+rejects a previously accepted signed payload and a fresh below-floor Poll;
+its identical at-floor retry alone increments accepted RX and receives Final.
+One expected auth failure accounts for the deliberate replay. Initial
+identity/counter and authentication checkpoints span reloads and Demand entry;
+local Poll remains absent. Rejection retains generation 5/5 and floor 254.
+
+Both runners retain the 512 MiB cap, with peaks 380297216 and 388112384 bytes,
+zero max/OOM events and swap. All 863 source hashes and 212 artifact sidecars
+match; six exact image IDs are retained from engine events. Both health services
+remain SERVING. Source gates pass 73 interop/peer and 12 auth/expiry/log tests
+with race/shuffle, lint, vet, compilation, tidy and 88 Markdown checks.
+The first multihop run exposed duplicate `peer` log attributes; a one-line
+production fix preserves constructor-bound context and strict JSON ingestion.
+Both actual profiles were repeated on the corrected source. Independent review
+resolved two earlier counter/replay oracle gaps. Evidence:
+`reports/ttl-wire-20261024/`.
+
+P0 unified five-field `.5.5`, scale/latency and security gates remain mandatory
+before v1. `.5.5.1` owns a newly sourced `tshark -c` read-limit issue that may
+explain prior filtered-query SKIPs; actual reproduction and disposition remain
+required. Dynamic DF and key rotation remain after-v1 P2. No routed/cloud,
+general Demand, stable release or remote publication acceptance is asserted.
+P0 `.5.5.2` owns automated immutable image-ID/source-provenance retention in
+the existing shared qualifier before cleanup.
+
+## Prepared-padding wire qualification — 2026-10-24
+
+P0 `gobfd-qj0.8.2.2.7.5.3` passed local qualification on
+`task/padding-wire-20261024@b97729458a696aee21023ba147af51417ed9ff7b`.
+Default FourPeer passes in 451.84 s, meticulous SHA1 in 271.71 s and crafted
+Demand in 134.28 s. Eight resize phases and seven rejected candidates retain
+identity, source port, authentication continuity, counters and accepted
+generation as applicable. Seventeen peer windows check actual DF, raw UDP
+payload, declared BFD Length, zero padding and MAC boundary. Both aggregate
+and named BFD readiness remain SERVING. The independent peer keeps its own
+packet size; this is not bidirectional MTU or forwarding acceptance.
+
+All three runners retain the 512 MiB cap; peaks are 402780160, 425705472 and
+386764800 bytes, with zero max/OOM events and swap. All 853 source hashes and
+675 artifact sidecars match. Critical source contracts pass 44 top-level tests
+with race/shuffle; crafted-peer tests, lint, vet, compilation, module tidy and
+88 Markdown checks pass. A reviewed host-bind mismatch was replaced by copying
+the same compiled test executable through container files and probing the
+existing Unix socket inside the owned daemon. A full disposable compiler cache
+and scanner OOM were resolved using separate checks and a measured scanner
+`GOMEMLIMIT=1000MiB`, without raising the 2 GiB job cap.
+
+Evidence: `reports/padding-wire-20261024/`. Three baseline skips remain explicit:
+BIRD fixed source port, missing initial Down capture and missing baseline
+Down(diag=1) for DetectionPrecision. Final gate `gobfd-qj0.8.2.2.7.5.5` owns
+their disposition. P0 TTL `.5.4`, unified final-candidate `.5.5`, scale/latency
+and security gates remain mandatory for v1. The fresh scanner reports zero
+reachable/imported-package findings and two existing module-only advisories;
+`gobfd-qj0.8.4.1` retains their policy. Dynamic DF and auth rotation remain
+after-v1 P2. Beads owns current priorities and acceptance; no stable release
+readiness or remote publication is asserted.
+
+## Reload wire qualifier preparation — 2026-10-24
+
+`gobfd-qj0.8.2.2.7.5.2` is locally qualified on
+`task/detect-wire-20261024@d9e67064e51012c0d25a1a22dc9bd469600d8469`:
+authenticated FRR/BIRD3 Async DetectMult 1→5→3 and crafted remote-Demand 5→3
+pass actual capture, receipt, UDP/authentication and identity checks.
+The full four-peer gate passes in 346.02 s; crafted-peer passes in 84.94 s.
+Both retain the 512 MiB runner cap with peaks 112635904 and 68599808 bytes,
+zero max/OOM events and zero swap. Evidence: `reports/detect-wire-20261024/`.
+The existing baseline DetectionPrecision skip has no Down(diag=1) packets;
+it is not coverage and is tracked in final gate `gobfd-qj0.8.2.2.7.5.5`.
+The second existing skip records BIRD3's fixed source-port deviation from
+RFC 5881 §4; GoBFD's own source-port check passes independently.
+
+Critical source contracts pass 33 top-level tests with race detection; tagged
+lint/vet, compilation and 88 Markdown checks pass. Independent review's
+next-Control gap is fixed with observed RED/GREEN. The first crafted run's
+registry-buffer OOM is fixed by closed child `gobfd-qj0.8.2.2.7.5.2.1` using
+scoped queries, without raising the cap. ADR 0006 separates local receive,
+derived peer Async and local Demand Poll bounds; the crafted peer has no
+detection timer. P0 padding `.5.3`, TTL `.5.4` and unified final-candidate `.5.5`
+remain mandatory under `gobfd-qj0.8.2.2.7.5`; this is not stable acceptance.
+
+P0 `gobfd-qj0.8.2.2.7.5.1` extends the existing receipt qualifier with explicit
+immediate and Poll-phase expectations. Current timer and crafted-peer callers
+retain Poll semantics; direct convergence and owner-pending are both valid for
+immediate updates. Critical tagged contracts pass 22 top-level tests after an
+observed direct-convergence RED. This is harness preparation, not new wire or
+peer acceptance; parent `gobfd-qj0.8.2.2.7.5` remains mandatory P0.
+
+## Prepared rekey and source retention — 2026-10-24
+
+Reconciliation/rekey `gobfd-qj0.8.2.2.7.4`, Manager lifecycle
+`gobfd-qj0.8.2.2.7.4.1`, overlay lifecycle `gobfd-qj0.8.2.2.7.4.2` and
+lease-ref/preparation cleanup `gobfd-qj0.8.2.2.7.4.2.1` have completed local
+implementation and bounded Go qualification. Beads records local integration
+and task-closure receipts. The source prepares/claims resources
+before stale release, gated by zero Failed/ResourcePending independently of
+TimerPending. Fatal preparation rolls back new claims; resource-pending passes
+may retain disjoint new claims. The prepared receive-key swap is limited to
+unbound sole-config base SingleHop/MultiHop changes; other collisions fail
+before factory, with base admission before generation publication.
+
+Pre-publication cancellation keeps the old identity and cleans prepared
+resources once. Peer-visible cutover retires the actual old session through
+AdminDown/drain outside Manager/lifecycle locks; it does not promise hitless
+rollback. Overlay source-local preflight rejects unequal same-wire scopes
+against live/draining physical-session lease refs; an unused never-committed
+preparation may be superseded. Successful preflight prunes obsolete unused
+preparations before further claims, retaining existing current-desired scopes
+union positive lease refs. Registered-session refs persist through drain until
+idempotent close; unused/unpublished leases clean up once without drain.
+Incomplete acquire retains every live/draining exact scope/backend
+and skips that source's Manager apply/release. Disjoint supersets needed by the
+current desired set may remain for retry; neither global overlay admission nor all-source atomicity is claimed.
+
+Critical01 records 1049 top-level PASS, zero FAIL, five packages and two existing
+environment-dependent skips. Evidence: `reports/rekey-lifecycle-20261024/critical01.log`.
+Quality04 reports zero issues; vet01 and benchmark base/head exit 0. The
+allocation diff is empty across 27 selected budgets: 26 stay at zero allocation;
+authenticated unmarshal retains its existing 64 B/op and 1 alloc/op. The 577
+source-inventory checks match frozen critical input. Evidence remains in
+`reports/rekey-lifecycle-20261024/`; the Markdown gate checks 88 files.
+This is bounded local Go qualification, not all-wire, supported
+scale or stable-release acceptance.
+
+Packet-policy `gobfd-qj0.8.2.2.7.2` is closed on dev at
+`ef18750a2481d0126dff3fc399d2e8fe37bb6022`. Mandatory P0 actual-wire gate
+`gobfd-qj0.8.2.2.7.5` remains open and explicitly depends on `gobfd-qj0.8.2.2.7.4`.
+The existing wire harness must qualify all five reload fields before v1;
+source unit tests do not establish interoperability. Beads owns executable plans,
+commit receipts and priorities;
+older dated projections retain their historical scope.
+
+## Local receive-floor and prepared-padding reload — 2026-10-24
+
+`gobfd-qj0.8.2.2.7.2` extends stable sole-config base sessions with unchanged
+authentication to a five-field TX/RX/DetectMult/MinTTL/PaddedPduSize tuple and
+generation/revision receipts. The local multihop `255 - N` receive floor changes
+under `Session.mu` without Poll even under Demand; this is GoBFD policy, not an
+RFC 5883 receive-TTL requirement. Padding permits only positive-to-positive
+changes in Async on a sender proven DF-prepared at construction.
+
+`Manager.AdmitSessionReload` receives only `candidate.base`, preserves
+retained/live authentication checks and rejects unsupported base field/ownership
+policy before desired-generation, log-level
+or resource mutation. Owner revalidation rejects a queued padding tuple before
+any field commit if Demand activates. Growth prepares one waiting buffer at
+control admission; existing TX/RX Poll direction and queue semantics remain.
+`PaddingPrepared` is immutable preparation evidence, not socket liveness.
+
+The local frozen-source race run passed 1031 top-level tests in five packages;
+two existing namespace/capability-dependent cases remain separate. All 27
+selected baseline/head allocation budgets match. Evidence is retained in
+`reports/session-policy-20261024/`; this does not establish live peer/MTU or
+release acceptance. `gobfd-qj0.8.2.2.7.1` and `gobfd-qj0.8.2.2.7.3` are closed
+on dev; integration `gobfd-qj0.8.2.2.7.4` remains P0, and P1
+`gobfd-qj0.8.2.2.7.5` owns actual-wire qualification across all reload fields.
+Padding enable/disable and dynamic DF are after-v1 P2 `gobfd-ebu`, discovered
+from this slice and outside its v1 acceptance boundary; they do not block it.
+Key rotation remains after-v1 P2 `gobfd-khr`. Beads owns execution; earlier dated
+projections retain their historical scope.
+
+## Authentication reload admission — 2026-10-24
+
+`gobfd-qj0.8.2.2.7.3` implements admission for same-identity base authentication changes
+are checked against retained accepted desired state, including absent runtime,
+and the live Manager registry including API/shared owners. Unsupported
+enable/disable, algorithm, key IDs/material, selected TX key and receive-key-set
+changes are rejected before desired-generation publication, log-level/readiness
+changes, configured-peer callbacks or listener/sender resource application.
+Startup/new/removed identities and semantically identical fresh stores remain
+admissible. Claims acquired after acceptance still face normal fail-closed
+Manager apply; this is not whole-source atomicity or seamless rollback.
+
+Detect Multiplier child `gobfd-qj0.8.2.2.7.1` is closed on dev. P0 children
+`gobfd-qj0.8.2.2.7.2` and `gobfd-qj0.8.2.2.7.4` remain; P1
+`gobfd-qj0.8.2.2.7.5` owns the actual-wire final gate. Key-ID rotation remains
+after-v1 P2 `gobfd-khr`. [ADR-0006](adr/0006-session-preserving-reload-policy.md)
+is accepted policy. The frozen-source critical race run passed 788 top-level
+tests across BFD, daemon, server and dependency inventory; one existing nested
+IPv6 wire subcase requires a separate namespace. Local evidence is retained in
+`reports/auth-reload-20261024/`; this does not establish overall qualification.
+Beads retains executable priorities and acceptance gates; older dated entries
+below preserve their original slice scope.
+
+## Session-preserving reload / Detect Multiplier — 2026-10-24
+
+[ADR-0006](adr/0006-session-preserving-reload-policy.md) is accepted policy,
+not implementation, interop or release qualification. Resumed parent
+`gobfd-qj0.8.2.2.7` has four P0 children: `gobfd-qj0.8.2.2.7.1` (Detect
+Multiplier), `gobfd-qj0.8.2.2.7.2` (padding/minimum TTL),
+`gobfd-qj0.8.2.2.7.3` (authentication rejection) and `gobfd-qj0.8.2.2.7.4`
+(reconciliation/rekey integration). Coordinated same-algorithm key-ID rotation
+remains after-v1 P2 in `gobfd-khr`. Beads retains executable priorities and gates.
+
+The active local Detect Multiplier slice preserves a solely config-owned base
+session with stable identity through the existing TX/RX tuple and receipts.
+Detect-only Async changes need no Poll; remote Demand with both ends Up
+requires Poll/Final. Combined changes retain TX/RX direction rules, the active
+advertised tuple and queued generation. Shared-owner/API, Micro-BFD, overlay,
+authentication, padding and minimum-TTL changes remain conflicts outside this
+slice; the accepted policy does not claim those gaps are implemented.
+
+The frozen-source critical race run passed 781 top-level tests across BFD,
+daemon, server and dependency inventory, including signed packet sequence
+continuity, DetectMult 1 jitter and queued Poll updates. One existing nested
+IPv6 wire subcase requires a separate namespace. Local evidence is retained
+in `reports/session-inplace-20261024/`; scoped iteration checks do not establish
+overall RFC or release qualification. Live FRR/BIRD qualification of the new
+Detect Multiplier reload remains open. Older dated entries below retain their
+historical scope.
+
+## Bounded preview capability status — 2026-10-24
+
+`gobfd-qj0.8.2.1.8.3` adds `CapabilityService.ListCapabilities` and
+`gobfdctl capabilities` for the five RFC 9468/9747/7130/8971/9521 previews.
+Maturity, validated enablement and local receive-path readiness are separate.
+Absent runtime state remains unknown; an enabled profile without its actual
+receive owner remains not ready. README and EN/RU configuration, CLI and RFC
+compliance documentation preserve the same qualification boundary.
+
+Local evidence is retained in `reports/capability-status-20261023/`.
+The critical race run covers server, daemon, CLI and dependency inventory;
+the existing namespace-dependent IPv6 wire subcase remains a separate skip.
+This boundary does not qualify RFC wire behavior, Micro-BFD L2 actuation,
+vendor backends, supported scale or the final v1 release. Executable priorities
+and remaining acceptance gates stay in Beads; the local-only hold continues.
+
+## Independent audit — 2026-10-23
+
+The audit of dev `f9ed31bdd81425ba4efaf9688bb452ddea142266` found six
+defects and a separate same-key drain qualification question. The new P0 is
+TLS/Unix principal provenance (`gobfd-qj0.8.2.3.5`); reload policy, Echo owners,
+NetworkManager ownership/cancellation and new protobuf-file detection have
+specific P1 tasks. The release gate depends on those six defect tasks.
+The [dated audit](../ru/audits/2026-10-23-independent-retrospective.md) records
+history, ADR mapping, duplication measurements and diagnostic limitations.
+Existing passing component tests do not establish whole-codebase idempotence
+or v1 readiness. Beads remains the executable authority; general P2 deduplication
+does not supersede release work.
+
+## v1 product scope — 2026-10-23
+
+Maintainer decision: retire Oracle Linux 10 from v1 OCI products and package
+lifecycle qualification (`gobfd-qj0.8.2.8.5.2.8`). The release pipeline selects
+only Debian trixie OCI images; generic RPM generation remains enabled.
+Historical v0.6 images, tags and qualification records are preserved. Older
+Oracle product decisions below are historical and do not define v1 scope.
+
 ## Release-first priority — 2026-10-20
 
 The maintainer prioritizes delivery of v1.0.0 over all other work. This replaces
@@ -7,8 +672,8 @@ the 2026-10-13 stack-first ordering and the earlier retrospective queue below.
 
 | Priority | Execute before v1 | After v1 |
 |---|---|---|
-| P0 | Stable RFC correctness, ownership/reload, secure readiness/systemd, preview boundaries, security-patched peer, stable-v1 advisory disposition and final release gate | No blanket component refresh prerequisite |
-| P1 | Required qualification tasks: compatibility, interop, latency/allocation/scale, packaging/OCI, zero-shell/Python, Sonar disposition, independent review and release evidence | No general wrapper/asset cleanup prerequisite |
+| P0 | Stable RFC correctness, ownership/reload, secure readiness/systemd, preview boundaries, per-session OS-thread scale blocker, security-patched peer, stable-v1 advisory disposition and final release gate | No blanket component refresh prerequisite |
+| P1 | Other required qualification tasks: compatibility, interop, latency/allocation/scale, packaging/OCI, zero-shell/Python, Sonar disposition, independent review and release evidence | No general wrapper/asset cleanup prerequisite |
 | P2+ | Only a separately demonstrated release blocker may be promoted | General runtime/tool/Action upgrades, freshness automation, semantic/wrapper inventories, asset/local-residue cleanup and independent v0.6 maintenance |
 
 Final qualification still requires source-backed current-compatible dependencies
@@ -26,7 +691,212 @@ freshness/cleanup while executable release work remains. A passed release-age
 hold makes an upgrade eligible, not the next task. Own temporary-resource cleanup
 after each run remains required.
 
-## Current execution snapshot — 2026-10-20
+## Local packet-counter allocation fix — 2026-10-23
+
+`gobfd-qj0.8.2.1.6.5` is implemented locally at
+`3106b405606851fc0009502ef4625ee0e8535c4a`. Registered peer/local pairs
+retain four packet/auth counter handles with registration references; the
+last unregister removes the active entry. Historical CounterVec series and
+unregistered updates retain their existing behavior. Reporter wrappers,
+session ownership, wire contracts and protocol timers are unchanged.
+
+The unchanged actual-owner real-collector benchmark reports 0 B/op and
+0 allocs/op in three runs, compared with the 16 B/op and 2 allocs/op baseline.
+Its synthetic timing excludes UDP, parsing and authentication. Local critical
+race checks pass 183 named tests without skips, including concurrent counter
+churn, shared registrations, bounded cache retirement and four real UDP routes.
+All 19 lint profiles/92 linters, vet, formatter, both tidy-diff checks and
+84 Markdown inputs pass; 520 source inputs match. Fresh whole-branch static
+review has no new P0/P1. Govulncheck has zero reachable findings and the two
+existing module-level records. Evidence: `reports/collector-owner-20261022/`.
+The iteration lint reached 2 GiB; last sampled max19/OOM0 is not canonical
+resource acceptance, and terminal counters were unavailable after auto-removal.
+
+P0 `.1.6.3` is next for actual UDP workload, clock uncertainty, timer/drop/
+environment distributions and retained-series churn accounting. Then `.1.6.4`
+defines calibrated regression failure policy; `.1.7` follows the baseline
+with thread-pin A/B. The current 2 CPU/2 GiB/GOMAXPROCS2/pids512 iteration
+runner cannot qualify the approved 1,000-session/GOMAXPROCS8 reference.
+Use separately admitted resources; preserve that envelope and final 24-hour
+gate. Parent `.8.2.1.6` remains P0 in progress. No source/Dolt upload, Actions
+dispatch or release preparation is accepted by these local results.
+
+## Earlier receive-to-commit stage — 2026-10-22
+
+`gobfd-qj0.8.2.1.6.2` is implemented locally at
+`abb9ea138d07a07c95308f4e90192f2703a1aea7`. Paired realtime/monotonic
+calibration follows each listener's lifetime. Timing reaches all four Control
+admission callers and the actual normal-completion owner receipt. Observed
+clock steps revoke the shared epoch, including queued samples; they never
+change packet acceptance or protocol deadlines. Six fixed global outcomes
+retain invalid/unavailable denominators; only valid samples enter the
+latency histogram. A 1 ms consistency policy does not establish accuracy.
+
+Local race checks pass 269 named tests and six fuzz roots across the selected
+BFD cases, netio and metrics; one existing device capability test skips.
+Actual IPv4/IPv6 UDP tests each report one input, one owner commit and one
+valid sample on peer and discriminator routes. All 19 lint profiles/92 linters,
+vet, formatter, both tidy-diff checks and 84 Markdown inputs pass. Source
+readback covers 517 inputs. Reachable govulncheck findings are zero; the two
+existing module-level records remain under the security gate. Evidence:
+`reports/rx-commit-20261022/`. The iteration lint container reached 2 GiB
+(last sampled max37, OOM0); canonical resource acceptance remains open.
+
+Three non-race runs give zero allocations for the fixed timing metrics,
+but real-collector owner processing costs 16 B/op and 2 allocs/op. P0
+`gobfd-qj0.8.2.1.6.5` owns that measured address-formatting cost and now
+precedes `.1.6.3` workload/timer/drop/environment distributions. Then `.1.6.4`
+owns calibrated regression failure policy and `.1.7` owns thread-pin A/B
+after the full baseline. Clock uncertainty must be measured before applying
+latency thresholds. Preserve the approved 1,000-session/GOMAXPROCS8 envelope
+and final 24-hour gate. Parent `.8.2.1.6` remains P0 in progress; this is not
+supported-scale or release acceptance. Source/Dolt uploads and Actions remain
+on hold. Optional kernel work and broad freshness stay after v1.
+
+## Earlier raw receive telemetry stage — 2026-10-22
+
+`gobfd-qj0.8.2.1.6.1` is closed at local implementation
+`217febe9bf26680478c7ed1dce4b8487644f0263`. Linux listeners capture raw
+time64 software receive timestamps and cumulative socket-drop messages.
+The enlarged ancillary buffer retains IPv4/IPv6 GTSM and packet-info data;
+truncation fails before demux. Unsupported telemetry remains unavailable on
+`ENOPROTOOPT`; other socket errors stay fatal. This preserves the deployment
+kernel contract without accepting missing measurements as zero latency/loss.
+
+Local race validation passes 215 named netio tests and six fuzz roots; one
+existing device-rebind capability test skips. All eight new RX cases pass,
+including real IPv4/IPv6 timestamps and cumulative 126 drops on both final
+markers. All 19 lint profiles report zero issues; vet, formatter, both
+tidy-diff commands and 84 Markdown inputs pass. Six decoder benchmarks report
+zero allocations; reachable govulncheck findings are zero, with the two
+existing module records retained. Evidence: `reports/rx-timestamp-20261022/`.
+The 2 GiB iteration lint container reached its cap (last sampled max33, OOM0);
+this is not canonical resource or release qualification. Old-kernel and arm64
+runtime behavior have not been measured. No GitHub or Dolt upload occurred.
+
+At this earlier stage, parent `.8.2.1.6` remained P0 in progress. Child `.1.6.2`
+owns paired clock conversion and actual owner-commit observations, followed
+by `.1.6.3` workload/timer/drop/environment distributions and `.1.6.4`
+calibrated blocking benchmark policy. Existing protocol deadlines remain
+monotonic. Packet admission and `PacketsReceived` do not prove commit.
+The approved 1,000-session/GOMAXPROCS8 envelope and final 24-hour gate remain
+unchanged; thread-pin A/B `.1.7` follows the baseline. Optional kernel work
+and general component freshness remain after v1.
+
+## Local Micro-BFD preview boundary — 2026-10-22
+
+`gobfd-qj0.8.2.1.8.1` implements the first runtime slice of the P0 preview
+boundary on `task/micro-preview-optin-20261022`. `micro_bfd.enabled` defaults
+to false. Groups and actuation without opt-in fail validation before resources
+open; API creation returns `FailedPrecondition` while List/Delete retain
+their existing authorization and ownership checks. Enable changes require
+restart; group changes remain reloadable while enabled. Startup warns that
+RFC 7130 L2 qualification is incomplete. README, examples and EN/RU
+configuration/compliance docs describe the migration and remaining gates.
+
+The candidate also contains reviewed batch 9 and the local audit documentation.
+Critical local race runs pass 324 top-level config, API and daemon tests;
+one existing namespace-dependent IPv6 subtest skips. Batch 9 selections pass
+17 more top-level tests. Formatter, vet and both tidy-diff checks pass;
+reachable govulncheck findings are zero, with the two existing module-level
+records retained. All 19 current lint profiles report zero issues. This is
+local iteration evidence: the 2 GiB lint container reached its memory cap
+(last sampled `memory.events max=51`, no OOM); it does not qualify the final
+canonical resource/release gate. Local `dev` now includes implementation
+`08e4c9c249e8c51ace7be68f1276460a423053e7`; documentation checks passed before
+the fast-forward integration. No remote delivery occurred.
+The current linter contract
+contains the base profile plus 18 build-tag profiles, all with 92 linters;
+AGENTS.md and EN/RU development instructions now match the implementation.
+
+The parent `.8.2.1.8` remains P0 for Echo admission and bounded capability
+status. Committed-latency baseline `.8.2.1.6` precedes permanent thread-pin
+removal `.8.2.1.7`; same-key replace `.8.2.2.7` retains its recorded decision
+pause. Optional Micro-BFD L2 and kernel-bond graduation remain after v1.
+The local-only delivery hold below remains in force.
+
+## Local Echo API preview boundary — 2026-10-23
+
+`gobfd-qj0.8.2.1.8.2` adds fail-closed Echo admission on
+`task/echo-admission-20261023`. The API requires validated-generation
+`echo.enabled` and the receive owner's Echo/runtime/binding readiness.
+API-only configurations retain lazy listener acquisition before sender creation.
+Readiness is an admission snapshot; previously admitted requests may complete.
+List/Delete and request validation retain their existing behavior.
+
+Local critical race tests pass 290 top-level tests across server, daemon and
+dependency inventory; one existing unsolicited IPv6 wire subcase skips in the
+container. Scoped lint reports zero issues. Evidence lives under
+`reports/echo-admission-20261023`; this is not stable delivery or full RFC 9747
+qualification. The P0 parent remains open for capability/status consistency
+under `gobfd-qj0.8.2.1.8.3`. Executable priorities remain in Beads.
+
+## Local verification and delivery hold — 2026-10-22 18:35 UTC
+
+The maintainer temporarily suspended GitHub delivery to save Actions minutes.
+Keep source commits, Beads updates and validation local: no source or Dolt
+push, PR mutation or workflow dispatch until this direction is lifted.
+The existing remote PR and hosted receipts below are historical context.
+
+No new implementation commit or session transcript appeared after the earlier
+retrospective. Review `gobfd-xy9` checked the pending branches against
+`dev@93304161d77bd1e97a8eb36ecfd1d4b321dd8082`. Critical local runs used
+the pinned Go 1.27.3 container with two CPUs, 2 GiB and the race detector;
+they are iteration evidence, not the full canonical or release gate.
+
+| Source | Local result | Remaining acceptance |
+|---|---|---|
+| Batch 9 `dc5a92c` | Auth, crafted-evidence and Go-peer selections passed in three packages | Review and integrate the candidate; retain exact-source live evidence |
+| Typed re-key `46b8649` | Nine top-level reconciliation tests passed | This implements re-key failure protection, not same-key replace; `.8.2.2.7` stays P0 open |
+| Uncommitted kernel-bond draft on `9330416` | Fourteen netio tests passed; two existing diagnostic-policy tests passed | One unrelated diagnostic test fails; two Go files need formatting; real bond and packaged-unit acceptance remain absent |
+
+The failing draft assertion expects diagnostic zero after a silent Down
+timeout. The approved design explicitly adopts Held Erratum 5205 and the FSM
+publishes diagnostic one without a state edge. `gobfd-9ro` is closed through
+its documented-RFC-reading acceptance alternative; no production fix is
+justified. Separate that diagnostic experiment from the optional bond draft.
+Source hashes, the uncommitted patch and logs are retained locally under
+`reports/review-20261022-local/`.
+
+| Priority | Beads owner | Next verifiable result |
+|---|---|---|
+| P0 | `.8.2.1.6` then `.8.2.1.7` | Establish committed-latency baseline, then A/B removal of permanent thread pinning against the existing scale limits |
+| P0 | `.8.2.1.8` | Complete API/config/status/docs preview opt-in and fail-closed proof; stale stored blocked status was cleared |
+| P0 | `.8.2.2.7`, `.8.4.1` | Finish the owned-session mutation contract and final-candidate security disposition |
+| P1 | `gobfd-sow` | Integrate the cached-packet test ownership fix and resolve the independent rare cleanup-observation failure before final race qualification |
+| P2 after-v1 | `.8.2.3.3.1`, `.8.2.2.1` | Qualify optional kernel-bond and Micro-BFD L2 without blocking the default-off v1 preview boundary |
+
+## Earlier retrospective snapshot — 2026-10-22 18:09 UTC
+
+At `dev@93304161d77bd1e97a8eb36ecfd1d4b321dd8082`, local and GitHub `dev`
+match. Beads reports 375 closed and 164 unfinished issues (141 open, 18 in
+progress, four blocked, one deferred); these counts include epics and post-v1
+work and are not a release-completion percentage. The latest hosted nightly
+E2E success, run [39763006963](https://github.com/dantte-lp/gobfd/actions/runs/39763006963),
+is at `3a641a9585e058c1d628cc3231bdcaa5291f497b`, an ancestor of the
+current `dev`; there is no hosted run for the exact head.
+
+The latest local integration candidate, `task/integration-batch9-20261022`
+at `dc5a92c163f9a5e9d302fc511759f93d5fd13b7a`, is four commits ahead
+of `dev`. Its remote Go 1.27.3 canonical gate on `oel-lab-gui` reports
+`gate_exit=0`, 39 full-race packages and 16 tagged passes at that exact commit.
+This is not a live BASE/crafted-wire or hosted-release acceptance. The typed
+replace branch remains outside `dev`; its same-key policy is unresolved under
+`gobfd-qj0.8.2.2.7`. The RFC 7130 dedicated-MAC/member gate remains red on
+the separate Micro-BFD branch; Micro-BFD is preview and default-off for v1.
+The residual RFC 7130 gate in `gobfd-qj0.8.2.2.1` is P2 after-v1;
+`gobfd-qj0.8.2.1.8` remains P0 for the v1 fail-closed preview boundary.
+
+The 1,000-session contract requires at most `2*GOMAXPROCS+32 = 48` OS threads
+at `GOMAXPROCS=8`. Control and Echo sessions still call
+`runtime.LockOSThread` for their full lifetime, implying at least 1,000
+threads for 1,000 active control sessions. This is a direct scale blocker,
+so `gobfd-qj0.8.2.1.7` is P0. The existing bounded 505-thread `newosproc`
+failure is historical; run the specified A/B timer-tail and thread/RSS gate
+before changing the scheduler. [Go's runtime contract](https://pkg.go.dev/runtime#LockOSThread)
+guarantees thread affinity, not timer precision.
+
+## Historical execution snapshot — 2026-10-20
 
 Beads owns task status and dependencies. This snapshot supersedes the active
 queue and host instructions recorded on 2026-10-15; dated receipts below remain
@@ -119,7 +989,7 @@ on hold; this retrospective does not refresh every upstream version channel.
 
 | Component | Installed → target | Earliest adoption UTC | Evidence and next check |
 |---|---|---|---|
-| godbus | 5.2.2 → 5.2.4 | 2026-10-20 16:01:38 | [5.2.3](https://github.com/godbus/dbus/releases/tag/v5.2.3) allocation/error hardening and [5.2.4](https://github.com/godbus/dbus/releases/tag/v5.2.4) system-bus lookup errors; NetworkManager missing-bus/cancellation tests; `gobfd-qj0.8.6.2.1` |
+| godbus | 5.2.2 → 5.2.4 | 2026-10-20 16:01:38 | Pin, generated inventory and Linux connection cancellation accepted locally in `gobfd-qj0.8.6.2.1`; [5.2.3](https://github.com/godbus/dbus/releases/tag/v5.2.3) allocation/error hardening and [5.2.4](https://github.com/godbus/dbus/releases/tag/v5.2.4) system-bus lookup errors reviewed |
 | ConnectRPC | 2.0.0 → 2.0.1 | 2026-10-21 13:57:00 | [Notes](https://github.com/connectrpc/connect-go/releases/tag/v2.0.1): rejected-message draining, early responses and truncated/error envelopes; RPC/Watch/generator parity; `gobfd-qj0.8.6.10` |
 | ExaBGP | 5.0.13 → 5.0.15 | 2026-10-24 06:08:19 | [5.0.14](https://github.com/Exa-Networks/exabgp/releases/tag/5.0.14) changes UPDATE/withdraw/helper behavior; [5.0.15](https://github.com/Exa-Networks/exabgp/releases/tag/5.0.15) changes CI/tests only; BGP/helper regression gates; `gobfd-qj0.8.6.6.1` |
 | OSV Scanner | 2.6.0 → 2.7.0 | 2026-10-19 01:32:07 | [Notes](https://github.com/google/osv-scanner/releases/tag/v2.7.0): parser/offline/call-analysis and SBOM changes; scan input counts and JSON/SBOM compatibility; `gobfd-qj0.8.6.3` |
@@ -538,12 +1408,14 @@ and the RFC texts named below.
 |---|---|---|---|
 | [#86](https://github.com/dantte-lp/gobfd/issues/86) GoBGP v4 peer control | `gobfd-qj0.8.2.4.6` (P1), parent `.8.2.4` | Done; issue closed. v4.10.0 client, preflights, v4-only policy and docs, action retries, failover e2e on GoBGP v4.10.0, GoBGP metrics and the `gobfd.gobgp` health check (`2a4afb1`) | No release contains v4 support yet |
 | [#87](https://github.com/dantte-lp/gobfd/issues/87) secure listen defaults | `gobfd-qj0.8.2.3.4` (P0), with `gobfd-330` and `.8.2.3.2` | API `:50051` and metrics `:9100` on all addresses; default `gobgp.addr` `127.0.0.1:50051` uses the same port; packages install `configs/gobfd.example.yml` as `/etc/gobfd/gobfd.yml` with the same wildcard binds; the HAProxy agent binds every address | `.8.2.3.4` done (`ff2d70f`, `0314466`): API `127.0.0.1:50052` and metrics `127.0.0.1:9100` by default, agent `listen_addr`, startup warning, side-by-side port test; Done; issue closed. `gobfd-330.1`–`.4`: Unix socket with peer-UID principals, mTLS, socket-only defaults with anonymous loopback reads only (`319d2bb`), principal-scoped claims and mTLS roles (`0d949dd`) |
-| [#88](https://github.com/dantte-lp/gobfd/issues/88) anycast VIP and HAProxy health | `gobfd-5w0` (P2), blocked by `.8.2.3` and `.8.2.5.2` | not started | Design spec first |
+| [#88](https://github.com/dantte-lp/gobfd/issues/88) anycast VIP and HAProxy health | `gobfd-5w0` (P2, `after-v1`), blocked by `.8.2.3`; dependency `.8.2.5.2` completed | not started | Design spec first |
 
 Architecture notes for `gobfd-5w0`:
 
-- RFC 4786 Section 4.4.1 couples advertisement to service availability and
-  asks for a minimum delay before re-advertisement.
+- [RFC 4786 Section 4.4.1](https://www.rfc-editor.org/rfc/rfc4786.html#section-4.4.1)
+  recommends coupling advertisement to service availability and avoiding rapid
+  oscillations; a minimum delay before re-advertisement is an example.
+  Configurable recovery hold-down is an acceptance requirement of #88.
 - BFD AdminDown is not a reliable withdrawal trigger: RFC 5882 Section 3.2
   says a system SHOULD NOT report a connectivity failure for AdminDown to a
   client with its own liveness detection, which BGP has. `bfd.v1` also has no
@@ -556,8 +1428,13 @@ Architecture notes for `gobfd-5w0`:
   module: health source, hold-down state machine, GoBGP path owner, drain
   command, metrics.
 
-`gobfd-5w0` waits for its blockers and a design review. Priority changes
-are recorded with the 2026-10-15 retrospective above.
+Source qualification 2026-10-28 at
+`dev@d44773c559d103fda4698baf1f2ed319bf1f3932`: GitHub #88 remains open;
+`bd show gobfd-5w0` confirms P2/`after-v1`, `.8.2.3` open and `.8.2.5.2`
+closed. `cmd/gobfd-haproxy-agent/main.go` implements BFD-to-agent-check;
+`internal/gobgp/strategy/strategy.go` marks route withdrawal unimplemented.
+Service-health-to-VIP acceptance remains unverified; no runtime checks were run.
+`gobfd-5w0` waits for `.8.2.3` and design review outside the v1 critical path.
 
 ## Remaining work before v1.0.0
 
@@ -1004,13 +1881,13 @@ remain intact; authentication sequence expiry remains independent at two
 Detection Times. Parent `gobfd-qj0.8.2.1.2` is accepted locally through
 `e4f3761a0f1fc59fbf9b2f859923a81125d157bf`; full release qualification is separate.
 
-### P1 sequence
+### Performance sequence
 
 | Delivery slice | Status |
 |---|---|
-| Configurable BFD QoS socket policy with packet evidence | Open |
-| Committed-latency measurement and corrected performance gates | Open |
-| Removal of permanent per-session OS-thread pinning with A/B evidence | Open |
+| Configurable BFD QoS socket policy with packet evidence | P1 open |
+| Committed-latency measurement and corrected performance gates | P0 open |
+| Removal of permanent per-session OS-thread pinning with A/B evidence | P0 open |
 
 Post-v1 scheduler, kernel, warm-restart, S-BFD, and authentication R&D remains
 outside this release contract and is tracked separately in Beads.
@@ -1029,3 +1906,5 @@ drop counts come from `SO_RXQ_OVFL` instead. An XDP/AF_XDP receive prototype
 - [v1 production design](../superpowers/specs/2026-08-18-gobfd-v1-production-contract-design.md)
 - [RFC compliance matrix](./08-rfc-compliance.md)
 - [Development and quality gates](./09-development.md)
+
+</details>

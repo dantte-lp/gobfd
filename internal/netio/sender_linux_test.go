@@ -10,7 +10,57 @@ import (
 	"net/netip"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
+
+func TestUDPSenderPaddingPreparation(t *testing.T) {
+	t.Parallel()
+	for _, prepared := range []bool{false, true} {
+		t.Run(map[bool]string{false: "ordinary", true: "prepared"}[prepared], func(t *testing.T) {
+			t.Parallel()
+			var opts []SenderOption
+			if prepared {
+				opts = append(opts, WithDFBit())
+			}
+			s, err := NewUDPSender(netip.MustParseAddr("127.0.0.1"), 49152, false,
+				slog.New(slog.DiscardHandler), opts...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if closeErr := s.Close(); closeErr != nil {
+					t.Error(closeErr)
+				}
+			})
+			proof, ok := any(s).(interface{ PaddingPrepared() bool })
+			if !ok || proof.PaddingPrepared() != prepared {
+				t.Fatal("sender lacks truthful padding preparation proof")
+			}
+			raw, err := s.SyscallConn()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var actual int
+			var optionErr error
+			if err = raw.Control(func(fd uintptr) {
+				actual, optionErr = unix.GetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_MTU_DISCOVER)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if optionErr != nil {
+				t.Fatal(optionErr)
+			}
+			if prepared && actual != unix.IP_PMTUDISC_DO {
+				t.Fatalf("prepared sender MTU policy = %d, want IP_PMTUDISC_DO", actual)
+			}
+			WithDFBit()(s)
+			if proof.PaddingPrepared() != prepared {
+				t.Fatal("requested option was mistaken for installed socket policy")
+			}
+		})
+	}
+}
 
 func TestSenderOptionsApply(t *testing.T) {
 	t.Parallel()
@@ -39,7 +89,7 @@ func TestNewUDPSenderLoopbackLifecycle(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 	s, err := NewUDPSender(
 		netip.MustParseAddr("127.0.0.1"),
-		0,
+		49152,
 		false,
 		logger,
 		WithDFBit(),

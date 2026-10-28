@@ -7,15 +7,220 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Remove permanent OS-thread pins from Control and Echo owner loops in local
+  `dev` source. Native 1,000-session A/B, thread/RSS/timer acceptance and final
+  wire qualification remain required; pressure-worker thread pins are retained.
+
+- Remove legacy Stop/drain before Control and Echo detection timer resets under
+  the pinned Go 1.27.3 synchronous timer-channel contract.
+
+- Oracle Linux 10 OCI images and their release aliases are excluded from v1.
+  OCI releases use Debian trixie; generic RPM packages remain available.
+  The package lifecycle gate covers Debian DEB; historical v0.6 artifacts
+  and qualification records remain unchanged.
+
 ### Added
 
+- Add explicit `--echo` selection to the `bfdload` owner/peers workload with real Echo owners,
+  independent dual-stack datagram returns and typed terminal/omission accounting.
+  Register physical Echo metrics once across shared claims and unregister on
+  final cleanup. Native qualification remains pending.
+
+- Assess Echo workloads with their own TX/detection distributions, settled return
+  counters and conditional old-deadline evidence from actual received omission
+  inputs. Bind workload modes across reports, preserve unknown remote state and
+  physical uncertainty, and declare unavailable Echo kernel-RX timing explicitly.
+
+- Retain version-bound Echo owner Down commit times, last processed return and
+  actual dispatched detection deadline. Preview return validation and the Echo
+  load driver/causal assessment remain separate; this does not qualify native A/B.
+
+- Add read-only `bfdload assess OWNER_JSON PEER_JSON` with conditional numeric
+  pass/fail/incomplete reports. Native and release qualification remain separate.
+
+- Add a scoped FRR-only same-key replacement wire fixture with API conflict,
+  daemon-owned UDP socket lifetime, old/new packet epochs and peer recovery
+  evidence. An actual exact-candidate runtime receipt remains required.
+
+- Classify joined workload Down witnesses against bounded historical peer
+  omissions, run identity and owner commit/deadline evidence. Record explicit
+  conditional assumptions and false/unresolved outcomes; retain unknown reference
+  validity. Add a fixture-only TX blackhole case without changing named profiles.
+
+- Configure ordinary BFD sender IPv4 DSCP and IPv6 Traffic Class with CS6
+  defaults, independent Linux SO_PRIORITY, and optional SO_MARK disabled by
+  default. Required option failures reject creation; explicitly optional
+  priority/mark failures warn and continue. QoS changes require restart;
+  overlay outer policy and per-session source-port allocation remain separate.
+
+- Bind workload Down witnesses to fixed manifest slots and session generations.
+  Retain only active physical references; gaps and inconsistent lifecycle history
+  remain unknown. Report identity completeness separately from count settlement;
+  independent causal classification and native qualification remain required.
+
+- Retain fixed `interface_pending` and `address_pending` reason-class flags in
+  reconciliation receipts and structured logs. A class change emits a new
+  receipt at the same pending count; convergence clears the flags.
+
+- Recheck active listener and outer overlay local-address dependencies on Linux
+  while retaining session identities, claims, sockets and desired generation.
+  Missing usable addresses make sources pending and health not ready; recovery
+  retries automatically. The existing 2 s check covers all five sources even
+  without monitor events. Permanent and inventory failures still need explicit
+  reload. Add bounded real-daemon IPv4/IPv6 lifecycle evidence to Linux E2E;
+  final wire, reference load and 24h qualification remain separate.
+
+- Settle workload Down-journal delivery against the retained production FSM
+  counter, with bounded closed-subscription drain and joined final validation.
+  Gaps, omitted events, mismatched or invalid source counts fail completeness;
+  empty journals alone do not establish absence of Down transitions.
+
+- Add default-off `--session-churn` to the qualification workload, using real
+  final-claim drain, recreation and observed recovery. Separate current and
+  retired generation counters, active registrations and retained metric series;
+  preserve lifetime terminal accounting and reject fixtures shorter than six
+  seconds. This fixed-manifest variant does not qualify reference load.
+
+- Add bounded default-off scheduler contention to the owner UDP workload,
+  with actual compute/yield and joined-worker receipts. Reuse the CPU mixing
+  primitive and pressure period; runtime distributions remain separate from
+  reference acceptance.
+
+- Add an explicit bounded GC-pressure variant to the owner UDP workload, with
+  actual allocation and joined reference-cleanup receipts at the common epoch.
+  Process GC observations remain separate from reference qualification.
+
+- Proposed experimental prerelease boundary and isolated remote qualification
+  ownership; stable validation and publication restrictions remain unchanged.
+
+- Generate bounded owner CPU duty with thread CPU-time receipts, missed-window
+  accounting and context-bound worker cleanup in the UDP workload harness.
+
+- Reject named owner workload profiles before session creation when leaf or
+  ancestor PID limits lack baseline thread headroom. Retain task observations
+  and the explicit additional budget in workload admission reports.
+
+- Retain immutable test image identities and allowlisted source/base OCI
+  annotations before four-peer cleanup. Bound Podman image metadata responses.
+  Apply TShark row limits after display filtering and fail missing mandatory
+  initial-state/detection evidence instead of skipping those assertions.
+
+- Added an authenticated multihop startup profile to the existing crafted-peer
+  qualifier, with actual TTL boundary probes and persistent replay-state
+  verification for in-place receive-floor reloads; runtime acceptance remains
+  separately tracked before release.
+
+- Added in-place multihop receive-floor and prepared-padding reload for stable
+  sole-config base sessions with unchanged authentication. Local TTL-only
+  changes need no Poll; padding requires positive-to-positive targets, Async
+  and constructor-proven DF preparation. Unsupported base candidates are rejected
+  before generation acceptance, with owner rechecks for queued policy.
+  Padding enable/disable remains after v1; live peer/MTU qualification is separate.
+
+- Added in-place `detect_mult` reload for solely config-owned base sessions
+  with stable identity, using the existing TX/RX tuple and receipts. Detect-only
+  Async updates need no Poll; remote Demand with both ends Up requires
+  Poll/Final. TX/RX direction and queued-update rules remain intact; other
+  owners, modes and effective parameters outside that slice retain their conflict boundaries.
+  Scoped local FRR/BIRD Async and crafted remote-Demand qualification is
+  recorded; final exact-candidate qualification remains separate.
+
+- Added read-only `bfd.v1.CapabilityService.ListCapabilities` and
+  `gobfdctl capabilities` in the CLI and interactive shell, with table/JSON/YAML
+  output. Five daemon-reported profiles separate preview maturity, effective
+  enablement and local readiness; unavailable runtime state stays unknown.
+  Readiness does not establish peer health, full RFC compliance or L2 actuation.
+
+- Added `gobfdctl certificate renew` for existing management identities through
+  an explicit external CA and roots: native mTLS renewal atomically replaces
+  only the public certificate, preserving the key and SAN. The existing
+  certificate must allow TLS client authentication to the CA; a management
+  server identity also needs server authentication usage. Enrollment and
+  unattended scheduling are outside the command.
+- Go-owned UDP peer workload components add an independent asynchronous
+  Control state model, reproducible per-peer loss, timed blackholes and
+  explicit write/receive accounting. Named profiles preserve qualification
+  inputs; generator observations do not establish daemon or reference support.
+  The `bfdload` owner/peers commands validate explicit topology, record bounded
+  resource windows and preserve partial reports on cancellation. Visible ancestor
+  resource admission remains separate from runtime and reference qualification.
+
+- Receive clocks expose measured pairing brackets and nominal resolutions with
+  explicit conditional bounds. Workload reports combine them with a run-scoped
+  Linux realtime epoch witness; invalid or uncovered data remains unknown.
+
+- Go-owned workload tooling drives real UDP receiver and session owners with
+  actual senders, collector/ledger observations and bounded resource cleanup.
+  Component fixtures do not establish reference load or clock precision.
+
+- Go-owned workload tooling captures process, runtime and visible cgroup
+  resource snapshots with explicit unavailable data and JSON-safe histograms.
+  Snapshot observations do not establish reference admission or supported load.
+
+- Base UDP listeners report socket-drop sample validity and bounded cumulative
+  increments before packet rejection. Listener lifetime, fresh versus existing
+  socket baselines, serial wrap ambiguity and post-load markers remain explicit;
+  missing telemetry is not zero loss. Fixed Control/Echo metrics do not qualify
+  complete wire loss or supported load.
+
+- Control and Echo timer observations separate scheduled firing, owner dispatch
+  and successful TX or timeout-caused Down publication. Fixed global metrics
+  retain no-effect/invalid outcomes without peer labels; failed or suppressed
+  sends do not become successful effects. Jitter, deadlines and protocol
+  decisions remain unchanged. Runtime load qualification remains separate.
+
+- Control listeners carry calibrated software kernel receive timing through
+  admission to normal owner completion. Fixed global clock-validity counters
+  separate missing/invalid samples from latency; only valid samples enter the
+  histogram. Observed clock steps revoke the listener calibration without
+  changing packet acceptance or protocol deadlines.
+
+- Packet/auth counters cache handles for active registered peer/local pairs,
+  removing per-packet address formatting. Shared registrations retain the cache
+  until the last session; historical counter series and direct unregistered
+  updates retain their existing semantics. Registration publishes zero counters.
+  The actual-owner real-collector benchmark reports zero allocations; UDP,
+  authentication and scale qualification remain separate.
+
+- Linux listeners capture time64 software receive timestamps and cumulative
+  socket-drop samples. Ancillary buffers retain IPv4/IPv6 TTL and packet-info
+  messages; truncated ancillary data returns a typed error before demux.
+  Raw realtime samples are separate from monotonic protocol deadlines;
+  calibrated load and owner-commit latency qualification remain open.
+  Unsupported telemetry options leave measurements unavailable; other socket
+  errors remain fatal, and mandatory transport metadata is unchanged.
+
+- Micro-BFD requires explicit `micro_bfd.enabled: true` or
+  `GOBFD_MICRO_BFD_ENABLED=true`. Without opt-in, configuration rejects groups
+  and actuation before resources open; `AddMicroBFDGroup` returns
+  `FailedPrecondition`. List/Delete retain their authorization and ownership
+  rules. Changing enable requires restart. RFC 7130 remains an incomplete
+  preview with open multicast MAC and enslaved-member transmission gates.
+
+- The crafted-peer testcontainers scenario proves crossed and queued Poll
+  sequences on the wire (RFC 5880 Sections 6.5 and 6.8.3). With the peer Final
+  lost, GoBFD repeats its Poll with the active tuple, answers the peer crossing
+  Poll with Final only, resumes its own Poll, and advertises a queued tuple only
+  in a separate Poll after the Final and the elapsed-time separation. No
+  captured frame sets both P and F.
+
 - `cictl package-build` builds the DEB and RPM through the release path
-  (GoReleaser v2.18.2, then RPM lifecycle finalization) as version 0.0.0, and
-  `cictl package-lifecycle` installs them into systemd containers built from
-  the pinned Debian 13 and Oracle Linux 10 release bases. The test proves the
+  (GoReleaser v2.18.2, then RPM lifecycle finalization) as version 0.0.0 and
+  rejects missing or mismatched pinned UPX before building. The nightly job
+  installs that prerequisite with the existing verified bootstrap.
+  RPM finalization records the complete CPIO archive size so `rpm2cpio`
+  accepts the payload length.
+  `cictl package-lifecycle` installs the DEB into a systemd container built from
+  the pinned Debian 13 release base. Oracle Linux 10 is excluded from v1 OCI
+  products and lifecycle qualification; generic RPM generation is retained.
+  The scenario checks the
   hardened unit through start, sandbox state, a hold past `WatchdogSec=`,
   reload, restart after `SIGKILL`, a stop with a dead peer, zero sandbox
-  denials and package removal.
+  denials, disabled/enabled version-only DEB upgrade phases with unchanged
+  PID, identity and configuration, and final removal of an active, enabled
+  service. This does not qualify upgrades between distinct daemon binaries.
 
 - `TestCraftedPeerTestcontainers` proves remote zero Required Min RX, remote
   silence and remote Demand on the wire with a crafted Go peer, which pinned
@@ -197,6 +402,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   changing the four public binaries.
 
 ### Changed
+
+- Align SonarQube pull-request branches with the CI/Security policy:
+  `master`, `main` and `release/v*`; `dev` integration uses local checks.
+- Align pending dependency updates with `dev`: ExaBGP 5.0.15 from verified
+  upstream source, CodeQL Action 4.39.1 across all six workflow steps, and
+  current Koanf, libovsdb and Prometheus dependency graphs. Keep the shared
+  runtime recipes, version contracts and dependency inventory synchronized.
+- Reconcile issue #88 with the current HAProxy bridge and Beads: service
+  health-to-VIP coupling remains P2/after-v1; distinguish the RFC 4786
+  recommendation from the issue's required recovery hold-down.
+
+- Build a fresh Containerlab controller in the pinned socket-free SDK for all
+  five Make entrypoints, including test-only and cleanup. Compile the frozen
+  race-enabled suite separately and execute its exact hashed artifacts in a
+  Debian runtime with the selected engine socket and no compiler. Retain owned
+  recovery journals and private result receipts. Recheck CLI and selected API
+  container IDs and owner/run labels against the original receipt before
+  preparation and runtime entry. Require ten named PASS results
+  and package PASS, permitting only the FRR-only independence skip. Native
+  payload/FRR and real wire/timer qualification remain pending.
+
+- Replace FRR's textual capture and substring timer checks with bounded
+  dual-stack PCAP assertions and typed GoBFD/FRR JSON status checks. Require
+  every captured frame's tuple, BFD version, hop limit and UDP ports, and exact
+  nominal timers. Preserve binary stdout separately from diagnostics, reject
+  command errors and retain raw capture evidence. Independent fixtures pass;
+  native command and full FRR qualification remain separate.
+
+- Keep five Containerlab NOS profiles as `retained-unavailable` with explicit
+  qualification tracking, independently of historical primary/deferred roles
+  and cached images. Share strict profile loading across bootstrap, native
+  discovery and E2E artifacts; retain only the owned FRR IPv4/IPv6 execution
+  baseline and two-node topology. Reject archive/ISO preparation before external
+  commands and remove the unused preparation implementation. Preserve full
+  collision inventory, historical exact-owned cleanup and the race/CGO test
+  command; native FRR acceptance and the compiler/engine/socket gate remain open.
+
+- Build the Containerlab FRR peer from the shared Debian recipe and retain
+  separate immutable GoBFD/FRR image identities in schema-3 receipts. Guard
+  network ownership and partial-deployment cleanup; retain discovery containers
+  after failed destroy so cleanup can be retried. Legacy receipts remain
+  cleanup-only inputs; native FRR and vendor qualification remain separate.
+  The guarded vendor test command explicitly enables CGO and race detection.
+
+- Require Containerlab 0.82.0 for vendor bootstrap and publish verified amd64
+  and arm64 archive checksums. This includes upstream destroy/cleanup fixes;
+  vendor runtime qualification remains separate.
+
+- Engineering workload blackholes repeat every 10 minutes, placing full
+  one-second windows at minutes 10 and 20 inside the 30-minute measurement.
+  The 5,000-session scale, 300 ms interval, loss and CPU inputs remain fixed;
+  reference retains its 30-minute period. Drain-only omissions do not qualify
+  measured failures or recovery.
+
+- Remove boxed log-attribute allocations from Micro-BFD member, aggregate and
+  state fan-out logging while retaining fields, levels and delivery behavior.
+  Local dispatch samples fall from 11 to 0 allocs/op without an actuator and
+  from 15 to 4 with a noop actuator; per-call deadline and cancellation remain.
 
 - gRPC health readiness derives from components (H-30, `gobfd-qj0.8.2.3.1`).
   The empty service is the AND of the five reconciliation sources, the runtime
@@ -427,8 +690,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refreshed base images: `debian:trixie-slim` index `a29215f6` (Debian 13.7,
   `trixie-20261005`) for every first-party recipe, `haproxy:3.4.6-trixie`
   (3.4.4-3.4.6 bug fixes, including BUG/MAJOR QUIC, H3 and HTX fixes) and
-  `nginx:1.31.6-trixie` (CVE-2026-90439 HTTP/3 fix). `oraclelinux:10-slim`
-  follows from 2026-10-19.
+  `nginx:1.31.6-trixie` (CVE-2026-90439 HTTP/3 fix). Oracle Linux 10 is excluded
+  from the v1 OCI product set; generic RPM generation remains available.
 - ExaBGP Anycast uses the shared GoBGP v4.10.0 recipe and a Debian trixie
   ExaBGP 5.0.13 image with `gobfd-exabgp-bridge` instead of
   `docker.io/jauderho/gobgp:v3.37.0` and `ghcr.io/exa-networks/exabgp`. Its
@@ -444,8 +707,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   consumers; the local amd64 BGP+BFD and BGP fast-failover testcontainers
   gates pass, and the RFC testcontainers gate passes all four race scenarios
   in 162.12 s; manual Compose paths are not rerun.
-  ExaBGP anycast, Kubernetes and Containerlab still use GoBGP v3.37.0 images
-  and are incompatible until migrated. `release/v0.6` keeps GoBGP v3.37.0.
+  ExaBGP anycast, Kubernetes and the Containerlab sidecar now build GoBGP from
+  the shared v4 source pin; their remaining live-cluster and vendor/native
+  qualification gates stay separate. `release/v0.6` keeps GoBGP v3.37.0.
 - BGP fast-failover Compose and testcontainers reuse the shared trixie
   FRR 10.7.1 and GoBGP recipes (v3.37.0 at qualification; v4.10.0 since the
   GoBGP v4 migration above) with capped builds/runtime. Manual
@@ -484,6 +748,242 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   all three P1 maintenance-review findings in Beads.
 
 ### Fixed
+
+- Validate that the peer lifecycle covers the complete owner measurement window
+  instead of requiring their different start timestamps to match. Preserve
+  shared native phase identity and reject missing or incomplete intervals.
+
+- Restore the subprocess umask before coverage shutdown in the secure-file
+  test. Decode Compose YAML from stdout only and retain stderr diagnostics,
+  so provider warnings cannot corrupt the storage and benchmark contracts.
+
+- Refresh the shared Debian trixie-slim base to the age-qualified
+  `trixie-20261020-slim` digest with liblzma5 `5.8.1-1+deb13u2` for
+  DSA-6549-1. Keep image recipes, provenance expectations and inventory source
+  revisions aligned; final product qualification remains separate.
+
+- Update `golang.org/x/net` to v0.62.0 in runtime, tools and the isolated
+  step-ca qualification profile for HTML parsing/rendering advisories
+  GO-2026-6860 and GO-2026-6866; regenerate the dependency inventory without
+  adding advisory exceptions.
+
+- Bound HAProxy testcontainers builds and runtime resources, bind image
+  provenance to the candidate, and reuse ownership-checked immutable image
+  cleanup with observability. Local linux/amd64 guarded and assertion-based
+  lifecycles passed; reference workload and final release gates remain separate.
+
+- Run the full HAProxy demo through the existing guarded project lifecycle,
+  with capped builds and runtime containers, exact owned IDs, and cleanup after
+  partial startup. Bind image build metadata to both revision argument names.
+
+- Make legacy HAProxy traffic and current TCP CLI checks mandatory, pause the
+  BFD sidecar instead of the HTTP backend, and restore it after failures or
+  cancellation. Accept current CLI observation fields in the strict HAProxy gate.
+
+- Accept the current CLI observation fields in the strict observability session
+  decoder while retaining duplicate, unknown-field, and trailing-data checks.
+
+- Bind observability image builds to the run's source revision and timestamp,
+  share OCI provenance validation with FourPeer, and clean only verified owned
+  image IDs even when tags change or builds fail.
+
+- Preserve dangling parent images during shared Podman API test-image cleanup;
+  keep forced removal disabled and propagate conflicts.
+
+- Bound all six observability runtime containers and reject missing or changed
+  CPU, memory, swap and PID limits in the actual container inspection.
+
+- Bound all five observability test image builds to 2 CPUs and 2 GiB without
+  additional swap; limit GoBFD compiler concurrency and its heap target.
+
+- Select exact JSON session states for FRR readiness and GoBFD Up/Down/recovery
+  checks; diagnostic text and unrelated sessions cannot satisfy the gate.
+
+- Wait for usable IPv6 addresses before starting the Containerlab GoBFD
+  application; preserve duplicate address detection and fail on invalid state.
+
+- Avoid claiming a deployed Containerlab lab when prestarting external GoBFD
+  and FRR containers. Retain private ownership and topology cleanup labels.
+
+- Reserve bounded raw and subscriber notification queues from configured producer
+  populations in both the daemon and `bfdload`, preserving startup lifecycle
+  bursts. Keep legacy capacity, over-budget GAP recovery and strict journal
+  completeness; native scale qualification remains separate.
+
+- Normalize surrounding whitespace in VXLAN/Geneve backend selection consistently
+  between configuration validation and network constructors. Reserved backends
+  remain unavailable.
+- Reject missing, malformed or unpinned FRR topologies during Containerlab
+  deployment dry runs before issuing orchestration commands.
+
+- Replace duplicated E2E workflow AppArmor/socket shell setup with opt-in
+  `toolbootstrap podman-e2e`, retaining the provider bootstrap, environment
+  publication, bounded readiness and direct-service handoff. Filter AppArmor
+  diagnostics in Go and use native nonblocking cleanup/diagnostic step handling.
+
+- Build the five E2E aggregate launchers with the existing pinned container
+  compiler without an engine socket, then run the persistent binary on the
+  host. Serialize dev recreation, compilation and runtime without host Go;
+  retain target selection, reports and failure propagation.
+
+- Unsolicited cleanup regression tests await committed owner notifications with
+  a real external watchdog instead of a fixed yield count. A gated-owner
+  counterexample documents the observer defect without attributing the historical failure.
+
+- Reserve retiring Control-session keys through owner join and complete resource
+  cleanup. Same-key claims and reverse rekeys return `AlreadyExists` before
+  sender acquisition; callers can retry after Delete completes. Qualified
+  different-key swaps and unrelated sessions retain their existing behavior.
+
+- Scope the no-Control-sessions alert to each healthy exporter, including
+  fresh-empty and zero-count series. Report scrape failure or a missing job
+  separately; exercise the shipped rules with virtual-time PromQL fixtures.
+
+- Preserve declarative Echo claims when reconciliation is canceled before
+  stale-claim release. Return a lifecycle error and let a live retry reuse
+  already published wires without reallocating sender leases.
+
+- Preserve an optional owner-monotonic Down commit witness through the bounded
+  workload journal, including transitions whose notification arrives after
+  cutoff. Keep unknown clock components explicit and separate causal and
+  reference qualification.
+
+- Retain bounded per-peer blackhole omission windows with actual directional
+  counts and decision times. Fail on journal overflow; keep causal Down
+  classification and reference workload acceptance separate.
+
+- Collect PR benchmark comparisons as ten alternating base/head pairs with
+  100 ms timing targets. Reject incomplete or malformed sample groups and
+  aliased output paths; retain one base worktree and cancellation-safe cleanup.
+  Standalone six-run diagnostics and the warning-only report policy remain.
+
+- List unallowed vulnerability findings before exiting on allowlist validation
+  failures. Preserve exit code 2 for expired or stale exceptions, exit code 1
+  for unallowed findings without validation failures, and failure summaries
+  without a success message.
+
+- Store the bounded BFD authentication payload inline with an independent
+  logical length. Built-in signing and the measured authenticated owner loop
+  no longer allocate payload objects; packet copies own their bytes. Preserve
+  immutable verification wire and key-store isolation, and remove redundant
+  receive reparsing. ADR-0011 supersedes the slice-storage decision.
+
+- Return hash digest results by value to remove a per-packet allocation from
+  built-in MD5/SHA1 verification and signing. Keep exact digest lengths,
+  constant-time verification, immutable received wire and caller-owned signing
+  payloads; signing and the complete authenticated owner path retain separate
+  allocation qualification.
+
+- Decode authentication metadata by value with a single borrowed payload,
+  removing per-packet auth-object allocations. Pass packet values across
+  read-only demux/verification boundaries and preserve copied metadata across
+  re-decode. Hash verification uses a bounded local PDU copy, keeping received
+  wire unchanged on success and failure so decoded unsolicited triggers can
+  also pass owner verification. Retain protocol, protobuf and configuration
+  formats; document internal Go contract and queue-size changes in ADR-0010.
+
+- Reject UDP sender source ports outside 49152-65535 before applying options
+  or opening a socket; zero no longer requests automatic allocation. Preserve
+  production allocator behavior, including the existing Echo source-port policy.
+  Decode Linux TTL/Hop Limit and packet-info indices in native byte order;
+  reject malformed or out-of-range TTL/Hop Limit integers. Native architecture
+  qualification remains separate from source checks.
+
+- Decode NetworkManager replies with exact D-Bus types and arity across path,
+  property, settings and deactivation RPCs. Reject coercible strings, arrays,
+  missing Variant envelopes and malformed profile paths; preserve inactive
+  property sentinels, empty available lists, remote errors and cancellation.
+
+- Revalidate active and cached NetworkManager bond-port ownership before
+  deactivation, active no-op or activation. Support UUID controllers and
+  modern/legacy bindings; reject foreign, malformed and deleted profiles
+  without mutation. Validate UUID lookup replies without `Store` coercion and
+  retain cancellation and typed remote errors. Actual NetworkManager and
+  member-wire qualification remain separate.
+
+- Honor actuator cancellation during Linux NetworkManager DNS, socket dialing,
+  authentication and Hello. Preserve transport fallback and Unix FD negotiation;
+  reject malformed nonce files and disable both TCP transports with
+  `godbus_no_tcp`. Upgrade godbus to v5.2.4 with regenerated dependency evidence.
+  Nonce files require a trusted local filesystem; live owner and member-wire
+  qualification remain separate.
+
+- Honor caller cancellation and deadlines while reading NetworkManager device
+  and active-connection properties. Preserve typed replies and errors; stalled
+  replies on an established D-Bus connection no longer hold manager shutdown
+  beyond the actuator context budget. Connection setup and live ownership
+  qualification remain separate.
+
+- Preserve benchmark, `benchstat`, `tee` and Go-version lookup failures in Make
+  targets. Stop subsequent metadata and HTML writes while retaining raw output
+  already written for diagnosis.
+
+- Reject truncated Podman multiplexed output headers instead of treating them
+  as successful EOF. Preserve completed binary stdout/stderr and wrapped read
+  errors; exec consumers fail on incomplete output.
+
+- Avoid repeated Go interface-table refresh after device-bound IPv6 sender
+  recovery. A matching named zone uses verified socket device scope; explicit
+  numeric or unrelated zones keep their meaning, with the same socket and
+  source port retained.
+
+- Device-bound UDP senders recover from interface recreation after an
+  `ENODEV`/`ENETUNREACH` write failure without replacing the socket or source
+  port. Recovery refreshes matching named IPv6 scope, retries at most once and
+  preserves device isolation when the interface or rebind privilege is absent.
+
+- Echo API claims are principal-scoped and admitted identical retries reuse
+  the canonical wire, discriminator and sender. Compatible config/API claims
+  share the wire; deletion releases only the caller's claim and the final
+  release closes its lease once. Config withdrawal retains RX for API survivors;
+  failed preparation preserves previous config claims. Echo remains preview.
+
+- API-created Echo sends to UDP destination port 3785 for IPv4 and IPv6 and
+  binds RX/TX to the requested interface. Receive listeners share only a matching
+  local-address/interface binding; sender-creation failures release prepared
+  receive claims and unused source ports. Base and multihop API destinations,
+  socket-buffer policy and generated API contracts remain unchanged. Echo
+  remains preview pending full RFC and peer qualification.
+
+- Declarative Echo senders honor `echo.peers[].interface` for IPv4 and IPv6,
+  retaining UDP destination port 3785, startup socket-buffer policy and
+  source-port lease cleanup. Invalid devices fail sender creation; unchanged
+  desired state keeps the existing sender. Same-local-address listener
+  interface conflicts remain rejected during configuration validation.
+
+- Reject changes to `grpc.unsafe_loopback_mutations` on reload before accepting
+  a generation or applying side effects; changing the running policy requires
+  a restart, in either direction.
+
+- Rejected-authentication session logs retain one `peer` attribute inherited
+  from the session logger, so strict JSONL consumers can read replay failures.
+
+- Prepare desired claims before stale release and retain old source claims on
+  resource-pending preparation. Bound occupied-key replacement to prepared,
+  sole-config base SingleHop/MultiHop swaps, then drain the captured old session
+  before lease/discriminator cleanup. Overlay preflight rejects unequal
+  same-wire scopes with live/draining lease refs, prunes obsolete unused
+  preparations and permits unused preparation supersession. Incomplete acquire holds the source before Manager apply
+  or release. Peer-visible cutover does not guarantee hitless rollback.
+
+- Reject unsupported same-identity base authentication reload before accepting
+  a generation or changing log level, readiness, configured peers or resources.
+  Compare immutable fingerprints with retained desired state and live sessions,
+  including API/shared owners; rejected candidates preserve the old configuration.
+  This adds no key rotation or whole-source atomicity.
+
+- Echo API admission requires the validated `echo.enabled` opt-in and live
+  receive-owner readiness before sender/session creation. Valid reloads update
+  the opt-in; disabled/unready admission fails closed while List/Delete remain
+  available. RFC 9747 remains preview.
+
+- Certificate URI identities cannot acquire Unix UID authorization by using
+  a `uid:` prefix. TLS URI, TLS DNS and Unix UID session owners are disjoint;
+  existing configured URI/DNS role identities retain their syntax.
+
+- Workload clock reports distinguish no observed timerfd cancellation from a
+  proven clock epoch. Conditional conversion bounds have a separate field;
+  total clock uncertainty remains unknown and stale reference flags are cleared.
 
 - An orderly stop exits 0 when an AdminDown drain cannot finish because a
   peer is unreachable or never supplied a discriminator; the drain is logged as
@@ -766,6 +1266,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   follow from their eligibility dates.
 
 ### Security
+
+- Bind the Kubernetes GoBGP API explicitly to `127.0.0.1:50051`. Readiness
+  and liveness query the loopback API through the shipped `gobgp` CLI with
+  a three-second exec-probe timeout instead of probing node TCP/50051.
+  Host-local plaintext access remains; live-cluster qualification is separate.
+
+- Restrict `grpc.unsafe_loopback_mutations` to verified direct plaintext
+  loopback TCP connections. TLS clients without URI/DNS principals and requests
+  without transport proof cannot mutate, including when the unsafe opt-in is
+  enabled. Unix peer-UID access, recognized mTLS roles and read-only access
+  retain their existing policies.
 
 - The packaged `gobfd.service` adds a measured sandbox contract:
   `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK`,

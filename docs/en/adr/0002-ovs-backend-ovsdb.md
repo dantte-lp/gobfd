@@ -21,14 +21,15 @@ parsing, and PATH dependency.
 ## Decision
 
 GoBFD uses a native OVSDB client for the default OVS LAG backend.
-`ovs-vsctl` is retained only as an explicit fallback or diagnostics path.
+`OVSLAGBackend` retains `ovs-vsctl` as a directly constructed fallback or
+diagnostics type; daemon configuration does not select it.
 The owner-policy for OVS-managed devices must remain explicit until the
 backend can prove ownership through OVSDB or a higher-level network
 manager.
 
 The production adapter uses `github.com/ovn-kubernetes/libovsdb` `v0.8.1`.
 The former `ovn-org` repository is archived; the active owner retained the
-used transaction API while fixing reconnect and inactivity-probe deadlocks.
+used transaction API while fixing leader-change and inactivity-probe deadlocks.
 The GoBFD
 core depends on a narrow local interface so tests do not need a live
 OVSDB server.
@@ -55,10 +56,10 @@ The native backend works against the `Open_vSwitch` schema:
 
 ```go
 type OVSDBLAGBackend struct {
-    client OVSDBClient
+    client BondLAGClient
 }
 
-type OVSDBLAGClient interface {
+type BondLAGClient interface {
     RemoveBondInterface(ctx context.Context, bond, iface string) error
     AddBondInterface(ctx context.Context, bond, iface string) error
 }
@@ -85,6 +86,9 @@ the kernel-bond and CLI-backed OVS paths.
 
 ## References
 
+- [Backend selection and owner policy](../../../internal/netio/lag_backend.go)
+- [Native OVSDB adapter](../../../internal/netio/lag_ovsdb.go)
+- [Selected module version](../../../go.mod)
 - RFC 7047: <https://datatracker.ietf.org/doc/html/rfc7047>
 - Open vSwitch `ovsdb(7)`:
   <https://docs.openvswitch.org/en/stable/ref/ovsdb.7/>

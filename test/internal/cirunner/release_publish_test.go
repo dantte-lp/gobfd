@@ -23,7 +23,7 @@ func TestPublishVerifiedReleaseChecksExactStateBeforeSingleMutation(t *testing.T
 	releaseView := writeReleasePublishFixture(t, artifactRoot, runnerTemp)
 	runner := &releasePublishRunner{
 		releaseView:  releaseView,
-		aliasDigests: []string{testOCIDigest("1"), testOCIDigest("1"), testOCIDigest("3")},
+		aliasDigests: []string{testOCIDigest("1"), testOCIDigest("1")},
 	}
 	environment := []string{
 		"GH_TOKEN=secret", "GITHUB_TOKEN=other-secret", "PATH=/usr/bin", "DOCKER_CONFIG=/docker",
@@ -35,8 +35,8 @@ func TestPublishVerifiedReleaseChecksExactStateBeforeSingleMutation(t *testing.T
 	}); err != nil {
 		t.Fatalf("PublishVerifiedRelease() error = %v", err)
 	}
-	if len(runner.calls) != 9 || runner.publications != 1 {
-		t.Fatalf("publication calls/publications = %d/%d, want 9/1", len(runner.calls), runner.publications)
+	if len(runner.calls) != 8 || runner.publications != 1 {
+		t.Fatalf("publication calls/publications = %d/%d, want 8/1", len(runner.calls), runner.publications)
 	}
 	wantPublish := specInvocation{
 		name: "gh", args: []string{
@@ -47,7 +47,7 @@ func TestPublishVerifiedReleaseChecksExactStateBeforeSingleMutation(t *testing.T
 		t.Fatalf("final publication call = %#v, want %#v", got, wantPublish)
 	}
 	dockerEnvironment := []string{"PATH=/usr/bin", "DOCKER_CONFIG=/docker"}
-	for _, call := range runner.calls[:3] {
+	for _, call := range runner.calls[:2] {
 		if call.name != "docker" || !reflect.DeepEqual(call.env, dockerEnvironment) {
 			t.Errorf("alias verification call = %#v, want token-free Docker environment", call)
 		}
@@ -107,7 +107,7 @@ func TestPublishVerifiedReleaseRejectsDriftWithoutMutation(t *testing.T) {
 			runnerTemp := t.TempDir()
 			runner := &releasePublishRunner{
 				releaseView:  writeReleasePublishFixture(t, artifactRoot, runnerTemp),
-				aliasDigests: []string{testOCIDigest("1"), testOCIDigest("1"), testOCIDigest("3")},
+				aliasDigests: []string{testOCIDigest("1"), testOCIDigest("1")},
 			}
 			test.mutate(t, artifactRoot, runnerTemp, runner)
 			err := PublishVerifiedRelease(context.Background(), PublishVerifiedReleaseOptions{

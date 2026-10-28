@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/dantte-lp/gobfd/internal/bfd"
 )
 
 var (
@@ -90,6 +92,30 @@ func timerJSONObject(data []byte, required ...string) (map[string]json.RawMessag
 	return values, nil
 }
 
+func timerPublicationTime(raw json.RawMessage) (time.Time, error) {
+	var timestamp string
+	if err := json.Unmarshal(raw, &timestamp); err != nil {
+		return time.Time{}, fmt.Errorf("receipt publication time: %w", err)
+	}
+	if start := strings.IndexAny(timestamp, ".,"); start >= 0 {
+		fraction := timestamp[start+1:]
+		if end := strings.IndexAny(fraction, "Z+-"); end >= 0 {
+			fraction = fraction[:end]
+		}
+		if timestamp[start] != '.' || len(fraction) == 0 || len(fraction) > 9 {
+			return time.Time{}, fmt.Errorf("receipt publication precision %q: %w", timestamp, errTimerEvidence)
+		}
+	}
+	var published time.Time
+	if err := json.Unmarshal(raw, &published); err != nil {
+		return time.Time{}, fmt.Errorf("decode publication time: %w", err)
+	}
+	if published.IsZero() {
+		return time.Time{}, fmt.Errorf("missing receipt publication time: %w", errTimerEvidence)
+	}
+	return published, nil
+}
+
 func parseTimerReceipts(input string) ([]timerReceipt, error) {
 	var receipts []timerReceipt
 	for line := range strings.SplitSeq(strings.TrimSpace(input), "\n") {
@@ -112,18 +138,8 @@ func parseTimerReceipts(input string) ([]timerReceipt, error) {
 			"created", "updated", "released", "pending", "timer_pending", "failed"); err != nil {
 			return nil, err
 		}
-		var timestamp string
-		if err := json.Unmarshal(fields["time"], &timestamp); err != nil {
-			return nil, fmt.Errorf("receipt publication time: %w", err)
-		}
-		if start := strings.IndexAny(timestamp, ".,"); start >= 0 {
-			fraction := timestamp[start+1:]
-			if end := strings.IndexAny(fraction, "Z+-"); end >= 0 {
-				fraction = fraction[:end]
-			}
-			if timestamp[start] != '.' || len(fraction) == 0 || len(fraction) > 9 {
-				return nil, fmt.Errorf("receipt publication precision %q: %w", timestamp, errTimerEvidence)
-			}
+		if _, err := timerPublicationTime(fields["time"]); err != nil {
+			return nil, err
 		}
 		var receipt timerReceipt
 		if err := json.Unmarshal([]byte(line), &receipt); err != nil {
@@ -140,7 +156,18 @@ func parseTimerReceipts(input string) ([]timerReceipt, error) {
 	return receipts, nil
 }
 
-func timerGenerationApplied(receipts []timerReceipt, previous uint64) (time.Time, error) {
+// The phase declares receipt semantics; captured Poll/Final is checked separately.
+type timerReceiptMode uint8
+
+const (
+	timerReceiptPoll timerReceiptMode = iota + 1
+	timerReceiptImmediate
+)
+
+func timerGenerationApplied(receipts []timerReceipt, previous uint64, mode timerReceiptMode) (time.Time, error) {
+	if mode != timerReceiptPoll && mode != timerReceiptImmediate {
+		return time.Time{}, fmt.Errorf("invalid reload receipt mode %d: %w", mode, errTimerEvidence)
+	}
 	pending := false
 	var applied time.Time
 	for _, receipt := range receipts {
@@ -162,7 +189,7 @@ func timerGenerationApplied(receipts []timerReceipt, previous uint64) (time.Time
 		}
 		if receipt.Message != "configuration reconciliation converged" || receipt.Applied != previous+1 ||
 			receipt.Pending != 0 || receipt.Base.Pending != 0 || receipt.Base.TimerPending != 0 || receipt.Base.Updated != 1 ||
-			!pending {
+			(mode == timerReceiptPoll && !pending) {
 			return time.Time{}, fmt.Errorf("unexpected applied receipt %+v: %w", receipt, errTimerEvidence)
 		}
 		if applied.IsZero() || receipt.PublishedAt.Before(applied) {
@@ -194,14 +221,9 @@ func parseTimerCounter(input, label string) (uint64, error) {
 }
 
 func timerConfig(baseline, peer, tx, rx string) (string, error) {
-	marker := "  - peer: \"" + peer + "\"\n"
-	if strings.Count(baseline, marker) != 1 {
-		return "", fmt.Errorf("unique peer block %s: %w", peer, errTimerEvidence)
-	}
-	start := strings.Index(baseline, marker)
-	end := len(baseline)
-	if next := strings.Index(baseline[start+len(marker):], "\n  - peer:"); next >= 0 {
-		end = start + len(marker) + next
+	start, end, err := timerPeerBlock(baseline, peer)
+	if err != nil {
+		return "", err
 	}
 	block := baseline[start:end]
 	for _, field := range []struct{ name, value string }{{"desired_min_tx", tx}, {"required_min_rx", rx}} {
@@ -212,6 +234,19 @@ func timerConfig(baseline, peer, tx, rx string) (string, error) {
 		block = strings.Replace(block, old, "    "+field.name+": \""+field.value+"\"", 1)
 	}
 	return baseline[:start] + block + baseline[end:], nil
+}
+
+func timerPeerBlock(baseline, peer string) (int, int, error) {
+	marker := "  - peer: \"" + peer + "\"\n"
+	if strings.Count(baseline, marker) != 1 {
+		return 0, 0, fmt.Errorf("unique peer block %s: %w", peer, errTimerEvidence)
+	}
+	start := strings.Index(baseline, marker)
+	end := len(baseline)
+	if next := strings.Index(baseline[start+len(marker):], "\n  - peer:"); next >= 0 {
+		end = start + len(marker) + next
+	}
+	return start, end, nil
 }
 
 type timerFrame struct {
@@ -395,7 +430,7 @@ func evaluateTimerPhase(frames []timerFrame, phase timerPhase) (timerWireResult,
 	if phase.RXZero {
 		return result, nil
 	}
-	mean, err := checkJitteredIntervals(intervals, int64(max(phase.TX, phase.RemoteRX)))
+	mean, err := checkJitteredIntervals(intervals, int64(max(phase.TX, phase.RemoteRX)), 3)
 	if err != nil {
 		return result, err
 	}
@@ -409,11 +444,16 @@ func timerSlack(expected int64) int64 {
 	return max(2000, expected/50)
 }
 
-// checkIntervalBounds applies RFC 5880 section 6.8.7 with DetectMult above 1:
-// each interval is the negotiated TX reduced by 0-25%, plus wakeup slack.
-func checkIntervalBounds(intervals []int64, expected int64) error {
+// RFC 5880 section 6.8.7 caps DetectMult 1 at 90%, other multipliers at 100%.
+func checkIntervalBounds(intervals []int64, expected int64, multiplier uint64) error {
+	if expected <= 0 || expected > 1<<32-1 || multiplier == 0 || multiplier > 255 {
+		return fmt.Errorf("invalid jitter target %d multiplier %d: %w", expected, multiplier, errTimerEvidence)
+	}
 	slack := timerSlack(expected)
 	low, high := expected*3/4-slack, expected+slack
+	if multiplier == 1 {
+		high = expected*9/10 + slack
+	}
 	for _, interval := range intervals {
 		if interval < low || interval > high {
 			return fmt.Errorf("interval %d outside [%d,%d] us: %w", interval, low, high, errTimerEvidence)
@@ -423,28 +463,29 @@ func checkIntervalBounds(intervals []int64, expected int64) error {
 }
 
 // checkJitteredIntervals requires at least 12 bounded intervals and returns their mean.
-func checkJitteredIntervals(intervals []int64, expected int64) (float64, error) {
+func checkJitteredIntervals(intervals []int64, expected int64, multiplier uint64) (float64, error) {
 	if len(intervals) < 12 {
 		return 0, fmt.Errorf("stable intervals=%d, want at least 12: %w", len(intervals), errTimerEvidence)
 	}
-	if err := checkIntervalBounds(intervals, expected); err != nil {
+	if err := checkIntervalBounds(intervals, expected, multiplier); err != nil {
 		return 0, err
 	}
 	var sum int64
 	for _, interval := range intervals {
 		sum += interval
 	}
-	// applyJitterWithRand draws the reduction uniformly from 0..25%: mean 0.875T,
-	// standard deviation 0.075T. Reject a sample mean beyond three standard errors,
-	// -1.8*T*sqrt(n) <= 8*sum - 7*n*T <= 1.8*T*sqrt(n) + 8*n*slack. Timer rearm after
-	// each send adds wakeup latency to every interval, so only the upper side carries
-	// slack. Integer terms stay far below 2^53.
+	// Conservative standard deviations bound uniform 75..100% and 75..90% draws.
+	mean, sigma := 0.875, 0.075
+	if multiplier == 1 {
+		mean, sigma = 0.825, 0.045
+	}
 	n := int64(len(intervals))
-	deviation := float64(8*sum - 7*n*expected)
-	bound := 1.8 * float64(expected) * math.Sqrt(float64(n))
-	if deviation < -bound || deviation > bound+float64(8*n*timerSlack(expected)) {
-		return 0, fmt.Errorf("mean interval %d us deviates from 0.875*%d us beyond 3 standard errors (n=%d): %w",
-			sum/n, expected, n, errTimerEvidence)
+	deviation := float64(sum) - mean*float64(n*expected)
+	bound := 3 * sigma * float64(expected) * math.Sqrt(float64(n))
+	// Timer rearm adds wakeup latency, so only the upper side carries slack.
+	if deviation < -bound || deviation > bound+float64(n*timerSlack(expected)) {
+		return 0, fmt.Errorf("mean interval %d us deviates from %g*%d us beyond 3 standard errors (n=%d): %w",
+			sum/n, mean, expected, n, errTimerEvidence)
 	}
 	return float64(sum) / float64(n), nil
 }
@@ -527,12 +568,7 @@ func timerSnapshot(ctx context.Context, t *testing.T, peer, name string) (sessio
 	if err != nil {
 		t.Fatalf("parse timer snapshot: %v", err)
 	}
-	text, err := projectContainerCommand(ctx, "gobfd-interop",
-		"exec", "/bin/gobfdctl", "--addr", "127.0.0.1:50051", "session", "show", peer)
-	writeTimerArtifact(t, name+"-status", "txt", []byte(text))
-	if err != nil {
-		t.Fatalf("timer text counters: %v", err)
-	}
+	text := timerTextSnapshot(ctx, t, peer, name)
 	var counters [2]uint64
 	for index, label := range []string{"State Transitions", "Auth Failures"} {
 		counters[index], err = parseTimerCounter(text, label)
@@ -541,6 +577,17 @@ func timerSnapshot(ctx context.Context, t *testing.T, peer, name string) (sessio
 		}
 	}
 	return state, counters
+}
+
+func timerTextSnapshot(ctx context.Context, t *testing.T, peer, name string) string {
+	t.Helper()
+	text, err := projectContainerCommand(ctx, "gobfd-interop",
+		"exec", "/bin/gobfdctl", "--addr", "127.0.0.1:50051", "session", "show", peer)
+	writeTimerArtifact(t, name+"-status", "txt", []byte(text))
+	if err != nil {
+		t.Fatalf("timer text counters: %v", err)
+	}
+	return text
 }
 
 func readTimerReceipts(ctx context.Context, t *testing.T, name string) []timerReceipt {
@@ -585,6 +632,10 @@ func retainTimerPollEvidence(ctx context.Context, name string, generation uint64
 }
 
 func waitTimerQuiet(ctx context.Context, peer string, remoteRX uint64) error {
+	return waitTimerQuietRX(ctx, peer, remoteRX, 300000)
+}
+
+func waitTimerQuietRX(ctx context.Context, peer string, remoteRX, localRX uint64) error {
 	boundary, err := lastFrameForFilter(ctx, timerTraffic(peer))
 	if err != nil {
 		return err
@@ -613,7 +664,7 @@ func waitTimerQuiet(ctx context.Context, peer string, remoteRX uint64) error {
 				}
 				remote++
 			} else {
-				if frame.TX != 300000 || frame.RX != 300000 {
+				if frame.TX != 300000 || frame.RX != localRX {
 					local = 0
 					continue
 				}
@@ -673,7 +724,7 @@ func runTimerGeneration(
 			return false, false, parseErr
 		}
 		var receiptErr error
-		appliedAt, receiptErr = timerGenerationApplied(parsed, last.Applied)
+		appliedAt, receiptErr = timerGenerationApplied(parsed, last.Applied, timerReceiptPoll)
 		return !appliedAt.IsZero(), !appliedAt.IsZero(), receiptErr
 	})
 	if evidenceErr := retainTimerPollEvidence(phaseCtx, name+"-after", last.Applied+1, lastRaw, err); evidenceErr != nil {
@@ -856,15 +907,17 @@ func restoreTimerBaseline(ctx context.Context, t *testing.T, baseline []byte, na
 }
 
 func TestTimerReload(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
+	runTimerReload(t, fourPeerDefault)
+}
+
+func runTimerReload(t *testing.T, profile fourPeerProfile) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
-	baseline, err := os.ReadFile("gobfd/gobfd.yml")
+	requireCaptureFields(ctx, t, paddingFrameFields())
+	baseline, bird, err := loadFourPeerConfig(filepath.Join("..", ".."), profile)
 	if err != nil {
 		t.Fatalf("read immutable daemon baseline: %v", err)
-	}
-	bird, err := os.ReadFile("bird3/bird.conf")
-	if err != nil {
-		t.Fatalf("read immutable BIRD baseline: %v", err)
 	}
 	// Restore from the saved baseline even when a phase aborts; never edit tracked fixtures.
 	t.Cleanup(func() {
@@ -875,6 +928,7 @@ func TestTimerReload(t *testing.T) {
 			setTimerPeerRX(restoreCtx, t, peer, string(bird), 300)
 		}
 	})
+	observers := make(map[string]*paddingObserver)
 	for _, peer := range []struct{ name, address string }{{"FRR", frrIP}, {"BIRD3", bird3IP}} {
 		if !t.Run(peer.name, func(t *testing.T) {
 			before, counters := timerSnapshot(ctx, t, peer.address, peer.name+"-floor-before")
@@ -902,9 +956,64 @@ func TestTimerReload(t *testing.T) {
 				t.Fatalf("peer RX restoration changed identity/counters: before=%+v/%v after=%+v/%v",
 					before, counters, restored, restoredCounters)
 			}
+			for _, multiplier := range []uint64{1, 5, 3} {
+				runDetectGeneration(ctx, t, string(baseline), peer.address,
+					fmt.Sprintf("%s-detect-%d", peer.name, multiplier), multiplier, timerReceiptImmediate)
+			}
+			authType := bfd.AuthTypeSimplePassword
+			if peer.address == bird3IP {
+				authType = bfd.AuthTypeKeyedSHA1
+				if profile == fourPeerMeticulous {
+					authType = bfd.AuthTypeMeticulousKeyedSHA1
+				}
+			}
+			observer := newPaddingObserver(ctx, t, baseline, peer.address, authType)
+			observers[peer.address] = observer
+			for _, size := range []uint64{192, 128} {
+				candidate, buildErr := paddingConfig(string(baseline), peer.address, size)
+				if buildErr != nil {
+					t.Fatal(buildErr)
+				}
+				runPaddingCandidate(ctx, t, candidate, fmt.Sprintf("%s-padding-%d", peer.name, size), size, false, observer)
+			}
+			candidate, buildErr := paddingConfig(string(baseline), peer.address, 0)
+			if buildErr != nil {
+				t.Fatal(buildErr)
+			}
+			if peer.address == bird3IP {
+				candidate, buildErr = paddingConfig(string(baseline), peer.address, 192)
+				if buildErr != nil {
+					t.Fatal(buildErr)
+				}
+				start, end, blockErr := timerPeerBlock(candidate, peer.address)
+				if blockErr != nil {
+					t.Fatal(blockErr)
+				}
+				block := candidate[start:end]
+				if strings.Count(block, "      key_id: 7\n") != 1 {
+					t.Fatal("ambiguous auth candidate")
+				}
+				block = strings.Replace(block, "      key_id: 7\n", "      key_id: 8\n", 1)
+				candidate = candidate[:start] + block + candidate[end:]
+			}
+			runPaddingCandidate(ctx, t, candidate, peer.name+"-padding-rejected", 128, true, observer)
 		}) {
 			return
 		}
+	}
+	if !t.Run("padding-enable-rejected", func(t *testing.T) {
+		holo := newPaddingObserver(ctx, t, baseline, holoIP, bfd.AuthTypeNone)
+		candidate, buildErr := paddingConfig(string(baseline), holoIP, 128)
+		if buildErr != nil {
+			t.Fatal(buildErr)
+		}
+		candidate, buildErr = paddingConfig(candidate, frrIP, 192)
+		if buildErr != nil {
+			t.Fatal(buildErr)
+		}
+		runPaddingCandidate(ctx, t, candidate, "combined-enable-rejected", 128, true, observers[frrIP], holo)
+	}) {
+		return
 	}
 	for _, peer := range []struct{ name, address string }{{"FRR", frrIP}, {"BIRD3", bird3IP}} {
 		if !t.Run(peer.name+"-RX0", func(t *testing.T) {

@@ -31,7 +31,7 @@ type fakeAPISenderFactory struct {
 }
 
 func (f *fakeAPISenderFactory) CreateSender(
-	netip.Addr, string, bool, bool, *slog.Logger,
+	netip.Addr, string, bfd.SessionType, bool, *slog.Logger,
 ) (bfd.PacketSender, uint16, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -62,15 +62,16 @@ type apiListenerFixture struct {
 func newAPIListenerFixture(t *testing.T) *apiListenerFixture {
 	t.Helper()
 	coordinator, _ := newConvergedReadinessCoordinator(t)
+	coordinator.readiness.setEchoEnabled(true)
 	opener := newFakeListenerOpener()
 	inventory := &fakeInterfaceInventory{}
 	inventory.set(nil, upInterface("eth1", 1), upInterface("eth8", 8))
 	owner, mgr := newTestListenerOwner(t, coordinator.readiness, opener, inventory)
 	inner := &fakeAPISenderFactory{}
 	logger := slog.New(slog.DiscardHandler)
-	srv := newGRPCServer(config.GRPCConfig{UnsafeLoopbackMutations: true}, mgr,
+	srv := newGRPCServer(config.GRPCConfig{UnsafeLoopbackMutations: true}, false, mgr,
 		newAPIListenerSenderFactory(inner, owner, false), newAPIListenerSenderFactory(inner, owner, true),
-		newDaemonHealthChecker(), nil, logger)
+		newDaemonHealthChecker(), nil, logger, nil)
 	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -199,6 +200,40 @@ func TestAPIEchoSessionClaimsPerAddressListener(t *testing.T) {
 	}
 	if f.openListener(t, key) {
 		t.Fatal("Echo listener leaked after its last claim was released")
+	}
+}
+
+func TestAPIEchoSessionClaimsRequestedInterface(t *testing.T) {
+	t.Parallel()
+	for _, ifName := range []string{"eth1", ""} {
+		t.Run(ifName, func(t *testing.T) {
+			t.Parallel()
+			f := newAPIListenerFixture(t)
+			configured := echoListener("192.0.2.5", "eth8")
+			configKey := listenerKeyOf(configured)
+			if err := f.owner.acquire(sourceClaim(sourceEcho), []netio.ListenerConfig{configured}); err != nil {
+				t.Fatal(err)
+			}
+			created, err := f.echo.AddEchoSession(t.Context(), &bfdv1.AddEchoSessionRequest{
+				PeerAddress: "192.0.2.6", LocalAddress: "192.0.2.5", InterfaceName: ifName,
+				TxInterval: durationpb.New(time.Hour), DetectMultiplier: 3,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			requestedKey := listenerKeyOf(echoListener("192.0.2.5", ifName))
+			if len(f.opener.openedKeys()) != 2 || !f.openListener(t, requestedKey) || !f.openListener(t, configKey) {
+				t.Fatal("API silently reused an Echo listener bound to another interface")
+			}
+			if _, err := f.echo.DeleteEchoSession(t.Context(), &bfdv1.DeleteEchoSessionRequest{
+				LocalDiscriminator: created.GetSession().GetLocalDiscriminator(),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if f.openListener(t, requestedKey) || !f.openListener(t, configKey) {
+				t.Fatal("Echo API cleanup released the configured listener or leaked its own claim")
+			}
+		})
 	}
 }
 

@@ -49,6 +49,14 @@ const (
 	startupFieldGRPCTLS
 	startupFieldGRPCMutatingIdentities
 	startupFieldGRPCFlightRecorder
+	startupFieldMicroEnabled
+	startupFieldGRPCUnsafeLoopbackMutations
+	startupFieldSocketIPv4DSCP
+	startupFieldSocketIPv6TrafficClass
+	startupFieldSocketPriority
+	startupFieldSocketMark
+	startupFieldSocketPriorityRequired
+	startupFieldSocketMarkRequired
 )
 
 func (f startupFieldID) String() string {
@@ -87,6 +95,14 @@ func (f startupFieldID) String() string {
 		"grpc.tls",
 		"grpc.mutating_identities",
 		"grpc.flight_recorder",
+		"micro_bfd.enabled",
+		"grpc.unsafe_loopback_mutations",
+		"socket.ipv4_dscp",
+		"socket.ipv6_traffic_class",
+		"socket.priority",
+		"socket.mark",
+		"socket.priority_required",
+		"socket.mark_required",
 	}
 	if int(f) >= len(paths) {
 		return "unknown"
@@ -119,6 +135,7 @@ type startupRuntimeContract struct {
 	socket             config.SocketConfig
 	unsolicited        config.UnsolicitedConfig
 	actuator           config.MicroBFDActuatorConfig
+	microEnabled       bool
 	gobgp              config.GoBGPConfig
 	vxlanBackend       string
 	vxlanManagementVNI uint32
@@ -134,6 +151,7 @@ func newStartupRuntimeContract(cfg *config.Config) startupRuntimeContract {
 		socket:             cfg.Socket,
 		unsolicited:        cloneUnsolicitedConfig(cfg.Unsolicited),
 		actuator:           cfg.MicroBFD.Actuator,
+		microEnabled:       cfg.MicroBFD.Enabled,
 		gobgp:              cfg.GoBGP,
 		vxlanBackend:       cfg.VXLAN.Backend,
 		vxlanManagementVNI: cfg.VXLAN.ManagementVNI,
@@ -184,6 +202,8 @@ func (c startupRuntimeContract) changedFields(cfg *config.Config) []startupField
 	appendChanged(startupFieldGRPCSocket, c.grpc.Socket != cfg.GRPC.Socket)
 	appendChanged(startupFieldGRPCTLS, c.grpc.TLS != cfg.GRPC.TLS)
 	appendChanged(startupFieldGRPCFlightRecorder, c.grpc.FlightRecorder != cfg.GRPC.FlightRecorder)
+	appendChanged(startupFieldGRPCUnsafeLoopbackMutations,
+		c.grpc.UnsafeLoopbackMutations != cfg.GRPC.UnsafeLoopbackMutations)
 	appendChanged(startupFieldGRPCMutatingIdentities,
 		!slices.Equal(c.grpc.MutatingIdentities, cfg.GRPC.MutatingIdentities))
 	appendChanged(startupFieldMetricsAddr, c.metrics.Addr != cfg.Metrics.Addr)
@@ -191,7 +211,14 @@ func (c startupRuntimeContract) changedFields(cfg *config.Config) []startupField
 	appendChanged(startupFieldLogFormat, c.logFormat != cfg.Log.Format)
 	appendChanged(startupFieldSocketReadBufferSize, c.socket.ReadBufferSize != cfg.Socket.ReadBufferSize)
 	appendChanged(startupFieldSocketWriteBufferSize, c.socket.WriteBufferSize != cfg.Socket.WriteBufferSize)
+	appendChanged(startupFieldSocketIPv4DSCP, c.socket.IPv4DSCP != cfg.Socket.IPv4DSCP)
+	appendChanged(startupFieldSocketIPv6TrafficClass, c.socket.IPv6TrafficClass != cfg.Socket.IPv6TrafficClass)
+	appendChanged(startupFieldSocketPriority, c.socket.Priority != cfg.Socket.Priority)
+	appendChanged(startupFieldSocketMark, c.socket.Mark != cfg.Socket.Mark)
+	appendChanged(startupFieldSocketPriorityRequired, c.socket.PriorityRequired != cfg.Socket.PriorityRequired)
+	appendChanged(startupFieldSocketMarkRequired, c.socket.MarkRequired != cfg.Socket.MarkRequired)
 	c.appendUnsolicitedChanges(cfg.Unsolicited, appendChanged)
+	appendChanged(startupFieldMicroEnabled, c.microEnabled != cfg.MicroBFD.Enabled)
 	appendChanged(startupFieldMicroActuatorMode, c.actuator.Mode != cfg.MicroBFD.Actuator.Mode)
 	appendChanged(startupFieldMicroActuatorBackend, c.actuator.Backend != cfg.MicroBFD.Actuator.Backend)
 	appendChanged(startupFieldMicroActuatorOVSDBEndpoint, c.actuator.OVSDBEndpoint != cfg.MicroBFD.Actuator.OVSDBEndpoint)

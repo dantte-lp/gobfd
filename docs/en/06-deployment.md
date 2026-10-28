@@ -19,13 +19,14 @@
 - [Podman Compose](#podman-compose)
 - [Container Image](#container-image)
 - [Security Hardening](#security-hardening)
+- [Management Certificate Renewal](#management-certificate-renewal)
 - [Production Checklist](#production-checklist)
 
 ### Requirements
 
 - **Linux** kernel (raw sockets require Linux-specific APIs)
-- **CAP_NET_RAW** and **CAP_NET_ADMIN** capabilities (for raw UDP sockets with TTL=255)
-- Go 1.27+ (for building from source only)
+- **CAP_NET_RAW** and **CAP_NET_ADMIN** capabilities in the shipped runtime contract (device binding and configured network operations)
+- Repository-pinned Go 1.27.3 inside Podman (source builds only)
 
 Non-Linux targets are compile-only compatibility surfaces. The `internal/netio`
 transport constructors return `ErrUnsupportedPlatform`; GoBFD does not publish
@@ -33,13 +34,18 @@ or support a non-Linux dataplane runtime.
 
 ### Release Artifact Matrix
 
+This is the artifact contract of the current `dev` release configuration
+([`.goreleaser.yml`](../../.goreleaser.yml)), not a list of published or
+qualified products. `master` contains the accepted stable state;
+`release/v0.6` retains its own contracts and GoBGP v3.37.0. Publication of the
+next line remains on hold pending final qualification and authorization.
+
 | Artifact | Target systems | Architectures | Base image / package format |
 |---|---|---|---|
 | Static binaries | Linux distributions with glibc or musl user space | `amd64`, `arm64` | `tar.gz` archive |
-| Debian package | Debian 13 `trixie`, Ubuntu-compatible systems | `amd64`, `arm64` | `.deb`, systemd unit |
-| RPM package | Oracle Linux 10, RHEL-compatible systems, Fedora-compatible systems | `amd64`, `arm64` | `.rpm`, systemd unit |
+| Debian package | Debian 13 `trixie` lifecycle profile | `amd64`, `arm64` | `.deb`, systemd unit |
+| RPM package | Generic RPM generation; target-platform qualification separate | `amd64`, `arm64` | `.rpm`, systemd unit |
 | Default OCI image | Docker, Podman, Kubernetes CRI runtimes | `linux/amd64`, `linux/arm64` | `docker.io/library/debian:trixie-slim` |
-| Oracle Linux OCI image | Docker, Podman, Kubernetes CRI runtimes requiring Oracle Linux user space | `linux/amd64`, `linux/arm64` | `docker.io/library/oraclelinux:10-slim` |
 
 | Image tag | Base |
 |---|---|
@@ -47,10 +53,15 @@ or support a non-Linux dataplane runtime.
 | `ghcr.io/dantte-lp/gobfd:latest` | Debian `trixie-slim` |
 | `ghcr.io/dantte-lp/gobfd:<version>-debian-trixie` | Debian `trixie-slim` |
 | `ghcr.io/dantte-lp/gobfd:debian-trixie` | Debian `trixie-slim` |
-| `ghcr.io/dantte-lp/gobfd:<version>-oraclelinux10` | Oracle Linux `10-slim` |
-| `ghcr.io/dantte-lp/gobfd:oraclelinux10` | Oracle Linux `10-slim` |
+
+Oracle Linux 10 is excluded from v1 OCI and lifecycle qualification. Generic
+RPM generation remains enabled; an RPM file does not establish platform
+qualification. Existing v0.6 images and tags are preserved.
 
 ### Installation Methods
+
+Select one package for the intended version and host architecture. Package
+format compatibility alone does not establish a qualified operating system.
 
 #### From deb/rpm Packages
 
@@ -69,7 +80,7 @@ sudo systemctl enable --now gobfd
 
 # Verify
 sudo systemctl status gobfd
-gobfdctl session list
+sudo gobfdctl session list
 ```
 
 Packages are built by GoReleaser v2 and include:
@@ -77,6 +88,7 @@ Packages are built by GoReleaser v2 and include:
 - `/etc/gobfd/gobfd.yml` example configuration
 - `/usr/lib/systemd/system/gobfd.service` systemd unit
 - `gobfd` system user and group
+- `gobfd-admin` management-socket group; grant membership only to authorized operators
 
 The repository owns package lifecycle behavior in the package-internal
 `internal/cmd/gobfd-package-lifecycle` executable. It maps only the supported
@@ -86,36 +98,37 @@ commands. The declarative inputs are `deployments/systemd/gobfd.sysusers` and
 identity and `/etc/gobfd` ownership without changing the four public-binary
 contract.
 
-`go run ./test/cmd/cictl package-lifecycle` installs the release DEB and RPM
-into systemd containers and runs their install and final-removal phases; see
+Installation and upgrade run `daemon-reload` without starting, enabling or
+restarting the daemon. Upgrades preserve service enablement and the running
+process. After validating the new package and configuration, schedule
+`sudo systemctl restart gobfd` to load the new executable; this interrupts BFD
+sessions. Final removal stops and disables the service.
+
+`go run ./test/cmd/cictl package-lifecycle` installs the release DEB
+into a Debian systemd container and exercises installation, upgrade phases and
+final removal; see
 [Package Lifecycle Tests](./09-development.md#package-lifecycle-tests).
 
 #### From Source
 
 ```bash
-git clone https://github.com/dantte-lp/gobfd.git
+git clone --branch dev https://github.com/dantte-lp/gobfd.git
 cd gobfd
 
-# Build all 4 binaries with version info (recommended)
+# Build all 4 binaries with version info in the pinned container
+make up
 make build
 
-# Or build manually with ldflags
-VERSION=$(git describe --tags --always --dirty)
-GIT_COMMIT=$(git rev-parse --short HEAD)
-BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-LDFLAGS="-s -w \
-  -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
-  -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
-  -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}"
-
-go build -ldflags="${LDFLAGS}" -o bin/gobfd ./cmd/gobfd
-go build -ldflags="${LDFLAGS}" -o bin/gobfdctl ./cmd/gobfdctl
-go build -ldflags="${LDFLAGS}" -o bin/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
-go build -ldflags="${LDFLAGS}" -o bin/gobfd-exabgp-bridge ./cmd/gobfd-exabgp-bridge
-
-# Install
-sudo install -m 755 bin/gobfd bin/gobfdctl bin/gobfd-haproxy-agent bin/gobfd-exabgp-bridge /usr/local/bin/
+# Install the binaries written to the repository root
+sudo install -m 755 gobfd gobfdctl gobfd-haproxy-agent gobfd-exabgp-bridge /usr/local/bin/
 ```
+
+Copying binaries does not install the package configuration, systemd unit or
+system identities. The example configuration requires an existing `gobfd-admin`
+group. Use the package lifecycle for a managed service; a default-config smoke
+can run as `sudo ./gobfd` without that example. Query its socket from another
+terminal with `sudo ./gobfdctl session list`. Non-root operators require socket
+group membership in their current login session.
 
 ### systemd Service
 
@@ -179,9 +192,9 @@ Key features:
 
 | Feature | Description |
 |---|---|
-| `Type=notify` | Uses `sd_notify(READY)` for accurate readiness reporting |
+| `Type=notify` | Uses `sd_notify(READY)` for process/listener startup; configuration convergence has separate gRPC health |
 | `WatchdogSec=30s` | systemd watchdog -- daemon sends keepalives at 15s intervals |
-| `ExecReload` | SIGHUP reloads log level and reconciles session membership within startup-open transport bindings; startup-owned changes are rejected and require restart |
+| `ExecReload` | SIGHUP reloads log level and reconciles sessions plus owned UDP listeners/backends; startup-owned settings require restart |
 | `Restart=on-failure` | Auto-restart with 5s delay after a crash or a fail-stop exit on receive-path or dispatch loss |
 | Orderly stop | Exits 0 after the AdminDown drain. A drain that cannot finish because a peer is unreachable or never supplied a discriminator is logged as a warning; local drain failures still exit with an error |
 | Security directives | Least-privilege with only `CAP_NET_RAW` and `CAP_NET_ADMIN` |
@@ -210,7 +223,9 @@ reopens only `/sys/devices/virtual/net/<bond>/bonding/slaves`, the file the
 backend writes, for each actuated bond:
 
 ```bash
-sudo install -D -m 0644 gobfd-kernel-bond.conf /etc/systemd/system/gobfd.service.d/kernel-bond.conf
+sudo install -D -m 0644 deployments/systemd/gobfd-kernel-bond.conf /etc/systemd/system/gobfd.service.d/kernel-bond.conf
+# Replace bond0 in the installed drop-in with each actuated bond before restart.
+sudoedit /etc/systemd/system/gobfd.service.d/kernel-bond.conf
 sudo systemctl daemon-reload && sudo systemctl restart gobfd
 ```
 
@@ -233,8 +248,9 @@ sudo systemctl edit gobfd   # [Service] LimitNOFILE=<2*sessions+256 or more>
 ```
 
 The [package lifecycle test](./09-development.md#package-lifecycle-tests)
-installs the release DEB and RPM under systemd 257 on Debian 13 and Oracle
-Linux 10. The daemon starts with `Seccomp: 2`, `NoNewPrivs: 1`, `Umask: 0077`,
+covers the release DEB on Debian 13. Historical systemd 257 qualification
+also covered RPM on Oracle Linux 10 before that platform was retired from v1.
+The daemon starts with `Seccomp: 2`, `NoNewPrivs: 1`, `Umask: 0077`,
 `hidepid=invisible,subset=pid` and a 16384 descriptor limit, holds its sessions
 Up for longer than `WatchdogSec=` without a restart, reloads without a PID
 change, restarts after `SIGKILL` and stops with `Result=success` after its peer
@@ -264,6 +280,9 @@ GoBFD uses Podman's external Compose-provider wrapper with the official Docker
 Compose v5.6.0 Go binary. Install the checksum-pinned provider and select it
 explicitly; Python `podman-compose` is unsupported:
 
+The bootstrap command below currently runs on the host and requires the
+repository-pinned Go toolchain. It does not use the development container.
+
 ```bash
 go run ./test/cmd/toolbootstrap compose --install-dir "$HOME/.local/bin"
 export PODMAN_COMPOSE_PROVIDER="$HOME/.local/bin/docker-compose"
@@ -286,7 +305,8 @@ Docker Buildx/Bake is not part of the repository's Podman runtime.
 
 #### Development Stack
 
-`deployments/compose/compose.dev.yml` -- development environment with hot reload:
+`deployments/compose/compose.dev.yml` provides a development environment with
+a bind-mounted source checkout. It does not run a daemon or file watcher:
 
 ```bash
 # Start development environment
@@ -318,10 +338,20 @@ which Make builds inside the development container before execution:
 podman compose -f deployments/compose/compose.yml up -d
 
 # Services:
-#   gobfd API:        unix:///run/gobfd/gobfd.sock (host)
+#   gobfd API:        unix:///run/gobfd/gobfd.sock (inside gobfd container)
 #   Prometheus:       http://localhost:9090
 #   Grafana:          http://localhost:3000 (admin/admin)
 ```
+
+This source-built example is not a published release product or a new
+production acceptance result. Render it with the selected provider first;
+its three builds do not use the capped interop controller. Admit build and
+runtime resources separately on a shared host.
+
+The Unix socket stays inside the GoBFD container because this Compose file
+does not bind-mount `/run/gobfd`. Use `podman exec gobfd gobfdctl session list`
+for management, or separately configure an owned socket mount. Host networking
+does not share filesystem paths.
 
 All three services share the Linux host network. Prometheus scrapes
 `127.0.0.1:9100`, and Grafana uses `http://127.0.0.1:9090` as its data source.
@@ -344,8 +374,8 @@ graph LR
         GR["Grafana<br/>:3000"]
     end
 
-    G -->|scrape /metrics| P
-    P -->|data source| GR
+    P -->|scrape /metrics| G
+    GR -->|query data source| P
 
     style G fill:#1a73e8,color:#fff
     style P fill:#E6522C,color:#fff
@@ -359,14 +389,20 @@ Build the container image:
 ```bash
 # Standard build
 podman build -f deployments/docker/Containerfile -t gobfd .
-
-# Multi-arch build (via GoReleaser)
-goreleaser release --snapshot --clean
 ```
+
+Multi-architecture release images use the pinned GoReleaser, Syft and UPX
+setup in [release.yml](../../.github/workflows/release.yml), which the
+development image does not provide. Follow the [release guide](10-changelog.md)
+for the separate qualification and publication process.
 
 Release images contain the four GoBFD binaries and no development toolchain:
 `gobfd`, `gobfdctl`, `gobfd-haproxy-agent`, and
 `gobfd-exabgp-bridge`.
+
+The source-build `deployments/docker/Containerfile` above contains only
+`gobfd` and `gobfdctl`; the separate release recipe is
+`deployments/docker/Containerfile.release`.
 
 Running the container requires:
 - `CAP_NET_RAW` and `CAP_NET_ADMIN` capabilities
@@ -381,8 +417,68 @@ GoBFD follows the principle of least privilege:
 | **Capabilities** | Only `CAP_NET_RAW` + `CAP_NET_ADMIN` (no root) |
 | **systemd** | `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp`, address-family and system-call filters, `ProcSubset=pid`; see [Sandbox Contract](#sandbox-contract) |
 | **Code** | No `unsafe` in handwritten first-party code; generated protobuf runtime code is excluded; all socket errors handled |
-| **TTL** | GTSM (RFC 5082): TTL=255 on transmit, TTL=255 check on receive |
+| **TTL** | Control TX TTL=255; single-hop RX requires 255, multihop RX uses the configured `255 - multihop_max_hops` floor |
 | **Auth** | Optional BFD authentication (5 types per RFC 5880 Section 6.7) |
+
+The default management endpoint is `unix:///run/gobfd/gobfd.sock`, mode
+`0660`; the example and packages select group `gobfd-admin`. Metrics default
+to unauthenticated `127.0.0.1:9100`. A configured non-loopback management TCP
+listener requires `grpc.tls.cert_file`, `key_file` and `client_ca_file`;
+anonymous loopback TCP access is read-only by default. Keep the Unix socket
+unless remote management is required. For a separately configured mTLS server:
+
+```bash
+gobfdctl --addr https://bfd.example:50052 \
+  --tls-ca /etc/gobfd/tls/server-ca.pem \
+  --tls-cert /etc/gobfd/tls/operator.pem \
+  --tls-key /etc/gobfd/tls/operator.key session list
+```
+
+The server certificate must cover the selected hostname. Role rules such as
+`grpc.mutating_identities` control mutations separately from certificate trust.
+The exact defaults and checks are in
+[`internal/config/config.go`](../../internal/config/config.go); client flags
+are in [`cmd/gobfdctl/commands/root.go`](../../cmd/gobfdctl/commands/root.go).
+
+### Management Certificate Renewal
+
+With an existing certificate valid for TLS client authentication, its matching
+private key and explicit trusted CA roots, run renewal outside the daemon:
+
+```bash
+gobfdctl certificate renew \
+  --ca-url https://ca.example \
+  --ca-root /etc/gobfd/root.pem \
+  --cert /etc/gobfd/management.pem \
+  --key /etc/gobfd/management-key.pem
+```
+
+The native mTLS `POST /renew` retains the key and exact SAN, replacing only the
+public certificate atomically. The key must belong to root or the calling UID
+and have mode `0400` or `0600`; input files must be regular, single-link and
+free of symlinks, with trusted parent directories that are not group- or
+world-writable. An `ErrCommitted` error reports an already replaced certificate with potentially
+uncertain durability; do not assume rollback.
+
+A management server certificate restricted to `serverAuth` cannot authenticate
+the renewal request. See the [CLI prerequisites](04-cli.md#certificate-renewal)
+before selecting the certificate profile at initial enrollment.
+
+The server reads PEM files on each new TLS handshake. Existing TLS connections
+retain their negotiated identity. `gobfdctl` and persistent bridge clients load
+client credentials when their transport is created; restart or recreate the
+client transport after renewal. A trusted CA can issue identities selected by
+API role rules; issuance alone does not authorize API access.
+
+The [actual-provider Linux profile](../../test/stepca/README.md) qualifies a
+dependency-refreshed build of the full upstream CA command in a disposable
+network-none environment. It covers server/operator/monitor renewal, new
+management handshakes, preserved principal claims and rejection of disabled,
+revoked, expired or server-only credentials. This is bounded renewal evidence,
+not a production CA or other-provisioner qualification. Enrollment, scheduling,
+automatic client reconnect and trust-root rollover remain separate lifecycle
+work in `gobfd-qj0.8.2.3.7.5`. See the
+[CLI reference](04-cli.md#certificate-renewal) for flags and unchanged-chain behavior.
 
 ### Memory Tuning (`GOMEMLIMIT` and `GOGC`)
 
@@ -434,7 +530,7 @@ smaller workload; the soft limit is not an OOM guarantee.
 - [ ] Set up Prometheus scraping of `:9100/metrics`
 - [ ] Import Grafana dashboard from `deployments/compose/configs/grafana/dashboards/bfd.json`
 - [ ] Configure alerting on `gobfd_bfd_state_transitions_total{from_state="Up",to_state="Down"}`
-- [ ] Verify `CAP_NET_RAW` is available (test with `gobfdctl session list`)
+- Verify successful socket startup and the selected dataplane profile; `session list` only tests management access.
 - [ ] Test SIGHUP reload: `systemctl reload gobfd`
 - [ ] Verify graceful shutdown sends AdminDown (check peer logs)
 
@@ -446,4 +542,4 @@ smaller workload; the soft limit is not an OOM guarantee.
 
 ---
 
-*Last updated: 2026-02-21*
+*Reviewed against `dev` source: 2026-10-25; commands were inspected, not executed.*

@@ -548,6 +548,17 @@ func verifyUPXVersion(
 	if err != nil {
 		return fmt.Errorf("open UPX bin directory for version verification: %w", err)
 	}
+	return verifyUPXBinVersion(ctx, runner, binRoot, directory, prependPath(environment, binDirectory), asset)
+}
+
+func verifyUPXBinVersion(
+	ctx context.Context,
+	runner SpecRunner,
+	binRoot *os.Root,
+	directory string,
+	environment []string,
+	asset upxAssetContract,
+) error {
 	expected, err := binRoot.Lstat("upx")
 	if err != nil {
 		return errors.Join(fmt.Errorf("inspect UPX executable for version verification: %w", err),
@@ -560,7 +571,7 @@ func verifyUPXVersion(
 	output := &synchronizedBoundedBuffer{limit: upxVersionLimit}
 	runErr := runner.RunCommand(ctx, CommandSpec{
 		Name: "upx", Args: []string{"--version"}, Dir: directory,
-		Env: prependPath(environment, binDirectory), Executable: executable, Stdout: output, Stderr: output,
+		Env: environment, Executable: executable, Stdout: output, Stderr: output,
 	})
 	verifyErr := verifyOpenedRegularFile(executable, expected, "UPX executable")
 	if verifyErr == nil {

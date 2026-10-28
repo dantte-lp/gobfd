@@ -258,7 +258,7 @@ func TestUnsolicitedIngressIndexAllowlist(t *testing.T) {
 		meta := admissionMeta("192.0.2.10", "192.0.2.1")
 		meta.IfName = ""
 		meta.IfIndex = index
-		_, err := mgr.DemuxWithWire(ownershipDownPacket(101), meta, nil)
+		_, err := mgr.DemuxWithWire(*ownershipDownPacket(101), meta, nil)
 		if !errors.Is(err, ErrUnsolicitedInterfaceNotEnabled) {
 			t.Fatalf("ingress index %d: error=%v, want ErrUnsolicitedInterfaceNotEnabled", index, err)
 		}

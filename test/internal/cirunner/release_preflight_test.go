@@ -108,10 +108,6 @@ func TestReleasePreflightRejectsExistingReleaseAndVersionTags(t *testing.T) {
 			name: "Debian version", packageTags: []string{"0.6.2-debian-trixie"},
 			want: "versioned OCI tag already exists: 0.6.2-debian-trixie",
 		},
-		{
-			name: "Oracle Linux version", packageTags: []string{"0.6.2-oraclelinux10"},
-			want: "versioned OCI tag already exists: 0.6.2-oraclelinux10",
-		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

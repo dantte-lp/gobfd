@@ -15,7 +15,14 @@
 > until their migration in Beads `gobfd-qj0.8.2.8.5.2.4` is accepted.
 > A vendor image name is not an Alpine-policy exception.
 
-Base consumer migration is locally accepted in Beads `.8.5.2.4.2.1`:
+This page describes the current `dev` harness and dated local results.
+Historical receipts qualify only their recorded source, images and scenarios;
+they are not a fresh run or stable-release acceptance. Publication remains on
+hold until the separately tracked final candidate and release gates pass.
+Use the pinned Compose provider from [Deployment](06-deployment.md#podman-compose)
+and render the selected tracked Compose inputs before starting a topology.
+
+The 2026-09-08 base consumer migration was locally accepted in Beads `.8.5.2.4.2.1`:
 `test/interop/compose.yml` and its testcontainers harness use the shared
 Debian FRR 10.7.1 recipe. Manual Compose and testcontainers gates passed on
 linux/amd64 on 2026-09-08; the latter completed in 247.71 seconds with owned
@@ -117,7 +124,7 @@ BGP+BFD suite and are not counted as base peers.
 graph LR
     subgraph "172.20.0.0/24 (Podman network)"
         GOBFD["GoBFD<br/>172.20.0.10<br/>Go 1.27"]
-        FRR["FRR 10.7.0<br/>172.20.0.20<br/>bfdd"]
+        FRR["FRR 10.7.1<br/>172.20.0.20<br/>bfdd"]
         BIRD["BIRD 3.4.0<br/>172.20.0.30<br/>BFD protocol"]
         HOLO["Holo 0.9.0<br/>172.20.0.50<br/>holod"]
         LOADER["holo-config<br/>one-shot YANG loader"]
@@ -144,7 +151,7 @@ graph LR
 
 | Peer | Version | Implementation | Language | Documented RFC coverage |
 |---|---:|---|---|---|
-| [FRR](https://frrouting.org/) | 10.7.0 | bfdd | C | 5880, 5881, 5882, 5883 |
+| [FRR](https://frrouting.org/) | 10.7.1 | bfdd | C | 5880, 5881, 5882, 5883 |
 | [BIRD3](https://bird.network.cz/) | 3.4.0 + fix | BFD protocol | C | 5880, 5881, 5882, 5883 |
 | [Holo](https://github.com/holo-routing/holo/releases/tag/v0.9.0) | 0.9.0 | holod | Rust | 5880, 5881, 5882, 5883 |
 | [Thoro/bfd](https://github.com/Thoro/bfd) | repository build | gRPC daemon | Go | 5880, 5881 |
@@ -168,8 +175,9 @@ loader has no fixed address and is not a fifth peer.
 
 ### Crafted Go Peer
 
-Pinned FRR 10.7.1 and BIRD 3.4.0 cannot advertise Required Min RX 0 or set
-the Demand bit. `TestCraftedPeerTestcontainers` (`interop_testcontainers` tag)
+The pinned FRR/BIRD profiles do not exercise every zero-RX and remote-Demand
+input. BIRD zero-RX behavior is not a general proven limitation.
+`TestCraftedPeerTestcontainers` (`interop_testcontainers` tag)
 therefore runs a separate topology: GoBFD with one session from
 `gobfd/crafted-peer.yml`, tshark in the GoBFD network namespace, and the
 repository-owned Go tool from `scapy/Containerfile` started with the `peer`
@@ -185,11 +193,98 @@ port 49152, Poll/Final, the slow rate outside Up and no authentication. Each
 | `recover` | New three-way handshake | Up with 300 ms timers in both directions |
 | `demand` | D=1 with a Poll | GoBFD answers with Final and then sends only Poll or Final frames; a SIGHUP to 500 ms produces a GoBFD Poll with the new timers, a peer Final, and a converged reload receipt after that Final (Sections 6.5 and 6.6) |
 | `demand-clear` | D=0 with a Poll | GoBFD answers with Final and resumes periodic TX within `T+slack`, then at least 12 intervals pass the jitter bound and the 3-standard-error mean check for T=500 ms |
+| `final-loss`, `poll`, `final-restore` | Drops its Final replies (simulated loss), then crosses the outstanding GoBFD Poll with its own Poll, then answers again | SIGHUP to 400 ms and, while the Final is lost, to 800 ms: GoBFD repeats P=1 with the active 400 ms tuple, answers the crossing Poll with F only and the same tuple, resumes P=1, and sends the 800 ms Poll only after the peer Final plus at least the measured exchange time; that Poll gets its own Final and receipt (Sections 6.5 and 6.8.3); no captured frame sets both P and F |
 
 `make interop-testcontainers` runs the pure evaluator tests
 (`TestCraftedPeerEvidence*`) and the live topology. The test stores the daemon
 and peer logs, the frame TSV, the summary JSON and the PCAP with SHA-256 files
 under `INTEROP_TESTCONTAINERS_ARTIFACT_DIR`.
+
+The existing reload scenarios also exercise Detect Multiplier changes:
+authenticated FRR/BIRD3 Async sessions use 1→5→3 without a GoBFD Poll;
+the crafted remote-Demand session uses 5→3, each with its own Poll, peer Final,
+applied receipt and quiet window. DetectMult 1 uses 75–90% jitter with mean
+0.825T; other tested multipliers use 75–100% with mean 0.875T. Capture checks
+preserve UDP source port/length, authentication type/key/sequence, discriminators
+and timers. Before mutations, runtime tshark registry queries are restricted to
+`frame.`, `ip.`, `bfd.` and `udp.`; the retained rows use first-column field
+matching. This avoids buffering the full registry in the bounded race runner.
+Local receive Detection Time uses the peer's multiplier. Derived peer Async
+and local Demand Poll bounds are labelled separately from measured timing;
+the crafted peer does not implement a detection timer. Source contracts alone
+do not close P0 `gobfd-qj0.8.2.2.7.5.2`; actual candidate captures are required.
+
+Local qualification on `d9e67064e51012c0d25a1a22dc9bd469600d8469` passes both
+topologies with those captures; receipts are in `reports/detect-wire-20261024/`.
+This does not close prepared-padding, TTL or final five-field qualification.
+
+Prepared-padding scenarios extend the same timer lifecycle with authenticated
+128→192→128 targets, rejected auth+padding changes, padding enable/disable,
+and combined-candidate rejection. The meticulous SHA1 startup profile uses
+`TestFourPeerMeticulousTopologyTestcontainers`; the default keyed SHA1 profile
+remains `TestFourPeerTopologyTestcontainers`. Each loads and restores its own
+selected immutable baseline. The independent peer keeps its own packet size.
+Capture verification retains replay state across phases and retries, and
+checks DF, raw UDP payload, declared PDU length, zero padding and MAC domain.
+Aggregate and named BFD readiness are probed inside the owned daemon container
+through the existing Unix socket, using the same compiled interop executable
+copied through container files; TCP remains loopback-only. The crafted peer accepts
+SIGUSR2 as a current-state Poll probe without advancing its phase or clearing
+Demand, allowing old-size Final evidence after a rejected Demand resize.
+Actual capture acceptance is tracked separately in
+`gobfd-qj0.8.2.2.7.5.3.3`; source-only results do not close it.
+
+Local qualification at `b97729458a696aee21023ba147af51417ed9ff7b` passes both
+FourPeer profiles and crafted Demand with these captures. The three runtime
+receipts and 675 verified sidecars are in `reports/padding-wire-20261024/`.
+This qualifies the padding reload slice only; actual TTL, unified final-candidate
+and stable-release gates remain separate. Baseline initial-Down and
+DetectionPrecision skips require final-gate disposition alongside the known
+BIRD Linux source-port range deviation.
+
+Final-candidate qualification limits decoded TShark rows after display filtering;
+`-c` limits packets read and can hide later matching frames. Missing initial
+Down(diag=0) or detection-expiry evidence fails these mandatory assertions.
+The remaining BIRD source-port exception is source-backed: its pinned
+[BFD TX socket](https://github.com/CZ-NIC/bird/blob/c3669497e3949b942d86d07e343092cc439b4659/proto/bfd/packets.c#L496)
+requests `SKF_HIGH_PORT`, but
+[the platform helper](https://github.com/CZ-NIC/bird/blob/c3669497e3949b942d86d07e343092cc439b4659/sysdep/unix/io.c#L796)
+does not enforce the RFC 5881 range on Linux. The retained padding capture has
+938 BIRD packets from port 43990; this is a peer deviation, not GoBFD compliance
+coverage. The shared builder retains immutable image IDs and required OCI
+source/base annotations before cleanup. Evidence: `reports/final-wire-20261024/`;
+actual final-candidate qualification remains with `gobfd-qj0.8.2.2.7.5.5`.
+The default FourPeer gate passes on
+`e4e79a8eee8e7c38bfc78321bdc5e9030909c214` in 429.47 s with all ten scenarios,
+initial Down and DetectionPrecision executed (0.901 s gap), one explicit BIRD
+RFC skip, six retained image identities, 867 matching source hashes and 310
+matching artifact sidecars. Fourteen readiness probes return both services
+SERVING. The 512 MiB runner has zero max/OOM events and swap; exact image
+absence is verified after cleanup. Repeat all four final profiles after the
+remaining production thread/scale changes.
+
+The same crafted lifecycle also provides `TestCraftedMultihopTTLTestcontainers`
+with the closed `peer-multihop` startup command: UDP/4784, meticulous SHA1,
+local RX 3 s and unchanged TX 300 ms. `SIGUSR1` enters remote Demand;
+three `SIGUSR2` steps pause peer periodic TX before reload, replay its last
+accepted payload at admissible TTL, then send a fresh below-floor Poll and
+its byte-identical at-floor retry at successive 200 ms slots, then resume
+after authenticated Final and counter snapshots. Max-hops 1→5→1 is exercised
+in Async and remote Demand, followed by rejected auth+hop-policy input.
+Capture/authentication checkpoints persist across phases. Accepted RX increases
+by one; exactly one auth failure accounts for the deliberate replay, and
+state transitions remain unchanged. A persistent initial baseline checks
+reload and Demand transitions as well as each probe. This
+checks GoBFD's local `255 - N` policy; routed/cloud acceptance remains separate.
+Actual qualification belongs to `gobfd-qj0.8.2.2.7.5.4.3`.
+
+Local qualification on `491b2214994f07e017eb93ab67a29a95378c619e` passes the
+default crafted profile in 162.94 s and authenticated multihop in 81.98 s.
+All seven boundary/replay windows pass; 863 source hashes and 212 artifact
+sidecars match. Evidence: `reports/ttl-wire-20261024/`. Both profiles repeat
+on the corrected source after a duplicated session-log attribute was removed;
+strict JSON receipt parsing remains enforced. This does not close unified
+five-field or stable-release qualification.
 
 ### Running Interop Tests
 
@@ -211,11 +306,18 @@ test-owned container, network, and image.
 make interop-testcontainers
 ```
 
-This is the explicit form of the default full-cycle target. It creates the static-IP network, GoBFD, FRR, BIRD3, Holo,
+This is the explicit form of the default full-cycle target. Its four-peer
+profiles create the static-IP network, GoBFD, FRR, BIRD3, Holo,
 Thoro/bfd, and tshark directly through the Podman testcontainers provider. It
 runs the same Go assertions, retains the packet capture under
 `reports/e2e/interop-testcontainers`, and verifies removal of every test-owned
 container, network, and image.
+
+The target also selects the meticulous SHA1 four-peer profile, the BIRD
+FlowSpec regression, the crafted peer and authenticated multihop TTL profiles.
+Their artifacts and acceptance scopes remain distinct; a four-peer result
+does not substitute for all selected profiles. See the exact selection in
+[`Makefile`](../../Makefile) and the harnesses under `test/interop/`.
 
 #### Step by Step
 
@@ -229,6 +331,10 @@ make interop-test
 # Step 3: Stop and cleanup
 make interop-down
 ```
+
+The manual `interop-test` target does not currently add `-race`; it is not
+equivalent to the full-cycle race-enabled gate. Prefer `make interop` for
+candidate qualification; retain this difference in any manual-run receipt.
 
 #### Inspect Captured Packets
 
@@ -260,7 +366,7 @@ sequenceDiagram
     participant G as GoBFD (172.20.0.10)
     participant F as FRR (172.20.0.20)
 
-    T->>G: Create session (peer=172.20.0.20)
+    T->>G: Start daemon with configured peer 172.20.0.20
     G->>F: Control(State=Down)
     F->>G: Control(State=Down)
     Note over G: Down -> Init
@@ -269,7 +375,7 @@ sequenceDiagram
     F->>G: Control(State=Up)
     Note over G: Init -> Up
     T->>G: Verify state == Up
-    T->>G: Delete session
+    T->>G: Stop daemon (SIGTERM)
     G->>F: Control(State=AdminDown)
     Note over F: Up -> Down (Diag=NeighborDown)
 ```
@@ -411,13 +517,16 @@ while the recorded qualification used the Go 1.27.2 builder and is repeated unde
 serves `/apipb.GobgpApi` and v4 serves `/api.GoBgpService`; the two are
 wire-incompatible, so `dev` GoBFD requires a GoBGP v4 daemon. GoBGP v4 native
 BFD is disabled by default, and no repository GoBGP configuration enables it.
-External ExaBGP 5.0.13 uses trixie's system
+External ExaBGP 5.0.15 uses trixie's system
 Python and its native `python3 -m exabgp` entrypoint, without pip, uv, a custom
 launcher or repository-owned Python source. Its
-[pinned upstream manifest](https://github.com/Exa-Networks/exabgp/blob/edf249571174449f80c72d75eb6933dcabd67f92/pyproject.toml)
+[pinned upstream manifest](https://github.com/Exa-Networks/exabgp/blob/b70054ffdf210e3a6001e1dd282d08309d4552dd/pyproject.toml)
 declares no runtime package dependencies. Both source archives are SHA-256
 pinned. This narrowly scoped ExaBGP runtime exception does not permit Python
 development tooling.
+
+The ExaBGP 5.0.15 source pin requires fresh BGP and anycast qualification;
+the dated runtime receipts below cover earlier source pins.
 
 With GoBGP v3.37.0 on linux/amd64, manual Compose and the complete
 testcontainers gate passed on 2026-09-08; the latter took 200.07 seconds.
@@ -431,9 +540,12 @@ are retained locally in `reports/e2e/bgp-trixie-20260908/`. This does not
 qualify arm64, remaining image consumers, timer reloads or full RFC
 compliance. Debian package resolution is not snapshot-pinned; final images are
 not claimed to be bit-reproducible.
-GoBGP v3.37.0 has no fix for `GO-2026-4736`; on GoBGP v4.10.0 the strict
-runtime `govulncheck` reports no reachable finding, and the remaining
-module-level exception is described in [SECURITY.md](../../SECURITY.md).
+The recorded v0.6 risk acceptance covers GoBGP v3.37.0. On `dev`, the
+`GO-2026-4736` exception permits only module-level findings for the pinned
+GoBGP v4 module; the final candidate still requires fresh runtime and tool
+scans. The acceptance rationale and removal trigger are described in
+[SECURITY.md](../../SECURITY.md) and the
+[dependency risk register](reference/dependency-risk.md).
 Keep these peers isolated from untrusted networks; BGP functionality and SBOMs
 are not a security qualification.
 
@@ -452,7 +564,7 @@ make interop-bgp
 ```
 
 The Go lifecycle creates the static network, both GoBFD instances, GoBGP
-v4.10.0, FRR 10.7.1, BIRD 3.4.0, ExaBGP 5.0.13, and tshark directly through
+v4.10.0, FRR 10.7.1, BIRD 3.4.0, ExaBGP 5.0.15, and tshark directly through
 the Podman provider. It runs the same establish, failure, route-withdrawal, and
 recovery assertions, saves a non-empty packet capture, and proves removal of
 all test-owned containers, network, and locally built images.
@@ -537,7 +649,11 @@ graph LR
 | `frr-rfc-unsolicited` | 172.22.0.50 | FRR BFD peer with no pre-configured session on GoBFD |
 | `echo-reflector` | 172.22.0.60 | Independent UDP echo reflector for RFC 9747 |
 
-### Test Results
+### Recorded Test Results
+
+The results below summarize the dated local runs described under
+[Running RFC Interop Tests](#running-rfc-interop-tests). The current candidate
+must rerun the gate; these labels are not current execution results.
 
 | Test | RFC | Description | Result |
 |---|---|---|---|
@@ -578,191 +694,340 @@ make interop-rfc
 ## Vendor NOS Interoperability (Containerlab)
 
 ![Nokia](https://img.shields.io/badge/Nokia-SR_Linux-124191?style=for-the-badge)
-![FRR](https://img.shields.io/badge/FRR-10.7.0-dc3545?style=for-the-badge)
+![FRR](https://img.shields.io/badge/FRR-10.7.1-dc3545?style=for-the-badge)
 ![Arista](https://img.shields.io/badge/Arista-cEOS-2962FF?style=for-the-badge)
 ![Cisco](https://img.shields.io/badge/Cisco-XRd-049FD9?style=for-the-badge)
-![containerlab](https://img.shields.io/badge/containerlab-0.79.0-1a73e8?style=for-the-badge)
+![containerlab](https://img.shields.io/badge/containerlab-0.82.0-1a73e8?style=for-the-badge)
 
-> Multi-vendor BFD interoperability testing against commercial/enterprise NOS containers. Validates RFC 5880/5881/5882 compliance against independent, production-oriented BFD implementations. Dual-stack: IPv4 (RFC 5881 Section 4) and IPv6 (RFC 5881 Section 5) tested on every available vendor.
+> The executable Containerlab baseline contains owned GoBFD/GoBGP and FRR
+> applications only. Arista cEOS, Nokia SR Linux, Cisco XRd, SONiC-VS and VyOS
+> retain `retained-unavailable` qualification under
+> `gobfd-qj0.8.2.8.5.2.7.4`; cached images do not permit their execution.
+> No vendor OCI exception is accepted. Native FRR acceptance remains separate.
 
 ### Vendor Topology
 
-Star topology with GoBFD at the center and dual-stack point-to-point links to each vendor NOS: IPv4 /30 (RFC 3021) and IPv6 /127 (RFC 6164) on the same veth pair. Containers and veth links are managed directly via Podman for maximum compatibility.
+The tracked renderer input contains two `ext-container` nodes and one FRR
+link: IPv4 `10.0.6.0/30` and IPv6 `fd00:0:6::/127` share the veth pair.
+The Go lifecycle starts both applications through Podman by their recorded
+image IDs, then invokes `containerlab deploy --runtime podman` to wire them.
+The generated topology uses the actual FRR container name. Retained NOS
+profiles and their configured endpoints are metadata, not active nodes.
 
 ```mermaid
 graph TD
     GOBFD["GoBFD + GoBGP<br/>ASN 65001<br/>Center Node"]
 
-    NOKIA["Nokia SR Linux<br/>10.0.2.2 / fd00:0:2::1<br/>ASN 65003"]
     FRR["FRRouting<br/>10.0.6.2 / fd00:0:6::1<br/>ASN 65007"]
-    ARISTA["Arista cEOS<br/>10.0.1.2 / fd00:0:1::1<br/>ASN 65002"]
-    CISCO["Cisco XRd Control Plane<br/>10.0.3.2 / fd00:0:3::1<br/>ASN 65004"]
-    SONIC["SONiC-VS<br/>10.0.4.2<br/>ASN 65005"]
-    VYOS["VyOS<br/>10.0.5.2<br/>ASN 65006"]
-
-    GOBFD ---|"eth2 ↔ e1-1<br/>10.0.2.0/30 + fd00:0:2::/127"| NOKIA
     GOBFD ---|"eth6 ↔ eth1<br/>10.0.6.0/30 + fd00:0:6::/127"| FRR
-    GOBFD ---|"eth1 ↔ eth1<br/>10.0.1.0/30 + fd00:0:1::/127"| ARISTA
-    GOBFD -.-|"eth3 ↔ Gi0/0/0/0<br/>10.0.3.0/30 + fd00:0:3::/127"| CISCO
-    GOBFD -.-|"eth4 ↔ eth1<br/>10.0.4.0/30"| SONIC
-    GOBFD -.-|"eth5 ↔ eth1<br/>10.0.5.0/30"| VYOS
 
     style GOBFD fill:#1a73e8,color:#fff
-    style NOKIA fill:#124191,color:#fff
     style FRR fill:#dc3545,color:#fff
-    style ARISTA fill:#2962FF,color:#fff
-    style CISCO fill:#049FD9,color:#fff
-    style SONIC fill:#28a745,color:#fff
-    style VYOS fill:#6f42c1,color:#fff
 ```
 
-> Solid lines = primary or baseline profiles. Dashed lines = deferred profile
-> or image-dependent profile. Image availability is recorded by `make
-> e2e-vendor`.
+`test/e2e/vendor/profiles.json` is the shared contract. Its exact-checkout
+loader rejects missing, malformed or unknown policy metadata without ancestor
+or cache fallback. Historical `primary`/`deferred` classes do not grant v1
+support or execution permission. FRR uses `owned-receipt-required` under
+`gobfd-qj0.8.2.8.5.2.7.3`.
 
 ### Vendor Availability
 
-| Vendor | Image | IPv4 Subnet | IPv6 Subnet | ASN | Status | License |
-|---|---|---|---|---|---|---|
-| **Nokia SR Linux** | `ghcr.io/nokia/srlinux:25.10.2` | `10.0.2.0/30` | `fd00:0:2::/127` | 65003 | Primary, public image | Free, no registration |
-| **FRRouting** | `quay.io/frrouting/frr:10.7.0` | `10.0.6.0/30` | `fd00:0:6::/127` | 65007 | Baseline | GPL, free |
-| **Arista cEOS** | `ceos:4.36.0.1F` | `10.0.1.0/30` | `fd00:0:1::/127` | 65002 | Primary, operator image | Free Arista.com account |
-| SONiC-VS | `docker.io/netreplica/docker-sonic-vs:latest` | `10.0.4.0/30` | -- | 65005 | Primary, public image | Free |
-| VyOS | `docker.io/muruu1/vyos:latest` | `10.0.5.0/30` | -- | 65006 | Primary, public mirror; ISO build fallback | Free rolling/community image |
-| Cisco XRd | `ios-xr/xrd-control-plane:25.4.1` | `10.0.3.0/30` | `fd00:0:3::/127` | 65004 | Deferred | Cisco service contract |
+The following five records preserve source provenance and unavailable native
+qualification under `gobfd-qj0.8.2.8.5.2.7.4`. References and registry metadata
+observed on 2026-10-25 are not approved executable pins. Source access or a
+repository license does not establish aggregate binary terms, actual image
+OS, source-to-image correspondence, or native interoperability.
+
+| Profile / historical role | Retained artifact identity | Owning source and remaining evidence | Execution disposition |
+|---|---|---|---|
+| Arista cEOS / primary | Operator reference `ceos:4.36.0.1F`; archive checksum and image digest unavailable | [Official portal workflow](https://aclabs.arista.com/codespaces-quickstart/#how-to-download-ceos-lab-image-to-the-codespace), [Arista terms](https://www.arista.com/assets/data/pdf/software-agreement/EndUserLicenseAgreement.pdf); exact supplied archive, actual OS and applicable terms unverified | `retained-unavailable`; no archive import or NOS execution |
+| Nokia SR Linux / primary | `ghcr.io/nokia/srlinux:25.10.2`; observed digest `sha256:52a0fd5afde0999a2a8a2171958c5813426fd0bd50f8b7fba91ef2f74a1b9896` | [Official image channel](https://github.com/nokia/srlinux-container-image/blob/c4eb228ad962f81368eabc7ed380d24da5a16986/README.md), [repository license](https://github.com/nokia/srlinux-container-image/blob/c4eb228ad962f81368eabc7ed380d24da5a16986/LICENSE); `linux/amd64` metadata does not identify the rootfs distro or aggregate NOS terms | `retained-unavailable`; registry metadata availability does not authorize a pull or run |
+| SONiC-VS / primary | Third-party `docker.io/netreplica/docker-sonic-vs:latest`; observed digest `sha256:1142d9e4f763cfb0341f0a324f00bc4fad9cf3b40cc130accdc11c40967d0e85` | [Official source/build routes](https://github.com/sonic-net/SONiC/wiki/FAQ), [source license](https://github.com/sonic-net/sonic-buildimage/blob/1d5f39629cee09da9bce363044e2034a01b963db/LICENSE); mirror source revision, actual OS and aggregate terms unverified | `retained-unavailable`; former FRR process setup does not qualify native SONiC |
+| VyOS / primary | Third-party `docker.io/muruu1/vyos:latest`; observed digest `sha256:cea5d96293a63e23bd5625ea31d9c4e16e61dbd6dc169fcaa815c98aafa89ca5` | [Official ISO-to-OCI route](https://docs.vyos.io/en/rolling/installation/virtual/docker.html#deploy-container-from-iso), [source access](https://docs.vyos.io/en/rolling/contributing/build-vyos.html); mirror ISO/revision, actual OS and aggregate terms unverified | `retained-unavailable`; no ISO download/conversion, image tagging or verification run |
+| Cisco XRd Control Plane / deferred | Operator reference `ios-xr/xrd-control-plane:25.4.1`; archive signature/checksum and image digest unavailable | [Cisco acquisition guidance](https://github.com/CiscoLearning/cml-docker-containers#ios-xrd), [vendor signature workflow](https://www.cisco.com/c/en/us/td/docs/routers/virtual-routers/general/install-and-upgrade/b-xrd-deploy-aws.pdf); exact entitled archive, actual OS and applicable terms unverified | `retained-unavailable`; historical deferral retained, no archive load or NOS execution |
+
+The executable baseline is the shared Debian FRR 10.7.1 recipe at
+`test/interop/frr/Containerfile`, built as
+`localhost/gobfd-clab-frr:<run-id>` and consumed only by the receipt's exact
+image ID. It has separate native acceptance under
+`gobfd-qj0.8.2.8.5.2.7.3`. All first-party application images remain on
+digest-pinned Debian trixie; retained NOS metadata is not an OS-policy waiver.
 
 ### Prerequisites
 
+The source workflow below is FRR-only. Its native lifecycle acceptance and
+the compiler/engine/socket gate `gobfd-qj0.8.2.8.5.2.7.3.4` remain separate;
+source commands and contract tests do not establish a passed native run.
+Use the pinned compiler and intended engine/socket. The source checks below
+do not establish native compiler/runtime or FRR acceptance.
+
+Before preparing a test run, bootstrap loads the private topology receipt and
+selects its API client once. It requires both full container IDs and owner/run
+labels to match the original receipt through the CLI and selected API. The
+runtime entry repeats these checks after compilation, using the same receipt
+and client. A changed environment or on-disk receipt does not select another
+API client or ownership baseline. Each check phase uses a 30-second context;
+malformed, duplicate or invalid-UTF-8 JSON, missing fields and API failures
+reject the phase before its compiler/runtime container is created. Source
+regressions cover these guards under `gobfd-qj0.8.2.8.5.2.7.3.4.4`; native FRR
+acceptance remains open.
+A read-only socket mount still grants engine authority. These checks do not
+make later external Podman operations atomic.
+
+- Linux on native amd64 or arm64, GNU Make/coreutils and util-linux `flock`;
+  host Go and a running development container are not required
 - **Podman** with socket API active (`/run/podman/podman.sock`)
-- **containerlab** 0.57+ (for topology reference; direct Podman management used)
-- Container capabilities: `NET_ADMIN`, `NET_RAW`
-- At least one vendor image available
+- **containerlab** exactly 0.82.0 (enforced by `test/internal/clabbootstrap/orchestration.go`)
+- Application container capabilities: `NET_ADMIN`, `NET_RAW`; this FRR fixture
+  also uses `SYS_ADMIN`
+- Both application images are built by bootstrap; five retained NOS profiles
+  remain unavailable even when images are cached
+- Preload the exact SDK and Debian runtime image references declared in
+  [`test_compiler_source.go`](../../test/internal/clabbootstrap/test_compiler_source.go).
+  Controller and test containers use `--pull=never`; the cold controller
+  compiler additionally needs Go module downloads over its
+  bridge network. It receives no engine socket.
+
+Use the [official v0.82.0 archives](https://github.com/srl-labs/containerlab/releases/tag/v0.82.0)
+and verify their SHA256 against the [published checksums](https://github.com/srl-labs/containerlab/releases/download/v0.82.0/checksums.txt):
+
+| Archive | SHA256 |
+|---|---|
+| `containerlab_0.82.0_linux_amd64.tar.gz` | `87a6415803848878c2c886bd79e89a4d0ee34091ebf889488ea1029cef7e2d78` |
+| `containerlab_0.82.0_linux_arm64.tar.gz` | `f04ac8c1f2f6a04c344585cb6a36177c446fce18cb6073b4a0dbd517f3512210` |
+
+The upgrade includes [destroy error and management-network fixes in 0.81](https://containerlab.dev/rn/0.81/)
+and [cleanup directory protection in 0.82](https://containerlab.dev/rn/0.82/).
+These fixes do not establish vendor runtime acceptance; resource ownership and
+post-destroy absence checks remain required.
 
 ### Lab Preparation (Go Bootstrap)
 
-The Go 1.27 bootstrap command owns preflight, bounded parallel pulls, build,
-inventory, native VyOS ISO/rootfs preparation, and operator-supplied
-Arista/Cisco archive imports. No repository Python or shell helper participates
-in vendor image preparation.
+The Go controller reads the shared policy before application-image or topology
+commands. Make first compiles that controller in the pinned SDK, then runs
+the verified native binary. It prepares
+only the owned GoBFD/GoBGP and FRR images, using bounded application-base pulls
+and builds. The former vendor archive/ISO preparation implementation is removed;
+its historical source remains in Git.
 
 ```bash
-# Pull all public images + prepare VyOS tag + build GoBFD
-go run ./test/cmd/clabbootstrap -v
+# Prepare owned GoBFD/GoBGP and FRR only
+make interop-clab-bootstrap ARGS=-v
 
-# With commercial images
-go run ./test/cmd/clabbootstrap \
-    --arista-image /path/to/cEOS64-lab-4.36.0.1F.tar
+# Prepare and deploy the FRR-only topology
+make interop-clab-up
 
-# Prepare + deploy topology
-go run ./test/cmd/clabbootstrap --deploy
+# Prepare, run the FRR suite, and clean owned resources
+make interop-clab
 
-# Prepare + full test run
-go run ./test/cmd/clabbootstrap --test
-
-# Dry run (show what would be done)
-go run ./test/cmd/clabbootstrap --dry-run
+# Show controller actions after a real isolated controller build
+make interop-clab-bootstrap ARGS=--dry-run
 ```
 
 The command handles:
-- **Preflight checks**: podman and the exact Go toolchain
-- **Parallel image pulls**: Nokia SR Linux, SONiC-VS, VyOS, FRRouting (+ build dependencies)
-- **VyOS image preparation**: pulls `docker.io/muruu1/vyos:latest`, tags it as `vyos:latest`, and keeps ISO build as fallback
-- **Commercial image import**: Arista cEOS (`podman load`); Cisco XRd remains deferred until an operator-provided image is available
+
+- **Policy checks**: exact-checkout manifest validation and rejection of NOS
+  archive/ISO inputs or a nondefault VyOS version before application commands
+- **Preflight checks**: exact Containerlab version and Podman availability
+- **Parallel image pulls**: pinned application build dependencies only
 - **GoBFD image build**: multi-stage Containerfile with GoBGP sidecar, using a
   run-owned `localhost/gobfd-clab:<run-id>` reference and exact image ID. The
   sidecar is GoBGP v4.10.0 built from the same source pin as
-  `test/interop/gobgp`; a contract test keeps both pins identical. Vendor
-  interoperability on GoBGP v4 is not qualified yet
-- **Inventory report**: final list of all images with ready/missing status
+  `test/interop/gobgp`; a contract test keeps both pins identical
+- **FRR image build**: the shared `test/interop/frr/Containerfile` recipe builds
+  Debian FRR 10.7.1 as `localhost/gobfd-clab-frr:<run-id>`; its exact ID is
+  checkpointed separately from GoBFD. Both builds have CPU, memory and job limits
+- **Inventory report**: retained NOS policy and tracking, plus the owned
+  application-image state; a dry run does not prove image availability
 
-Run `make interop-clab-bootstrap ARGS=--help` for all options. HTTPS redirects,
-archive extraction, and external image-tool argv are validated by the Go
-bootstrap boundary.
+Legacy vendor tag/archive/ISO flags remain parseable for compatibility.
+They cannot enable NOS preparation. No vendor pulls, imports, ISO downloads,
+rootfs conversions, tagging or verification runs occur. Cached references
+cannot change this disposition. `--down` bypasses the new execution policy so
+historical exact-owned cleanup remains possible.
+
+Deployment dry runs require a readable, valid topology whose logical `frr`
+node is `ext-container` without an image. The runtime renderer uses the actual
+FRR container name in both the node and link endpoints; Containerlab only wires
+the already-started applications. Invalid input stops topology commands.
+Down and test-only paths keep their own receipt rules.
+
+The external applications carry private owner/run labels and topology cleanup
+discovery labels. They omit the reserved `containerlab` label: Containerlab
+rejects an existing container with that lab label as an already-deployed lab.
+
+Before starting GoBFD, the runner waits up to 30 seconds for each configured
+IPv6 address on its expected interface to finish duplicate address detection.
+A missing or tentative address remains pending; failed detection or malformed
+address inventory stops deployment. Dry runs do not probe live addresses.
+
+Session checks select the exact local/peer tuple from JSON and distinguish
+local state, remote state and diagnostics. Another session's state or a
+diagnostic containing `Down` cannot satisfy a state check.
+
+Run `make interop-clab-bootstrap ARGS=--help` for all options. The bootstrap
+runner retains its fixed command allowlist; there is no vendor preparation
+fallback.
+
+All five Make entrypoints build a fresh controller; `--help`, `--dry-run` and
+`--down` also perform this build. Compilation has no engine socket, uses a
+private source snapshot and checks native Linux ABI/build metadata before
+execution. Compiler failure, OOM or unexpected process state prevents execution;
+an older binary is never a fallback. If cleanup after an interruption cannot
+complete, private intent/identity state remains for the next entrypoint to
+recover. The empty private
+`controller-build.lock` remains in `test/interop-clab/gobfd/.runtime/` to keep
+one lock inode across invocations; it is not an abandoned build directory.
 
 ### Running Vendor Tests
 
 ```bash
-# Full cycle: build GoBFD image + deploy + test + cleanup
+# FRR-only source workflow: build, deploy, test and clean owned applications
 make interop-clab
 
 # Step by step
 make interop-clab-up     # Build + deploy topology
-make interop-clab-test   # Run Go tests (topology must be up)
-make interop-clab-down   # Destroy owned containers, links, and the exact GoBFD image
+make interop-clab-test   # Revalidate identities, then run the race-enabled payload
+make interop-clab-down   # Destroy owned containers, links, network and both images
 
-# Prepare only, then either consume or remove the staged owned image
+# Prepare only, then either consume or remove both staged owned images
 make interop-clab-bootstrap
 make interop-clab-bootstrap ARGS="--deploy --skip-build"
 # or: make interop-clab-down
 ```
 
-`make interop-clab` pulls public Nokia SR Linux, SONiC-VS, VyOS, and FRRouting
-images before availability checks. Cisco XRd and Arista cEOS remain
-operator-provided images. The Go lifecycle renders a topology containing only
-available profiles, records exact container identities in a mode-0600 receipt,
-and records the run-owned GoBFD image reference, ID, and ownership labels in
-the same mode-0600 receipt. Cleanup validates all recorded identities before
-its first mutation, removes the image by exact ID without force, and deletes
-the receipt last. A standalone bootstrap intentionally leaves the staged image
+`make interop-clab` selects only the owned FRR baseline. Neither cached NOS
+images nor running NOS containers enter suite discovery. E2E profile artifacts
+retain all five `retained-unavailable` records, their reasons and issue tracking
+without querying NOS image availability. The Go lifecycle records exact
+container identities in a mode-0600 receipt and records both run-owned
+application image references, IDs and ownership
+labels in a schema-3 receipt. Updates replace a synced temporary file in the
+private runtime directory. Cleanup validates all recorded identities before
+its first mutation, removes both images by exact ID without `--force` or parent
+pruning, and deletes the receipt last. A standalone bootstrap leaves both staged images
 and receipt for a later `--skip-build` deployment or exact `--down` cleanup;
 `--skip-build` never trusts a shared `latest` tag. A UID-scoped host-global lock
 serializes the fixed Containerlab lab namespace across repository worktrees.
-Before `--test-only` emits evidence, it revalidates every recorded live
-container ID and ownership label and rejects any unrecorded fixed-name
-container that the test suite could otherwise discover.
+Before `--test-only` emits evidence, it rejects a recorded retained-NOS roster,
+revalidates every recorded live container ID and ownership label, and rejects
+any unrecorded fixed-name container. The full NOS collision inventory remains
+in use even though execution discovery contains FRR IPv4/IPv6 peers only.
 
-### RFC Compliance Matrix
+The FRR-only topology uses no management network. Historical receipts can
+still describe an owned management network. Containerlab destroy always
+retains that network; the Go lifecycle separately removes only its own empty
+network. A failed destroy preserves the discovery containers and receipt for
+retry. `CLAB_LABDIR_BASE` must be unset.
+Before deploy, network identity is rechecked after application startup; this
+does not make external Podman/Containerlab operations atomic. A later `--down`
+recovers only intended names with matching owner/run labels after interrupted
+checkpoints, and rejects foreign containers before destroy or removal.
+Legacy schema-1/2 receipts and historical NOS names remain cleanup inputs,
+not execution permission or two-image readiness evidence. Native FRR lifecycle
+qualification remains open under `gobfd-qj0.8.2.8.5.2.7.3`, including the
+compiler/engine/socket gate `gobfd-qj0.8.2.8.5.2.7.3.4`. The five unavailable
+NOS qualifications remain separately visible under
+`gobfd-qj0.8.2.8.5.2.7.4`; none is reported as passing or granted an exception.
+
+Topology cleanup also rejects unrecorded containers in that fixed lab namespace
+before any destroy or image removal and retains the receipt for recovery.
+Image-only staged cleanup does not select or destroy a topology.
+
+`make interop-clab-test` selects the same guarded `--test-only` path. It checks
+the deployed identities before and after compilation. A socket-free,
+network-disabled SDK compiles the frozen suite with `CGO_ENABLED=1` and
+`go test -c -race`, plus a static `test2json` converter. The SDK stops before
+the Debian runtime starts; that runtime receives the exact hashed artifacts
+and the selected Unix engine socket, with no Go compiler. The socket grants
+engine authority even when mounted read-only; it is not a read-only API.
+See [Podman API security](https://docs.podman.io/en/latest/markdown/podman-system-service.1.html#security).
+
+The test journal binds source, build metadata, hashes and exact owned container
+IDs. Failed cleanup retains it for `--down`; successful cleanup removes the
+test containers, private snapshot and journal. A private
+`test-result-<run-id>.json` retains stdout, stderr and the result in
+`test/interop-clab/gobfd/.runtime/`. Neither path removes shared SDK/runtime images.
+Container limits are 2 CPUs, 2 GiB, no additional swap and 512 PIDs; the native
+host controller has a timeout but no corresponding hard memory cap.
+
+Success requires package PASS and ten named PASS results: IPv4/IPv6
+establishment, failure detection, timer negotiation and detection timing, plus
+packet format and all-available checks. Any failure or unexpected skip fails
+the run; only `TestVendorBFD_SessionIndependence` may skip for the FRR-only
+profile. Verdict completeness does not prove the underlying assertions or
+native qualification.
+
+### FRR Scenario Contract
+
+These are implemented scenario assertions, not a recorded native qualification.
+The packet-format check captures twenty complete Ethernet PCAP records on
+the central GoBFD container's FRR link. Every record must match an expected
+IPv4/IPv6 tuple, BFD version 1, TTL/Hop Limit 255, UDP destination 3784 and a
+stable source port in 49152–65535; both families must occur. Capture, framing
+or command failure fails the test. Successful output retains `FRR_PCAP_HEX`
+for recovery of the bounded raw capture from the private result receipt.
+
+Timer checks parse exact GoBFD and FRR JSON fields and require unique matching
+peers, Up states, nominal 300 ms intervals, multipliers 3 and a 900 ms detection
+time. FRR's jittered actual transmit interval is not a nominal timer. These
+independent parser fixtures pass locally; real command execution and the full
+native FRR run remain open under `gobfd-qj0.8.2.8.5.2.7.3.5`. The
+cross-vendor independence test requires two vendor groups and skips in the
+FRR-only baseline.
 
 | Test | RFC Section | Description |
 |---|---|---|
 | Session establishment (v4+v6) | 5880 Section 6.8.6 | Three-way handshake reaches Up state |
-| Failure detection (v4+v6) | 5880 Section 6.8.4 | Detection within DetectMult x interval |
-| Packet format (v4) | 5880 Section 4.1, 5881 Section 4 | Version=1, TTL=255, port 3784 |
-| Packet format (v6) | 5880 Section 4.1, 5881 Section 5 | Version=1, Hop Limit=255, port 3784 |
-| Timer negotiation (v4+v6) | 5880 Section 6.8.2 | Negotiated TX = max(DesiredMinTx, RemoteMinRx) |
-| Detection timing (v4+v6) | 5880 Section 6.8.4 | Detection time ~900ms (3 x 300ms) |
-| Session independence | 5880 Section 6.8.1 | Failure of one vendor doesn't affect others (grouped by baseName) |
+| Failure detection (v4+v6) | 5880 Section 6.8.4 | Down after pausing the peer, followed by recovery; no exact detection-time assertion |
+| Packet capture | 5880 Section 4.1, 5881 Sections 4-5 | Twenty complete dual-stack frames; required tuple, version, hop limit and port assertions |
+| Timer negotiation (v4+v6) | 5880 Section 6.8.2 | Typed JSON verifies nominal/negotiated 300 ms intervals and 900 ms detection |
+| Detection timing (v4+v6) | 5880 Section 6.8.4 | Nominal 900ms (3 x 300ms); the test accepts up to 5s |
+| Session independence | 5880 Section 6.8.1 | Retained multi-group scenario; skipped with FRR alone |
 
 ### Vendor-Specific Notes
 
-**Nokia SR Linux**: BFD sessions are protocol-triggered (requires established BGP session). Containerlab applies `nokia/config.cli`, whose explicit timer values are 300ms. The SR Linux container runs the same code as production Nokia hardware.
-
-**FRRouting**: Native `bfdd` daemon implements RFC 5880/5881/5882/5883. BFD timers are configured directly in `frr.conf` (300ms TX/RX, multiplier 3). FRR integrates BFD with BGP via `neighbor X bfd` directive. The container is ~188MB and starts in seconds.
-
-**Arista cEOS**: BFD sessions are protocol-triggered (requires established BGP session via `neighbor X bfd`). cEOS 4.36.0.1F runs with `service routing protocols model multi-agent` and requires 8 mandatory environment variables for containerized operation (`CEOS=1`, `EOS_PLATFORM=ceoslab`, `INTFTYPE=eth`, etc.). Boot time is 60-120s; the test runner waits for `Cli -p 15 -c "show version"` to succeed. BFD state is checked via `Cli -p 15 -c "show bfd peers"`.
-
-**Cisco XRd**: XRd Control Plane is a deferred optional profile. The profile remains defined, but it is not part of the primary vendor set until an operator-provided XRd image is available. XRd vRouter requires PCI passthrough and is incompatible with veth-based topologies.
-
-**GoBGP integration**: GoBFD runs alongside GoBGP (ASN 65001) inside the GoBFD container. Vendor NOS like Nokia require BGP for protocol-triggered BFD. When a vendor container is paused/unpaused, GoBGP's BGP neighbor transitions to `Idle(Admin)` and must be explicitly re-enabled via `gobgp neighbor <ip> enable`.
+The retained repository profiles describe single-hop BGP+BFD. They do not qualify
+all NOS features, hardware offload or owner-specific overlay backends.
+Boot/readiness polling belongs to the Go lifecycle; retain its actual outcome
+rather than inferring a fixed startup time from a vendor name.
 
 ### Vendor Configuration Validation
 
-| Profile | Runtime Config | Official Source Constraint | Repository Status |
-|---|---|---|---|
-| Arista cEOS | `arista/startup-config.cfg` | EOS BGP uses `neighbor bfd`; interface timers use `bfd interval`; VXLAN BFD uses `bfd vtep evpn` under VTI. | Current profile is single-hop BGP+BFD. RFC 8971 is reserved for a future Vxlan1 profile. |
-| Nokia SR Linux | `nokia/config.cli` | BFD subinterface timers are microseconds; BGP failure-detection can enable BFD at group or neighbor level. | Current profile enables BFD on `ethernet-1/1.0` before BGP group failure-detection. |
-| SONiC-VS | Go lifecycle in `test/internal/clabbootstrap` | SONiC uses ConfigDB for data-plane interface configuration; `sonic-vs` is the containerized SONiC kind; the current BFD path is FRR-backed. | Fixed argv calls start bgpd/bfdd and configure the data-plane interface without a repository shell. Separate evidence is still required before claiming native SONiC BFD CLI coverage. |
-| VyOS | `vyos/config.boot` | VyOS enables BFD for BGP through `protocols bgp neighbor <neighbor> bfd`; data interfaces are `ethN`. | Current profile configures `eth1`, BGP neighbor BFD, and a BFD peer tied to `eth1`. |
-| FRRouting | `frr/frr.conf` | FRR requires BFD peers plus `neighbor ... bfd`; `receive-interval`, `transmit-interval`, and `detect-multiplier` are supported. | Current profile is IPv4/IPv6 single-hop BGP+BFD. |
-| Cisco XRd | `cisco/xrd.cfg` | IOS XR BGP neighbors support `bfd fast-detect`, `bfd minimum-interval`, and `bfd multiplier`. | Current profile is deferred and image-gated; XRd Control Plane is required for veth-based tests. |
+| Profile | Repository input | Scope |
+|---|---|---|
+| Arista cEOS | `arista/startup-config.cfg` | Retained BGP neighbors/interface BFD input; execution unavailable |
+| Nokia SR Linux | `nokia/config.cli` | Retained subinterface BFD/BGP input; execution unavailable |
+| SONiC-VS | Profile manifest and lifecycle policy | Historical FRR process setup is not an active native SONiC configuration path |
+| VyOS | `vyos/config.boot` | Retained interface/BGP/BFD input; execution unavailable |
+| FRRouting | `frr/frr.conf` | IPv4/IPv6 single-hop BGP+BFD |
+| Cisco XRd | `cisco/xrd.cfg` | Historical deferred input; execution unavailable |
+
+Consult the exact upstream release documentation before adapting these lab
+inputs. Configured vendor syntax alone is not a measured passing deployment.
 
 ### IPv6 Dual-Stack BFD Testing
 
-RFC 5881 defines BFD for both IPv4 (Section 4) and IPv6 (Section 5). The vendor interop suite tests both address families on every available vendor using dual-stack links.
+RFC 5881 defines single-hop encapsulation for both address families in §4 and
+TTL/Hop Limit handling in §5. Only FRR IPv4/IPv6 endpoints are active in the
+current source workflow. Retained Arista, Nokia and Cisco metadata includes
+IPv6 endpoints; retained SONiC/VyOS metadata is IPv4-only. This metadata does
+not permit NOS execution or establish native family-specific acceptance.
 
-**Key differences (RFC 5881 Section 5 vs Section 4)**:
+**Address-family differences**:
 - IPv6 uses Hop Limit=255 instead of TTL=255 for GTSM
 - BFD sessions are per address family (separate IPv4 and IPv6 sessions per vendor)
 - Same UDP port 3784 and source port range 49152-65535
 
 **Address plan** (RFC 4193 ULA `fd00::/8`, /127 per link per RFC 6164):
 
-| Vendor | GoBFD IPv6 | Vendor IPv6 | Link Prefix | Announced Route |
-|---|---|---|---|---|
-| Arista | `fd00:0:1::` | `fd00:0:1::1` | `fd00:0:1::/127` | `fd00:20:1::/48` |
-| Nokia  | `fd00:0:2::` | `fd00:0:2::1` | `fd00:0:2::/127` | `fd00:20:2::/48` |
-| Cisco  | `fd00:0:3::` | `fd00:0:3::1` | `fd00:0:3::/127` | `fd00:20:3::/48` |
-| FRR    | `fd00:0:6::` | `fd00:0:6::1` | `fd00:0:6::/127` | `fd00:20:6::/48` |
+| Profile | GoBFD IPv6 | Peer IPv6 | Link Prefix | Announced Route | Disposition |
+|---|---|---|---|---|---|
+| Arista | `fd00:0:1::` | `fd00:0:1::1` | `fd00:0:1::/127` | `fd00:20:1::/48` | Retained unavailable |
+| Nokia | `fd00:0:2::` | `fd00:0:2::1` | `fd00:0:2::/127` | `fd00:20:2::/48` | Retained unavailable |
+| Cisco | `fd00:0:3::` | `fd00:0:3::1` | `fd00:0:3::/127` | `fd00:20:3::/48` | Retained unavailable |
+| FRR | `fd00:0:6::` | `fd00:0:6::1` | `fd00:0:6::/127` | `fd00:20:6::/48` | Owned receipt required; native acceptance pending |
 
 **Design notes**:
 - ULA addresses avoid conflicts with global routing tables in lab environments
@@ -772,71 +1037,16 @@ RFC 5881 defines BFD for both IPv4 (Section 4) and IPv6 (Section 5). The vendor 
 
 ---
 
-## Future: netlab Integration
+## Optional lab tooling
 
-[netlab](https://github.com/ipspace/netlab) is an orchestration layer on top of containerlab and libvirt/Ansible with a built-in BFD module that supports 16+ network platforms.
+netlab and VM-based vendor orchestration are outside the supported repository
+toolchain. There is no repository Python environment, dependency group or
+Python lock file to extend. Current topology lifecycle remains Go-owned and
+Podman-based. Any external lab evaluation needs separate ownership and recorded
+image, privilege and resource admission; this page introduces no migration plan.
 
-### Comparison: Current vs netlab
-
-| Capability | Current (Podman + containerlab) | netlab |
-|---|---|---|
-| Topology management | Generated Containerlab YAML + Go lifecycle | Automated (YAML declarative) |
-| IP addressing | Static in Go profile definitions | Auto-assigned |
-| BFD configuration | Per-vendor config files | `module: [bgp, bfd]` directive |
-| BGP configuration | Per-vendor + GoBGP TOML | Auto-generated per platform |
-| Vendor support | 6 (native containers) | 29 (native + vrnetlab VMs) |
-| Runtime | Podman (direct) | Docker (recommended) or Podman (experimental) |
-| Prerequisites | Podman, containerlab | Python 3.8+, Ansible 2.9+, Docker/libvirt |
-
-### Example netlab Topology
-
-```yaml
-provider: clab
-module: [bgp, bfd]
-
-nodes:
-  gobfd:
-    device: linux
-    image: localhost/gobfd-clab:<run-id>
-  frr1:
-    device: frr
-  srlinux1:
-    device: srlinux
-
-links:
-  - gobfd-frr1
-  - gobfd-srlinux1
-```
-
-netlab automatically handles IP addressing, BGP AS assignment, and BFD session configuration on vendor nodes.
-
-### Migration Path
-
-1. Install Python 3.8+ and Ansible on the test host
-2. Evaluate netlab separately before adding it to the repository's locked
-   Python dependency groups.
-3. Install Docker (netlab's primary runtime)
-4. Convert the generated Containerlab topology to netlab YAML
-5. For VM-based vendors (Cisco IOS-XR, Juniper vMX), enable nested KVM on the host
-
-> **Note**: netlab is not part of the supported repository toolchain and requires Ansible
-> and KVM. It remains a future direction for expanding vendor coverage beyond
-> native container platforms.
-
-### Three-Tier Testing Strategy
-
-Vendor interop coverage uses three tiers:
-
-| Tier | Vendor | Purpose | RFC Coverage |
-|---|---|---|---|
-| 1 (immediate) | FRRouting | Full open-source RFC coverage | 5880, 5881, 5882, 5883 |
-| 2 (commercial) | Nokia SR Linux | Production-grade commercial NOS | 5880 (async mode) |
-| 3 (breadth) | Arista cEOS | Independent enterprise implementation | 5880, 5881, 5882 |
-
-**Native containers** (FRR, SR Linux, cEOS) consume ~0.5 vCPU and 0.5-1.5 GB RAM each. A 3-node topology fits comfortably in a VM with 4 vCPU and 8 GB RAM.
-
-**vrnetlab VM-in-container** platforms (Cisco IOL/IOSv/CSR, Juniper vMX/vPTX) require nested KVM and 2-8 GB RAM per node.
-
----
-
-*Last updated: 2026-05-01*
+A vendor image or configured topology is not full RFC coverage. For the
+permitted FRR baseline, retain exact source/image identities, captures,
+assertion results, skips and cleanup evidence. The five retained NOS profiles
+cannot execute or be reported as passing; no external lab evaluation changes
+their recorded policy.

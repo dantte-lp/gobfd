@@ -36,6 +36,17 @@ func serveOn(t *testing.T, srv *http.Server, ln net.Listener) {
 	})
 }
 
+func serveLoopback(t *testing.T, srv *http.Server) string {
+	t.Helper()
+
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen loopback management server: %v", err)
+	}
+	serveOn(t, srv, listener)
+	return "http://" + listener.Addr().String()
+}
+
 func addSessionRequest(peer string) *bfdv1.AddSessionRequest {
 	return &bfdv1.AddSessionRequest{
 		PeerAddress: peer, LocalAddress: "127.0.0.1", InterfaceName: "lo",
@@ -53,7 +64,8 @@ func TestGRPCServerGuardsAnonymousLoopbackMutation(t *testing.T) {
 
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
-	srv := newGRPCServer(config.GRPCConfig{}, mgr, nil, nil, newDaemonHealthChecker(), nil, slog.New(slog.DiscardHandler))
+	srv := newGRPCServer(config.GRPCConfig{}, false, mgr, nil, nil,
+		newDaemonHealthChecker(), nil, slog.New(slog.DiscardHandler), nil)
 
 	tcp, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {

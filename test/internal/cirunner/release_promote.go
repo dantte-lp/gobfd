@@ -113,7 +113,6 @@ func (promotion *releaseOCIAliasPromotion) run(ctx context.Context) error {
 	aliases := []releaseOCIImageDigest{
 		{Image: imageRepository + ":latest", Digest: versioned[0].Digest},
 		{Image: imageRepository + ":debian-trixie", Digest: versioned[0].Digest},
-		{Image: imageRepository + ":oraclelinux10", Digest: versioned[2].Digest},
 	}
 	snapshotTargets := make([]releaseOCIImageDigest, len(aliases))
 	for index, alias := range aliases {
@@ -182,27 +181,15 @@ func (promotion *releaseOCIAliasPromotion) promote(
 	aliases []releaseOCIImageDigest,
 	dockerEnvironment []string,
 ) error {
-	commands := []CommandSpec{
-		{
-			Name: dockerCommand, Args: []string{
-				buildxSubcommand, imagetoolsSubcommand, "create",
-				"--tag", imageRepository + ":latest",
-				"--tag", imageRepository + ":debian-trixie",
-				imageRepository + "@" + aliases[0].Digest,
-			}, Dir: promotion.root, Env: dockerEnvironment,
-		},
-		{
-			Name: dockerCommand, Args: []string{
-				buildxSubcommand, imagetoolsSubcommand, "create",
-				"--tag", imageRepository + ":oraclelinux10",
-				imageRepository + "@" + aliases[2].Digest,
-			}, Dir: promotion.root, Env: dockerEnvironment,
-		},
-	}
-	for _, command := range commands {
-		if err := promotion.options.Runner.RunCommand(ctx, command); err != nil {
-			return fmt.Errorf("promote verified OCI alias: %w", err)
-		}
+	if err := promotion.options.Runner.RunCommand(ctx, CommandSpec{
+		Name: dockerCommand, Args: []string{
+			buildxSubcommand, imagetoolsSubcommand, "create",
+			"--tag", imageRepository + ":latest",
+			"--tag", imageRepository + ":debian-trixie",
+			imageRepository + "@" + aliases[0].Digest,
+		}, Dir: promotion.root, Env: dockerEnvironment,
+	}); err != nil {
+		return fmt.Errorf("promote verified OCI alias: %w", err)
 	}
 	if _, err := inspectReleaseOCIAliases(
 		ctx, promotion.options.Runner, promotion.root, aliases, dockerEnvironment,

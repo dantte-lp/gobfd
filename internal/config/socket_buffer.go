@@ -14,6 +14,15 @@ func validateSocket(cfg SocketConfig) error {
 	if cfg.WriteBufferSize < 0 {
 		return ErrInvalidSocketWriteBufferSize
 	}
+	if cfg.IPv4DSCP < 0 || cfg.IPv4DSCP > maxSocketDSCP {
+		return ErrInvalidSocketIPv4DSCP
+	}
+	if cfg.IPv6TrafficClass < 0 || cfg.IPv6TrafficClass > math.MaxUint8 {
+		return ErrInvalidSocketIPv6TrafficClass
+	}
+	if cfg.Priority < 0 || cfg.Priority > math.MaxInt32 {
+		return ErrInvalidSocketPriority
+	}
 	return nil
 }
 

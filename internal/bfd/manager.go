@@ -19,6 +19,9 @@ import (
 
 // Sentinel errors for Manager operations.
 var (
+	// ErrInvalidNotificationPopulation indicates a negative producer population.
+	ErrInvalidNotificationPopulation = errors.New("notification population must not be negative")
+
 	// ErrSessionNotFound indicates no session exists for the given discriminator.
 	ErrSessionNotFound = errors.New("session not found")
 
@@ -123,6 +126,9 @@ type PacketMeta struct {
 	// TransportScope is the exact overlay identity extracted from the wire.
 	// It is empty for base and Micro-BFD transports.
 	TransportScope TransportScope
+
+	// ReceiveTiming is optional measurement metadata; it never controls admission.
+	ReceiveTiming ReceiveTiming
 }
 
 // -------------------------------------------------------------------------
@@ -254,11 +260,10 @@ type SessionCounters struct {
 // -------------------------------------------------------------------------
 
 const (
-	// notifyChSize is the buffer size for the aggregated state change channel.
-	// Sized to handle bursts of state transitions across multiple sessions
-	// without blocking session goroutines. 64 is sufficient for typical
-	// deployments (hundreds of sessions with rare simultaneous transitions).
-	notifyChSize = 64
+	// notifyChSize preserves the default and legacy channel budget.
+	notifyChSize             = 64
+	maxNotificationCapacity  = 65536
+	notificationsPerProducer = 3
 )
 
 // -------------------------------------------------------------------------
@@ -293,9 +298,13 @@ type Manager struct {
 	// sessionsByKey indexes wire sessions by canonical desired identity.
 	sessionsByKey map[SessionKey]*sessionEntry
 
+	// retiringSessions reserves exact keys through detached owner cleanup, guarded by mu.
+	retiringSessions map[SessionKey]*sessionEntry
+
 	// echoSessions indexed by local discriminator for echo demux.
 	// RFC 9747: echo packets are demultiplexed by MyDiscriminator on return.
-	echoSessions map[uint32]*echoSessionEntry
+	echoSessions      map[uint32]*echoSessionEntry
+	echoSessionsByKey map[SessionKey]*echoSessionEntry
 
 	// microGroups holds RFC 7130 micro-BFD groups indexed by LAG interface name.
 	// Each group tracks the aggregate state of per-member-link BFD sessions.
@@ -343,9 +352,11 @@ type Manager struct {
 	// rawNotifyCh receives state changes from all sessions.
 	// The Manager's dispatch goroutine reads from this channel,
 	// handles micro-BFD group updates, and forwards to publicNotifyCh.
-	rawNotifyCh    chan StateChange
-	cleanupWake    chan struct{}
-	publicLossWake chan struct{}
+	rawNotifyCh chan StateChange
+	// notificationCapacity is immutable after construction and shared by raw and subscriber queues.
+	notificationCapacity int
+	cleanupWake          chan struct{}
+	publicLossWake       chan struct{}
 
 	// publicNotifyCh is the legacy single-consumer channel exposed via
 	// StateChanges(). New consumers should use SubscribeStateChanges.
@@ -394,26 +405,19 @@ type sessionEntry struct {
 	cleanupPending unsolicitedCleanupPending
 }
 
-type echoSessionSource uint8
-
-const (
-	echoSessionSourceCompatibility echoSessionSource = iota
-	echoSessionSourceDeclarative
-)
-
 type retiredSession struct {
 	localDiscr uint32
 	entry      *sessionEntry
 }
 
-// echoSessionEntry holds one echo session's canonical identity, source, and
+// echoSessionEntry holds one echo session's canonical identity, claims, and
 // owned runtime resources.
 type echoSessionEntry struct {
 	session     *EchoSession
 	cancel      context.CancelFunc
 	senderLease *SenderLease
-	key         string
-	source      echoSessionSource
+	key         SessionKey
+	owners      map[SessionOwner]struct{}
 	done        chan struct{}
 }
 
@@ -463,6 +467,26 @@ func (op *managerOperation) finish() {
 
 // ManagerOption configures optional Manager parameters.
 type ManagerOption func(*Manager)
+
+// WithNotificationPopulation reserves registration and two state changes per
+// configured producer, plus the default reserve, for raw and subscriber queues.
+// Cohorts are added without integer overflow; capacity saturates at 65536.
+// The legacy StateChanges channel stays at 64. Queues never resize: populations
+// added later or sustained slow consumers still require GAP recovery.
+func WithNotificationPopulation(populations ...int) (ManagerOption, error) {
+	capacity := notifyChSize
+	for _, population := range populations {
+		if population < 0 {
+			return nil, ErrInvalidNotificationPopulation
+		}
+		if population > (maxNotificationCapacity-capacity)/notificationsPerProducer {
+			capacity = maxNotificationCapacity
+		} else {
+			capacity += notificationsPerProducer * population
+		}
+	}
+	return func(m *Manager) { m.notificationCapacity = capacity }, nil
+}
 
 // MicroBFDActuator reacts to RFC 7130 Micro-BFD member state transitions.
 //
@@ -529,28 +553,31 @@ func WithMicroBFDActuator(actuator MicroBFDActuator) ManagerOption {
 // BFD Control packets.
 func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 	m := &Manager{
-		sessions:        make(map[uint32]*sessionEntry),
-		sessionsByPeer:  make(map[packetDemuxKey]*sessionEntry),
-		sessionsByKey:   make(map[SessionKey]*sessionEntry),
-		echoSessions:    make(map[uint32]*echoSessionEntry),
-		microGroups:     make(map[string]*MicroBFDGroup),
-		microMembers:    make(map[microMemberKey]*MicroBFDGroup),
-		microResyncWake: make(chan struct{}, 1),
-		discriminators:  NewDiscriminatorAllocator(),
-		metrics:         noopMetrics{},
-		rawNotifyCh:     make(chan StateChange, notifyChSize),
-		cleanupWake:     make(chan struct{}, 1),
-		publicLossWake:  make(chan struct{}, 1),
-		publicNotifyCh:  make(chan StateChange, notifyChSize),
-		timerUpdateCh:   make(chan struct{}, 1),
-		subscribers:     make(map[chan StateChange]*subscriber),
-		closeDone:       make(chan struct{}),
-		shutdownCh:      make(chan struct{}),
-		logger:          logger.With(slog.String("component", "bfd.manager")),
+		sessions:             make(map[uint32]*sessionEntry),
+		sessionsByPeer:       make(map[packetDemuxKey]*sessionEntry),
+		sessionsByKey:        make(map[SessionKey]*sessionEntry),
+		retiringSessions:     make(map[SessionKey]*sessionEntry),
+		echoSessions:         make(map[uint32]*echoSessionEntry),
+		echoSessionsByKey:    make(map[SessionKey]*echoSessionEntry),
+		microGroups:          make(map[string]*MicroBFDGroup),
+		microMembers:         make(map[microMemberKey]*MicroBFDGroup),
+		microResyncWake:      make(chan struct{}, 1),
+		discriminators:       NewDiscriminatorAllocator(),
+		metrics:              noopMetrics{},
+		notificationCapacity: notifyChSize,
+		cleanupWake:          make(chan struct{}, 1),
+		publicLossWake:       make(chan struct{}, 1),
+		publicNotifyCh:       make(chan StateChange, notifyChSize),
+		timerUpdateCh:        make(chan struct{}, 1),
+		subscribers:          make(map[chan StateChange]*subscriber),
+		closeDone:            make(chan struct{}),
+		shutdownCh:           make(chan struct{}),
+		logger:               logger.With(slog.String("component", "bfd.manager")),
 	}
 	for _, opt := range opts {
 		opt(m)
 	}
+	m.rawNotifyCh = make(chan StateChange, m.notificationCapacity)
 	return m
 }
 
@@ -695,6 +722,8 @@ func (m *Manager) invalidateStateChanges() {
 // last buffer slot of a subscriber is reserved for a gap marker, so a slow
 // subscriber learns about lost events even when no further event follows.
 // subMu serializes dispatch and synchronous registration/removal.
+//
+//nolint:contextcheck,nolintlint // Background matches Warn; contextcheck consumes this directive before nolintlint.
 func (m *Manager) broadcastStateChange(sc StateChange) fanoutDelivery {
 	m.subMu.Lock()
 	defer m.subMu.Unlock()
@@ -717,7 +746,8 @@ func (m *Manager) broadcastStateChange(sc StateChange) fanoutDelivery {
 		if !sub.overflowed {
 			sub.overflowed = true
 			ch <- StateChange{Gap: true, Revision: sc.Revision, Timestamp: sc.Timestamp}
-			m.logger.Warn("state change subscriber is behind, queued a gap marker",
+			m.logger.LogAttrs(context.Background(), slog.LevelWarn,
+				"state change subscriber is behind, queued a gap marker",
 				slog.Uint64("revision", sc.Revision),
 			)
 		}
@@ -728,7 +758,8 @@ func (m *Manager) broadcastStateChange(sc StateChange) fanoutDelivery {
 			counts.legacy = DeliveryQueued
 		default:
 			counts.legacy = DeliveryQueueFull
-			m.logger.Warn("public notification channel full, dropping state change",
+			m.logger.LogAttrs(context.Background(), slog.LevelWarn,
+				"public notification channel full, dropping state change",
 				slog.Uint64("local_discr", uint64(sc.LocalDiscr)),
 				slog.String("new_state", sc.NewState.String()),
 			)
@@ -931,11 +962,12 @@ func (m *Manager) detachCloseResources() (
 	for discr, entry := range m.echoSessions {
 		retiredEcho = append(retiredEcho, retiredEchoSession{localDiscr: discr, entry: entry})
 	}
-	// Clear maps to prevent use-after-close.
+	// Clear public maps; detached operations retain retiring keys until cleanup joins.
 	m.sessions = make(map[uint32]*sessionEntry)
 	m.sessionsByPeer = make(map[packetDemuxKey]*sessionEntry)
 	m.sessionsByKey = make(map[SessionKey]*sessionEntry)
 	m.echoSessions = make(map[uint32]*echoSessionEntry)
+	m.echoSessionsByKey = make(map[SessionKey]*echoSessionEntry)
 	m.microGroups = make(map[string]*MicroBFDGroup)
 	m.microMembers = make(map[microMemberKey]*MicroBFDGroup)
 	m.microResync = nil

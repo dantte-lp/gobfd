@@ -14,7 +14,50 @@ var (
 	ErrTimerUpdateFailed = errors.New("timer update failed")
 )
 
-type timerTuple struct{ TX, RX time.Duration }
+type timerTuple struct {
+	TX, RX             time.Duration
+	DetectMult, MinTTL uint8
+	PaddedPduSize      uint16
+}
+
+func (c effectiveSessionConfig) updateTuple() timerTuple {
+	return timerTuple{
+		c.DesiredMinTxInterval, c.RequiredMinRxInterval, c.DetectMultiplier, c.MultiHopMinTTL, c.PaddedPduSize,
+	}
+}
+
+// paddingPreparedSender proves constructor-time DF preparation without I/O.
+// Socket liveness remains the receive/runtime owner's responsibility.
+type paddingPreparedSender interface{ PaddingPrepared() bool }
+
+func (s *Session) validatePacketPolicyUpdate(tuple timerTuple) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.validatePacketPolicyUpdateLocked(tuple)
+}
+
+func (s *Session) validatePacketPolicyUpdateLocked(tuple timerTuple) error {
+	if tuple.MinTTL != s.minTTL &&
+		(s.sessionType != SessionTypeMultiHop || tuple.MinTTL == 0 || tuple.MinTTL == singleHopTTL) {
+		return ErrSessionParameterConflict
+	}
+	if tuple.PaddedPduSize == s.paddedPduSize {
+		return nil
+	}
+	if ValidatePaddedPduSize(tuple.PaddedPduSize, s.auth != nil) != nil ||
+		s.paddedPduSize == 0 || tuple.PaddedPduSize == 0 || s.remoteDemandMode {
+		return ErrSessionParameterConflict
+	}
+	prepared, ok := s.sender.(paddingPreparedSender)
+	if !ok || !prepared.PaddingPrepared() {
+		return ErrSessionParameterConflict
+	}
+	return nil
+}
+
+func (s *Session) applyPacketPolicyUpdateLocked(tuple timerTuple) {
+	s.detectMult, s.minTTL, s.paddedPduSize = tuple.DetectMult, tuple.MinTTL, tuple.PaddedPduSize
+}
 
 const timerUpdateBudgetMultiplier = 3
 
@@ -51,7 +94,7 @@ func (s *Session) timerUpdateSnapshot() timerUpdateStatus {
 
 func (s *Session) timerUpdateSnapshotLocked() timerUpdateStatus {
 	status := s.timerUpdate
-	status.Effective = timerTuple{s.desiredMinTxInterval, s.requiredMinRxInterval}
+	status.Effective = s.effectiveTimersLocked()
 	status.Advertised = s.advertisedTimers()
 	status.Unresolved = s.activeUpdate.Present || s.waitingUpdate.Present ||
 		s.pollActive || !s.separateUntil.IsZero() || s.floorHeld || s.recoverOnUp
@@ -78,10 +121,13 @@ func (s *Session) admitTimerUpdate(
 		return s.timerUpdateSnapshotLocked(), ErrTimerUpdateFailed
 	}
 	if s.timerRevision == 0 {
-		s.timerUpdate.Confirmed = timerTuple{s.desiredMinTxInterval, s.requiredMinRxInterval}
+		s.timerUpdate.Confirmed = s.effectiveTimersLocked()
 	}
 	generation, repeated, err := s.resolveTimerGenerationLocked(tuple, generation)
 	if err != nil || repeated {
+		return s.timerUpdateSnapshotLocked(), err
+	}
+	if err := s.validatePacketPolicyUpdateLocked(tuple); err != nil {
 		return s.timerUpdateSnapshotLocked(), err
 	}
 	now := time.Now()
@@ -94,12 +140,14 @@ func (s *Session) admitTimerUpdate(
 			Tuple: tuple, Revision: s.timerRevision, Generation: generation, Present: true, Failed: true,
 		}
 		s.waitingUpdate = timerProposal{}
+		s.waitingPacket = nil
 		s.failTimerUpdateLocked()
 		return s.timerUpdateSnapshotLocked(), ErrTimerUpdateFailed
 	}
 	if s.activeUpdate.Present && s.activeUpdate.Tuple == tuple {
 		s.activeUpdate.Generation = generation
 		s.waitingUpdate = timerProposal{}
+		s.waitingPacket = nil
 		s.timerUpdate.Requested = s.activeUpdate
 		s.timerUpdate.State = timerUpdatePending
 		s.timerUpdate.Changed = tuple != s.timerUpdate.Confirmed
@@ -141,16 +189,21 @@ func (s *Session) queueTimerProposalLocked(tuple timerTuple, generation uint64, 
 	}
 	// Valid uint32-microsecond intervals and an uint8 multiplier bound
 	// this product below 3.3e15 nanoseconds, within time.Duration.
-	budget := timerUpdateBudgetMultiplier * time.Duration(s.detectMult) *
+	budget := timerUpdateBudgetMultiplier * time.Duration(max(s.detectMult, tuple.DetectMult)) *
 		max(currentTX, proposedTX, s.remoteMinRxInterval)
 	proposal.Deadline = now.Add(budget)
 	s.timerUpdate.Requested = proposal
 	s.timerUpdate.State = timerUpdatePending
 	s.timerUpdate.Changed = tuple != s.timerUpdate.Confirmed
 	s.waitingUpdate = proposal
+	s.waitingPacket = nil
+	if int(tuple.PaddedPduSize) > len(s.cachedPacket) {
+		s.waitingPacket = make([]byte, max(MaxPacketSize, int(tuple.PaddedPduSize)))
+	}
 	if !s.activeUpdate.Present && !s.pollActive && s.separateUntil.IsZero() &&
 		!s.floorHeld && !s.recoverOnUp && tuple == s.timerUpdate.Confirmed && tuple == s.effectiveTimersLocked() {
 		s.waitingUpdate = timerProposal{}
+		s.waitingPacket = nil
 		s.timerUpdate.State = timerUpdateApplied
 		s.timerUpdate.Changed = false
 	}
@@ -167,6 +220,7 @@ func (s *Session) notifyTimerUpdate() {
 // performed under mu; promotion uses the already scheduled TX deadline.
 func (s *Session) processTimerUpdates(tx, detect *time.Timer) {
 	oldTX, oldAllowed, oldDetection := s.calcTxIntervalHot(), s.periodicTxAllowed(), s.calcDetectionTimeHot()
+	oldDetectMult := s.detectMult
 	s.mu.Lock()
 	now := time.Now()
 	unsolicitedFailed := s.processUnsolicitedLocked(now)
@@ -181,7 +235,8 @@ func (s *Session) processTimerUpdates(tx, detect *time.Timer) {
 	if unsolicitedFailed {
 		s.notifyUnsolicitedFailure()
 	}
-	if oldTX != s.calcTxIntervalHot() || oldAllowed != s.periodicTxAllowed() {
+	jitterChanged := (oldDetectMult == 1) != (s.detectMult == 1)
+	if oldTX != s.calcTxIntervalHot() || oldAllowed != s.periodicTxAllowed() || jitterChanged {
 		s.scheduleTxTimer(tx, s.lastPacketSent)
 	}
 	if oldDetection != s.calcDetectionTimeHot() {
@@ -191,6 +246,13 @@ func (s *Session) processTimerUpdates(tx, detect *time.Timer) {
 
 func (s *Session) promoteTimerUpdateLocked() {
 	if s.pollActive || !s.separateUntil.IsZero() {
+		return
+	}
+	if s.waitingUpdate.Present && s.validatePacketPolicyUpdateLocked(s.waitingUpdate.Tuple) != nil {
+		// Demand may have become active while this proposal waited behind a Poll.
+		s.waitingUpdate = timerProposal{}
+		s.waitingPacket = nil
+		s.failTimerUpdateLocked()
 		return
 	}
 	up := s.cachedState == StateUp
@@ -206,12 +268,27 @@ func (s *Session) promoteTimerUpdateLocked() {
 	// Poll can leave an unconfirmed tuple effective outside Up.
 	if s.waitingUpdate.Tuple == s.timerUpdate.Confirmed && s.waitingUpdate.Tuple == s.effectiveTimersLocked() {
 		s.waitingUpdate = timerProposal{}
+		s.waitingPacket = nil
 		s.timerUpdate.State, s.timerUpdate.Changed = timerUpdateApplied, false
 		s.notifyTimerUpdate()
 		return
 	}
 	s.activeUpdate, s.waitingUpdate = s.waitingUpdate, timerProposal{}
 	s.timerUpdate.Changed = s.activeUpdate.Tuple != s.timerUpdate.Confirmed
+	current := s.effectiveTimersLocked()
+	if s.waitingPacket != nil {
+		s.cachedPacket, s.waitingPacket = s.waitingPacket, nil
+	}
+	s.applyPacketPolicyUpdateLocked(s.activeUpdate.Tuple)
+	if !s.needsTimerPollLocked(current) {
+		// TTL is local; qualified padding and Async DetectMult need no Poll.
+		s.timerUpdate.Confirmed = s.activeUpdate.Tuple
+		s.timerUpdate.ConfirmedRevision = s.activeUpdate.Revision
+		s.timerUpdate.State = timerUpdateApplied
+		s.activeUpdate = timerProposal{}
+		s.notifyTimerUpdate()
+		return
+	}
 	if up {
 		s.desiredMinTxInterval = min(s.desiredMinTxInterval, s.activeUpdate.Tuple.TX)
 		s.requiredMinRxInterval = max(s.requiredMinRxInterval, s.activeUpdate.Tuple.RX)
@@ -222,6 +299,12 @@ func (s *Session) promoteTimerUpdateLocked() {
 		s.desiredMinTxInterval, s.requiredMinRxInterval = s.activeUpdate.Tuple.TX, s.activeUpdate.Tuple.RX
 	}
 	s.startPollLocked()
+}
+
+func (s *Session) needsTimerPollLocked(current timerTuple) bool {
+	next := s.activeUpdate.Tuple
+	demand := s.remoteDemandMode && s.cachedState == StateUp && s.observation.RemoteState == StateUp
+	return current.TX != next.TX || current.RX != next.RX || (demand && current.DetectMult != next.DetectMult)
 }
 
 func (s *Session) expireTimerUpdatesLocked(now time.Time) {
@@ -240,6 +323,7 @@ func (s *Session) expireTimerUpdatesLocked(now time.Time) {
 	}
 	if s.waitingUpdate.Present && !now.Before(s.waitingUpdate.Deadline) {
 		s.waitingUpdate = timerProposal{}
+		s.waitingPacket = nil
 		s.failTimerUpdateLocked()
 	}
 }
@@ -293,6 +377,7 @@ func (s *Session) finishTimerPoll() {
 		proposal := s.activeUpdate
 		s.failedPollSeparation = proposal.Failed
 		s.desiredMinTxInterval, s.requiredMinRxInterval = proposal.Tuple.TX, proposal.Tuple.RX
+		s.applyPacketPolicyUpdateLocked(proposal.Tuple)
 		s.timerUpdate.Confirmed, s.timerUpdate.ConfirmedRevision = proposal.Tuple, proposal.Revision
 		if !proposal.Failed && s.timerUpdate.Requested.Revision == proposal.Revision {
 			s.timerUpdate.State = timerUpdateApplied
@@ -301,7 +386,7 @@ func (s *Session) finishTimerPoll() {
 	} else if !s.floorHeld && !s.recoverOnUp {
 		// Startup/recovery confirmation updates protocol truth without
 		// changing a failed update receipt into successful application.
-		s.timerUpdate.Confirmed = timerTuple{s.desiredMinTxInterval, s.requiredMinRxInterval}
+		s.timerUpdate.Confirmed = s.effectiveTimersLocked()
 	}
 	s.updateAdminDrainLocked(now)
 	s.notifyTimerUpdate()
@@ -343,11 +428,13 @@ func (s *Session) interruptTimerUpdateLocked() {
 	wire := s.advertisedTimers()
 	if s.activeUpdate.Present {
 		s.desiredMinTxInterval, s.requiredMinRxInterval = s.activeUpdate.Tuple.TX, s.activeUpdate.Tuple.RX
+		s.applyPacketPolicyUpdateLocked(s.activeUpdate.Tuple)
 	}
 	if s.timerUpdate.State == timerUpdatePending {
 		s.failTimerUpdateLocked()
 	}
 	s.activeUpdate, s.waitingUpdate = timerProposal{}, timerProposal{}
+	s.waitingPacket = nil
 	s.pollActive, s.pollSent = false, false
 	s.pollStarted, s.separateUntil = time.Time{}, time.Time{}
 	s.failedPollSeparation = false
@@ -360,7 +447,7 @@ func (s *Session) interruptTimerUpdateLocked() {
 
 // advertisedTimers is loop-owned (or called under mu by snapshot readers).
 func (s *Session) advertisedTimers() timerTuple {
-	tuple := timerTuple{s.desiredMinTxInterval, s.requiredMinRxInterval}
+	tuple := s.effectiveTimersLocked()
 	if s.activeUpdate.Present {
 		tuple = s.activeUpdate.Tuple
 	}
@@ -380,6 +467,7 @@ func (s *Session) closeTimerUpdates() {
 		s.failTimerUpdateLocked()
 	}
 	s.activeUpdate, s.waitingUpdate = timerProposal{}, timerProposal{}
+	s.waitingPacket = nil
 	packets, controls := len(s.recvCh), len(s.ctrlCh)
 	for range packets {
 		<-s.recvCh
@@ -400,5 +488,7 @@ func (s *Session) closeTimerUpdates() {
 }
 
 func (s *Session) effectiveTimersLocked() timerTuple {
-	return timerTuple{s.desiredMinTxInterval, s.requiredMinRxInterval}
+	return timerTuple{
+		s.desiredMinTxInterval, s.requiredMinRxInterval, s.detectMult, s.minTTL, s.paddedPduSize,
+	}
 }

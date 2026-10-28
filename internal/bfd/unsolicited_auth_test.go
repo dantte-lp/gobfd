@@ -1,10 +1,14 @@
 package bfd
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"log/slog"
 	"net/netip"
+	"sync"
 	"testing"
+	"time"
 )
 
 const unsolicitedAuthKeyID = 7
@@ -33,10 +37,43 @@ func signedTrigger(t *testing.T, keys AuthKeyStore) (*ControlPacket, []byte) {
 		t.Fatalf("Sign: %v", err)
 	}
 	n := HeaderSize + int(pkt.Auth.Len)
-	return pkt, buf[:n]
+	var decoded ControlPacket
+	if err := UnmarshalControlPacket(buf[:n], &decoded); err != nil {
+		t.Fatalf("decode signed trigger: %v", err)
+	}
+	return &decoded, buf[:n]
+}
+
+// replyCaptureSender keeps copies of sent packets; the session loop reuses
+// its cached packet buffer after SendPacket returns.
+type replyCaptureSender struct {
+	mu      sync.Mutex
+	packets [][]byte
+}
+
+func (s *replyCaptureSender) SendPacket(_ context.Context, buf []byte, _ netip.Addr) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.packets = append(s.packets, bytes.Clone(buf))
+	return nil
+}
+
+func (s *replyCaptureSender) first() ([]byte, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.packets) == 0 {
+		return nil, false
+	}
+	return s.packets[0], true
 }
 
 func authManager(t *testing.T, withAuth bool) *Manager {
+	t.Helper()
+
+	return authManagerWithSender(t, withAuth, senderLeaseTestSender{})
+}
+
+func authManagerWithSender(t *testing.T, withAuth bool, sender PacketSender) *Manager {
 	t.Helper()
 
 	policy := admissionPolicy(10)
@@ -48,7 +85,7 @@ func authManager(t *testing.T, withAuth bool) *Manager {
 		slog.New(slog.DiscardHandler),
 		WithUnsolicitedPolicy(policy),
 		WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
-		WithUnsolicitedSessionSender(nonOwningSessionSender(senderLeaseTestSender{})),
+		WithUnsolicitedSessionSender(nonOwningSessionSender(sender)),
 	)
 	t.Cleanup(mgr.Close)
 	return mgr
@@ -60,7 +97,8 @@ func authManager(t *testing.T, withAuth bool) *Manager {
 func TestUnsolicitedAuthAdmitsSignedTrigger(t *testing.T) {
 	t.Parallel()
 
-	mgr := authManager(t, true)
+	sender := &replyCaptureSender{}
+	mgr := authManagerWithSender(t, true, sender)
 	pkt, wire := signedTrigger(t, unsolicitedAuthKeys(t, unsolicitedAuthKeyID))
 	if _, err := mgr.tryCreateUnsolicited(pkt, admissionMeta("192.0.2.10", "192.0.2.1"), wire); err != nil {
 		t.Fatalf("tryCreateUnsolicited with a valid signature: %v", err)
@@ -74,9 +112,20 @@ func TestUnsolicitedAuthAdmitsSignedTrigger(t *testing.T) {
 	if !ok || sess.auth == nil || sess.authKeys == nil {
 		t.Fatal("unsolicited session has no authenticator")
 	}
+	// The session loop owns cachedPacket; read the sent copy instead.
+	var wireReply []byte
+	for deadline := time.Now().Add(2 * time.Second); ; {
+		if wireReply, ok = sender.first(); ok && sess.PacketsReceived() == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("unsolicited session did not commit the decoded authenticated trigger and send a reply")
+		}
+		time.Sleep(time.Millisecond)
+	}
 	var reply ControlPacket
-	if err := UnmarshalControlPacket(sess.cachedPacket, &reply); err != nil {
-		t.Fatalf("decode cached reply: %v", err)
+	if err := UnmarshalControlPacket(wireReply, &reply); err != nil {
+		t.Fatalf("decode sent reply: %v", err)
 	}
 	if !reply.AuthPresent || reply.Auth.Type != AuthTypeMeticulousKeyedSHA1 || reply.Auth.KeyID != unsolicitedAuthKeyID {
 		t.Fatalf("cached reply auth = %+v, want Meticulous Keyed SHA1 key %d", reply.Auth, unsolicitedAuthKeyID)

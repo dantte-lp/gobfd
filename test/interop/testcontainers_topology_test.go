@@ -43,6 +43,11 @@ type fourPeerResources struct {
 }
 
 func TestFourPeerTopologyTestcontainers(t *testing.T) {
+	runFourPeerTopology(t, fourPeerDefault)
+}
+
+func runFourPeerTopology(t *testing.T, profile fourPeerProfile) {
+	t.Helper()
 	t.Setenv("DOCKER_CONFIG", t.TempDir())
 	endpoint := containertest.RequirePodman(t)
 	resources := new(fourPeerResources)
@@ -52,12 +57,18 @@ func TestFourPeerTopologyTestcontainers(t *testing.T) {
 		t.Cleanup(cancel)
 		projectName := fmt.Sprintf("gobfd-interop-tc-%d", time.Now().UnixNano())
 		root := fourPeerRepositoryRoot(t)
+		baseline, bird, err := loadFourPeerConfig(root, profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ensureFourPeerArtifactDirectory(t)
+		configPath := writeTimerArtifact(t, "startup-gobfd", "yml", baseline)
+		birdPath := writeTimerArtifact(t, "startup-bird", "conf", bird)
 
 		assertFourPeerNamesAvailable(ctx, t, endpoint)
 		registerFourPeerImageCleanup(ctx, t, endpoint, bfdFuzzImage, resources)
-		startFourPeerTopology(ctx, t, endpoint, root, projectName, resources)
+		startFourPeerTopology(ctx, t, endpoint, root, projectName, resources, configPath, birdPath)
 		t.Setenv("INTEROP_PROJECT_NAME", projectName)
-		ensureFourPeerArtifactDirectory(t)
 		// Register after all containers: artifacts survive assertion failures and precede exact-ID cleanup.
 		registerFourPeerArtifactCleanup(ctx, t, func(artifactCtx context.Context) {
 			logs, err := projectContainerLogs(artifactCtx, "gobfd-interop")
@@ -69,7 +80,7 @@ func TestFourPeerTopologyTestcontainers(t *testing.T) {
 		}, func(artifactCtx context.Context) {
 			captureFourPeerPCAP(artifactCtx, t, resources.tshark)
 		})
-		runFourPeerAssertions(ctx, t, projectName)
+		runFourPeerAssertions(ctx, t, projectName, profile)
 	}) {
 		t.Error("four-peer testcontainers topology failed")
 	}
@@ -115,7 +126,7 @@ func registerFourPeerImageCleanup(
 	t *testing.T,
 	endpoint, imageName string,
 	resources *fourPeerResources,
-) {
+) *podmanapi.Client {
 	t.Helper()
 
 	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
@@ -144,6 +155,7 @@ func registerFourPeerImageCleanup(
 			}
 		}
 	})
+	return client
 }
 
 func startFourPeerTopology(
@@ -151,35 +163,30 @@ func startFourPeerTopology(
 	t *testing.T,
 	endpoint, root, projectName string,
 	resources *fourPeerResources,
+	configPath, birdPath string,
 ) {
 	t.Helper()
 
 	buildID := time.Now().UnixNano()
-	revision, buildDate, err := interopproject.BuildMetadata(ctx, root, os.Getenv("GOBFD_BUILD_REVISION"))
-	if err != nil {
-		t.Fatalf("resolve FRR build metadata: %v", err)
-	}
 	frrImage := buildFourPeerImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/frr"),
 		fmt.Sprintf("localhost/frr-interop-test:%d", buildID), resources,
-		map[string]*string{"VCS_REF": &revision, "BUILD_DATE": &buildDate},
 	)
 	gobfdImage := buildFourPeerImage(
 		ctx, t, endpoint, prepareFourPeerGoContext(t, root),
-		fmt.Sprintf("localhost/gobfd-interop-test:%d", buildID), resources, nil,
+		fmt.Sprintf("localhost/gobfd-interop-test:%d", buildID), resources,
 	)
 	birdImage := buildFourPeerImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/bird3"),
 		fmt.Sprintf("localhost/bird3-interop-test:%d", buildID), resources,
-		map[string]*string{"VCS_REF": &revision, "BUILD_DATE": &buildDate},
 	)
 	thoroImage := buildFourPeerImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/thoro"),
-		fmt.Sprintf("localhost/thoro-interop-test:%d", buildID), resources, nil,
+		fmt.Sprintf("localhost/thoro-interop-test:%d", buildID), resources,
 	)
 	tsharkImage := buildFourPeerImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/tshark"),
-		fmt.Sprintf("localhost/tshark-interop-test:%d", buildID), resources, nil,
+		fmt.Sprintf("localhost/tshark-interop-test:%d", buildID), resources,
 	)
 
 	networkName, labels := startFourPeerNetwork(ctx, t, projectName, "four-peer-testcontainers", resources)
@@ -231,35 +238,11 @@ func startFourPeerTopology(
 	resources.containerIDs = append(resources.containerIDs, loader.GetContainerID())
 	verifyFourPeerHoloConfiguration(ctx, t, holo, loader)
 
-	gobfd := startFourPeerGoBFD(ctx, t, gobfdImage, filepath.Join(root, "test/interop/gobfd/gobfd.yml"),
+	gobfd := startFourPeerGoBFD(ctx, t, gobfdImage, configPath,
 		networkName, labels, resources)
 	resources.tshark = startFourPeerTshark(ctx, t, tsharkImage, gobfd, labels, resources)
 
-	frr := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
-		Image:    frrImage,
-		Name:     "frr-interop",
-		Labels:   labels,
-		Networks: []string{networkName},
-		Files: []testcontainers.ContainerFile{
-			{
-				HostFilePath:      filepath.Join(root, "test/interop/frr/daemons"),
-				ContainerFilePath: "/etc/frr/daemons",
-				FileMode:          0o644,
-			},
-			{
-				HostFilePath:      filepath.Join(root, "test/interop/frr/frr.conf"),
-				ContainerFilePath: "/etc/frr/frr.conf",
-				FileMode:          0o644,
-			},
-		},
-		WaitingFor: wait.ForExec([]string{"vtysh", "-c", "show version"}).WithStartupTimeout(30 * time.Second),
-		HostConfigModifier: func(hostConfig *container.HostConfig) {
-			addFourPeerCapabilities(hostConfig)
-			hostConfig.CapAdd = append(hostConfig.CapAdd, "SYS_ADMIN")
-		},
-		EndpointSettingsModifier: staticFourPeerIP(networkName, frrIP),
-	})
-	resources.containerIDs = append(resources.containerIDs, frr.GetContainerID())
+	startFourPeerFRR(ctx, t, root, frrImage, networkName, labels, resources)
 
 	bird := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
 		Image:    birdImage,
@@ -267,7 +250,7 @@ func startFourPeerTopology(
 		Labels:   labels,
 		Networks: []string{networkName},
 		Files: []testcontainers.ContainerFile{{
-			HostFilePath:      filepath.Join(root, "test/interop/bird3/bird.conf"),
+			HostFilePath:      birdPath,
 			ContainerFilePath: "/etc/bird/bird.conf",
 			FileMode:          0o644,
 		}},
@@ -318,6 +301,30 @@ func startFourPeerNetwork(
 	return networkName, map[string]string{fourPeerProjectLabel: projectName, "io.gobfd.test": purpose}
 }
 
+func startFourPeerFRR(
+	ctx context.Context, t *testing.T, root, image, networkName string,
+	labels map[string]string, resources *fourPeerResources,
+) {
+	t.Helper()
+	frr := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
+		Image: image, Name: "frr-interop", Labels: labels, Networks: []string{networkName},
+		Files: []testcontainers.ContainerFile{{
+			HostFilePath:      filepath.Join(root, "test/interop/frr/daemons"),
+			ContainerFilePath: "/etc/frr/daemons", FileMode: 0o644,
+		}, {
+			HostFilePath:      filepath.Join(root, "test/interop/frr/frr.conf"),
+			ContainerFilePath: "/etc/frr/frr.conf", FileMode: 0o644,
+		}},
+		WaitingFor: wait.ForExec([]string{"vtysh", "-c", "show version"}).WithStartupTimeout(30 * time.Second),
+		HostConfigModifier: func(hostConfig *container.HostConfig) {
+			addFourPeerCapabilities(hostConfig)
+			hostConfig.CapAdd = append(hostConfig.CapAdd, "SYS_ADMIN")
+		},
+		EndpointSettingsModifier: staticFourPeerIP(networkName, frrIP),
+	})
+	resources.containerIDs = append(resources.containerIDs, frr.GetContainerID())
+}
+
 func startFourPeerGoBFD(
 	ctx context.Context,
 	t *testing.T,
@@ -326,6 +333,10 @@ func startFourPeerGoBFD(
 	resources *fourPeerResources,
 ) testcontainers.Container {
 	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve existing interop executable: %v", err)
+	}
 
 	gobfd := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
 		Image:    image,
@@ -341,6 +352,10 @@ func startFourPeerGoBFD(
 			HostFilePath:      configPath,
 			ContainerFilePath: "/etc/gobfd/gobfd.yml",
 			FileMode:          0o644,
+		}, {
+			HostFilePath:      executable,
+			ContainerFilePath: "/tmp/gobfd-interop.test",
+			FileMode:          0o755,
 		}},
 		WaitingFor: wait.ForExec([]string{
 			"/bin/gobfdctl", "--addr", "127.0.0.1:50051",
@@ -566,14 +581,14 @@ func nestedObjects(root map[string]any, path ...string) []map[string]any {
 	return objects
 }
 
-func runFourPeerAssertions(ctx context.Context, t *testing.T, projectName string) {
+func runFourPeerAssertions(ctx context.Context, t *testing.T, projectName string, profile fourPeerProfile) {
 	t.Helper()
 
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatalf("resolve current interop test binary: %v", err)
 	}
-	err = runFourPeerAssertionBatches(ctx, executable, projectName,
+	err = runFourPeerAssertionBatches(ctx, executable, projectName, profile,
 		func(index int, output []byte, exitCode int, runErr error) {
 			writeTimerArtifact(t, fmt.Sprintf("assertions-%d", index+1), "txt",
 				fmt.Appendf(output, "\nexit_code=%d error=%v\n", exitCode, runErr))
@@ -585,13 +600,19 @@ func runFourPeerAssertions(ctx context.Context, t *testing.T, projectName string
 }
 
 func runFourPeerAssertionBatches(
-	ctx context.Context, executable, projectName string, record func(int, []byte, int, error),
+	ctx context.Context, executable, projectName string, profile fourPeerProfile, record func(int, []byte, int, error),
 ) error {
+	if profile != fourPeerDefault && profile != fourPeerMeticulous {
+		return fmt.Errorf("unknown assertion profile %d: %w", profile, errTimerEvidence)
+	}
 	// Separate processes order RFC baseline analysis before timer mutation and destructive tests.
 	batches := [][]string{
 		{"TestFRRHandshake", "TestBIRD3Handshake", "TestHoloHandshake", "TestThoroHandshake", "TestRFCCompliance"},
 		{"TestTimerReload"},
 		{"TestHoloFailureRecoveryLifecycle", "TestFRRDetectionTimeout", "TestBFDInvalidVectors", "TestGracefulShutdown"},
+	}
+	if profile == fourPeerMeticulous {
+		batches[0][4], batches[1][0] = "TestMeticulousRFCCompliance", "TestMeticulousTimerReload"
 	}
 	for index, names := range batches {
 		filter := "^(" + strings.Join(names, "|") + ")$"
@@ -723,11 +744,16 @@ func buildFourPeerImage(
 	t *testing.T,
 	endpoint, contextPath, imageName string,
 	resources *fourPeerResources,
-	buildArgs map[string]*string,
 ) string {
 	t.Helper()
 
-	registerFourPeerImageCleanup(ctx, t, endpoint, imageName, resources)
+	imageClient := registerFourPeerImageCleanup(ctx, t, endpoint, imageName, resources)
+	ensureFourPeerArtifactDirectory(t)
+	root := fourPeerRepositoryRoot(t)
+	revision, buildDate, err := interopproject.BuildMetadata(ctx, root, os.Getenv("GOBFD_BUILD_REVISION"))
+	if err != nil {
+		t.Fatalf("resolve image build metadata: %v", err)
+	}
 	provider, err := testcontainers.ProviderPodman.GetProvider()
 	if err != nil {
 		t.Fatalf("create Podman provider for %s: %v", imageName, err)
@@ -748,7 +774,7 @@ func buildFourPeerImage(
 			Repo:       repository,
 			Tag:        tag,
 			KeepImage:  true,
-			BuildArgs:  buildArgs,
+			BuildArgs:  map[string]*string{"VCS_REF": &revision, "BUILD_DATE": &buildDate},
 			BuildOptionsModifier: func(options *client.ImageBuildOptions) {
 				options.CPUPeriod = 100000
 				options.CPUQuota = 200000
@@ -761,8 +787,41 @@ func buildFourPeerImage(
 	if joinedErr := errors.Join(buildErr, closeErr); joinedErr != nil {
 		t.Fatalf("build test-owned image %s: %v", imageName, joinedErr)
 	}
+	inspectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	metadata, inspectErr := imageClient.ImageMetadata(inspectCtx, builtImage)
+	var labels map[string]string
+	if inspectErr == nil {
+		labels, inspectErr = validateFourPeerImageMetadata(metadata, revision)
+	}
+	record := struct {
+		Requested string            `json:"requested"`
+		Built     string            `json:"built"`
+		ID        string            `json:"id"`
+		Labels    map[string]string `json:"labels"`
+		Error     string            `json:"error,omitempty"`
+	}{Requested: imageName, Built: builtImage, ID: metadata.ID, Labels: labels}
+	if inspectErr != nil {
+		record.Error = inspectErr.Error()
+	}
+	encoded, marshalErr := json.MarshalIndent(record, "", "  ")
+	var writeErr error
+	if marshalErr == nil {
+		_, writeErr = persistTimerArtifact("image-provenance", "json", encoded)
+	}
+	if err := errors.Join(inspectErr, marshalErr, writeErr); err != nil {
+		t.Fatalf("retain test-owned image %s provenance: %v", imageName, err)
+	}
 
 	return builtImage
+}
+
+func buildInvalidVectorImage(ctx context.Context, t *testing.T) string {
+	t.Helper()
+	endpoint := containertest.RequirePodman(t)
+	root := fourPeerRepositoryRoot(t)
+	return buildFourPeerImage(ctx, t, endpoint, prepareCraftedPeerContext(t, root),
+		bfdFuzzImage, new(fourPeerResources))
 }
 
 func prepareFourPeerGoContext(t *testing.T, root string) string {
@@ -800,7 +859,17 @@ func prepareFourPeerGoContext(t *testing.T, root string) string {
 		"RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfd ./cmd/gobfd\n" +
 		"RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfdctl ./cmd/gobfdctl\n" +
 		"FROM docker.io/library/debian:trixie-slim@sha256:" +
-		"a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f\n" +
+		"62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad\n" +
+		"ARG VCS_REF\nARG BUILD_DATE\n" +
+		"LABEL org.opencontainers.image.source=\"https://github.com/dantte-lp/gobfd\" " +
+		"org.opencontainers.image.revision=\"${VCS_REF}\" " +
+		"org.opencontainers.image.created=\"${BUILD_DATE}\" " +
+		"org.opencontainers.image.version=\"${VCS_REF}\" " +
+		"org.opencontainers.image.licenses=\"Apache-2.0\" " +
+		"org.opencontainers.image.title=\"GoBFD interoperability daemon\" " +
+		"org.opencontainers.image.description=\"GoBFD daemon and CLI from the qualified candidate\" " +
+		"org.opencontainers.image.base.name=\"docker.io/library/debian:trixie-slim\" " +
+		"org.opencontainers.image.base.digest=\"sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad\"\n" +
 		"COPY --from=builder /bin/gobfd /bin/gobfdctl /bin/\n" +
 		"ENTRYPOINT [\"/bin/gobfd\"]\n"
 	if err := os.WriteFile(filepath.Join(contextPath, "Containerfile"), []byte(containerfile), 0o600); err != nil {
