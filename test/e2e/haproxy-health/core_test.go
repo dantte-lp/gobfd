@@ -299,7 +299,7 @@ RUN CGO_ENABLED=0 go build -trimpath \
 -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
     -o /bin/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
 FROM docker.io/library/debian:trixie-slim@sha256:` +
-		`a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
+		`62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
 ARG VCS_REF
 ARG BUILD_DATE
 LABEL org.opencontainers.image.source="https://github.com/dantte-lp/gobfd" \
@@ -310,7 +310,7 @@ LABEL org.opencontainers.image.source="https://github.com/dantte-lp/gobfd" \
       org.opencontainers.image.title="GoBFD HAProxy health fixture" \
       org.opencontainers.image.description="GoBFD daemon, CLI and HAProxy bridge from the qualified candidate" \
       org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
-      org.opencontainers.image.base.digest="sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f"
+      org.opencontainers.image.base.digest="sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad"
 COPY --from=builder /bin/gobfd /bin/gobfd
 COPY --from=builder /bin/gobfdctl /bin/gobfdctl
 COPY --from=builder /bin/gobfd-haproxy-agent /bin/gobfd-haproxy-agent

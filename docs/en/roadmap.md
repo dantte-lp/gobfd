@@ -6,6 +6,14 @@ record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
 ## Local source integration — 2026-10-28
 
+Local consolidation is complete at
+`dev@b3ebbf91da2c26b076a37014ea826a19234b33c3`: 41 reviewed branch heads and
+three dirty-source snapshots are reachable, 220 obsolete local branch names
+and nine linked working trees are retired. Backup refs and archived evidence
+are retained. Unfinished netlink and Micro-BFD drafts remain after-v1 and are
+not active in the qualified source tree. Beads `gobfd-cs8` now owns the
+age-qualified Debian base refresh and its image/security acceptance.
+
 Package lifecycle acceptance is included in local `dev` at
 `50b79943e69a2a82dcc9a768d5f0ff8153e3a4fc`: Debian 13 installation, two
 version-only upgrades and active/enabled removal pass; both RPM architectures

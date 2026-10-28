@@ -739,6 +739,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Refresh the shared Debian trixie-slim base to the age-qualified
+  `trixie-20261020-slim` digest with liblzma5 `5.8.1-1+deb13u2` for
+  DSA-6549-1. Keep image recipes, provenance expectations and inventory source
+  revisions aligned; final product qualification remains separate.
+
 - Update `golang.org/x/net` to v0.62.0 in runtime, tools and the isolated
   step-ca qualification profile for HTML parsing/rendering advisories
   GO-2026-6860 and GO-2026-6866; regenerate the dependency inventory without

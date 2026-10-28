@@ -730,8 +730,8 @@ func applyOCILicenseEvidence(inv *Inventory) {
 
 func exactOCILicense(reference string) (ociLicenseOverride, bool) {
 	licenses := map[string]ociLicenseOverride{
-		"docker.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f": {
-			SourceRepository: "debuerreotype/docker-debian-artifacts", SourceCommit: "7935fc7dd049cb343df42037c152f570069d274f",
+		"docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad": {
+			SourceRepository: "debuerreotype/docker-debian-artifacts", SourceCommit: "cee78df586385250331cacba8fd1140133c054e5",
 			LicenseFile: "LICENSE", SPDX: "Apache-2.0", LicenseHash: "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
 		},
 		"docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c": {
