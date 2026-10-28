@@ -114,6 +114,11 @@ jobs:
 
       # GoReleaser DEB under systemd 257 on Debian 13; RPM build checks remain separate.
       # Evidence lands in reports/e2e/package-lifecycle.
+      - name: Verify package UPX prerequisite
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: go run ./test/cmd/cictl release-upx
+
       - name: Build DEB and RPM packages
         run: go run ./test/cmd/cictl package-build
 

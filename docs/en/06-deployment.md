@@ -98,8 +98,15 @@ commands. The declarative inputs are `deployments/systemd/gobfd.sysusers` and
 identity and `/etc/gobfd` ownership without changing the four public-binary
 contract.
 
+Installation and upgrade run `daemon-reload` without starting, enabling or
+restarting the daemon. Upgrades preserve service enablement and the running
+process. After validating the new package and configuration, schedule
+`sudo systemctl restart gobfd` to load the new executable; this interrupts BFD
+sessions. Final removal stops and disables the service.
+
 `go run ./test/cmd/cictl package-lifecycle` installs the release DEB
-into a Debian systemd container and runs its install and final-removal phases; see
+into a Debian systemd container and exercises installation, upgrade phases and
+final removal; see
 [Package Lifecycle Tests](./09-development.md#package-lifecycle-tests).
 
 #### From Source

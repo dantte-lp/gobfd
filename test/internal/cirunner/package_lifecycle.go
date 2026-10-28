@@ -2,8 +2,11 @@ package cirunner
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -34,6 +37,9 @@ func PackageBuild(ctx context.Context, options PackageOptions) error {
 		withoutEnvironmentKeys(options.Environment, "GORELEASER_CURRENT_TAG", "GITHUB_REF_NAME"),
 		"GORELEASER_CURRENT_TAG="+packageTestTag, "GITHUB_REF_NAME="+packageTestTag,
 	)
+	if err := verifyPackageUPX(ctx, options, environment); err != nil {
+		return fmt.Errorf("verify package UPX prerequisite: %w", err)
+	}
 	steps := []struct {
 		name string
 		args []string
@@ -52,6 +58,40 @@ func PackageBuild(ctx context.Context, options PackageOptions) error {
 		}
 	}
 	return nil
+}
+
+func verifyPackageUPX(ctx context.Context, options PackageOptions, environment []string) error {
+	path := ""
+	for _, entry := range environment {
+		if value, found := strings.CutPrefix(entry, "PATH="); found {
+			path = value
+		}
+	}
+	for _, directory := range filepath.SplitList(path) {
+		if !filepath.IsAbs(directory) {
+			return fmt.Errorf("UPX search directory must be absolute: %w", errInvalidConfig)
+		}
+		root, err := os.OpenRoot(directory)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("open UPX search directory: %w", err)
+		}
+		_, err = root.Lstat("upx")
+		if errors.Is(err, os.ErrNotExist) {
+			if closeErr := root.Close(); closeErr != nil {
+				return fmt.Errorf("close UPX search directory: %w", closeErr)
+			}
+			continue
+		}
+		if err != nil {
+			return errors.Join(err, root.Close())
+		}
+		return verifyUPXBinVersion(ctx, options.Runner, root, options.Root,
+			withoutEnvironmentKeys(environment, "GH_TOKEN", "GITHUB_TOKEN"), defaultUPXAssetContract())
+	}
+	return fmt.Errorf("pinned UPX is missing from PATH; run cictl release-upx first: %w", errInvalidConfig)
 }
 
 // PackageLifecycle installs the dist/ DEB into a systemd-enabled Debian 13

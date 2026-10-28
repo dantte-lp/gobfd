@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -431,11 +432,21 @@ func (r *commandRecorder) Run(_ context.Context, name string, _ ...string) error
 func TestRunPackageCommandsUseRepositoryRoot(t *testing.T) {
 	t.Parallel()
 
-	for command, want := range map[string]int{"package-build": 2, "package-lifecycle": 1} {
-		runner := &specCommandRecorder{}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "upx"), []byte("fixture"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for command, want := range map[string]int{"package-build": 3, "package-lifecycle": 1} {
+		runner := &specCommandRecorder{afterSpec: func(spec cirunner.CommandSpec) {
+			if spec.Name == "upx" {
+				if _, err := io.WriteString(spec.Stdout, "upx 4.2.2\n"); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}}
 		if err := run(context.Background(), []string{command}, dependencies{
 			getwd:      func() (string, error) { return "/repo", nil },
-			environ:    func() []string { return []string{"PATH=/usr/bin"} },
+			environ:    func() []string { return []string{"PATH=" + bin} },
 			specRunner: runner,
 		}); err != nil {
 			t.Fatalf("run(%s) error = %v", command, err)
@@ -444,7 +455,7 @@ func TestRunPackageCommandsUseRepositoryRoot(t *testing.T) {
 			t.Fatalf("%s ran %d commands, want %d", command, len(runner.specs), want)
 		}
 		for _, spec := range runner.specs {
-			if spec.Dir != "/repo" || !slices.Contains(spec.Env, "PATH=/usr/bin") {
+			if spec.Dir != "/repo" || !slices.Contains(spec.Env, "PATH="+bin) {
 				t.Errorf("%s spec dir %q env %v", command, spec.Dir, spec.Env)
 			}
 		}
@@ -455,10 +466,11 @@ func TestRunPackageCommandsUseRepositoryRoot(t *testing.T) {
 }
 
 type specCommandRecorder struct {
-	names    []string
-	specs    []cirunner.CommandSpec
-	afterRun func([]string)
-	err      error
+	names     []string
+	specs     []cirunner.CommandSpec
+	afterRun  func([]string)
+	afterSpec func(cirunner.CommandSpec)
+	err       error
 }
 
 func (r *specCommandRecorder) RunCommand(_ context.Context, spec cirunner.CommandSpec) error {
@@ -466,6 +478,9 @@ func (r *specCommandRecorder) RunCommand(_ context.Context, spec cirunner.Comman
 	r.specs = append(r.specs, spec)
 	if r.afterRun != nil {
 		r.afterRun(spec.Args)
+	}
+	if r.afterSpec != nil {
+		r.afterSpec(spec)
 	}
 	return r.err
 }

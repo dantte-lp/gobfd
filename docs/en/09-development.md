@@ -341,6 +341,7 @@ gate; a passing in-process suite is not UDP or process-lifecycle acceptance.
 #### Package Lifecycle Tests
 
 ```bash
+# Run in the pinned SDK with verified UPX v4.2.2 on PATH.
 go run ./test/cmd/cictl package-build      # dist/gobfd_0.0.0_linux_<arch>.{deb,rpm}
 go run ./test/cmd/cictl package-lifecycle  # needs the Podman API socket
 ```
@@ -349,15 +350,29 @@ go run ./test/cmd/cictl package-lifecycle  # needs the Podman API socket
 `release.yml` (`go run github.com/goreleaser/goreleaser/v2@v2.18.2`) without
 publish, announce, validate, sign, SBOM and image stages, then
 `tools/cmd/packagefinalize` for the native RPM lifecycle programs. It sets the
-test version `v0.0.0` and needs a Git checkout. `package-lifecycle` runs the
+test version `v0.0.0` and needs a Git checkout. Before building, it rejects
+missing or mismatched UPX through the same bound-executable version verifier
+as `cictl release-upx`. The nightly job runs that bootstrap first. For a local
+bootstrap, supply runner-owned `RUNNER_TEMP` and `GITHUB_PATH` paths and add
+the emitted binary directory to the SDK's `PATH`; see
+[Shell-Free CI Helpers](#shell-free-ci-helpers).
+
+`package-lifecycle` runs the
 `package_lifecycle_testcontainers` test, which installs the DEB into a
 systemd-enabled container built from the digest-pinned Debian 13 release base.
 It proves start, sandbox state, a hold past
 `WatchdogSec=`, reload without a PID change, restart after `SIGKILL`, a stop
 with a dead peer that ends with `Result=success`, zero sandbox denials in the
 journal, `systemd-analyze verify` with the kernel-bond drop-in, and package
-removal. The containers receive `SYS_ADMIN`, `SYS_PTRACE`, `unmask=ALL` and
+removal from an active, enabled service. Upgrade fixtures change only the
+DEB control version and verify that both disabled and enabled services retain
+their PID, identity and configuration bytes. These fixtures qualify package
+phases and idempotence; distinct daemon versions require separate upgrade
+qualification. The containers receive `SYS_ADMIN`, `SYS_PTRACE`, `unmask=ALL` and
 `label=disable` so that systemd can build the unit namespaces.
+Builds are limited to 2 CPUs and 2 GiB; runtime uses 1 CPU, 1 GiB, no swap,
+1024 PIDs and a private cgroup namespace. The test reads back the effective
+kernel limits before exercising the service and removes only its owned image.
 The base images stay digest-pinned, but the test installs `systemd`,
 `iproute2` and `procps` from the Debian mirrors without
 version pins. The nightly E2E job runs both commands and uploads

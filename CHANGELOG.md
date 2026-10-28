@@ -203,14 +203,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   captured frame sets both P and F.
 
 - `cictl package-build` builds the DEB and RPM through the release path
-  (GoReleaser v2.18.2, then RPM lifecycle finalization) as version 0.0.0, and
+  (GoReleaser v2.18.2, then RPM lifecycle finalization) as version 0.0.0 and
+  rejects missing or mismatched pinned UPX before building. The nightly job
+  installs that prerequisite with the existing verified bootstrap.
   `cictl package-lifecycle` installs the DEB into a systemd container built from
   the pinned Debian 13 release base. Oracle Linux 10 is excluded from v1 OCI
   products and lifecycle qualification; generic RPM generation is retained.
   The scenario checks the
   hardened unit through start, sandbox state, a hold past `WatchdogSec=`,
   reload, restart after `SIGKILL`, a stop with a dead peer, zero sandbox
-  denials and package removal.
+  denials, disabled/enabled version-only DEB upgrade phases with unchanged
+  PID, identity and configuration, and final removal of an active, enabled
+  service. This does not qualify upgrades between distinct daemon binaries.
 
 - `TestCraftedPeerTestcontainers` proves remote zero Required Min RX, remote
   silence and remote Demand on the wire with a crafted Go peer, which pinned
