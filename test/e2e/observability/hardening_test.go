@@ -25,6 +25,7 @@ import (
 	"github.com/moby/moby/api/types/network"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 
+	"github.com/dantte-lp/gobfd/test/internal/containertest"
 	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
 
@@ -222,7 +223,7 @@ func TestObservabilityImageCleanupIdentity(t *testing.T) {
 			var callbacks []func()
 			var reported []error
 			ownedID := ""
-			if err := installOwnedImageCleanup(ctx, "owned-child", "fixture-run", &ownedID, client,
+			if err := containertest.RegisterImageCleanup(ctx, "owned-child", "fixture-run", "observability", &ownedID, client,
 				func(fn func()) { callbacks = append(callbacks, fn) },
 				func(err error) { reported = append(reported, err) }); err != nil {
 				t.Fatal(err)

@@ -242,6 +242,13 @@ swap, and a 128-PID limit. Nginx enables its official quota-aware worker tuning;
 HAProxy uses one thread. Captures stay in the owned tshark container, with no
 named capture volume. Existing volumes are neither adopted nor deleted.
 
+The testcontainers gate bounds both image builds to 2 CPUs/2 GiB and all nine
+runtime roles to 1 CPU/256 MiB/no additional swap/128 PIDs. It verifies runtime
+limits through inspection and records nine public OCI annotations against the
+candidate revision and build date. Image cleanup uses captured immutable IDs
+and the shared ownership checks; a foreign replacement tag is preserved.
+These source safeguards do not replace the pending native qualification.
+
 ---
 
 ## Observability

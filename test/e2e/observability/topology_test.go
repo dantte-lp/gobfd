@@ -82,12 +82,6 @@ type observabilityResourceSnapshot struct {
 	StartupError    string                       `json:"startup_error,omitempty"`
 }
 
-type ownedImageClient interface {
-	ImageExists(ctx context.Context, image string) (bool, error)
-	ImageMetadata(ctx context.Context, image string) (podmanapi.ImageMetadata, error)
-	RemoveImage(ctx context.Context, image string) error
-}
-
 func TestObservabilityTestcontainers(t *testing.T) {
 	t.Setenv("DOCKER_CONFIG", t.TempDir())
 	endpoint := containertest.RequirePodman(t)

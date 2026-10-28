@@ -47,8 +47,8 @@ func buildOwnedImage(
 		return "", fmt.Errorf("split test-owned image %q", imageName)
 	}
 	var imageID string
-	if err := installOwnedImageCleanup(
-		ctx, imageName, topology.runID, &imageID, topology.client, t.Cleanup,
+	if err := containertest.RegisterImageCleanup(
+		ctx, imageName, topology.runID, "observability", &imageID, topology.client, t.Cleanup,
 		func(err error) { t.Errorf("%v", err) },
 	); err != nil {
 		return "", err
@@ -87,7 +87,8 @@ func (topology *observabilityTopology) recordBuiltImage(ctx context.Context, ima
 	if err != nil {
 		return "", err
 	}
-	if ownerErr := validateObservabilityImageOwner(metadata, imageName, topology.runID); ownerErr != nil {
+	ownerErr := containertest.ValidateImageOwner(metadata, imageName, topology.runID, "observability")
+	if ownerErr != nil {
 		return "", ownerErr
 	}
 	if recordErr := topology.recordOwnedImageID(metadata.ID); recordErr != nil {
@@ -124,68 +125,6 @@ func (topology *observabilityTopology) imageBuildRequest(
 			}
 		},
 	}
-}
-
-func validateObservabilityImageOwner(metadata podmanapi.ImageMetadata, imageName, runID string) error {
-	if !containertest.IsImageDigest(metadata.ID) || runID == "" ||
-		metadata.Labels["io.gobfd.test"] != "observability" || metadata.Labels["io.gobfd.run"] != runID ||
-		metadata.Labels["io.gobfd.image"] != imageName {
-		return fmt.Errorf("refuse unowned or invalid observability image %s", imageName)
-	}
-	return nil
-}
-
-func installOwnedImageCleanup(
-	ctx context.Context,
-	imageName, runID string,
-	ownedID *string,
-	client ownedImageClient,
-	register func(func()),
-	report func(error),
-) error {
-	if ownedID == nil || runID == "" {
-		return errors.New("image cleanup requires a run and identity holder")
-	}
-	exists, err := client.ImageExists(ctx, imageName)
-	if err != nil {
-		return fmt.Errorf("inspect unique test-owned image %s before build: %w", imageName, err)
-	}
-	if exists {
-		return fmt.Errorf("refuse ownership of pre-existing image %s", imageName)
-	}
-	register(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
-		defer cancel()
-		reference := *ownedID
-		if reference == "" {
-			reference = imageName
-		}
-		exists, inspectErr := client.ImageExists(cleanupCtx, reference)
-		if inspectErr != nil {
-			report(fmt.Errorf("inspect exact test-owned image %s during cleanup: %w", imageName, inspectErr))
-			return
-		}
-		if exists {
-			metadata, err := client.ImageMetadata(cleanupCtx, reference)
-			if err != nil {
-				report(fmt.Errorf("inspect image ownership before cleanup: %w", err))
-				return
-			}
-			if err := validateObservabilityImageOwner(metadata, imageName, runID); err != nil {
-				report(err)
-				return
-			}
-			if *ownedID != "" && metadata.ID != *ownedID {
-				report(fmt.Errorf("observability image identity changed for %s", imageName))
-				return
-			}
-			*ownedID = metadata.ID
-			if removeErr := client.RemoveImage(cleanupCtx, metadata.ID); removeErr != nil {
-				report(fmt.Errorf("remove exact test-owned image %s: %w", imageName, removeErr))
-			}
-		}
-	})
-	return nil
 }
 
 func (topology *observabilityTopology) writeEvidence(ctx context.Context) error {

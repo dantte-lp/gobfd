@@ -17,18 +17,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/moby/moby/client"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 
+	"github.com/dantte-lp/gobfd/test/internal/containertest"
 	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
 
 type haproxyResourceSnapshot struct {
-	ContainerNames []string `json:"container_names"`
-	ContainerIDs   []string `json:"container_ids"`
-	ImageNames     []string `json:"image_names"`
-	ImageIDs       []string `json:"image_ids"`
-	NetworkName    string   `json:"network_name"`
-	StartupError   string   `json:"startup_error,omitempty"`
+	ContainerNames  []string                     `json:"container_names"`
+	ContainerIDs    []string                     `json:"container_ids"`
+	ImageNames      []string                     `json:"image_names"`
+	ImageIDs        []string                     `json:"image_ids"`
+	ImageProvenance map[string]map[string]string `json:"image_provenance,omitempty"`
+	NetworkName     string                       `json:"network_name"`
+	StartupError    string                       `json:"startup_error,omitempty"`
 }
 
 func (topology *haproxyHealthTopology) initializeResourceEvidence() error {
@@ -89,12 +92,13 @@ func (topology *haproxyHealthTopology) recordStartupFailure(startupErr error) er
 
 func (topology *haproxyHealthTopology) writeResourceSnapshot() error {
 	snapshot := haproxyResourceSnapshot{
-		ContainerNames: slices.Clone(topology.containerNames),
-		ContainerIDs:   slices.Clone(topology.containerIDs),
-		ImageNames:     slices.Clone(topology.imageNames),
-		ImageIDs:       slices.Clone(topology.imageIDs),
-		NetworkName:    topology.networkName,
-		StartupError:   topology.startupError,
+		ContainerNames:  slices.Clone(topology.containerNames),
+		ContainerIDs:    slices.Clone(topology.containerIDs),
+		ImageNames:      slices.Clone(topology.imageNames),
+		ImageIDs:        slices.Clone(topology.imageIDs),
+		ImageProvenance: topology.imageProvenance,
+		NetworkName:     topology.networkName,
+		StartupError:    topology.startupError,
 	}
 	contents, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
@@ -132,9 +136,12 @@ func buildHAProxyOwnedImage(
 	if !found {
 		return "", fmt.Errorf("split test-owned image %q", imageName)
 	}
-	if err := installHAProxyOwnedImageCleanup(ctx, imageName, topology.client, t.Cleanup, func(err error) {
-		t.Errorf("%v", err)
-	}); err != nil {
+	var imageID string
+	if err := containertest.RegisterImageCleanup(
+		ctx, imageName, topology.runID, "haproxy-health-testcontainers", &imageID, topology.client,
+		t.Cleanup, func(err error) {
+			t.Errorf("%v", err)
+		}); err != nil {
 		return "", err
 	}
 	if err := topology.recordOwnedImage(imageName); err != nil {
@@ -149,80 +156,61 @@ func buildHAProxyOwnedImage(
 	if !ok {
 		return "", errors.Join(fmt.Errorf("Podman provider type = %T", provider), provider.Close())
 	}
-	//nolint:modernize // ContainerRequest implements ImageBuildInfo in testcontainers v0.44.
-	_, buildErr := dockerProvider.BuildImage(ctx, &testcontainers.ContainerRequest{
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context: buildContext, Dockerfile: "Containerfile", Repo: repository, Tag: tag, KeepImage: true,
-		},
-	})
+	_, buildErr := dockerProvider.BuildImage(ctx, topology.imageBuildRequest(buildContext, repository, tag))
 	if buildErr != nil {
 		return "", fmt.Errorf(
 			"build bounded test-owned image %s: %w", imageName,
 			errors.Join(buildErr, provider.Close()),
 		)
 	}
-	inspectErr := inspectAndRecordBuiltImage(ctx, imageName, topology.client, topology.recordOwnedImageID)
+	imageID, inspectErr := topology.recordBuiltImage(ctx, imageName)
 	if err := errors.Join(inspectErr, provider.Close()); err != nil {
 		return "", fmt.Errorf("build bounded test-owned image %s: %w", imageName, err)
 	}
 	return imageName, nil
 }
 
-func inspectAndRecordBuiltImage(
-	ctx context.Context, imageName string, client ownedImageClient, record func(string) error,
-) error {
-	imageID, err := client.ImageID(ctx, imageName)
-	if err != nil {
-		return fmt.Errorf("inspect exact built image tag %s: %w", imageName, err)
-	}
-	if err := validateSHA256ContentID(imageID); err != nil {
-		return fmt.Errorf("validate exact built image tag %s: %w", imageName, err)
-	}
-	if err := record(imageID); err != nil {
-		return fmt.Errorf("record exact built image tag %s content ID: %w", imageName, err)
-	}
-	return nil
-}
-
-func validateSHA256ContentID(imageID string) error {
-	digest := strings.TrimPrefix(imageID, "sha256:")
-	if len(digest) != 64 || len(digest) == len(imageID) {
-		return fmt.Errorf("image ID = %q, want sha256 content ID", imageID)
-	}
-	for _, character := range digest {
-		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
-			return fmt.Errorf("image ID = %q, want lowercase hexadecimal", imageID)
-		}
-	}
-	return nil
-}
-
-func installHAProxyOwnedImageCleanup(
-	ctx context.Context, imageName string, client ownedImageClient,
-	register func(func()), report func(error),
-) error {
-	exists, err := client.ImageExists(ctx, imageName)
-	if err != nil {
-		return fmt.Errorf("inspect unique test-owned image %s before build: %w", imageName, err)
-	}
-	if exists {
-		return fmt.Errorf("refuse ownership of pre-existing image %s", imageName)
-	}
-	register(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
-		defer cancel()
-		exists, inspectErr := client.ImageExists(cleanupCtx, imageName)
-		if inspectErr != nil {
-			report(fmt.Errorf("inspect exact test-owned image %s during cleanup: %w", imageName, inspectErr))
-			return
-		}
-		if exists {
-			if removeErr := client.RemoveImage(cleanupCtx, imageName); removeErr != nil {
-				report(fmt.Errorf("remove exact test-owned image %s: %w", imageName, removeErr))
+func (topology *haproxyHealthTopology) imageBuildRequest(
+	buildContext, repository, tag string,
+) *testcontainers.ContainerRequest {
+	return &testcontainers.ContainerRequest{
+		Context: buildContext, Dockerfile: "Containerfile", Repo: repository, Tag: tag, KeepImage: true,
+		BuildArgs: map[string]*string{"VCS_REF": &topology.revision, "BUILD_DATE": &topology.buildDate},
+		BuildOptionsModifier: func(options *client.ImageBuildOptions) {
+			options.CPUPeriod, options.CPUQuota = 100000, 200000
+			options.Memory, options.MemorySwap = 2<<30, 2<<30
+			options.Labels = map[string]string{
+				"io.gobfd.test": "haproxy-health-testcontainers", "io.gobfd.run": topology.runID,
+				"io.gobfd.image": repository + ":" + tag,
 			}
-		}
-	})
-	return nil
+		},
+	}
+}
+
+func (topology *haproxyHealthTopology) recordBuiltImage(ctx context.Context, imageName string) (string, error) {
+	metadata, err := topology.client.ImageMetadata(ctx, imageName)
+	if err != nil {
+		return "", err
+	}
+	ownerErr := containertest.ValidateImageOwner(metadata, imageName, topology.runID, "haproxy-health-testcontainers")
+	if ownerErr != nil {
+		return "", ownerErr
+	}
+	if recordErr := topology.recordOwnedImageID(metadata.ID); recordErr != nil {
+		return metadata.ID, recordErr
+	}
+	labels, err := containertest.ValidateImageProvenance(metadata, topology.revision)
+	if err != nil {
+		return metadata.ID, err
+	}
+	if labels["org.opencontainers.image.created"] != topology.buildDate {
+		return metadata.ID, fmt.Errorf("image %s build date does not match the run", metadata.ID)
+	}
+	if topology.imageProvenance == nil {
+		topology.imageProvenance = make(map[string]map[string]string)
+	}
+	topology.imageProvenance[metadata.ID] = labels
+	return metadata.ID, topology.writeResourceSnapshot()
 }
 
 func (topology *haproxyHealthTopology) writeEvidence() error {

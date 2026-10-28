@@ -729,6 +729,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bound HAProxy testcontainers builds and runtime resources, bind image
+  provenance to the candidate, and reuse ownership-checked immutable image
+  cleanup with observability. Native qualification remains pending.
+
 - Run the full HAProxy demo through the existing guarded project lifecycle,
   with capped builds and runtime containers, exact owned IDs, and cleanup after
   partial startup. Bind image build metadata to both revision argument names.
