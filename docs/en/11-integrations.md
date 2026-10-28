@@ -247,7 +247,11 @@ runtime roles to 1 CPU/256 MiB/no additional swap/128 PIDs. It verifies runtime
 limits through inspection and records nine public OCI annotations against the
 candidate revision and build date. Image cleanup uses captured immutable IDs
 and the shared ownership checks; a foreign replacement tag is preserved.
-These source safeguards do not replace the pending native qualification.
+On 2026-10-28, the local linux/amd64 guarded demo and assertion-based
+testcontainers lifecycle passed at
+`15a4af8c5f017134b08719f79ae8a7cbc52037c9`; the latter completed in 156.54 s.
+Runtime limits, image provenance, packet evidence, and cleanup were checked.
+Reference workload and final release wire qualification remain separate.
 
 ---
 
