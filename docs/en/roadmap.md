@@ -4,6 +4,22 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## Local source integration — 2026-10-28
+
+Package lifecycle acceptance is included in local `dev` at
+`50b79943e69a2a82dcc9a768d5f0ff8153e3a4fc`: Debian 13 installation, two
+version-only upgrades and active/enabled removal pass; both RPM architectures
+have native lifecycle programs and valid complete CPIO sizes. These fixtures
+qualify package phases and idempotence, not upgrades between daemon versions.
+
+The maintainer requested consolidation of local branches into `dev` and
+retirement of their working copies. The preferred unpin patch
+`dbbf0590b6ae2385af7241d3264b54309ba26164` is integrated as source. Native
+1,000-session Control/Echo A/B, the reference/24-hour run, final wire,
+Kubernetes and final security acceptance remain open. Publication stays on hold.
+Superseded drafts and unfinished after-v1 work retain recovery snapshots;
+Beads `gobfd-qj0.8.2.8.5.3.7` records their disposition and resume points.
+
 ## Publication boundary — 2026-10-27
 
 The latest accepted local source baseline is

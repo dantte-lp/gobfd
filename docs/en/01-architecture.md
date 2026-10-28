@@ -509,9 +509,10 @@ restart policy.
 
 Each BFD session runs as an independent goroutine with its own timers and
 state. Current [Control](../../internal/bfd/session_loop.go) and
-[Echo](../../internal/bfd/echo.go) owners each call `runtime.LockOSThread` for
-the loop lifetime. Goroutine count therefore does not describe their OS-thread
-cost; supported scale and timer precision require separate qualification.
+[Echo](../../internal/bfd/echo.go) owners use Go scheduling without permanent
+per-session OS-thread pins following the local source integration on
+2026-10-28. Actual OS-thread cost, supported scale and timer precision still
+require native qualification under `gobfd-qj0.8.2.1.7`.
 The session context is detached from the daemon signal context so SIGTERM does
 not stop it before the AdminDown drain. `Manager.Close()` cancels the
 per-session context explicitly and waits for every registered session and echo

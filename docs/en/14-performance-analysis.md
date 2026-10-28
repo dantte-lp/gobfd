@@ -640,12 +640,13 @@ Production VXLAN/Geneve TX uses caller-buffer
 
 ## Runtime architecture and resource limits
 
-Control and Echo each run an owner goroutine and currently call
-`runtime.LockOSThread` for that loop's lifetime. This is a thread-resource
-constraint, not CPU isolation or a scheduling guarantee. At least 1,000 pinned
-Control owners cannot meet the approved 48-thread reference bound. The
-thread-pin A/B task remains open; moving the candidate to another VM does not
-resolve this constraint.
+Control and Echo each run an owner goroutine. Local source integration on
+2026-10-28 removes permanent per-session OS-thread pins. The previous pinned
+baseline cannot meet the approved 48-thread bound at 1,000 Control owners.
+The current candidate still requires the matched native Control/Echo A/B,
+thread/RSS distributions, timer p99.9 and false-Down acceptance. Source
+integration establishes none of those measurements. The conservative PID
+budget in ADR-0007 remains unchanged until that qualification passes.
 
 The daemon does not install a project-wide `GOMAXPROCS` override. The bounded
 workload requires its declared value and cgroup limits; actual runtime defaults

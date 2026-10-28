@@ -38,16 +38,23 @@ a baseline run on an older candidate is diagnostic evidence.
 
 ## Consequences
 
-The current Control and Echo loops still pin their OS threads. At least
+The original pinned Control and Echo candidate retained its OS threads. At least
 1,000 Control threads cannot meet the stable reference bound of 48 threads.
 Moving that candidate to a VM does not resolve this implementation gap.
 An alpha must disclose any retained limitations; a 25% CPU fixture is not
 evidence for the approved 80% reference workload or 24-hour acceptance.
 
+### Local source integration — 2026-10-28
+
+The maintainer requested consolidation of local changes into `dev`. Permanent
+Control/Echo owner pins are removed in that source integration. Native A/B,
+the 48-thread reference bound, 24-hour operation and final wire qualification
+remain open in Beads. The conservative baseline PID budget remains unchanged.
+
 ## References
 
-- [Current Control owner thread pin](../../../internal/bfd/session_loop.go)
-- [Current Echo owner thread pin](../../../internal/bfd/echo.go)
+- [Control owner loop](../../../internal/bfd/session_loop.go)
+- [Echo owner loop](../../../internal/bfd/echo.go)
 - [Stable release preflight](../../../test/internal/cirunner/release_preflight.go)
 - [Stable release notes validation](../../../test/internal/cirunner/release_notes.go)
 - [SemVer prerelease semantics](https://semver.org/spec/v2.0.0.html#spec-item-9)

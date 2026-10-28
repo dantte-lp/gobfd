@@ -145,6 +145,17 @@ identity. Its typed numeric/causal consumer uses the model below. Native
 qualification remains required under Beads `gobfd-qj0.8.2.1.7.1`. This witness alone does not
 qualify Echo load or permit integration of the isolated unpin candidate.
 
+### Owner-directed source integration (2026-10-28)
+
+The maintainer's local branch-consolidation instruction separately authorizes
+source integration of the unpin patch. The dated witness qualification above
+retains its original scope. Native 1,000-session Control/Echo A/B and the
+resource/timer acceptance criteria remain required under
+`gobfd-qj0.8.2.1.7` and `gobfd-qj0.8.2.1.7.1` before stable acceptance.
+Keep the conservative ADR-0007 PID budget and the OS-thread pin used by
+`CLOCK_THREAD_CPUTIME_ID` pressure workers. Bind the comparable secured pair
+at actual runner admission; documentation commits do not require new pairs.
+
 ### Echo old-deadline classification (2026-10-27)
 
 Keep the Control predicate unchanged. For Echo, require the locally provisioned

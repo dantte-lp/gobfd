@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Remove permanent OS-thread pins from Control and Echo owner loops in local
+  `dev` source. Native 1,000-session A/B, thread/RSS/timer acceptance and final
+  wire qualification remain required; pressure-worker thread pins are retained.
+
 - Remove legacy Stop/drain before Control and Echo detection timer resets under
   the pinned Go 1.27.3 synchronous timer-channel contract.
 
