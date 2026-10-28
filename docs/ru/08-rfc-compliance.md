@@ -471,7 +471,7 @@ RFC 7130 определяет Micro-BFD — независимые BFD-сесс�
 | Actuator hook (Section 5) | `MicroBFDActuator` получает события member state после обновления группы, вне блокировок Manager, в порядке dispatch, с context deadline 5 s на вызов |
 | Policy gate | `netio.LAGActuator` поддерживает режимы `disabled`, `dry-run` и `enforce` |
 | Daemon wiring | `micro_bfd.actuator` задаёт mode, backend, OVSDB endpoint, owner policy и действия с member |
-| Kernel bond backend | `KernelBondLAGBackend` пишет `-member` / `+member` в Linux bonding sysfs |
+| Kernel bond backend | `KernelBondLAGBackend` задаёт rtnetlink `IFLA_MASTER` 0 для вывода member и ifindex bond для возврата; `make e2e-linux` подтверждает оба действия на реальном bond |
 | OVS backend | `OVSDBLAGBackend` мутирует `Port.interfaces` через OVSDB; `OVSLAGBackend` остаётся CLI fallback type |
 | NetworkManager backend | `NetworkManagerLAGBackend` деактивирует и активирует NM-owned bond port profiles через D-Bus |
 
@@ -489,7 +489,7 @@ RFC 7130 определяет Micro-BFD — независимые BFD-сесс�
 имеет hook `MicroBFDActuator` и покрытый тестами policy gate
 `netio.LAGActuator` для режимов disabled, dry-run и enforce. YAML wiring уже
 добавлен, включая NetworkManager-aware owner policy. `backend: kernel-bond`
-может выполнять remove/add member через Linux bonding sysfs при явном
+может выполнять remove/add member через rtnetlink `IFLA_MASTER` при явном
 `owner_policy: allow-external`. `backend: ovs` может выполнять remove/add
 member на существующем OVS bonded port через native OVSDB transactions против
 `Port.interfaces`. `OVSLAGBackend` остаётся direct CLI fallback type.

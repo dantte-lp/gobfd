@@ -200,29 +200,14 @@ WantedBy=multi-user.target
 | `LimitNOFILE=16384` | Ресурсная граница v1 — `2*sessions+256` дескрипторов; 16384 покрывает engineering gate на 5000 сессий (10256). Go держит soft limit равным этому hard limit. |
 
 Записываемое состояние ограничено `RuntimeDirectory=` (`/run/gobfd`) и
-приватным `/tmp`. `ProtectKernelTunables=true` оставляет `/sys` только для
-чтения, поэтому actuator Micro-BFD `kernel-bond` в режиме `enforce` не может
-записать `/sys/class/net/<bond>/bonding/slaves` под этим юнитом; `dry-run`,
-`ovs` и `networkmanager` не затронуты. Opt-in drop-in
-[`deployments/systemd/gobfd-kernel-bond.conf`](../../deployments/systemd/gobfd-kernel-bond.conf)
-открывает на запись только `/sys/devices/virtual/net/<bond>/bonding/slaves`,
-файл, который пишет backend, для каждого управляемого bond:
-
-```bash
-sudo install -D -m 0644 gobfd-kernel-bond.conf /etc/systemd/system/gobfd.service.d/kernel-bond.conf
-sudo systemctl daemon-reload && sudo systemctl restart gobfd
-```
-
-Bond должен существовать к моменту запуска gobfd. Атрибуты сетевых устройств
-в sysfs имеют режим `0644 root:root`, поэтому drop-in также выдаёт
-`CAP_DAC_OVERRIDE`: непривилегированный UID только с `CAP_NET_ADMIN` получил
-`EACCES` при записи сетевого атрибута sysfs, а с `CAP_NET_ADMIN` и
-`CAP_DAC_OVERRIDE` запись прошла. Эта capability обходит проверки прав файлов
-на всех путях, видимых сервису, включая чтение файлов только для root, например
-`/etc/shadow`; запись по-прежнему ограничена read-only mount namespace.
-Включайте drop-in только там, где этот компромисс принят. `systemd-analyze
-verify` принимает его в Debian 13 и Oracle Linux 10; квалификация записи на
-хосте с модулем bonding не выполнена (`gobfd-qj0.8.2.3.3.1`).
+приватным `/tmp`; `ProtectKernelTunables=true` оставляет `/sys` только для
+чтения. Actuator Micro-BFD `kernel-bond` в режиме `enforce` не пишет в sysfs:
+он выводит member из bond и возвращает его через rtnetlink `IFLA_MASTER`, для
+чего нужны только `CAP_NET_ADMIN` из bounding set юнита и семейство
+`AF_NETLINK`, которое юнит уже разрешает. Drop-in не требуется. `make e2e-linux`
+подтверждает вывод и возврат member в контейнере только с `CAP_NET_ADMIN` и
+`CAP_NET_RAW`; прогон под пакетным юнитом на хосте с bond не выполнен
+(`gobfd-qj0.8.2.3.3.1`).
 
 Для крупных deployment лимит дескрипторов повышается drop-in-файлом, а не
 правкой юнита из пакета:

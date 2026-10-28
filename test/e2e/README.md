@@ -110,6 +110,7 @@ The `e2e-linux` target also writes:
 ```text
 link-events.json
 lag-backends.json
+lag-kernel-bond.json
 ```
 
 The `e2e-vendor` target also writes:

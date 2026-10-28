@@ -201,29 +201,14 @@ come from a measured inventory of the daemon, not from a generic template:
 | `LimitNOFILE=16384` | The v1 resource bound is `2*sessions+256` descriptors; 16384 covers the 5,000-session engineering gate (10,256). Go keeps the soft limit equal to this hard limit. |
 
 The only writable state is `RuntimeDirectory=` (`/run/gobfd`) and the private
-`/tmp`. `ProtectKernelTunables=true` keeps `/sys` read-only, so the
-`kernel-bond` Micro-BFD actuator in `enforce` mode cannot write
-`/sys/class/net/<bond>/bonding/slaves` under this unit; `dry-run`, `ovs` and
-`networkmanager` are unaffected. The opt-in drop-in
-[`deployments/systemd/gobfd-kernel-bond.conf`](../../deployments/systemd/gobfd-kernel-bond.conf)
-reopens only `/sys/devices/virtual/net/<bond>/bonding/slaves`, the file the
-backend writes, for each actuated bond:
-
-```bash
-sudo install -D -m 0644 gobfd-kernel-bond.conf /etc/systemd/system/gobfd.service.d/kernel-bond.conf
-sudo systemctl daemon-reload && sudo systemctl restart gobfd
-```
-
-The bond must exist when gobfd starts. Sysfs network attributes are
-`0644 root:root`, so the drop-in also grants `CAP_DAC_OVERRIDE`: an
-unprivileged UID with only `CAP_NET_ADMIN` got `EACCES` writing a sysfs
-network attribute and succeeded with `CAP_NET_ADMIN` plus `CAP_DAC_OVERRIDE`.
-That capability bypasses file permission checks on every path the service can
-see, including reads of root-only files such as `/etc/shadow`; writes stay
-limited by the read-only mount namespace. Enable the drop-in only where that
-trade-off is accepted. `systemd-analyze verify` accepts it on Debian 13 and
-Oracle Linux 10; write qualification on a host with the bonding module is
-pending (`gobfd-qj0.8.2.3.3.1`).
+`/tmp`; `ProtectKernelTunables=true` keeps `/sys` read-only. The `kernel-bond`
+Micro-BFD actuator in `enforce` mode needs no sysfs write: it releases and
+re-enslaves a bond member through rtnetlink `IFLA_MASTER`, which needs only
+`CAP_NET_ADMIN` from the unit's bounding set and the `AF_NETLINK` family the
+unit already allows. No drop-in is required. `make e2e-linux` proves the
+release and re-enslave in a container limited to `CAP_NET_ADMIN` and
+`CAP_NET_RAW`; a run under the packaged unit on a host with a bond is pending
+(`gobfd-qj0.8.2.3.3.1`).
 
 Larger deployments raise the descriptor limit with a drop-in instead of editing
 the packaged unit:

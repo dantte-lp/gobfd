@@ -202,6 +202,16 @@
 
 ### Изменено
 
+- Actuator LAG Micro-BFD `kernel-bond` выводит member из bond и возвращает
+  его через rtnetlink `IFLA_MASTER` (0 или ifindex bond) вместо записи
+  `/sys/class/net/<bond>/bonding/slaves`. Ему нужна только `CAP_NET_ADMIN`,
+  поэтому усиленный юнит применяет его без drop-in;
+  `deployments/systemd/gobfd-kernel-bond.conf` и выдача `CAP_DAC_OVERRIDE`
+  удалены. Backend отклоняет LAG-интерфейс, который не является bond, вывод
+  линка вне bond и добавление линка с другим master, потому что rtnetlink
+  перенёс бы его. `make e2e-linux` применяет actuator в режиме enforce к
+  реальному bond и читает результат из `bonding/slaves`.
+
 - Готовность gRPC health выводится из компонентов (H-30, `gobfd-qj0.8.2.3.1`).
   Пустой service есть AND пяти sources reconciliation, runtime workers и
   интерфейсов listeners с привязкой к устройству. `bfd.v1.BfdService` следует за
@@ -796,12 +806,8 @@
   Linux 10 юнит запускается, выполняет reload, перезапускается после сбоя и
   штатно останавливается; exposure `systemd-analyze security` снижен с 5.2 до
   3.3. `ProcSubset=pid` снижает backlog listener Go до 128. Существующий
-  `ProtectKernelTunables=` оставляет `/sys` только для чтения, поэтому actuator
-  `kernel-bond` в режиме `enforce` не может писать в bonding sysfs под этим
-  юнитом; opt-in drop-in `deployments/systemd/gobfd-kernel-bond.conf` открывает
-  на запись только `bonding/slaves` и выдаёт `CAP_DAC_OVERRIDE`, которая нужна
-  для файла sysfs `0644 root:root` и снимает для сервиса проверки чтения файлов;
-  квалификация записи остаётся открытой (`gobfd-qj0.8.2.3.3.1`).
+  `ProtectKernelTunables=` оставляет `/sys` только для чтения; actuator
+  `kernel-bond` использует rtnetlink и не пишет в sysfs.
 
 - First-party Go toolchain обновлён с `go1.27.2` до `go1.27.3` в `go.mod`,
   `tools/go.mod`, CI- и release-workflow, Containerfile и тестовых harness.

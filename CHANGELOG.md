@@ -198,6 +198,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The Micro-BFD `kernel-bond` LAG actuator releases and re-enslaves a bond
+  member through rtnetlink `IFLA_MASTER` (0 or the bond ifindex) instead of
+  writing `/sys/class/net/<bond>/bonding/slaves`. It needs only
+  `CAP_NET_ADMIN`, so the hardened unit enforces it without a drop-in;
+  `deployments/systemd/gobfd-kernel-bond.conf` and its `CAP_DAC_OVERRIDE`
+  grant are removed. The backend refuses a LAG interface that is not a bond,
+  a release of a link outside the bond and an add of a link that has another
+  master, because rtnetlink would move it. `make e2e-linux` drives the
+  enforce-mode actuator against a real bond and reads the result back from
+  `bonding/slaves`.
+
 - gRPC health readiness derives from components (H-30, `gobfd-qj0.8.2.3.1`).
   The empty service is the AND of the five reconciliation sources, the runtime
   workers and the device-bound listener interfaces. `bfd.v1.BfdService`
@@ -777,12 +788,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Linux 10 the unit starts, reloads, restarts after a crash and stops cleanly;
   `systemd-analyze security` exposure falls from 5.2 to 3.3. `ProcSubset=pid`
   lowers the Go listener backlog to 128. The existing `ProtectKernelTunables=`
-  keeps `/sys` read-only, so the `kernel-bond` actuator in `enforce` mode
-  cannot write bonding sysfs under this unit; the opt-in drop-in
-  `deployments/systemd/gobfd-kernel-bond.conf` reopens only
-  `bonding/slaves` and grants `CAP_DAC_OVERRIDE`, which the root-owned 0644
-  sysfs file requires and which also lifts file read checks for the service;
-  its write qualification remains open (`gobfd-qj0.8.2.3.3.1`).
+  keeps `/sys` read-only; the `kernel-bond` actuator uses rtnetlink and needs
+  no sysfs write.
 
 - Updated the first-party Go toolchain from `go1.27.2` to `go1.27.3` in
   `go.mod`, `tools/go.mod`, CI and release workflows, Containerfiles and test

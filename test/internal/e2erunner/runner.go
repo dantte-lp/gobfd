@@ -213,6 +213,7 @@ func (r *runner) runLinux(ctx context.Context) (runErr error) {
 			{summaryContainerLogs, "`" + containersLogName + "`"},
 			{"Linux events", "`link-events.json`"},
 			{"LAG backend evidence", "`lag-backends.json`"},
+			{"Kernel bond actuator evidence", "`lag-kernel-bond.json`"},
 		}))
 	}()
 

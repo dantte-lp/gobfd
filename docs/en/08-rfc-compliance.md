@@ -516,7 +516,7 @@ RFC 7130 defines Micro-BFD — independent BFD sessions on every LAG member link
 | Actuator hook (Section 5) | `MicroBFDActuator` receives member state events after the group update, outside Manager locks, in dispatch order, with a 5 s context deadline per call |
 | Policy gate | `netio.LAGActuator` supports `disabled`, `dry-run`, and `enforce` modes |
 | Daemon wiring | `micro_bfd.actuator` configures mode, backend, OVSDB endpoint, owner policy, and member actions |
-| Kernel bond backend | `KernelBondLAGBackend` writes `-member` / `+member` to Linux bonding sysfs |
+| Kernel bond backend | `KernelBondLAGBackend` sets rtnetlink `IFLA_MASTER` to 0 to release a member and to the bond ifindex to re-enslave it; `make e2e-linux` proves both on a real bond |
 | OVS backend | `OVSDBLAGBackend` mutates `Port.interfaces` through OVSDB; `OVSLAGBackend` remains a CLI fallback type |
 | NetworkManager backend | `NetworkManagerLAGBackend` deactivates and activates NM-owned bond port profiles through D-Bus |
 
@@ -534,7 +534,7 @@ micro-BFD session is Down to be removed from the LAG load-balancing table.
 GoBFD now has a `MicroBFDActuator` hook and a tested `netio.LAGActuator` policy
 gate for disabled, dry-run, and enforce modes. YAML wiring is present, including
 NetworkManager-aware owner policy selection. `backend: kernel-bond` can enforce
-member remove/add through Linux bonding sysfs when `owner_policy:
+member remove/add through rtnetlink `IFLA_MASTER` when `owner_policy:
 allow-external` is explicit. `backend: ovs` can enforce member remove/add on an
 existing OVS bonded port with native OVSDB transactions against
 `Port.interfaces`. `OVSLAGBackend` remains a direct CLI fallback type, while

@@ -3,6 +3,7 @@ package bfd
 import (
 	"net/netip"
 	"testing"
+	"time"
 )
 
 type causalMetrics struct {
@@ -171,5 +172,35 @@ func TestCausalRemoteAdminAlreadyDown(t *testing.T) {
 		got.RemoteState != StateAdminDown || got.Cause != CauseRemoteAdminDown ||
 		got.ObservationVersion <= before.ObservationVersion || s.StateTransitions() != edges || len(ch) != 1 {
 		t.Fatalf("same-state remote administrative observation: %+v, events=%d", got, len(ch))
+	}
+}
+
+// TestDownTimeoutWithoutReceivedPacketStaysSilent covers RFC 5880 Section
+// 6.8.4: Detection Time expiry takes a session down only from Init or Up. A
+// Down session that never received a packet reports no state change and keeps
+// diagnostic 0, while the Section 6.8.1 and 6.8.18 remote resets still apply.
+func TestDownTimeoutWithoutReceivedPacketStaysSilent(t *testing.T) {
+	t.Parallel()
+	s := newCachedPacketTestSession(MaxPacketSize)
+	s.sender = &retryCachedPacketSender{}
+	s.remoteDiscr, s.remoteMinRxInterval, s.remoteDemandMode = 7, 10*time.Second, true
+	ch := make(chan StateChange, 2)
+	s.notifyCh = ch
+	tx, detect := time.NewTimer(time.Hour), time.NewTimer(time.Hour)
+	t.Cleanup(func() { tx.Stop(); detect.Stop() })
+	before, edges := s.Observation(), s.StateTransitions()
+
+	s.handleDetectTimer(t.Context(), tx, detect)
+
+	if len(ch) != 0 || s.LocalDiag() != DiagNone || s.Observation() != before || s.StateTransitions() != edges {
+		t.Fatalf("Down timeout without a received packet: diag=%s events=%d observation=%+v",
+			s.LocalDiag(), len(ch), s.Observation())
+	}
+	if pkt := s.buildControlPacket(); pkt.State != StateDown || pkt.Diag != DiagNone {
+		t.Fatalf("wire packet after silent timeout: %s/%s", pkt.State, pkt.Diag)
+	}
+	if s.remoteDiscr != 0 || s.remoteMinRxInterval != initialRemoteMinRx || s.remoteDemandMode {
+		t.Fatalf("remote reset lost: discr=%d rx=%s demand=%t",
+			s.remoteDiscr, s.remoteMinRxInterval, s.remoteDemandMode)
 	}
 }

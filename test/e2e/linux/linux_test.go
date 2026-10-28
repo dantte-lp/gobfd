@@ -96,25 +96,6 @@ func TestRTNetlinkVethDownUpInIsolatedNamespace(t *testing.T) {
 
 func TestLinuxLAGBackendsStayPolicyGated(t *testing.T) {
 	ctx := context.Background()
-	root := t.TempDir()
-	slavesPath := filepath.Join(root, "bond0", "bonding", "slaves")
-	if err := os.MkdirAll(filepath.Dir(slavesPath), 0o755); err != nil {
-		t.Fatalf("mkdir fake sysfs: %v", err)
-	}
-	if err := os.WriteFile(slavesPath, []byte{}, 0o600); err != nil {
-		t.Fatalf("create fake slaves file: %v", err)
-	}
-
-	kernel := netio.NewKernelBondLAGBackend(netio.KernelBondLAGBackendConfig{SysfsRoot: root})
-	if err := kernel.RemoveMember(ctx, "bond0", "eth0"); err != nil {
-		t.Fatalf("kernel remove member: %v", err)
-	}
-	assertFileContent(t, slavesPath, "-eth0\n")
-	if err := kernel.AddMember(ctx, "bond0", "eth0"); err != nil {
-		t.Fatalf("kernel add member: %v", err)
-	}
-	assertFileContent(t, slavesPath, "+eth0\n")
-
 	if _, err := netio.NewLAGActuatorBackend(netio.LAGActuatorConfig{
 		Mode:        netio.LAGActuatorModeEnforce,
 		Backend:     netio.LAGActuatorBackendKernelBond,
@@ -162,10 +143,10 @@ func TestLinuxLAGBackendsStayPolicyGated(t *testing.T) {
 	}
 
 	writeJSONArtifact(t, "lag-backends.json", map[string]any{
-		"kernel_bond_fake_sysfs": "remove/add commands verified",
-		"ovs_owner_policy":       "refuse-if-managed rejected for enforce mode",
-		"networkmanager_policy":  "networkmanager-dbus required for enforce mode",
-		"dry_run":                "no backend mutation calls",
+		"kernel_bond_owner_policy": "refuse-if-managed rejected for enforce mode",
+		"ovs_owner_policy":         "refuse-if-managed rejected for enforce mode",
+		"networkmanager_policy":    "networkmanager-dbus required for enforce mode",
+		"dry_run":                  "no backend mutation calls",
 	})
 }
 
@@ -211,17 +192,6 @@ func waitForLinkEvent(
 
 func eventRecord(ev netio.InterfaceEvent) observedLinkEvent {
 	return observedLinkEvent{IfName: ev.IfName, IfIndex: ev.IfIndex, Up: ev.Up}
-}
-
-func assertFileContent(t *testing.T, path string, want string) {
-	t.Helper()
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	if string(got) != want {
-		t.Fatalf("%s = %q, want %q", path, got, want)
-	}
 }
 
 func writeJSONArtifact(t *testing.T, name string, value any) {

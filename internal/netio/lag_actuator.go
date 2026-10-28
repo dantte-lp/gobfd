@@ -39,7 +39,7 @@ type LAGActuatorBackendType string
 const (
 	// LAGActuatorBackendAuto defers backend selection and is not enforceable by itself.
 	LAGActuatorBackendAuto LAGActuatorBackendType = "auto"
-	// LAGActuatorBackendKernelBond manages Linux bonding through sysfs.
+	// LAGActuatorBackendKernelBond manages Linux bonding through rtnetlink IFLA_MASTER.
 	LAGActuatorBackendKernelBond LAGActuatorBackendType = "kernel-bond"
 	// LAGActuatorBackendOVS manages an Open vSwitch bond through OVSDB.
 	LAGActuatorBackendOVS LAGActuatorBackendType = "ovs"

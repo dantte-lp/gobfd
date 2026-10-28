@@ -346,8 +346,11 @@ RFC 7130 enforcement is guarded by `micro_bfd.actuator`. The default
 `disabled` mode is detect/report only. `dry-run` wires the daemon into the
 policy layer and logs planned member actions. `enforce` currently requires
 `owner_policy: allow-external` with `backend: kernel-bond` or `backend: ovs`.
-The kernel-bond backend writes RFC 7130 remove/add commands through Linux
-bonding sysfs. The OVS backend uses native OVSDB transactions against
+The kernel-bond backend releases and re-enslaves a member through rtnetlink
+`IFLA_MASTER`, as `ip link set dev <member> nomaster` and `master <bond>` do,
+and needs only `CAP_NET_ADMIN`. It refuses a LAG interface that is not a
+bond, a release of a link outside the bond and an add of a link that has
+another master. The OVS backend uses native OVSDB transactions against
 `Port.interfaces` on an existing OVS bond port. Set
 `micro_bfd.actuator.ovsdb_endpoint` when the local OVSDB socket differs from
 the default `unix:/var/run/openvswitch/db.sock`. `backend: networkmanager` is

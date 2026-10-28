@@ -160,8 +160,6 @@ func TestPackageLifecycle(t *testing.T) {
 				t.Error("dead-peer stop did not end with only the unknown-peer drain warning")
 			}
 
-			h.copyFile(filepath.Join(root, "deployments/systemd/gobfd-kernel-bond.conf"),
-				"/etc/systemd/system/gobfd.service.d/kernel-bond.conf")
 			h.mustRun("systemd-analyze", "verify", "/usr/lib/systemd/system/gobfd.service")
 			t.Logf("%s security: %s", d.name, exposure(h.mustRun("systemd-analyze", "security", "--no-pager", "gobfd")))
 
@@ -245,16 +243,6 @@ func (h *host) copy(content, path string) {
 	if err := h.ctr.CopyToContainer(h.ctx, []byte(content), path, 0o644); err != nil {
 		h.t.Fatalf("copy %s: %v", path, err)
 	}
-}
-
-func (h *host) copyFile(source, path string) {
-	h.t.Helper()
-	data, err := os.ReadFile(source)
-	if err != nil {
-		h.t.Fatalf("read %s: %v", source, err)
-	}
-	h.mustRun("mkdir", "-p", filepath.Dir(path))
-	h.copy(string(data), path)
 }
 
 func (h *host) show(property string) string {

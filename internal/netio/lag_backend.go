@@ -4,14 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
 const (
-	defaultKernelBondSysfsRoot = "/sys/class/net"
 	defaultOVSVSCTLCommand     = "ovs-vsctl"
 	maxLinuxInterfaceNameLen   = 15
 )
@@ -23,6 +20,12 @@ var (
 	ErrUnsupportedLAGOwnerPolicy = errors.New("unsupported LAG owner policy")
 	// ErrInvalidLAGInterfaceName indicates an unsafe or malformed Linux interface name.
 	ErrInvalidLAGInterfaceName = errors.New("invalid LAG interface name")
+	// ErrLAGInterfaceNotBond indicates a kernel-bond LAG interface that is not a Linux bond.
+	ErrLAGInterfaceNotBond = errors.New("LAG interface is not a Linux bond")
+	// ErrLAGMemberNotInLAG indicates a member to release that is not enslaved to the LAG.
+	ErrLAGMemberNotInLAG = errors.New("member link is not in the LAG")
+	// ErrLAGMemberOwnedElsewhere indicates a member to add that already has another master.
+	ErrLAGMemberOwnedElsewhere = errors.New("member link belongs to another master")
 	// ErrLAGActuatorBackendNotRequired indicates that no backend is needed outside enforce mode.
 	ErrLAGActuatorBackendNotRequired = errors.New("LAG actuator backend is only required in enforce mode")
 )
@@ -73,77 +76,114 @@ func NewLAGActuatorBackend(cfg LAGActuatorConfig) (LAGActuatorBackend, error) {
 	}
 }
 
-// KernelBondLAGBackendConfig configures Linux bonding sysfs writes.
+// KernelBondLink is the rtnetlink view of one link: its ifindex, its
+// IFLA_INFO_KIND and the ifindex of its master (IFLA_MASTER, 0 for none).
+type KernelBondLink struct {
+	Index       int
+	Kind        string
+	MasterIndex int
+}
+
+// KernelBondLinks reads links and sets their master through rtnetlink.
+type KernelBondLinks interface {
+	Link(ctx context.Context, name string) (KernelBondLink, error)
+	SetMaster(ctx context.Context, index, masterIndex int) error
+}
+
+// KernelBondLAGBackendConfig configures the Linux bonding backend.
 type KernelBondLAGBackendConfig struct {
-	// SysfsRoot points at the network class root. Empty means /sys/class/net.
-	SysfsRoot string
+	// Links is the rtnetlink client. Nil uses the current network namespace.
+	Links KernelBondLinks
 }
 
-// KernelBondLAGBackend applies member changes through Linux bonding sysfs.
+// KernelBondLAGBackend applies member changes to a Linux bond through
+// rtnetlink IFLA_MASTER, the operation behind "ip link set dev <member>
+// master <bond>" and "nomaster". It needs CAP_NET_ADMIN and no sysfs write.
 type KernelBondLAGBackend struct {
-	sysfsRoot string
+	links KernelBondLinks
 }
 
-// NewKernelBondLAGBackend creates a Linux bonding sysfs backend.
+// NewKernelBondLAGBackend creates a Linux bonding rtnetlink backend.
 func NewKernelBondLAGBackend(cfg KernelBondLAGBackendConfig) *KernelBondLAGBackend {
-	root := cfg.SysfsRoot
-	if root == "" {
-		root = defaultKernelBondSysfsRoot
+	links := cfg.Links
+	if links == nil {
+		links = rtnetlinkBondLinks{}
 	}
-	return &KernelBondLAGBackend{sysfsRoot: root}
+	return &KernelBondLAGBackend{links: links}
 }
 
-// RemoveMember removes memberInterface from lagInterface through bonding/slaves.
+// RemoveMember releases memberInterface from lagInterface (IFLA_MASTER 0).
+// A member that is not enslaved to lagInterface is refused.
 func (b *KernelBondLAGBackend) RemoveMember(
 	ctx context.Context,
 	lagInterface string,
 	memberInterface string,
 ) error {
-	return b.writeSlaveCommand(ctx, lagInterface, memberInterface, "-")
+	lag, member, err := b.resolve(ctx, lagInterface, memberInterface)
+	if err != nil {
+		return err
+	}
+	if member.MasterIndex != lag.Index {
+		return fmt.Errorf("release %q from bond %q: %w", memberInterface, lagInterface, ErrLAGMemberNotInLAG)
+	}
+	if err := b.links.SetMaster(ctx, member.Index, 0); err != nil {
+		return fmt.Errorf("release %q from bond %q: %w", memberInterface, lagInterface, err)
+	}
+	return nil
 }
 
-// AddMember adds memberInterface to lagInterface through bonding/slaves.
+// AddMember enslaves memberInterface to lagInterface (IFLA_MASTER bond
+// ifindex). A member already in lagInterface is left alone; a member of
+// another master is refused, because rtnetlink would move it.
 func (b *KernelBondLAGBackend) AddMember(
 	ctx context.Context,
 	lagInterface string,
 	memberInterface string,
 ) error {
-	return b.writeSlaveCommand(ctx, lagInterface, memberInterface, "+")
+	lag, member, err := b.resolve(ctx, lagInterface, memberInterface)
+	if err != nil {
+		return err
+	}
+	switch member.MasterIndex {
+	case lag.Index:
+		return nil
+	case 0:
+	default:
+		return fmt.Errorf("enslave %q to bond %q: %w", memberInterface, lagInterface, ErrLAGMemberOwnedElsewhere)
+	}
+	if err := b.links.SetMaster(ctx, member.Index, lag.Index); err != nil {
+		return fmt.Errorf("enslave %q to bond %q: %w", memberInterface, lagInterface, err)
+	}
+	return nil
 }
 
-func (b *KernelBondLAGBackend) writeSlaveCommand(
+func (b *KernelBondLAGBackend) resolve(
 	ctx context.Context,
 	lagInterface string,
 	memberInterface string,
-	prefix string,
-) error {
+) (KernelBondLink, KernelBondLink, error) {
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("write Linux bond membership canceled: %w", err)
+		return KernelBondLink{}, KernelBondLink{}, fmt.Errorf("change Linux bond membership canceled: %w", err)
 	}
 	if err := validateLAGInterfaceName(lagInterface); err != nil {
-		return fmt.Errorf("lag interface %q: %w", lagInterface, err)
+		return KernelBondLink{}, KernelBondLink{}, fmt.Errorf("lag interface %q: %w", lagInterface, err)
 	}
 	if err := validateLAGInterfaceName(memberInterface); err != nil {
-		return fmt.Errorf("member interface %q: %w", memberInterface, err)
+		return KernelBondLink{}, KernelBondLink{}, fmt.Errorf("member interface %q: %w", memberInterface, err)
 	}
-
-	path := filepath.Join(b.sysfsRoot, lagInterface, "bonding", "slaves")
-	// #nosec G304 -- sysfsRoot is trusted constructor configuration, and lagInterface is validated as one path component.
-	file, err := os.OpenFile(path, os.O_WRONLY, 0)
+	lag, err := b.links.Link(ctx, lagInterface)
 	if err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
+		return KernelBondLink{}, KernelBondLink{}, fmt.Errorf("lag interface %q: %w", lagInterface, err)
 	}
-	if _, err := file.WriteString(prefix + memberInterface + "\n"); err != nil {
-		if closeErr := file.Close(); closeErr != nil {
-			return fmt.Errorf("write %s: %w",
-				path, errors.Join(err, fmt.Errorf("close: %w", closeErr)))
-		}
-		return fmt.Errorf("write %s: %w", path, err)
+	if lag.Kind != "bond" {
+		return KernelBondLink{}, KernelBondLink{}, fmt.Errorf("lag interface %q kind %q: %w",
+			lagInterface, lag.Kind, ErrLAGInterfaceNotBond)
 	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close %s: %w", path, err)
+	member, err := b.links.Link(ctx, memberInterface)
+	if err != nil {
+		return KernelBondLink{}, KernelBondLink{}, fmt.Errorf("member interface %q: %w", memberInterface, err)
 	}
-	return nil
+	return lag, member, nil
 }
 
 // CommandRunner runs an external command.
