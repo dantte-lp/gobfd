@@ -23,12 +23,15 @@ Settings describe publication controls, not release qualification.
 | `master-protection` | 13093259 | Default branch | Pull request, checks, deletion and non-fast-forward prevention |
 | `release-protection` | 21655254 | `refs/heads/release/v*` | Pull request, checks, deletion and non-fast-forward prevention |
 | `release-tags` | 21655273 | `refs/tags/v*` | Update and deletion prevention |
+| `no-dolt-info-branch` | 26083762 | `refs/heads/__dolt_remote_info__` | Creation prevention |
 
-All three are active and have no bypass actors. Both branch rulesets allow
+All four are active and have no bypass actors. Both source-branch rulesets allow
 the three merge methods and dismiss stale approvals. Required approving
 review count is zero; CODEOWNERS approval, latest-push approval and review
 thread resolution are not required. Strict up-to-date checking is disabled.
 The release ruleset does not enforce required status checks on branch creation.
+The metadata-name rule affects only its exact branch name; custom data refs
+and source branches retain their existing controls.
 
 Zero required approvals reflect the single-maintainer constraint. Retain
 independent review evidence before merge. Raise the count and enable
@@ -76,6 +79,7 @@ gh api repos/dantte-lp/gobfd/rulesets
 gh api repos/dantte-lp/gobfd/rulesets/13093259
 gh api repos/dantte-lp/gobfd/rulesets/21655254
 gh api repos/dantte-lp/gobfd/rulesets/21655273
+gh api repos/dantte-lp/gobfd/rulesets/26083762
 ```
 
 Inspect only selected non-secret metadata in reports. Recheck immutable-release
