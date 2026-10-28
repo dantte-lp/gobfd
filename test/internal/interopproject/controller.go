@@ -174,9 +174,15 @@ func NewProject(root, projectName, kind string, stdout, stderr io.Writer) (*Cont
 		required = []string{
 			"gobgp-anycast", "gobfd-receiver-anycast", "gobfd-anycast", "exabgp-anycast", "tshark-anycast",
 		}
+	case "haproxy-health":
+		composeFile = filepath.Join(root, "deployments/integrations/haproxy-health/compose.yml")
+		required = []string{
+			"gobfd-monitor", "haproxy-agent", "haproxy-health", "backend1", "backend1-bfd",
+			"backend2", "backend2-bfd", "tshark-haproxy",
+		}
 	default:
 		return nil, &UsageError{Message: fmt.Sprintf(
-			"invalid INTEROP_PROJECT_KIND %q: use base, bgp, bgp-fast-failover, or exabgp-anycast", kind,
+			"invalid INTEROP_PROJECT_KIND %q: use base, bgp, bgp-fast-failover, exabgp-anycast, or haproxy-health", kind,
 		)}
 	}
 
@@ -466,6 +472,7 @@ func (c *Controller) podmanText(ctx context.Context, timeout time.Duration, args
 	//nolint:gosec // Binary is fixed; argv is never shell-expanded.
 	cmd := exec.CommandContext(commandCtx, "podman", args...)
 	cmd.Dir = c.root
+	cmd.Env = append(os.Environ(), ComposeEnvironment()...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -482,6 +489,7 @@ func (c *Controller) podmanStream(ctx context.Context, timeout time.Duration, ar
 	defer cancel()
 	cmd := exec.CommandContext(commandCtx, "podman", args...)
 	cmd.Dir = c.root
+	cmd.Env = append(os.Environ(), ComposeEnvironment()...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = c.stdout
 	cmd.Stderr = c.stderr
@@ -1019,4 +1027,17 @@ func valueOr(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// ComposeEnvironment keeps the Go provider explicit and disables implicit BuildKit builds.
+func ComposeEnvironment() []string {
+	provider := os.Getenv("PODMAN_COMPOSE_PROVIDER")
+	if provider == "" {
+		provider = "docker-compose"
+	}
+	return []string{
+		"PODMAN_COMPOSE_PROVIDER=" + provider,
+		"PODMAN_COMPOSE_WARNING_LOGS=false",
+		"DOCKER_BUILDKIT=0",
+	}
 }

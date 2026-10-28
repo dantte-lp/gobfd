@@ -15,6 +15,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/dantte-lp/gobfd/test/internal/interopproject"
+	"github.com/dantte-lp/gobfd/test/internal/toolbootstrap"
 )
 
 const (
@@ -24,7 +27,8 @@ const (
 	httpTimeout     = 5 * time.Second
 	maxHTTPBodySize = 1 << 20
 	kubeconfigPath  = "/etc/rancher/k3s/k3s.yaml"
-	composeVersion  = "5.6.0"
+	composeVersion  = toolbootstrap.ComposeVersion
+	haproxyProject  = "gobfd-haproxy-health"
 )
 
 var (
@@ -67,7 +71,18 @@ func Run(ctx context.Context, root string, args []string, stdout, stderr io.Writ
 	}
 	switch args[0] {
 	case "haproxy":
-		return r.composeLifecycle(ctx, "haproxy-health", r.haproxy)
+		controller, err := interopproject.NewProject(root, haproxyProject, "haproxy-health", stdout, stderr)
+		if err != nil {
+			return fmt.Errorf("create HAProxy project controller: %w", err)
+		}
+		runErr := controller.Lifecycle(ctx, r.haproxy)
+		if exitErr, ok := errors.AsType[*exec.ExitError](runErr); ok {
+			return &ExitError{Code: exitErr.ExitCode(), Err: runErr}
+		}
+		if runErr != nil {
+			return fmt.Errorf("HAProxy lifecycle: %w", runErr)
+		}
+		return nil
 	case "observability":
 		return r.composeLifecycle(ctx, "observability", r.observability)
 	case "exabgp-anycast":
@@ -96,7 +111,7 @@ func (r *runner) composeLifecycle(
 	compose := func(args ...string) []string {
 		return append([]string{"podman", "compose", "-f", composeFile}, args...)
 	}
-	composeEnv := composeEnvironment()
+	composeEnv := interopproject.ComposeEnvironment()
 	version, err := r.outputArgvEnv(ctx, commandTimeout, composeEnv, compose("version", "--short"))
 	if err != nil {
 		return err
@@ -129,7 +144,7 @@ func (r *runner) composeLifecycle(
 	return operation(ctx)
 }
 
-func (r *runner) haproxy(ctx context.Context) (runErr error) {
+func (r *runner) haproxy(ctx context.Context, controller *interopproject.Controller) (runErr error) {
 	if err := sleep(ctx, 10*time.Second); err != nil {
 		return err
 	}
@@ -139,12 +154,20 @@ func (r *runner) haproxy(ctx context.Context) (runErr error) {
 	}
 
 	r.info("Checking BFD sessions")
+	monitorID, monitorErr := controller.ContainerID(ctx, "gobfd-monitor")
+	if monitorErr != nil {
+		return fmt.Errorf("resolve owned HAProxy monitor: %w", monitorErr)
+	}
 	if err := r.command(ctx, commandTimeout, r.stdout, r.stderr,
-		"podman", "exec", "gobfd-monitor", "/bin/gobfdctl", "--addr", "127.0.0.1:50052", "session", "list",
+		"podman", "exec", monitorID, "/bin/gobfdctl", "--addr", "127.0.0.1:50052", "session", "list",
 	); err != nil {
 		return fmt.Errorf("query required HAProxy BFD sessions: %w", err)
 	}
-	r.capture(ctx, "tshark-haproxy", 10)
+	r.captureHAProxy(ctx, controller, 10)
+	sidecarID, sidecarErr := controller.ContainerID(ctx, "backend1-bfd")
+	if sidecarErr != nil {
+		return fmt.Errorf("resolve owned HAProxy BFD sidecar: %w", sidecarErr)
+	}
 
 	restoreSidecar := true
 	defer func() {
@@ -152,12 +175,12 @@ func (r *runner) haproxy(ctx context.Context) (runErr error) {
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 			defer cancel()
 			runErr = errors.Join(runErr, r.command(
-				cleanupCtx, cleanupTimeout, r.stdout, r.stderr, "podman", "unpause", "backend1-bfd",
+				cleanupCtx, cleanupTimeout, r.stdout, r.stderr, "podman", "unpause", sidecarID,
 			))
 		}
 	}()
 	r.info("Pausing backend1 BFD sidecar")
-	if err := r.command(ctx, commandTimeout, r.stdout, r.stderr, "podman", "pause", "backend1-bfd"); err != nil {
+	if err := r.command(ctx, commandTimeout, r.stdout, r.stderr, "podman", "pause", sidecarID); err != nil {
 		return err
 	}
 	if err := sleep(ctx, 5*time.Second); err != nil {
@@ -168,7 +191,7 @@ func (r *runner) haproxy(ctx context.Context) (runErr error) {
 	}
 
 	r.info("Unpausing backend1 BFD sidecar")
-	if err := r.command(ctx, commandTimeout, r.stdout, r.stderr, "podman", "unpause", "backend1-bfd"); err != nil {
+	if err := r.command(ctx, commandTimeout, r.stdout, r.stderr, "podman", "unpause", sidecarID); err != nil {
 		return err
 	}
 	restoreSidecar = false
@@ -178,9 +201,18 @@ func (r *runner) haproxy(ctx context.Context) (runErr error) {
 	if err := r.requests(ctx, 3); err != nil {
 		return fmt.Errorf("check HAProxy traffic after BFD recovery: %w", err)
 	}
-	r.capture(ctx, "tshark-haproxy", 0)
+	r.captureHAProxy(ctx, controller, 0)
 	r.info("HAProxy demo complete")
 	return nil
+}
+
+func (r *runner) captureHAProxy(ctx context.Context, controller *interopproject.Controller, count int) {
+	containerID, err := controller.ContainerID(ctx, "tshark-haproxy")
+	if err != nil {
+		r.warn("tshark capture is not available: %v", err)
+		return
+	}
+	r.capture(ctx, containerID, count)
 }
 
 func (r *runner) observability(ctx context.Context) error {
@@ -566,17 +598,5 @@ func sleep(ctx context.Context, duration time.Duration) error {
 		return fmt.Errorf("wait %s: %w", duration, ctx.Err())
 	case <-timer.C:
 		return nil
-	}
-}
-
-func composeEnvironment() []string {
-	provider := os.Getenv("PODMAN_COMPOSE_PROVIDER")
-	if provider == "" {
-		provider = "docker-compose"
-	}
-	return []string{
-		"PODMAN_COMPOSE_PROVIDER=" + provider,
-		"PODMAN_COMPOSE_WARNING_LOGS=false",
-		"DOCKER_BUILDKIT=0",
 	}
 }

@@ -1,5 +1,7 @@
 FROM docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c AS builder
 
+ENV GOTOOLCHAIN=local GOMAXPROCS=2 GOMEMLIMIT=1500MiB GOFLAGS=-p=1
+
 RUN groupadd -r gobfd && groupadd -r gobfd-admin \
     && useradd -r -g gobfd -G gobfd-admin -s /sbin/nologin gobfd \
     && install -d -o gobfd -g gobfd -m 0755 /run/gobfd

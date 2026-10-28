@@ -729,6 +729,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Run the full HAProxy demo through the existing guarded project lifecycle,
+  with capped builds and runtime containers, exact owned IDs, and cleanup after
+  partial startup. Bind image build metadata to both revision argument names.
+
 - Make legacy HAProxy traffic and current TCP CLI checks mandatory, pause the
   BFD sidecar instead of the HTTP backend, and restore it after failures or
   cancellation. Accept current CLI observation fields in the strict HAProxy gate.

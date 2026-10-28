@@ -588,7 +588,7 @@ interop-clab-down:
 # === Integration Examples ===
 
 INT_BGP_CTL := env "INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}-bgp-fast-failover" INTEROP_PROJECT_KIND=bgp-fast-failover $(INTEROP_CTL)
-INT_HAPROXY_DC := $(COMPOSE) -f deployments/integrations/haproxy-health/compose.yml
+INT_HAPROXY_CTL := env INTEROP_PROJECT_NAME=gobfd-haproxy-health INTEROP_PROJECT_KIND=haproxy-health $(INTEROP_CTL)
 INT_OBS_DC := $(COMPOSE) -f deployments/integrations/observability/compose.yml
 INT_EXABGP_CTL := env "INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}-exabgp-anycast" INTEROP_PROJECT_KIND=exabgp-anycast $(INTEROP_CTL)
 
@@ -618,13 +618,13 @@ int-haproxy-testcontainers: e2ectl-build
 	$(EXEC) $(E2ECTL_BIN) haproxy-health
 
 int-haproxy-up:
-	$(INT_HAPROXY_DC) up --build -d
+	$(INT_HAPROXY_CTL) up
 
 int-haproxy-down:
-	$(INT_HAPROXY_DC) down --volumes --remove-orphans
+	$(INT_HAPROXY_CTL) down
 
 int-haproxy-logs:
-	$(INT_HAPROXY_DC) logs -f
+	$(INT_HAPROXY_CTL) logs
 
 int-observability:
 	go run ./test/cmd/integrationctl observability

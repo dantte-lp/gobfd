@@ -9,14 +9,21 @@
 #   172.23.0.40 — backend2 (nginx) + backend2-bfd (GoBFD sidecar, shared netns)
 #
 # Usage:
-#   podman compose up --build -d
+#   make int-haproxy-up
 #   curl http://localhost:8080
-#   podman compose down --volumes --remove-orphans
+#   make int-haproxy-down
+
+x-runtime-limits: &runtime-limits
+  cpus: 1
+  mem_limit: 256m
+  memswap_limit: 256m
+  pids_limit: 128
 
 services:
   # === GoBFD monitor at 172.23.0.10 ===
 
   gobfd-monitor:
+    <<: *runtime-limits
     build:
       context: ../../..
       dockerfile: deployments/docker/Containerfile
@@ -35,6 +42,7 @@ services:
   # === HAProxy agent (shared netns with gobfd-monitor) ===
 
   haproxy-agent:
+    <<: *runtime-limits
     build:
       context: ../../..
       dockerfile: deployments/docker/Containerfile.haproxy-agent
@@ -49,6 +57,7 @@ services:
   # === HAProxy (load balancer) at 172.23.0.20 ===
 
   haproxy:
+    <<: *runtime-limits
     image: docker.io/library/haproxy:3.4.6-trixie@sha256:e273915691a8eab3f105bf3e39fd4c29a4ecf334e33421903b5589d25e14db26
     container_name: haproxy-health
     user: "0:0"
@@ -66,6 +75,9 @@ services:
   # === Backend 1 (nginx) at 172.23.0.30 ===
 
   backend1:
+    <<: *runtime-limits
+    environment:
+      NGINX_ENTRYPOINT_WORKER_PROCESSES_AUTOTUNE: "1"
     image: docker.io/library/nginx:1.31.6-trixie@sha256:60f0d4e986561e08804f75c211dcaf7fc5455699eada29f42cbe8a0a7253dd86
     container_name: backend1
     networks:
@@ -73,6 +85,7 @@ services:
         ipv4_address: 172.23.0.30
 
   backend1-bfd:
+    <<: *runtime-limits
     build:
       context: ../../..
       dockerfile: deployments/docker/Containerfile
@@ -91,6 +104,9 @@ services:
   # === Backend 2 (nginx) at 172.23.0.40 ===
 
   backend2:
+    <<: *runtime-limits
+    environment:
+      NGINX_ENTRYPOINT_WORKER_PROCESSES_AUTOTUNE: "1"
     image: docker.io/library/nginx:1.31.6-trixie@sha256:60f0d4e986561e08804f75c211dcaf7fc5455699eada29f42cbe8a0a7253dd86
     container_name: backend2
     networks:
@@ -98,6 +114,7 @@ services:
         ipv4_address: 172.23.0.40
 
   backend2-bfd:
+    <<: *runtime-limits
     build:
       context: ../../..
       dockerfile: deployments/docker/Containerfile
@@ -116,6 +133,7 @@ services:
   # === tshark (BFD packet capture) ===
 
   tshark:
+    <<: *runtime-limits
     build:
       context: ../../../test/interop/tshark
       dockerfile: Containerfile
@@ -126,12 +144,6 @@ services:
     cap_add:
       - NET_RAW
       - NET_ADMIN
-    volumes:
-      - captures:/captures:z
-
-volumes:
-  captures:
-
 networks:
   haproxy-health-net:
     driver: bridge

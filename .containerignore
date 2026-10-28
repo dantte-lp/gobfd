@@ -15,6 +15,7 @@
 .DS_Store
 
 # Local agent state
+.beads
 .agents
 .codex
 .claude

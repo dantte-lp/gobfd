@@ -55,8 +55,8 @@ into k3s next to `gobfd:local`; it has not been run on a live k3s cluster.
 Bootstrap the pinned [Compose provider](06-deployment.md#podman-compose) and
 render selected Compose files before use. Manual examples use fixed container
 names; check that the names, subnets and published ports belong to this lab.
-HAProxy and observability `-up` targets use direct Compose builds without the
-capped interop controller. Their `-down` targets remove volumes and orphans;
+Observability `-up` uses direct Compose builds without the
+capped interop controller. Its `-down` target removes volumes and orphans;
 cleanup requires ownership inspection and the required deletion approval.
 
 At startup GoBFD probes the endpoint with the side-effect-free `GetBgp` RPC.
@@ -232,6 +232,15 @@ restore the sidecar after an error or cancellation. Packet diagnostics remain
 optional. Use `make int-haproxy-testcontainers` for the separate assertion-based
 gate; a completed demo does not establish failover acceptance. Bounded native
 qualification is tracked in `gobfd-qj0.8.2.8.7.1.4.1.2`.
+
+The full demo and manual `int-haproxy-up/down/logs` targets use the existing
+guarded controller with the `gobfd-haproxy-health` project. It refuses an
+existing project or colliding fixed container names, builds sequentially under
+2 CPU/2 GiB limits, and cleans its exact owned IDs after partial startup.
+Each of the eight runtime containers receives 1 CPU, 256 MiB, no additional
+swap, and a 128-PID limit. Nginx enables its official quota-aware worker tuning;
+HAProxy uses one thread. Captures stay in the owned tshark container, with no
+named capture volume. Existing volumes are neither adopted nor deleted.
 
 ---
 
