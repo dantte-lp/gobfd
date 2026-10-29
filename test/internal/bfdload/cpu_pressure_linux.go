@@ -12,7 +12,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const cpuPercentScale = 100
+const (
+	cpuPercentScale = 100
+	cpuYieldQuantum = time.Millisecond
+)
 
 // CPUPressureObservation reports generated thread CPU time, not a held host-load claim.
 type CPUPressureObservation struct {
@@ -148,7 +151,7 @@ func burnCPUWindow(
 	if err != nil {
 		return 0, err
 	}
-	var used time.Duration
+	var used, lastYield time.Duration
 	for used < budget && time.Now().Before(until) {
 		if err := ctx.Err(); err != nil {
 			return used, fmt.Errorf("CPU pressure interrupted: %w", err)
@@ -162,6 +165,10 @@ func burnCPUWindow(
 			return used, fmt.Errorf("CPU duty clock decreased: %w", errEnvironmentData)
 		}
 		used = current - initial
+		if used < budget && used-lastYield >= cpuYieldQuantum {
+			lastYield = used
+			runtime.Gosched()
+		}
 	}
 	return used, nil
 }

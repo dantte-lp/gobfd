@@ -130,6 +130,8 @@ Cgroup observations cover the visible hierarchy. cpu.stat bandwidth counts exclu
 
 CPU duty includes polling/runtime overhead; elapsed time does not prove consumed CPU. GC workers do not force GC/change settings, and released_objects counts occupied ring entries dropped at exit, not GC reclamation. Yield counts do not prove OS context switches or queue depth. Workers join before measurement freeze and drain.
 
+CPU helpers call Gosched after about 1 ms of measured thread CPU while work remains in their 100 ms window. They retain their full CPU budget and locked thread; waiting after a yield is not CPU consumption. A checkpoint does not guarantee 1 ms wall latency. Identify this pressure generation by source SHA and apply it identically to both A/B sides; keep earlier-generation results separate. Eight workers, measured duty of at least 80% and zero missed windows remain required. See [CPU pressure](../../test/internal/bfdload/cpu_pressure_linux.go) and [ADR-0007](adr/0007-workload-phase-accounting.md).
+
 Churn requires duration at least six seconds and skips a cycle with less than five seconds remaining. AdminDown multiplier 3 needs at least three seconds of notification drain; recovery waits at most five seconds and never beyond measurement. The mixed-family process fixture uses 11 seconds. No actual recovery fails the enabled variant. Release start/completion brackets registry removal; completion is not the exact removal timestamp.
 
 Current and retired generations retain separate RX counts; terminal accounting is lifetime-scoped. Active registrations differ from retained collector label sets. The fixed-manifest variant does not qualify arbitrary unique-peer metric growth.

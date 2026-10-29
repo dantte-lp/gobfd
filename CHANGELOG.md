@@ -753,6 +753,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Add measured thread-CPU yield checkpoints to the workload pressure helper
+  without reducing its CPU budget or changing admission and latency limits.
+  Treat the helper as a new pressure generation requiring matched native
+  calibration; a yield does not establish a timer-latency guarantee.
+
 - Prove conditional Echo old-deadline extension from checked actual omission
   times and Detection Time, rather than an omission-count threshold. Retain
   identity, sequence, loss and clock guards; later timeouts remain outside

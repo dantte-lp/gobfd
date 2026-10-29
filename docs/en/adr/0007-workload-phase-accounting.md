@@ -4,6 +4,7 @@
 |:---|:---|
 | Status | Accepted policy; runtime qualification separate |
 | Date | 2026-10-24 |
+| CPU-generation amendment | 2026-10-29 |
 
 ## Context
 
@@ -52,6 +53,8 @@ Use the daemon's default receive/transmit buffer requests for workload-owner soc
 | Scheduler pressure, default off | 4 helpers/GOMAXPROCS, max 32; max 64 rounds/window of 1024-iteration mix + Gosched | Yield count is not OS context-switch count |
 
 Prepare helpers before common epoch; check cancellation/wall deadlines and skip elapsed windows. Join CPU/GC/scheduler workers before measurement freeze and drain on success/failure. CPU helpers pin only to measure CLOCK_THREAD_CPUTIME_ID and unlock on exit; scheduler helpers remain unpinned. Do not change GOGC, GOMEMLIMIT, scheduler policy or force GC. CPU polling/runtime work contributes to measured thread CPU. A request for 80% does not prove held host load; calibrate admitted resources separately.
+
+CPU helpers voluntarily yield after about 1 ms of measured thread CPU while their current budget remains incomplete. Keep the original 100 ms wall window, full CPU budget, cancellation checks and no-debt rule; time waiting after a yield is not consumed CPU. Gosched preserves the helper's locked thread and makes its P available, but guarantees neither 1 ms wall latency nor a product timer bound. Record the source SHA as the pressure generation and use the same generation on both A/B sides; do not pool earlier distributions. The strict actual-CPU and zero-missed-window checks remain unchanged. This is a calibration change, not evidence of a production-latency correction.
 
 PID limits count threads/descendants; GOMAXPROCS does not cap thread creation. Keep the conservative pinned-baseline task budget until measured native thread-pin A/B justifies change. Sources: [admission](../../../test/internal/bfdload/admission_linux.go), [CPU](../../../test/internal/bfdload/cpu_pressure_linux.go), [GC](../../../test/internal/bfdload/gc_pressure_linux.go), [scheduler](../../../test/internal/bfdload/scheduler_pressure_linux.go).
 

@@ -17,7 +17,7 @@ No release tag or publication follows from source integration.
 | Area | Implemented | Remaining acceptance |
 |:---|:---|:---|
 | Control workload | Real owner/peer workload and terminal accounting | Calibrated native reference distributions and full reference run |
-| Reference environment | Admission and identity checks | Dedicated resources and measured guest/runtime admission |
+| Reference environment | Isolated Debian runner; identity, clock and admission checks | Canonical resource admission and qualified workload measurements |
 | Pressure profiles | CPU, GC, scheduler, loss and session-churn drivers | Measurements in the admitted reference envelope |
 | Echo workload | Real return traffic and owner Down witnesses | Native scale, timing and resource qualification |
 | Session-preserving reload | Source implementation and scoped packet checks | Unified five-field qualification on the exact final candidate and supported peers |

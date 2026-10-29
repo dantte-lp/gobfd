@@ -4,6 +4,7 @@
 |:---|:---|
 | Status | Accepted policy; runtime qualification separate |
 | Date | 2026-10-24 |
+| Изменение генерации CPU pressure | 2026-10-29 |
 
 ## Контекст
 
@@ -52,6 +53,8 @@ Frozen measurement и stopped lifetime snapshots различаются. Handsha
 | Scheduler pressure, default off | 4 helpers/GOMAXPROCS, max 32; до 64 rounds/window: mix 1024 iterations + Gosched | Yield count не равен OS context switches |
 
 Подготовьте helpers до epoch; проверяйте cancellation/deadlines, пропускайте elapsed windows. Join CPU/GC/scheduler предшествует freeze/drain при success/failure. CPU helpers pin только для CLOCK_THREAD_CPUTIME_ID и unlock на выходе; scheduler helpers unpinned. Не меняйте GOGC, GOMEMLIMIT, scheduler policy и не форсируйте GC. CPU polling/runtime work входит в measured thread CPU. Requested 80% не доказывает held host load; отдельно калибруйте admitted resources.
+
+CPU helpers добровольно уступают исполнение примерно через 1 мс измеренного thread CPU, пока текущий budget не исчерпан. Сохраняйте исходное wall window 100 мс, полный CPU budget, проверки cancellation и запрет переноса долга; ожидание после yield не считается потреблением CPU. Gosched сохраняет закреплённый поток helper и освобождает его P, но не гарантирует wall latency 1 мс или product timer bound. Фиксируйте source SHA как поколение pressure и применяйте одно поколение к обеим сторонам A/B; прежние распределения не объединяйте с новыми. Строгие проверки actual CPU и нулевых missed windows сохраняются. Это изменение калибровки, а не доказательство исправления production latency.
 
 PID limits считают threads/descendants; GOMAXPROCS не ограничивает создание threads. Conservative pinned-baseline budget сохраняется до measured native A/B. Источники: [admission](../../../test/internal/bfdload/admission_linux.go), [CPU](../../../test/internal/bfdload/cpu_pressure_linux.go), [GC](../../../test/internal/bfdload/gc_pressure_linux.go), [scheduler](../../../test/internal/bfdload/scheduler_pressure_linux.go).
 
