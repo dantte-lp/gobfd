@@ -71,6 +71,8 @@ Linux-only [bfdload](../../test/cmd/bfdload/main.go) предоставляет 
 
 PROFILE принимает fixture, reference или engineering. Передайте обоим процессам полный явный список endpoints; именованные профили не создают его по числу сессий.
 
+Owner listeners и senders запрашивают стандартные socket buffers демона, включая senders после churn: по 4 MiB для приёма и передачи. Ядро может ограничить запрос; фиксируйте фактическую ёмкость сокетов и drop counters на runner. Успешная установка buffer не доказывает приём без потерь. Источники: [owner sockets](../../test/internal/bfdload/owner_linux.go), [daemon defaults](../../internal/config/config.go).
+
 | Флаг | Назначение и default |
 |:---|:---|
 | --session=LOCAL_ADDRPORT,PEER_ADDRPORT | Повторяется на сессию; IPv6 AddrPort использует квадратные скобки |

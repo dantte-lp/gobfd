@@ -16,6 +16,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
+	"github.com/dantte-lp/gobfd/internal/config"
 	bfdmetrics "github.com/dantte-lp/gobfd/internal/metrics"
 	"github.com/dantte-lp/gobfd/internal/netio"
 )
@@ -108,6 +109,7 @@ type Owner struct {
 	ports        *netio.SourcePortAllocator
 	listeners    []ownerListener
 	logger       *slog.Logger
+	socket       config.SocketConfig
 	inventory    sync.RWMutex
 	closing      bool
 	echo         bool
@@ -146,7 +148,8 @@ func StartOwner(ctx context.Context, cfg OwnerConfig, logger *slog.Logger) (*Own
 	registry := prometheus.NewRegistry()
 	collector := bfdmetrics.NewCollector(registry)
 	owner := &Owner{
-		echo: cfg.Echo,
+		echo:   cfg.Echo,
+		socket: config.DefaultConfig().Socket,
 		manager: bfd.NewManager(logger, notifications, bfd.WithManagerMetrics(collector),
 			bfd.WithSessionInterfaceResolver(netio.ResolveSessionIfIndex)),
 		registry: registry, ports: netio.NewSourcePortAllocator(), logger: logger, cancel: cancel, done: make(chan struct{}),
@@ -223,6 +226,7 @@ func (o *Owner) start(ctx context.Context, cfg OwnerConfig, logger *slog.Logger)
 		listenerConfig := netio.ListenerConfig{
 			Addr: endpoint.Local.Addr(), Port: endpoint.Local.Port(),
 			IfName: endpoint.Interface, Delivery: o.manager,
+			ReadBufferSize: o.socket.ReadBufferSize,
 		}
 		if cfg.Echo {
 			listenerConfig.ExpectedTTL = netio.TTLEchoLoopback
@@ -272,7 +276,8 @@ func (o *Owner) createSession(ctx context.Context, cfg OwnerConfig, endpoint Own
 			return nil, fmt.Errorf("allocate owner source port: %w", err)
 		}
 		sender, err := netio.NewUDPSender(endpoint.Local.Addr(), port, false, o.logger,
-			netio.WithDstPort(endpoint.Peer.Port()), netio.WithBindDevice(endpoint.Interface))
+			netio.WithDstPort(endpoint.Peer.Port()), netio.WithBindDevice(endpoint.Interface),
+			netio.WithWriteBuffer(o.socket.WriteBufferSize))
 		if err != nil {
 			o.ports.Release(port)
 			return nil, fmt.Errorf("bind owner sender %s:%d: %w", endpoint.Local.Addr(), port, err)

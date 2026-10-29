@@ -42,6 +42,8 @@ Keep frozen measurement and stopped lifetime snapshots separate. Handshake/drain
 
 ### Resource admission and pressure
 
+Use the daemon's default receive/transmit buffer requests for workload-owner sockets, including churn recreation. Reuse the existing listener/sender configuration; do not substitute OS defaults or change host sysctls. Record effective kernel capacities and observed drops independently. This aligns transport setup with the daemon without qualifying throughput or loss. Sources: [owner](../../../test/internal/bfdload/owner_linux.go), [defaults](../../../internal/config/config.go).
+
 | Input | Fixed contract | Measurement boundary |
 |:---|:---|:---|
 | PID headroom | Every visible nonroot ancestor: `pids.max−pids.current≥sessions+64` | Sequential check, no reservation/peak proof; reject missing/malformed/tight limits |

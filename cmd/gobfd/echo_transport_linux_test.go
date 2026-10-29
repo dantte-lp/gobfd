@@ -71,8 +71,8 @@ func TestReconcileEchoSenderTransport(t *testing.T) {
 				if got := senderBoundDevice(t, factory, port); got != test.device {
 					t.Errorf("Echo SO_BINDTODEVICE = %q, want %q", got, test.device)
 				}
-				_, wantWrite := referenceSocketBuffers(t, 8192)
-				if got := socketOptionAt(t, local, port, unix.SOL_SOCKET, unix.SO_SNDBUF); got != wantWrite {
+				_, wantWrite := testutil.ReferenceSocketBuffers(t, 8192, 8192)
+				if got := testutil.SocketOptionAt(t, local, port, unix.SOL_SOCKET, unix.SO_SNDBUF); got != wantWrite {
 					t.Errorf("Echo SO_SNDBUF = %d, want %d", got, wantWrite)
 				}
 				factory.mu.Lock()

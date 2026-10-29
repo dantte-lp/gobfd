@@ -753,6 +753,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Apply the daemon's default receive/transmit socket buffer requests to
+  `bfdload` owners and recreated churn senders. Keep kernel clamping and
+  observed drops explicit; native qualification remains pending.
+
 - Validate that the peer lifecycle covers the complete owner measurement window
   instead of requiring their different start timestamps to match. Preserve
   shared native phase identity and reject missing or incomplete intervals.

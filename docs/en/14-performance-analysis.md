@@ -71,6 +71,8 @@ The Linux-only [bfdload entry point](../../test/cmd/bfdload/main.go) exposes the
 
 PROFILE is fixture, reference or engineering. Pass the complete explicit endpoint manifest to both roles; named profiles do not synthesize it from a session count.
 
+Owner listeners and senders request the daemon's default socket buffers, including recreated churn senders: 4 MiB for receive and transmit. The kernel can clamp these requests; record effective socket capacities and drop counters on the runner. A successful buffer request does not establish lossless reception. Sources: [owner sockets](../../test/internal/bfdload/owner_linux.go), [daemon defaults](../../internal/config/config.go).
+
 | Flag | Meaning/default |
 |:---|:---|
 | --session=LOCAL_ADDRPORT,PEER_ADDRPORT | Repeat once per session; IPv6 AddrPort uses brackets |

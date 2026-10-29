@@ -42,6 +42,8 @@ Frozen measurement и stopped lifetime snapshots различаются. Handsha
 
 ### Resource admission и pressure
 
+Применяйте стандартные запросы receive/transmit buffers демона к workload-owner sockets, включая пересоздание при churn. Используйте существующие listener/sender настройки; не подменяйте их OS defaults и не меняйте host sysctls. Фиксируйте фактическую ёмкость ядра и наблюдаемые drops отдельно. Это согласует transport setup с демоном, но не квалифицирует throughput или отсутствие потерь. Источники: [owner](../../../test/internal/bfdload/owner_linux.go), [defaults](../../../internal/config/config.go).
+
 | Input | Fixed contract | Measurement boundary |
 |:---|:---|:---|
 | PID headroom | Каждый visible nonroot ancestor: `pids.max−pids.current≥sessions+64` | Sequential check без reservation/peak proof; missing/malformed/tight limits отклоняются |
