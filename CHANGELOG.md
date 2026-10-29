@@ -403,6 +403,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Poll the CPU-pressure thread clock once per four shared work chunks while
+  retaining per-chunk cancellation/deadline checks and conservative window
+  credit. Keep the 5 ms CPU-yield threshold; actual yield timing and native
+  qualification remain separate.
+
 - Separate Micro-BFD allocation qualification: retain zero-allocation dispatch
   without an actuator and a scoped Background/noop budget of 272 B/op and
   4 allocs/op. Preserve fresh per-call timeout/cancellation; qualify actual

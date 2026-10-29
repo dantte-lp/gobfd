@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	cpuPercentScale = 100
-	cpuYieldQuantum = 5 * time.Millisecond
+	cpuPercentScale    = 100
+	cpuYieldQuantum    = 5 * time.Millisecond
+	cpuClockPollChunks = 4
 )
 
 // CPUPressureObservation reports generated thread CPU time, not a held host-load claim.
@@ -152,11 +153,17 @@ func burnCPUWindow(
 		return 0, err
 	}
 	var used, lastYield time.Duration
+	chunksSincePoll := 0
 	for used < budget && time.Now().Before(until) {
 		if err := ctx.Err(); err != nil {
 			return used, fmt.Errorf("CPU pressure interrupted: %w", err)
 		}
 		burnPressureChunk(checksum)
+		chunksSincePoll++
+		if chunksSincePoll < cpuClockPollChunks {
+			continue
+		}
+		chunksSincePoll = 0
 		current, clockErr := threadCPUTime()
 		if clockErr != nil {
 			return used, clockErr

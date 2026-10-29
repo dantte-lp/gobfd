@@ -6,6 +6,7 @@
 | Date | 2026-10-24 |
 | CPU-generation amendment | 2026-10-29 |
 | CPU-credit amendment | 2026-10-29 |
+| CPU-polling amendment | 2026-10-29 |
 
 ## Context
 
@@ -57,7 +58,7 @@ Prepare helpers before common epoch; check cancellation/wall deadlines and skip 
 
 CPU helpers voluntarily yield after about 5 ms of measured thread CPU while their current budget remains incomplete. A full 80 ms CPU budget permits at most 15 voluntary checkpoints. Keep the original 100 ms wall window, full CPU budget, cancellation checks and no-debt rule; time waiting after a yield is not consumed CPU. Gosched preserves the helper's locked thread and makes its P available, without a wall-latency or product-timer guarantee. Record the source SHA as the pressure generation and use the same generation on both A/B sides; do not pool earlier distributions. The strict actual-CPU and zero-missed-window checks remain unchanged. Fresh native calibration is required before this generation qualifies.
 
-Credit CPU to a window only when its nondecreasing thread-clock sample finishes strictly before the wall deadline. Recheck wall time after the clock call and before updating the credited budget. A late sample retains the last on-time credit; an unmet budget remains a missed window even when lifetime CPUTimeNS includes later work. This conservative accounting does not extrapolate an unknown completion time. Per-chunk polling and the 5 ms yield rule remain unchanged.
+Credit CPU to a window only when its nondecreasing thread-clock sample finishes strictly before the wall deadline. Recheck wall time after the clock call and before updating the credited budget. A late sample retains the last on-time credit; an unmet budget remains a missed window even when lifetime CPUTimeNS includes later work. This conservative accounting does not extrapolate an unknown completion time. Check cancellation and wall time before each shared work chunk; read CLOCK_THREAD_CPUTIME_ID every four chunks. An unfinished batch adds no credit. Keep the 5 ms yield threshold; polling can defer its decision, so neither chunk count nor threshold bounds wall latency. This generation requires fresh matched native qualification.
 
 PID limits count threads/descendants; GOMAXPROCS does not cap thread creation. Keep the conservative pinned-baseline task budget until measured native thread-pin A/B justifies change. Sources: [admission](../../../test/internal/bfdload/admission_linux.go), [CPU](../../../test/internal/bfdload/cpu_pressure_linux.go), [GC](../../../test/internal/bfdload/gc_pressure_linux.go), [scheduler](../../../test/internal/bfdload/scheduler_pressure_linux.go).
 

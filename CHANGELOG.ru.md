@@ -415,6 +415,11 @@
 
 ### Изменено
 
+- Thread clock генератора CPU pressure опрашивается раз в четыре общих work
+  chunk с сохранением проверок cancellation/deadline перед каждым chunk и
+  консервативного credit окна. Порог CPU-yield 5 мс сохранён; фактическое
+  время yield и native qualification проверяются отдельно.
+
 - Разделена квалификация выделений Micro-BFD: сохранены нулевые выделения
   dispatch без actuator и бюджет сценария Background/noop 272 B/op,
   4 allocs/op. Сохранены новый timeout и отмена каждого вызова; выделения

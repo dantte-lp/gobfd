@@ -6,6 +6,7 @@
 | Date | 2026-10-24 |
 | Изменение генерации CPU pressure | 2026-10-29 |
 | Изменение учёта CPU в окне | 2026-10-29 |
+| Изменение опроса CPU clock | 2026-10-29 |
 
 ## Контекст
 
@@ -57,7 +58,7 @@ Frozen measurement и stopped lifetime snapshots различаются. Handsha
 
 CPU helpers добровольно уступают исполнение примерно через 5 мс измеренного thread CPU, пока текущий budget не исчерпан. Полный CPU budget 80 мс допускает не более 15 добровольных checkpoints. Сохраняйте исходное wall window 100 мс, полный CPU budget, проверки cancellation и запрет переноса долга; ожидание после yield не считается потреблением CPU. Gosched сохраняет закреплённый поток helper и освобождает его P без гарантии wall latency или product timer bound. Фиксируйте source SHA как поколение pressure и применяйте одно поколение к обеим сторонам A/B; прежние распределения не объединяйте с новыми. Строгие проверки actual CPU и нулевых missed windows сохраняются. Квалификация этого поколения требует новой native-калибровки.
 
-Засчитывайте CPU в окно только при завершении чтения неубывающего thread clock строго до wall deadline. Повторно проверяйте wall time после вызова clock, до обновления зачтённого бюджета. Поздний sample сохраняет последний своевременно подтверждённый credit; неполный budget остаётся missed window, даже если lifetime CPUTimeNS включает более позднюю работу. Консервативный учёт не экстраполирует неизвестное время завершения. Опрос после каждого chunk и правило yield через 5 мс сохраняются.
+Засчитывайте CPU в окно только при завершении чтения неубывающего thread clock строго до wall deadline. Повторно проверяйте wall time после вызова clock, до обновления зачтённого бюджета. Поздний sample сохраняет последний своевременно подтверждённый credit; неполный budget остаётся missed window, даже если lifetime CPUTimeNS включает более позднюю работу. Консервативный учёт не экстраполирует неизвестное время завершения. Проверяйте cancellation и wall time перед каждым общим work chunk; читайте CLOCK_THREAD_CPUTIME_ID раз в четыре chunk. Незавершённый batch не добавляет credit. Порог yield 5 мс сохраняется; опрос может отложить решение о yield, поэтому ни число chunk, ни порог не ограничивают wall latency. Для этого поколения требуется новая matched native qualification.
 
 PID limits считают threads/descendants; GOMAXPROCS не ограничивает создание threads. Conservative pinned-baseline budget сохраняется до measured native A/B. Источники: [admission](../../../test/internal/bfdload/admission_linux.go), [CPU](../../../test/internal/bfdload/cpu_pressure_linux.go), [GC](../../../test/internal/bfdload/gc_pressure_linux.go), [scheduler](../../../test/internal/bfdload/scheduler_pressure_linux.go).
 
