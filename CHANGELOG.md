@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Retain bounded per-worker CPU-window failure evidence, separating accepted credit from late observed samples without relaxing CPU qualification.
+
 - Add explicit `--echo` selection to the `bfdload` owner/peers workload with real Echo owners,
   independent dual-stack datagram returns and typed terminal/omission accounting.
   Register physical Echo metrics once across shared claims and unregister on

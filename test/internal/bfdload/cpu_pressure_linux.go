@@ -20,19 +20,21 @@ const (
 
 // CPUPressureObservation reports generated thread CPU time, not a held host-load claim.
 type CPUPressureObservation struct {
-	RequestedPercent uint64    `json:"requested_percent"`
-	Workers          int       `json:"workers"`
-	PeriodNS         int64     `json:"period_ns"`
-	ScheduledAtUTC   time.Time `json:"scheduled_at_utc"`
-	DurationNS       int64     `json:"duration_ns"`
-	CPUTimeNS        int64     `json:"cpu_time_ns"`
-	WorkerWallTimeNS int64     `json:"worker_wall_time_ns"`
-	Windows          uint64    `json:"windows"`
-	MissedWindows    uint64    `json:"missed_windows"`
-	StartLatenessNS  int64     `json:"start_lateness_ns"`
-	EndLatenessNS    int64     `json:"end_lateness_ns"`
-	WorkChecksum     uint64    `json:"work_checksum"`
-	Completed        bool      `json:"completed"`
+	RequestedPercent           uint64             `json:"requested_percent"`
+	Workers                    int                `json:"workers"`
+	PeriodNS                   int64              `json:"period_ns"`
+	ScheduledAtUTC             time.Time          `json:"scheduled_at_utc"`
+	DurationNS                 int64              `json:"duration_ns"`
+	CPUTimeNS                  int64              `json:"cpu_time_ns"`
+	WorkerWallTimeNS           int64              `json:"worker_wall_time_ns"`
+	Windows                    uint64             `json:"windows"`
+	MissedWindows              uint64             `json:"missed_windows"`
+	StartLatenessNS            int64              `json:"start_lateness_ns"`
+	EndLatenessNS              int64              `json:"end_lateness_ns"`
+	WorkChecksum               uint64             `json:"work_checksum"`
+	Completed                  bool               `json:"completed"`
+	MissedWindowSamples        []CPUWindowFailure `json:"missed_window_samples,omitempty"`
+	MissedWindowSamplesOmitted uint64             `json:"missed_window_samples_omitted,omitempty"`
 }
 
 type cpuWorkerResult struct {
@@ -66,9 +68,9 @@ func startCPUPressure(
 	result.observation.Workers = workers
 	result.results = make(chan cpuWorkerResult, workers)
 	duty := int64(profile.CPULoadPercent)
-	for range workers {
+	for worker := range workers {
 		go func() {
-			observed := runCPUWorker(ctx, at, profile.Duration, duty)
+			observed := runCPUWorker(ctx, at, profile.Duration, duty, worker)
 			if observed.err != nil {
 				failed()
 			}
@@ -86,6 +88,8 @@ func (p *cpuPressure) join() (CPUPressureObservation, error) {
 		p.observation.WorkerWallTimeNS += worker.WorkerWallTimeNS
 		p.observation.Windows += worker.Windows
 		p.observation.MissedWindows += worker.MissedWindows
+		p.observation.MissedWindowSamples = append(p.observation.MissedWindowSamples, worker.MissedWindowSamples...)
+		p.observation.MissedWindowSamplesOmitted += worker.MissedWindowSamplesOmitted
 		p.observation.StartLatenessNS = max(p.observation.StartLatenessNS, worker.StartLatenessNS)
 		p.observation.EndLatenessNS = max(p.observation.EndLatenessNS, worker.EndLatenessNS)
 		p.observation.WorkChecksum ^= worker.WorkChecksum
@@ -95,8 +99,9 @@ func (p *cpuPressure) join() (CPUPressureObservation, error) {
 	return p.observation, joined
 }
 
-func runCPUWorker(ctx context.Context, at time.Time, duration time.Duration, duty int64) cpuWorkerResult {
+func runCPUWorker(ctx context.Context, at time.Time, duration time.Duration, duty int64, worker int) cpuWorkerResult {
 	var result cpuWorkerResult
+	result.MissedWindowSamples = make([]CPUWindowFailure, 0, cpuFailureSampleLimit)
 	// A bounded helper thread keeps its CPU clock attributable to this worker.
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -118,11 +123,11 @@ func runCPUWorker(ctx context.Context, at time.Time, duration time.Duration, dut
 			until = end
 		}
 		budget := time.Duration(int64(until.Sub(window)) * duty / cpuPercentScale)
-		var used time.Duration
-		used, result.err = burnCPUWindow(ctx, until, budget, &result.WorkChecksum)
+		var consumed cpuWindowResult
+		consumed, result.err = burnCPUWindow(ctx, until, budget, &result.WorkChecksum)
 		result.Windows++
-		if used < budget {
-			result.MissedWindows++
+		if consumed.used < budget {
+			result.recordCPUFailure(worker, at, window, until, budget, consumed)
 		}
 		if result.err != nil {
 			break
@@ -147,16 +152,27 @@ func runCPUWorker(ctx context.Context, at time.Time, duration time.Duration, dut
 
 func burnCPUWindow(
 	ctx context.Context, until time.Time, budget time.Duration, checksum *uint64,
-) (time.Duration, error) {
+) (cpuWindowResult, error) {
+	var result cpuWindowResult
 	initial, err := threadCPUTime()
 	if err != nil {
-		return 0, err
+		result.exit = "clock_error"
+		return result, err
 	}
-	var used, lastYield time.Duration
+	var lastYield time.Duration
 	chunksSincePoll := 0
-	for used < budget && time.Now().Before(until) {
+	for result.used < budget {
+		result.lastWall = time.Now()
+		if result.firstWall.IsZero() {
+			result.firstWall = result.lastWall
+		}
+		if !result.lastWall.Before(until) {
+			result.exit = "deadline"
+			return result, nil
+		}
 		if err := ctx.Err(); err != nil {
-			return used, fmt.Errorf("CPU pressure interrupted: %w", err)
+			result.exit = "canceled"
+			return result, fmt.Errorf("CPU pressure interrupted: %w", err)
 		}
 		burnPressureChunk(checksum)
 		chunksSincePoll++
@@ -166,22 +182,28 @@ func burnCPUWindow(
 		chunksSincePoll = 0
 		current, clockErr := threadCPUTime()
 		if clockErr != nil {
-			return used, clockErr
+			result.exit = "clock_error"
+			return result, clockErr
 		}
 		if current < initial {
-			return used, fmt.Errorf("CPU duty clock decreased: %w", errEnvironmentData)
+			result.exit = "clock_regression"
+			return result, fmt.Errorf("CPU duty clock decreased: %w", errEnvironmentData)
 		}
+		result.observed, result.observedKnown = current-initial, true
 		// A late clock read cannot prove this budget was consumed inside the window.
-		if !time.Now().Before(until) {
-			return used, nil
+		result.lastWall = time.Now()
+		if !result.lastWall.Before(until) {
+			result.exit = "late_sample"
+			return result, nil
 		}
-		used = current - initial
-		if used < budget && used-lastYield >= cpuYieldQuantum {
-			lastYield = used
+		result.used, result.acceptedWall = result.observed, result.lastWall
+		if result.used < budget && result.used-lastYield >= cpuYieldQuantum {
+			lastYield = result.used
 			runtime.Gosched()
 		}
 	}
-	return used, nil
+	result.exit = "budget"
+	return result, nil
 }
 
 func threadCPUTime() (time.Duration, error) {

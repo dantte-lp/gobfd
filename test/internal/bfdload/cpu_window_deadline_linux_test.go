@@ -35,10 +35,14 @@ func TestCPUWindowChecksCancellationBetweenPolls(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	checksum := uint64(1)
-	used, err := burnCPUWindow(cpuWindowDelayedContext{Context: ctx, cancel: cancel},
+	window, err := burnCPUWindow(cpuWindowDelayedContext{Context: ctx, cancel: cancel},
 		time.Now().Add(time.Hour), time.Second, &checksum)
+	used := window.used
 	if !errors.Is(err, context.Canceled) || used >= time.Second || checksum != 0xcec9aff28372a1ac {
 		t.Fatalf("cancellation between chunks burned additional work: used=%s checksum=%#x: %v", used, checksum, err)
+	}
+	if window.exit != "canceled" || window.firstWall.IsZero() || window.observedKnown {
+		t.Fatalf("canceled partial batch invented a CPU sample: %+v", window)
 	}
 }
 
@@ -67,7 +71,8 @@ func TestCPUWindowCreditsOnlySamplesBeforeDeadline(t *testing.T) {
 					t.Fatal(err)
 				}
 				ctx := cpuWindowDelayedContext{Context: context.Background(), delay: tc.delay}
-				used, err := burnCPUWindow(ctx, at.Add(time.Second), time.Nanosecond, &checksum)
+				window, err := burnCPUWindow(ctx, at.Add(time.Second), time.Nanosecond, &checksum)
+				used := window.used
 				after, clockErr := threadCPUTime()
 				if err != nil || clockErr != nil || after <= before || checksum == 1 || time.Since(at) != tc.elapsed {
 					t.Fatalf("invalid delayed-credit fixture: used=%s outer=%s checksum=%d elapsed=%s: %v, %v",
@@ -78,6 +83,15 @@ func TestCPUWindowCreditsOnlySamplesBeforeDeadline(t *testing.T) {
 				}
 				if tc.elapsed >= time.Second && used != 0 {
 					t.Fatalf("CPU sample at or after deadline received credit: used=%s delay=%s", used, tc.delay)
+				}
+				if window.firstWall != at || window.lastWall.Sub(at) != tc.elapsed {
+					t.Fatalf("diagnostics lost the existing wall checks: %+v", window)
+				}
+				if tc.name == "poll_at" || tc.name == "poll_after" {
+					if window.exit != "late_sample" || !window.observedKnown || window.observed < time.Nanosecond ||
+						!window.acceptedWall.IsZero() {
+						t.Fatalf("late observed CPU was credited or lost: %+v", window)
+					}
 				}
 			})
 		})

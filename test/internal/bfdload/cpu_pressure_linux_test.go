@@ -78,7 +78,8 @@ func TestCPUWindowRejectsCancellationBeforeBurn(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	checksum := uint64(1)
-	used, err := burnCPUWindow(ctx, time.Now().Add(time.Hour), time.Second, &checksum)
+	window, err := burnCPUWindow(ctx, time.Now().Add(time.Hour), time.Second, &checksum)
+	used := window.used
 	if !errors.Is(err, context.Canceled) || used != 0 || checksum != 1 {
 		t.Fatalf("canceled duty burned work: used=%s checksum=%d: %v", used, checksum, err)
 	}
@@ -117,7 +118,8 @@ func TestCPUWindowMeasuredBudgetWithRunnableCompanion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	used, err := burnCPUWindow(t.Context(), time.Now().Add(time.Second), budget, &checksum)
+	window, err := burnCPUWindow(t.Context(), time.Now().Add(time.Second), budget, &checksum)
+	used := window.used
 	if err != nil || used < budget || checksum == 1 {
 		t.Fatalf("real CPU budget was not consumed: used=%s checksum=%d: %v", used, checksum, err)
 	}
@@ -127,13 +129,15 @@ func TestCPUWindowMeasuredBudgetWithRunnableCompanion(t *testing.T) {
 	}
 	t.Logf("real CPU budget=%s consumed=%s outer_clock=%s checksum=%d", budget, used, after-before, checksum)
 	previous := checksum
-	used, err = burnCPUWindow(t.Context(), time.Now().Add(-time.Nanosecond), budget, &checksum)
+	window, err = burnCPUWindow(t.Context(), time.Now().Add(-time.Nanosecond), budget, &checksum)
+	used = window.used
 	if err != nil || used != 0 || checksum != previous {
 		t.Fatalf("expired CPU window burned work: used=%s checksum=%d: %v", used, checksum, err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	used, err = burnCPUWindow(ctx, time.Now().Add(time.Second), budget, &checksum)
+	window, err = burnCPUWindow(ctx, time.Now().Add(time.Second), budget, &checksum)
+	used = window.used
 	if !errors.Is(err, context.Canceled) || used != 0 || checksum != previous {
 		t.Fatalf("canceled CPU window burned work: used=%s checksum=%d: %v", used, checksum, err)
 	}
