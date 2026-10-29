@@ -96,6 +96,7 @@ func conditionalEchoOmissionCoverage(
 		return downUnresolved, "actual Echo input history is unavailable"
 	}
 	var count, previous uint64
+	var last int64
 	for _, input := range inputs {
 		upper, bounded := addNS(input.offset, peers.Phase.BracketNS)
 		if !bounded {
@@ -112,9 +113,21 @@ func conditionalEchoOmissionCoverage(
 			return downUnresolved, "actual Echo omission inputs are not contiguous"
 		}
 		previous, count = input.received, count+1
+		last = input.offset
 	}
-	if count < uint64(owner.Config.Profile.DetectMultiplier) {
-		return downUnresolved, "actual Echo omission inputs do not cover the local detect multiplier"
+	return classifyEchoDeadlineExtension(last, count, witness.Timing.DetectionNS, dueUpper)
+}
+
+func classifyEchoDeadlineExtension(last int64, count uint64, detection, dueUpper int64) (string, string) {
+	if count == 0 {
+		return downUnresolved, "actual Echo omission inputs before the old deadline are unavailable"
+	}
+	replacementDue, valid := addNS(last, detection)
+	if !valid {
+		return downUnresolved, "Echo replacement deadline projection overflow"
+	}
+	if replacementDue <= dueUpper {
+		return downUnresolved, "actual Echo omission inputs do not extend the old deadline"
 	}
 	return downIntentional, "Echo old deadline is intentional only under the stated return-delivery assumptions"
 }

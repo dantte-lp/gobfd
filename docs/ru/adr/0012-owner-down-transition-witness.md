@@ -4,6 +4,7 @@
 |:---|:---|
 | Status | Accepted |
 | Date | 2026-10-26 |
+| Изменение Echo proof | 2026-10-29 |
 
 ## Контекст
 
@@ -62,11 +63,13 @@ Local consolidation instruction от 2026-10-28 отдельно разреша�
 
 Control predicate сохраняется. Echo требует checked `D=interval*detect_multiplier`, actual old deadline d, last accepted return r, matching incarnation/version и diagnostic EchoFailed. Remote Control state/discriminator unknown.
 
-RX/return-TX omissions объединяются по actual received_sequences, а не отдельным decision counters. Read indices уникальны/возрастают между windows, input times не убывают. В выбранном window минимум detect_multiplier consecutive received indices должны совпадать с owner wire generation. Каждый p удовлетворяет `p>r+owner_bracket` и `p+peer_bracket<d`. Полный commit bracket следует после d внутри того же window. Journal bounds прежние; сортировка bounded references не меняет reports.
+RX/return-TX omissions объединяются по actual received_sequences, а не отдельным decision counters. Read indices уникальны/возрастают между windows, input times не убывают. Каждый выбранный вход должен совпадать с owner wire generation; выбранные read indices последовательны и непусты. Каждый p удовлетворяет `p>r+owner_bracket` и `p+peer_bracket<d`. Полный commit bracket следует после d внутри того же window. Journal bounds прежние; сортировка bounded references не меняет reports.
 
-Явное assumption: выбранные withheld inputs вернулись бы и были committed до old deadline. Вывод относится к нему, а не любому later counterfactual timeout. Actual Echo inputs не требуют вымышленного непрерывного TX schedule.
+Каждый положительный вывод требует checked `max(p)+D>d+owner_bracket`. Counterfactual owner Reset во время s следует после выбранного входа, поэтому `s+D>=max(p)+D>d+owner_bracket`: новый deadline строго позже любого old due, допустимого bracket. DetectMultiplier уже входит в D; количество пропущенных входов не заменяет интервальное доказательство. ValidatedAt предшествует Reset, поэтому равенство `d=r+D` не предполагается.
 
-Missing/replayed read indices, boundary intersection, мало inputs, mismatch wire inputs и independent observed losses остаются unresolved и делают Echo assessment incomplete. Peer kernel drops/invalid samples блокируют qualification; unphased lifetime counters не относятся к произвольному window. Software returner не квалифицирует forwarding plane либо RFC 9747 authentication.
+Явное assumption: выбранные withheld inputs вернулись бы, были приняты владельцем и сбросили detection до old deadline. Одного прибытия в socket для этого недостаточно. Вывод относится к этому deadline, а не отсутствию всех later counterfactual timeouts. Actual Echo inputs не требуют вымышленного непрерывного TX schedule.
+
+Missing/replayed read indices, boundary intersection, отсутствие строгого продления, arithmetic overflow, mismatch wire inputs и independent observed losses остаются unresolved и делают Echo assessment incomplete. Проверяйте каждый выбранный вход до принятия доказательства. Peer kernel drops/invalid samples блокируют qualification; unphased lifetime counters не относятся к произвольному window. Software returner не квалифицирует forwarding plane либо RFC 9747 authentication.
 
 Источники: [Echo omission model](../../../test/internal/bfdload/echo_omission_linux.go), [classification tests](../../../test/internal/bfdload/echo_classification_linux_test.go), [RFC 9747 §2](https://www.rfc-editor.org/rfc/rfc9747.html#section-2).
 

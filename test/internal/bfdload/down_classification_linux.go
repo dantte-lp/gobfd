@@ -60,8 +60,8 @@ func ClassifyDowns(owner OwnerWorkloadObservation, peers PeerObservation) DownCl
 		},
 	}
 	if owner.Config.Profile.Echo {
-		result.Assumptions[1] = "each selected validated Echo input withheld on RX or return TX would be committed " +
-			"as an Echo return before the witnessed old deadline"
+		result.Assumptions[1] = "each selected validated Echo input withheld on RX or return TX would be accepted " +
+			"by the owner and complete its detection timer reset before the witnessed old deadline"
 		result.Assumptions = append(result.Assumptions,
 			"Echo causality concerns that old deadline, not absence of every later counterfactual timeout")
 	}

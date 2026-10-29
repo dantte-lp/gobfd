@@ -4,6 +4,7 @@
 |:---|:---|
 | Status | Accepted |
 | Date | 2026-10-26 |
+| Echo proof amendment | 2026-10-29 |
 
 ## Context
 
@@ -62,11 +63,13 @@ Sources: [Echo owner](../../../internal/bfd/echo.go), [Echo observations](../../
 
 Keep Control predicate unchanged. For Echo require checked `D=interval*detect_multiplier`, actual old deadline d, last accepted return r, matching incarnation/version and diagnostic EchoFailed. Remote Control state/discriminator remain unknown.
 
-Merge RX/return-TX omissions by actual received_sequences, not independent decision counters. Require unique increasing read indices across windows and nondecreasing input times. In the selected window, at least detect_multiplier consecutive received indices must match owner wire generation. Each input time p satisfies `p>r+owner_bracket` and `p+peer_bracket<d`. The whole commit bracket follows d and stays in the same blackhole window. Retain all journal bounds; sorting bounded references does not reorder reports.
+Merge RX/return-TX omissions by actual received_sequences, not independent decision counters. Require unique increasing read indices across windows and nondecreasing input times. Every selected input must match owner wire generation; selected read indices must be consecutive and nonempty. Each input time p satisfies `p>r+owner_bracket` and `p+peer_bracket<d`. The whole commit bracket follows d and stays in the same blackhole window. Retain all journal bounds; sorting bounded references does not reorder reports.
 
-The explicit assumption is that selected withheld inputs would return and commit before that old deadline. The result concerns that deadline, not every later counterfactual timeout. Unlike Control, actual Echo inputs do not require a guessed continuous TX schedule.
+Require checked `max(p)+D>d+owner_bracket` for every positive verdict. A counterfactual owner Reset at time s follows its selected input, so `s+D>=max(p)+D>d+owner_bracket`: the replacement deadline is strictly after every bracket-consistent old due. DetectMultiplier already enters D; the number of omitted inputs is not a substitute for this interval proof. ValidatedAt precedes Reset, so do not assume `d=r+D`.
 
-Missing/replayed read indices, boundary intersection, insufficient inputs, mismatched wire inputs or independent observed losses remain unresolved and make Echo assessment incomplete. Peer kernel drops/invalid drop samples block qualification; unphased lifetime counters cannot be assigned to an unrelated window. The software returner qualifies neither forwarding plane nor RFC 9747 authentication.
+The explicit assumption is that selected withheld inputs would return, be accepted and reset detection before that old deadline. Arrival at a socket alone does not establish this assumption. The result concerns that deadline, not absence of every later counterfactual timeout. Unlike Control, actual Echo inputs do not require a guessed continuous TX schedule.
+
+Missing/replayed read indices, boundary intersection, absent strict extension, arithmetic overflow, mismatched wire inputs or independent observed losses remain unresolved and make Echo assessment incomplete. Validate every selected input before accepting the proof. Peer kernel drops/invalid drop samples block qualification; unphased lifetime counters cannot be assigned to an unrelated window. The software returner qualifies neither forwarding plane nor RFC 9747 authentication.
 
 Sources: [Echo omission model](../../../test/internal/bfdload/echo_omission_linux.go), [Echo classification regressions](../../../test/internal/bfdload/echo_classification_linux_test.go), [RFC 9747 §2](https://www.rfc-editor.org/rfc/rfc9747.html#section-2).
 

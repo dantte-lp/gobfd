@@ -753,6 +753,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Prove conditional Echo old-deadline extension from checked actual omission
+  times and Detection Time, rather than an omission-count threshold. Retain
+  identity, sequence, loss and clock guards; later timeouts remain outside
+  this claim.
+
 - Apply the daemon's default receive/transmit socket buffer requests to
   `bfdload` owners and recreated churn senders. Keep kernel clamping and
   observed drops explicit; native qualification remains pending.
