@@ -164,6 +164,10 @@ func burnCPUWindow(
 		if current < initial {
 			return used, fmt.Errorf("CPU duty clock decreased: %w", errEnvironmentData)
 		}
+		// A late clock read cannot prove this budget was consumed inside the window.
+		if !time.Now().Before(until) {
+			return used, nil
+		}
 		used = current - initial
 		if used < budget && used-lastYield >= cpuYieldQuantum {
 			lastYield = used

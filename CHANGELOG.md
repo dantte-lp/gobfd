@@ -758,6 +758,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reject CPU-pressure samples completed at or after the wall deadline before
+  crediting the window budget. Preserve the last on-time credit so late CPU
+  work cannot erase a missed window; native qualification remains separate.
+
 - Correct the configuration path trust boundary: caller-selected absolute,
   relative-parent and directory-symlink paths remain supported. Test final-name
   symlink confinement separately from YAML errors; preserve loader behavior.
