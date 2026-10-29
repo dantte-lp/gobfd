@@ -101,6 +101,9 @@ checksum:
 
 release:
   draft: true
+  prerelease: auto
+  # Only the final verified publication selects the stable latest release.
+  make_latest: false
   mode: keep-existing
   skip_upload: true
 

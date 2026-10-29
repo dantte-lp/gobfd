@@ -1,189 +1,82 @@
-# Security Policy
+# Security
 
-![Scorecard](https://img.shields.io/badge/OpenSSF-Scorecard-1a73e8?style=for-the-badge)
-![CodeQL](https://img.shields.io/badge/CodeQL-SAST-34a853?style=for-the-badge)
-![govulncheck](https://img.shields.io/badge/govulncheck-Required-ea4335?style=for-the-badge)
-![Capabilities](https://img.shields.io/badge/CAP__NET__RAW-Required-ffc107?style=for-the-badge)
+[Russian translation](../ru/15-security.md).
 
-> Production security baseline for GoBFD deployments. Each item is a daemon setting, a deployment boundary, or a verification gate.
+GoBFD accepts untrusted UDP traffic, exposes a management API and unauthenticated metrics, and optionally controls routing/LAG membership. Packet authentication, management identity and data-plane ownership are separate boundaries.
 
----
+## Management API
 
-## Scope
+The default transport is `/run/gobfd/gobfd.sock` with mode `0660`. Unix principals use kernel-reported `SO_PEERCRED` UID. The packaged example selects `gobfd-admin`; daemon group access can expose configuration secrets. Grant operators only the admin group.
 
-GoBFD has four security surfaces:
+| Transport | Read | Mutate | Principal |
+|:---|:---|:---|:---|
+| Unix socket | Socket permission | Recognized peer credentials | Kernel UID |
+| Plaintext loopback TCP | Anonymous | Denied by default | None |
+| Unsafe direct plaintext loopback | Anonymous | Allowed; management health unready | Shared local owner |
+| mTLS | Verified client certificate | Recognized URI/DNS identity, subject to writer allowlist | First URI SAN, otherwise `dns:` first DNS SAN |
 
-- BFD packet processing on UDP ports 3784, 3785, 4784, 6784, 4789, and 6081.
-- The ConnectRPC control API on the default Unix socket and optional `grpc.addr` TCP listener.
-- The optional GoBGP gRPC client integration and explicit certificate-renewal
-  client for an external Smallstep CA.
-- Container, systemd, and Kubernetes privileges needed for raw sockets and
-  interface-bound networking.
+Non-loopback/wildcard plaintext listeners fail startup. Unsafe mutation admission requires both direct TCP endpoints to be loopback and no TLS; forwarded headers/URLs cannot grant it. Local proxies remain local processes. A CA-verified certificate without URI/DNS SAN cannot mutate, even in unsafe mode.
 
-## RFC Requirements
+With nonempty `grpc.mutating_identities`, unlisted recognized mTLS identities are read-only. Unix, TLS URI and TLS DNS owner namespaces differ; a TLS URI containing `uid:0` never becomes Unix root. List/Get/Watch observe daemon-wide state. Control, Echo and Micro claims are principal-scoped; deleting another principal's claim is denied. Compatible claims can share a physical session until the last claim is released.
 
-RFC 5880 and RFC 5881 security considerations apply to all BFD Control and
-Echo traffic. Use authentication whenever both peers support it, especially on
-multi-access networks, tunnel monitoring, and any segment where packet spoofing
-is possible.
+Sources: [management transports](../../cmd/gobfd/management_socket.go), [principal/interceptors](../../internal/server), [configuration](03-configuration.md), [Echo claims ADR](adr/0009-echo-principal-claims.md).
 
-RFC 9468 unsolicited BFD remains disabled by default. When enabled, GoBFD admits
-a session only from the subnet of the receiving local address, within
-`allowed_prefixes`, below `max_sessions` (required, >= 1), and only from
-single-hop TTL 255 packets. Admission uses a global token bucket replenished
-at 10 sessions per second with a burst of 20, so an on-link host that spoofs
-sources can delay legitimate peers; RFC 9468 Section 6.1 allows the feature
-only where participants are not anonymous. Set `unsolicited.auth` (Meticulous Keyed SHA1) where both sides can
-share a key: the packet that would create a session is then verified first.
-Do not enable unsolicited BFD on an anonymous shared segment.
+## Certificates and renewal
 
-RFC 9747 unaffiliated Echo adds a spoofing concern for returned packets.
-The current Echo preview has no authentication setting and transmits
-unauthenticated packets. Control-session authentication does not protect it.
-Keep it disabled on untrusted segments and isolate any opt-in lab profile.
+Management mTLS requires server certificate, private key and client CA files. Files are reread on every handshake. GoBFD checks certificate chains/identity but performs no CRL/OCSP revocation check. CA revocation prevents renewal according to CA policy; it does not cancel an established API connection or immediately deny a fresh handshake. Use short-lived credentials and an explicit access-removal procedure.
 
-## ConnectRPC API
+`gobfdctl certificate renew` is an independent outbound CA client. It requires an HTTPS origin without credentials/path/query, explicit roots and an existing certificate/key. Response/chain bounds, returned identity validation and atomic certificate replacement are owned by [the renewal implementation](../../internal/stepca/client.go). It does not enroll identities, rotate keys, schedule renewal or change GoBFD authorization. The [disposable actual-provider profile](../../test/stepca/README.md) qualifies bounded renewal/negative cases, not production CA operations or all provider dependencies. See [ADR-0005](adr/0005-smallstep-management-certificates.md).
 
-The management API can create and delete sessions. Its boundary follows the
-[transport decision](../superpowers/specs/2026-10-15-management-transport-decision.md)
-(`gobfd-330`):
+Stop renewal on a validation or file-ownership error. An identical validated chain leaves the certificate unchanged, but another renewal can issue a different chain; repetition is not a general rollback. If `ErrCommitted` is reported, inspect the current certificate before recovery: replacement has occurred and the old file must not be assumed present. Preserve protected accepted credentials and use an independently authorized certificate/access recovery procedure; do not change trust roots or private keys as an implicit retry. Sources: [file commit](../../internal/stepca/files_linux.go), [CLI result handling](../../cmd/gobfdctl/commands/certificate.go).
 
-- By default the daemon serves only the Unix socket `/run/gobfd/gobfd.sock`
-  (mode 0660). The packaged configuration sets group `gobfd-admin`; operators
-  join that group, not `gobfd`, which can read `/etc/gobfd` and its BFD
-  secrets. Each request carries the kernel-reported peer UID as principal
-  (`principal=uid:<n>` in RPC logs).
-- `grpc.addr` adds an optional TCP listener. Plaintext TCP must be loopback;
-  the daemon refuses to start with a non-loopback or wildcard plaintext
-  address. Anonymous loopback clients can read but not mutate unless
-  `grpc.unsafe_loopback_mutations` is set, which is logged at startup and
-  turns the `gobfd.management` health check `NOT_SERVING`.
-- `grpc.tls` turns the TCP listener into mTLS (`RequireAndVerifyClientCert`);
-  it is required for a non-loopback address. The principal is the client
-  certificate URI SAN (SPIFFE) or DNS SAN. Files are re-read on every
-  handshake; revocation is not checked, so use short-lived certificates.
+## Configuration paths
 
-Production rules:
+Local startup and reload use the caller-selected `-config PATH`. Absolute paths and relative `..` components are supported. The [loader](../../internal/config/config.go) opens `filepath.Dir(PATH)`, following directory symlinks, then resolves the basename through `os.Root`. Relative file symlinks that stay beneath the opened directory are supported, including projected-volume links; escaping and absolute file symlinks are rejected. The caller selects the root; no independent configuration-directory allowlist is imposed.
 
-- Keep the default socket and grant access through `gobfd-admin`.
-- Use mTLS for any API access across a host boundary; never expose plaintext.
-- Treat `AddSession`, `DeleteSession`, `AddEchoSession`,
-  `DeleteEchoSession`, `AddMicroBFDGroup` and `DeleteMicroBFDGroup` as
-  write-sensitive network-control operations.
-- Keep `grpc.unsafe_loopback_mutations` disabled with mTLS, on shared hosts or with
-  Kubernetes `hostNetwork`, where loopback is reachable by every host
-  process.
+YAML parsing and configuration validation follow the file read and do not establish a file-access boundary. Protect the selected file and directories with filesystem permissions. [Temporary-file tests](../../internal/config/config_test.go) distinguish supported paths, final-name symlink confinement and YAML errors.
 
-API session claims belong to the caller's principal: one principal cannot
-release another's session (`PermissionDenied`, logged), and
-a nonempty `grpc.mutating_identities` makes unlisted recognized mTLS identities read-only.
-CA-verified clients without URI/DNS SANs cannot mutate, including with the
-unsafe opt-in enabled. That opt-in requires a direct plaintext TCP connection
-with both endpoints on loopback; unknown transport proof is refused. Headers
-cannot grant permission, and local proxies remain local processes. See the
-[transport requirements](03-configuration.md#grpc----connectrpc-server).
-Control,
-Micro-BFD and Echo API claims are principal-scoped. Compatible Echo claims share
-one wire with configuration or other principals; release never removes another
-owner's claim. An admitted identical Echo retry is idempotent. List/Watch remain
-daemon-wide read-only observation. See [ADR-0009](adr/0009-echo-principal-claims.md);
-these management rights do not authenticate returned Echo packets.
+## BFD packet boundary
 
-Transport provenance is independent of the displayed identity. A certificate
-URI such as `uid:0` remains a TLS identity subject to the configured role list.
-Unix UID, TLS URI and TLS DNS owners occupy distinct namespaces; issuing a
-certificate never grants Unix socket privileges.
+| Profile | Exposure | Required deployment decision |
+|:---|:---|:---|
+| Single-hop Control | UDP 3784, TTL/Hop Limit 255 | Match peer/local/interface scope; enable shared-key auth where supported |
+| Multi-hop Control | UDP 4784; configured receive hop policy | Authenticate untrusted/routed paths |
+| Echo preview | UDP 3785; no auth setting | Keep disabled on untrusted segments |
+| Micro-BFD preview | UDP 6784, LAG-member ownership | Qualify wire identity and native actuator independently |
+| VXLAN/Geneve preview | UDP 4789/6081 and explicit Format A identity | Isolate lab; verify existing port/dataplane ownership |
+| Unsolicited preview | Dynamic session admission | Restrict known participants, receiving subnet/prefixes, count and auth |
 
-The flight recorder dump (`grpc.flight_recorder`, off by default) is served only on
-the management server to Unix-socket principals or mTLS identities permitted by
-`grpc.mutating_identities`; anonymous callers are refused even in unsafe mode.
-The metrics listener serves no debug endpoint. Trace files contain sensitive
-runtime details; keep analysis HTTP servers on loopback.
+References: [RFC 5880 section 9](https://www.rfc-editor.org/rfc/rfc5880.html#section-9), [RFC 5881 section 5](https://www.rfc-editor.org/rfc/rfc5881.html#section-5), [RFC 5883 section 6](https://www.rfc-editor.org/rfc/rfc5883.html#section-6), [RFC 9468 section 6](https://www.rfc-editor.org/rfc/rfc9468.html#section-6), [RFC 9747](https://www.rfc-editor.org/rfc/rfc9747.html).
 
-## GoBGP Integration
+Unsolicited admission requires `max_sessions >= 1`, the receiving local subnet, configured prefix restrictions and TTL 255. The global limiter admits 10 sessions/s, burst 20; source spoofing can still delay legitimate participants. Only Meticulous Keyed SHA1 is accepted when unsolicited authentication is enabled. Source: [admission](../../internal/bfd/unsolicited.go).
 
-GoBFD can connect to GoBGP through `gobgp.addr`. Plaintext mode is acceptable
-only for loopback or trusted management networks. Enable `gobgp.tls.enabled`
-for remote or non-loopback GoBGP endpoints.
+Control supports Simple Password, keyed/meticulous MD5 and keyed/meticulous SHA1. These are protocol compatibility mechanisms, not modern transport encryption. Store secrets in protected read-only configuration or controlled API provisioning; never put real values in Git, captures, logs or command history. Reload rejects auth changes on retained identity. Coordinate peer key changes with restart/recreation and expected interruption; multiple internal keys alone do not establish qualified live rotation. See [ADR-0006](adr/0006-session-preserving-reload-policy.md).
 
-[`scripts/vuln-audit.go`](../../scripts/vuln-audit.go) records the
-`GO-2026-4736` exception for the exact `github.com/osrg/gobgp/v4` module,
-with owner `@dantte-lp` and expiry (review) date 2026-12-31. The stable-v1
-decision of 2026-10-21 (`gobfd-qj0.8.4.1`) requires a fixed version at or below
-the pin in GHSA/OSV and a final-candidate govulncheck finding only at module
-level, with no imported affected package or reachable symbol. The repository
-imports the GoBGP `api` package; that source fact alone does not establish
-the result of a fresh scan. Expired, broadened or stale exceptions fail the
-audit. See the [dependency risk register](reference/dependency-risk.md) for
-the recorded rationale, other exceptions and removal triggers. This policy
-is not a statement of current advisory-database contents or final-candidate
-acceptance.
+## Routing and actuator credentials
 
-For successfully collected and parsed scanner input, the audit lists all
-unallowed findings even when an exception is expired or stale. Allowlist
-failures retain exit code 2; otherwise unallowed findings return 1. Neither
-failure path emits a success summary. Scanner execution and parsing failures
-remain fail-closed.
+GoBGP actuation requires compatible v4 API and one BFD owner per neighbor. `gobgp.tls.enabled` enables server-authenticated TLS; configured CA roots/name verify the endpoint. The GoBGP client has no client-certificate configuration. Non-loopback plaintext logs a warning; this warning is not an access-control boundary. Keep the API loopback or protect remote access with explicit TLS/network controls. Sources: [client](../../internal/gobgp/client.go), [startup handler](../../cmd/gobfd/handlers.go).
 
-CI scans the runtime and isolated tool module manifests separately. Raw
-runtime and tools vulnerability reports and their separate CycloneDX SBOMs are
-retained in the `dependency-security-reports` artifact so tool-only findings
-cannot be attributed to the shipped daemon.
+Micro-BFD enforcement changes native member state. Disabled/dry-run modes do not qualify enforcement. Select the real kernel/OVS/NetworkManager owner and reviewed permissions before enabling `enforce`. The optional kernel-bond systemd drop-in adds broad `CAP_DAC_OVERRIDE` and retains native-host qualification gaps. Source: [drop-in](../../deployments/systemd/gobfd-kernel-bond.conf).
 
-## Management Certificate Renewal
+## Runtime and diagnostics
 
-`gobfdctl certificate renew` implements renewal of an existing identity;
-initial enrollment, CA operation and unattended scheduling are outside its
-scope. The command uses an explicit CA HTTPS origin, roots and existing
-certificate/key, validates the returned identity and atomically replaces only
-the certificate. This is a separate outbound mTLS client, not a daemon RPC or
-an API authorization grant. The [actual-provider profile](../../test/stepca/README.md)
-qualifies bounded renewal and negative cases with a disposable CA; it does not
-qualify production CA operation or its complete dependency graph for deployment. See the
-[CLI contract](04-cli.md#certificate-renewal) and
-[`internal/stepca`](../../internal/stepca/client.go).
+1. Retain only declared network capabilities; avoid privileged containers.
+2. Mount configuration/key material read-only and keep the management socket filesystem namespace explicit.
+3. Restrict metrics/agent-check listeners; neither provides authentication.
+4. Review host networking as a shared host-local trust boundary.
+5. Keep Podman sockets in development, outside the application runtime.
+6. Treat traces, profiles and goroutine details as sensitive operational artifacts.
 
-CA renewal policy and GoBFD access control are separate. Smallstep passive
-revocation prevents renewal; it does not cancel an established GoBFD TLS
-connection. GoBFD performs no CRL or OCSP revocation check, including on a new
-handshake. Certificate renewal or CA revocation alone is therefore not an
-immediate API access-removal mechanism. See
-[ADR-0005](adr/0005-smallstep-management-certificates.md).
+`grpc.flight_recorder` is off by default. Its management-only endpoint requires a Unix principal or mTLS identity authorized by the writer policy; anonymous unsafe-mode callers remain denied. Metrics exposes no debug handlers.
 
-## Secrets
+## Dependency and release gates
 
-RFC 5880 auth secrets may be supplied through YAML or gRPC `AddSession`.
-Production deployments should mount YAML secrets read-only and avoid committing
-real key material. Reload rejects authentication changes on a retained session
-identity. Changing deployed keys requires a coordinated maintenance restart
-or explicit claim release/recreation with session interruption. Multiple stored
-keys alone do not provide qualified live rotation; see
-[ADR-0006](adr/0006-session-preserving-reload-policy.md).
+The [risk register](reference/dependency-risk.md) and [Go-owned audit](../../scripts/vuln-audit.go) define exact allowed findings, owners, expiry and removal criteria. Runtime/tool-module raw reports and separate SBOMs remain separate evidence. A module import or historical exception does not prove current non-reachability or advisory state.
 
-## Container And Kubernetes Boundary
-
-GoBFD needs network privileges for raw sockets, socket buffer tuning, and
-interface binding:
-
-- Prefer `NET_RAW` and `NET_ADMIN` over privileged containers.
-- Use `hostNetwork` only when BFD peers are reachable from the host network
-  namespace and document that assumption.
-- Mount config and auth material read-only.
-- Keep the Podman socket available only in the development container. It is not
-  a production runtime dependency.
-
-## Verification Gates
-
-Before release or production rollout, run:
-
-```bash
+```sh
 make verify
 make vulncheck
-make lint-commit MSG='docs(security): define production hardening policy'
+make lint-commit MSG='docs(security): define access boundaries'
 ```
 
-All commands must run through the project Podman targets. The vulnerability
-audit may report allowlisted findings, but any unallowlisted or expired finding
-is a release blocker.
-
-*Reviewed against `dev` source: 2026-10-25 (`706991db9433b13cec47e0bb8ea2549b01e948d9`).*
+Run through the repository development environment. Unallowed findings, expired/stale exceptions and scanner/parser failures block acceptance. The audit retains all parsed unallowed findings; allowlist failures return 2, otherwise unallowed findings return 1. A green local gate does not qualify vendor devices, production privileges or a published release.

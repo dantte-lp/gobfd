@@ -47,7 +47,7 @@ func TestVerifyReleaseDraftRevalidatesExactIdentityAndManifest(t *testing.T) {
 		}
 	}
 	wantDraftArgs := []string{
-		"release", "view", "v0.6.2", "--repo", "dantte-lp/gobfd", "--json", "isDraft,tagName,body,assets",
+		"release", "view", "v0.6.2", "--repo", "dantte-lp/gobfd", "--json", "isDraft,isPrerelease,tagName,body,assets",
 	}
 	if got := runner.calls[6]; got.name != "gh" || got.dir != root || !reflect.DeepEqual(got.args, wantDraftArgs) {
 		t.Errorf("release draft view call = %#v, want gh %q in %s", got, wantDraftArgs, root)
@@ -599,7 +599,7 @@ func marshalReleaseDraftView(t *testing.T, body string, assets []string) []byte 
 		})
 	}
 	data, err := json.Marshal(map[string]any{
-		"isDraft": true, "tagName": "v0.6.2", "body": body, "assets": items,
+		"isDraft": true, "isPrerelease": false, "tagName": "v0.6.2", "body": body, "assets": items,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -55,15 +55,22 @@ func ClassifyDowns(owner OwnerWorkloadObservation, peers PeerObservation) DownCl
 		TimingUncertaintyError: "total clock/transport uncertainty is not established by the conditional omission model",
 		Assumptions: []string{
 			"the recorded boot, time namespace and native epoch denote one unchanged monotonic clock domain",
-			"omitted valid expected-source Up packets would traverse the unchanged transport and reach the owner before due",
+			"selected stable matching Up omissions would be delivered to the owner " +
+				"and complete detection Reset before the old due",
 			"no independent hidden transport or owner fault coincides with the observed omission sequence",
 		},
 	}
 	if owner.Config.Profile.Echo {
-		result.Assumptions[1] = "each selected validated Echo input withheld on RX or return TX would be committed " +
-			"as an Echo return before the witnessed old deadline"
+		result.Assumptions[1] = "each selected validated Echo input withheld on RX or return TX would be accepted " +
+			"by the owner and complete its detection timer reset before the witnessed old deadline"
 		result.Assumptions = append(result.Assumptions,
 			"Echo causality concerns that old deadline, not absence of every later counterfactual timeout")
+	} else {
+		result.Assumptions = append(result.Assumptions,
+			"only selected captured Up packets are restored at owner delivery; all other recorded dispositions stay unchanged",
+			"RX blackholes and withheld expired peer Down stay in place; "+
+				"this is not physical generator replay or removal of the whole fault",
+			"Control causality concerns only that old deadline, not absence of later Down or timeout")
 	}
 	if owner.Phase != nil {
 		phase := *owner.Phase
@@ -81,7 +88,18 @@ func ClassifyDowns(owner OwnerWorkloadObservation, peers PeerObservation) DownCl
 	result.Error = classificationInputs(owner, peers)
 	result.Complete = result.Error == ""
 	progress := uncontestedMeasurementProgress(owner)
+	remoteModel := false
 	for index, witness := range owner.DownWitnesses {
+		if witness.Cause == bfd.CauseRemoteDown && !remoteModel {
+			result.Assumptions = append(result.Assumptions,
+				"the owner-delivery intervention above applies only to local detection verdicts",
+				"for RemoteDown, only selected qualified stable Up RX omissions are restored at the peer; "+
+					"peer acceptance and detection Reset complete before each possible origin's old deadline; "+
+					"all other dispositions stay unchanged",
+				"every possible prior peer expiry origin requires its own conditional old-deadline proof; "+
+					"these separate interventions do not prove one physical replay or absence of later peer or owner Down")
+			remoteModel = true
+		}
 		result.observe(owner, peers, index, witness, progress)
 	}
 	result.Passing = result.Complete && result.Eligible > 0 && result.False == 0 && result.Unresolved == 0
@@ -213,7 +231,10 @@ func classifyDownWitness(
 	if !knownDownIdentity(owner, witness) {
 		return downUnresolved, "frozen source identity is missing, inconsistent or ambiguous across incarnations"
 	}
-	if witness.Cause == bfd.CauseRemoteDown || witness.Cause == bfd.CauseRemoteAdminDown {
+	if witness.Cause == bfd.CauseRemoteDown {
+		return classifyRemoteDown(owner, peers, witness, progress)
+	}
+	if witness.Cause == bfd.CauseRemoteAdminDown {
 		return downUnresolved, "remote Down has no independently joined peer expiry/cause witness"
 	}
 	if witness.Cause != bfd.CauseDetectionTimeout {

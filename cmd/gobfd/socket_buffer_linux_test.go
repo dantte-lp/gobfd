@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"os"
 	"strconv"
 	"testing"
 
@@ -19,73 +18,9 @@ import (
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
 	"github.com/dantte-lp/gobfd/internal/netio"
+	"github.com/dantte-lp/gobfd/internal/testutil"
 	bfdv1connect "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
 )
-
-// Observe the actual sockets without adding production accessors for their FDs.
-// Each test owns a distinct loopback address and holds its sockets open.
-func socketOptionAt(t *testing.T, local netip.Addr, port uint16, level, option int) int {
-	t.Helper()
-	entries, err := os.ReadDir("/proc/self/fd")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		fd, err := strconv.Atoi(entry.Name())
-		if err != nil {
-			continue
-		}
-		addr, err := unix.Getsockname(fd)
-		if err != nil {
-			continue
-		}
-		var boundAddr netip.Addr
-		var boundPort int
-		switch sa := addr.(type) {
-		case *unix.SockaddrInet4:
-			boundAddr, boundPort = netip.AddrFrom4(sa.Addr), sa.Port
-		case *unix.SockaddrInet6:
-			boundAddr, boundPort = netip.AddrFrom16(sa.Addr), sa.Port
-		default:
-			continue
-		}
-		if boundPort != int(port) || boundAddr != local {
-			continue
-		}
-		value, err := unix.GetsockoptInt(fd, level, option)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return value
-	}
-	t.Fatalf("socket %s:%d not found", local, port)
-	return 0
-}
-
-func referenceSocketBuffers(t *testing.T, size int) (int, int) {
-	t.Helper()
-	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 27, 250)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := conn.Close(); err != nil {
-			t.Error(err)
-		}
-	})
-	if size > 0 {
-		if err := conn.SetReadBuffer(size); err != nil {
-			t.Fatal(err)
-		}
-		if err := conn.SetWriteBuffer(size); err != nil {
-			t.Fatal(err)
-		}
-	}
-	port := conn.LocalAddr().(*net.UDPAddr).AddrPort().Port()
-	local := netip.MustParseAddr("127.0.27.250")
-	return socketOptionAt(t, local, port, unix.SOL_SOCKET, unix.SO_RCVBUF),
-		socketOptionAt(t, local, port, unix.SOL_SOCKET, unix.SO_SNDBUF)
-}
 
 func TestAPIPaddedPDURequiresDF(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
@@ -100,7 +35,7 @@ func TestAPIPaddedPDURequiresDF(t *testing.T) {
 		}
 	})
 	referencePort := reference.LocalAddr().(*net.UDPAddr).AddrPort().Port()
-	ordinary := socketOptionAt(t, referenceLocal, referencePort, unix.IPPROTO_IP, unix.IP_MTU_DISCOVER)
+	ordinary := testutil.SocketOptionAt(t, referenceLocal, referencePort, unix.IPPROTO_IP, unix.IP_MTU_DISCOVER)
 	for index, target := range []uint32{0, 128} {
 		t.Run(strconv.FormatUint(uint64(target), 10), func(t *testing.T) {
 			local := netip.MustParseAddr(fmt.Sprintf("127.0.28.%d", index+1))
@@ -133,7 +68,7 @@ func TestAPIPaddedPDURequiresDF(t *testing.T) {
 				want = unix.IP_PMTUDISC_DO
 			}
 			for port := range sf.senders {
-				if got := socketOptionAt(t, local, port, unix.IPPROTO_IP, unix.IP_MTU_DISCOVER); got != want {
+				if got := testutil.SocketOptionAt(t, local, port, unix.IPPROTO_IP, unix.IP_MTU_DISCOVER); got != want {
 					t.Errorf("API target %d IP_MTU_DISCOVER = %d, want %d", target, got, want)
 				}
 			}
@@ -145,7 +80,7 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 	for index, size := range []int{0, 8192} {
 		t.Run(strconv.Itoa(size), func(t *testing.T) {
-			wantRead, wantWrite := referenceSocketBuffers(t, size)
+			wantRead, wantWrite := testutil.ReferenceSocketBuffers(t, size, size)
 			local := netip.MustParseAddr(fmt.Sprintf("127.0.27.%d", index+1))
 			cfg := config.DefaultConfig()
 			cfg.Socket = config.SocketConfig{ReadBufferSize: size, WriteBufferSize: size}
@@ -163,7 +98,7 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 			openTestListeners(t, echoListenerConfigs(cfg))
 			openTestListeners(t, microListenerConfigs(cfg))
 			for _, port := range []uint16{netio.PortSingleHop, netio.PortMultiHop, netio.PortEcho, netio.PortMicroBFD} {
-				if got := socketOptionAt(t, local, port, unix.SOL_SOCKET, unix.SO_RCVBUF); got != wantRead {
+				if got := testutil.SocketOptionAt(t, local, port, unix.SOL_SOCKET, unix.SO_RCVBUF); got != wantRead {
 					t.Errorf("listener %d SO_RCVBUF=%d, want %d", port, got, wantRead)
 				}
 			}
@@ -198,7 +133,7 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 						t.Fatalf("senders = %d, want 1", len(sf.senders))
 					}
 					for port := range sf.senders {
-						if got := socketOptionAt(t, local, port, unix.SOL_SOCKET, unix.SO_SNDBUF); got != wantWrite {
+						if got := testutil.SocketOptionAt(t, local, port, unix.SOL_SOCKET, unix.SO_SNDBUF); got != wantWrite {
 							t.Errorf("sender SO_SNDBUF=%d, want %d", got, wantWrite)
 						}
 					}
@@ -212,7 +147,7 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 func TestDaemonSocketBufferPolicyUnsolicitedListeners(t *testing.T) {
 	for _, size := range []int{0, 8192} {
 		t.Run(strconv.Itoa(size), func(t *testing.T) {
-			wantRead, _ := referenceSocketBuffers(t, size)
+			wantRead, _ := testutil.ReferenceSocketBuffers(t, size, size)
 			cfg := config.DefaultConfig()
 			cfg.Socket = config.SocketConfig{ReadBufferSize: size, WriteBufferSize: size}
 			cfg.Sessions = nil
@@ -223,7 +158,8 @@ func TestDaemonSocketBufferPolicyUnsolicitedListeners(t *testing.T) {
 				t.Fatalf("unsolicited listeners = %d, want 2", len(control))
 			}
 			for _, wildcard := range []netip.Addr{netip.IPv4Unspecified(), netip.IPv6Unspecified()} {
-				if got := socketOptionAt(t, wildcard, netio.PortSingleHop, unix.SOL_SOCKET, unix.SO_RCVBUF); got != wantRead {
+				got := testutil.SocketOptionAt(t, wildcard, netio.PortSingleHop, unix.SOL_SOCKET, unix.SO_RCVBUF)
+				if got != wantRead {
 					t.Errorf("unsolicited listener %s SO_RCVBUF=%d, want %d", wildcard, got, wantRead)
 				}
 			}
@@ -235,7 +171,7 @@ func TestDaemonOverlaySocketBufferPolicy(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 	for _, size := range []int{0, 8192} {
 		t.Run(strconv.Itoa(size), func(t *testing.T) {
-			wantRead, wantWrite := referenceSocketBuffers(t, size)
+			wantRead, wantWrite := testutil.ReferenceSocketBuffers(t, size, size)
 			local := overlayTestLocalIPv4(t)
 			cfg := config.DefaultConfig()
 			cfg.Socket = config.SocketConfig{ReadBufferSize: size, WriteBufferSize: size}
@@ -269,7 +205,7 @@ func TestDaemonOverlaySocketBufferPolicy(t *testing.T) {
 			}
 			for _, port := range []uint16{netio.VXLANPort, netio.GenevePort} {
 				for _, option := range []struct{ key, want int }{{unix.SO_RCVBUF, wantRead}, {unix.SO_SNDBUF, wantWrite}} {
-					if got := socketOptionAt(t, local, port, unix.SOL_SOCKET, option.key); got != option.want {
+					if got := testutil.SocketOptionAt(t, local, port, unix.SOL_SOCKET, option.key); got != option.want {
 						t.Errorf("overlay %d option %d = %d, want %d", port, option.key, got, option.want)
 					}
 				}

@@ -377,13 +377,16 @@ type Manager struct {
 	// lifecycleMu gates new mutations and goroutine registration. Mutations
 	// hold a read lock only until their registry changes are complete. Resource
 	// callbacks run after the lifecycle, ownership, and registry locks are free.
-	lifecycleMu    sync.RWMutex
-	lifecycleState managerLifecycleState
-	activeOps      sync.WaitGroup
-	workers        sync.WaitGroup
-	closeDone      chan struct{}
+	lifecycleMu       sync.RWMutex
+	lifecycleState    managerLifecycleState
+	activeOps         sync.WaitGroup
+	workers           sync.WaitGroup
+	subscriberWorkers sync.WaitGroup
+	closeDone         chan struct{}
 
-	shutdownCh chan struct{}
+	shutdownCh                chan struct{}
+	subscriberShutdownCh      chan struct{}
+	shutdownNotificationDrain bool
 
 	dispatchStarted bool
 	legacyClosed    bool // protected by subMu
@@ -467,6 +470,13 @@ func (op *managerOperation) finish() {
 
 // ManagerOption configures optional Manager parameters.
 type ManagerOption func(*Manager)
+
+// WithShutdownNotificationDrain delivers queued changes for registered physical
+// sessions to live subscribers after producers join and before subscriber EOF.
+// It does not drain the legacy channel, recover gaps, or run teardown actuators.
+func WithShutdownNotificationDrain() ManagerOption {
+	return func(m *Manager) { m.shutdownNotificationDrain = true }
+}
 
 // WithNotificationPopulation reserves registration and two state changes per
 // configured producer, plus the default reserve, for raw and subscriber queues.
@@ -577,6 +587,10 @@ func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 	for _, opt := range opts {
 		opt(m)
 	}
+	m.subscriberShutdownCh = m.shutdownCh
+	if m.shutdownNotificationDrain {
+		m.subscriberShutdownCh = make(chan struct{})
+	}
 	m.rawNotifyCh = make(chan StateChange, m.notificationCapacity)
 	return m
 }
@@ -645,20 +659,7 @@ func (m *Manager) RunDispatch(ctx context.Context) {
 
 func (m *Manager) dispatchStateChange(ctx context.Context, sc StateChange) {
 	m.mu.RLock()
-	var valid bool
-	if sc.Type == SessionTypeEcho {
-		entry, ok := m.echoSessions[sc.LocalDiscr]
-		valid = ok && entry.session.Ref() == sc.Ref
-	} else {
-		entry, ok := m.sessions[sc.LocalDiscr]
-		valid = ok && entry.session.Ref() == sc.Ref
-		if valid && sc.unsolicitedFailure {
-			entry.session.mu.RLock()
-			valid = entry.unsolicited && entry.session.unsolicitedAttempt == sc.unsolicitedAttempt
-			entry.session.mu.RUnlock()
-		}
-	}
-	if !valid {
+	if !m.validStateChangeLocked(sc) {
 		m.mu.RUnlock()
 		m.RecordDelivery(DeliveryNotificationDispatch, DeliveryStale)
 		return
@@ -926,8 +927,13 @@ func (m *Manager) Close() {
 		return
 	}
 
+	if m.shutdownNotificationDrain {
+		m.stopAndDrainNotifications()
+	}
 	retired, retiredEcho := m.detachCloseResources()
-	m.stopAndWait(retired, retiredEcho)
+	if !m.shutdownNotificationDrain {
+		m.stopAndWait(retired, retiredEcho)
+	}
 	m.releaseCloseResources(retired, retiredEcho)
 	m.completeClose()
 	m.logger.Info("manager closed")
@@ -987,6 +993,7 @@ func (m *Manager) stopAndWait(retired []retiredSession, retiredEcho []retiredEch
 
 	m.activeOps.Wait()
 	m.workers.Wait()
+	m.subscriberWorkers.Wait()
 	for len(m.rawNotifyCh) > 0 {
 		<-m.rawNotifyCh
 		m.RecordDelivery(DeliveryNotificationDispatch, DeliveryAbandoned)

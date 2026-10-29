@@ -1,114 +1,87 @@
-# Repository Settings
+# Repository publication controls
 
-## Current Metadata
+Snapshot: **2026-10-29**, read through the GitHub repository and ruleset APIs.
+Settings describe publication controls, not release qualification.
+[Governance](../GOVERNANCE.md) defines maintainer authority and branch roles.
 
-Read-only GitHub API snapshot: 2026-10-25. These values describe repository
-settings, not the qualification or publication status of a release.
+## Repository metadata
 
-| Setting | Value |
-|---|---|
-| Repository | `dantte-lp/gobfd` |
-| Visibility | Public |
+| Control | Observed value |
+|:---|:---|
+| Repository | `dantte-lp/gobfd`, public |
 | Default branch | `master` |
-| Merge commits | Enabled |
-| Squash merge | Enabled |
-| Rebase merge | Enabled |
+| Merge methods | Merge, squash and rebase enabled |
 | Auto-merge | Disabled |
 | Delete head branches | Disabled |
-| Discussions | Enabled |
-| Projects | Enabled |
-| Wiki | Disabled |
-| Dependabot security updates | Enabled |
-| Secret scanning | Enabled |
-| Push protection | Enabled |
+| Discussions / Projects / Wiki | Enabled / Enabled / Disabled |
+| Secret scanning / push protection | Enabled / Enabled |
 
-## Current Protection State
+## Active rulesets
 
-| Area | Current state |
-|---|---|
-| Protection mechanism | Repository rulesets `master-protection` (ID `13093259`), `release-protection` (ID `21655254`), and `release-tags` (ID `21655273`) |
-| Enforcement | All three rulesets are active |
-| Bypass actors | None |
-| Pull requests before merge | Required on `master` and `release/v*` |
-| Required approving reviews | Zero while the repository has one eligible maintainer; raise to one when a second eligible maintainer is active |
-| Stale review dismissal | Configured for future approving reviews |
-| Code owner review | Not required |
-| Latest reviewable push approval | Not required |
-| Conversation resolution | Not required |
-| Required status checks | All 11 exact contexts listed below on `master` and `release/v*` |
-| Strict up-to-date branches | Not required |
-| v0.6 release branch | `release/v0.6` exists; snapshot tip `145d7a33571b76f234fd06ccb00798586a40b8d5` |
-| Release branch protection | Active `release-protection` ruleset (ID `21655254`) targets `refs/heads/release/v*`; deletion and non-fast-forward updates are prohibited |
-| Release tag protection | Active `release-tags` ruleset (ID `21655273`) targets `refs/tags/v*`; deletion and updates are prohibited |
-| Immutable releases | Enabled (`enabled=true`) |
-| Branch protection API | Not configured; repository rulesets are the active control plane |
-| OpenSSF Branch-Protection status | The last report predates the live deletion/non-fast-forward rulesets; approval, latest-push, CODEOWNERS, and two-reviewer tiers remain intentionally constrained by maintainer capacity |
+| Ruleset | ID | Target | Enforced controls |
+|:---|---:|:---|:---|
+| `master-protection` | 13093259 | Default branch | Pull request, checks, deletion and non-fast-forward prevention |
+| `release-protection` | 21655254 | `refs/heads/release/v*` | Pull request, checks, deletion and non-fast-forward prevention |
+| `release-tags` | 21655273 | `refs/tags/v*` | Update and deletion prevention |
+| `no-dolt-info-branch` | 26083762 | `refs/heads/__dolt_remote_info__` | Creation prevention |
 
-## Required Settings
+All four are active and have no bypass actors. Both source-branch rulesets allow
+the three merge methods and dismiss stale approvals. Required approving
+review count is zero; CODEOWNERS approval, latest-push approval and review
+thread resolution are not required. Strict up-to-date checking is disabled.
+The release ruleset does not enforce required status checks on branch creation.
+The metadata-name rule affects only its exact branch name; custom data refs
+and source branches retain their existing controls.
 
-| Area | Required policy |
-|---|---|
-| Default branch | `master` |
-| Stable branch roles | `master` is the latest accepted stable state; supported lines use `release/vMAJOR.MINOR` |
-| Release branches | Create an active `release-protection` ruleset targeting `release/v*` before each new matching branch is created |
-| Pull requests | Require a pull request for `master` and `release/v*`; while only one eligible maintainer exists, require independent review evidence but configure zero GitHub approving reviews so the author is not permanently blocked |
-| Required checks | Require every exact context listed below on both stable-line rulesets |
-| Release tags | Create an active `release-tags` ruleset targeting `v*` before each new matching tag is created, specifically before `v0.6.2`; preserve existing `v0.1.0` through `v0.6.1` tags unchanged and prohibit tag updates and deletion |
-| Immutable releases | Enable immutable releases, complete and verify assets in a draft, and publish only as the final mutation |
-| Code owner review | Required only after at least two active maintainers can satisfy review policy |
-| Conversations | Require resolution before merge when maintainer capacity allows it |
-| Force pushes | Disabled on protected branches |
-| Branch deletion | Disabled on protected branches |
-| Secret scanning | Enabled |
-| Push protection | Enabled when available |
-| Dependabot alerts | Enabled |
-| Dependabot security updates | Enabled |
-| CodeQL | Enabled for Go |
-| Private vulnerability reporting | Enabled |
+Zero required approvals reflect the single-maintainer constraint. Retain
+independent review evidence before merge. Raise the count and enable
+CODEOWNERS requirements when another eligible maintainer can satisfy them
+without bypass. Do not equate a ruleset setting with technical review.
 
-The required status-check contexts are exact and case-sensitive:
+## Required check contexts
 
-- `Build & test`
-- `Lint (Go)`
-- `Vulnerability audit`
-- `Buf`
-- `SonarQube`
-- `Trivy filesystem scan`
-- `Lint (docs)`
-- `Commit policy (PR title)`
-- `codeql`
-- `gosec`
-- `PR-safe E2E`
+The branch rulesets require these exact, case-sensitive contexts:
 
-## One-Maintainer Constraints
+```text
+Build & test
+Lint (Go)
+Vulnerability audit
+Buf
+SonarQube
+Trivy filesystem scan
+Lint (docs)
+Commit policy (PR title)
+codeql
+gosec
+PR-safe E2E
+```
 
-| Scorecard check | Policy |
-|---|---|
-| `Branch-Protection` | Force-push and deletion prevention are active. Raise the approving-review count to one and require CODEOWNERS review when a second eligible maintainer can satisfy them without bypass. |
-| `Code-Review` | Both branch rulesets require pull requests but configure zero approving reviews while the author is the only eligible maintainer. Record independent read-only review evidence before merge; enable one GitHub approval when a second eligible maintainer is active. |
-| `Contributors` | Treat the score as an ecosystem signal, not a repository misconfiguration. |
-| `Maintained` | No remediation until the repository is older than 90 days; keep weekly maintenance activity visible. |
+## Publication procedure
 
-## Recommended Settings
+1. Read live settings and exact source/target commits before integration.
+2. Verify the applicable active ruleset before creating a release branch or tag.
+3. Preserve source branches unless deletion is explicitly authorized.
+4. Reject a failed or unreviewed candidate; retain its evidence and resolve
+   the failure before further integration.
+5. Verify the merged tree, target ref, parent history and checks by readback.
+6. Follow [Release process](../docs/en/10-changelog.md) for immutable tags,
+   complete draft assets and final publication.
 
-| Area | Recommended policy |
-|---|---|
-| Issues | Enabled with issue forms only |
-| Discussions | Optional; enable only when maintainer capacity exists |
-| Wiki | Disabled; documentation source is `docs/en` and `docs/ru` |
-| Projects | Optional |
-| Releases | GitHub Actions release workflow only |
-| Branch naming | `feat/*`, `fix/*`, `docs/*`, `chore/*`, `ci/*`, `deps/*` |
-| Delete head branches | Disabled; preserve source branches, with deletion subject to separate approval |
-| Linear history | Optional; keep disabled while merge commits are allowed |
+Existing tags and supported lines are preserved. Branch naming uses the
+repository's accepted `feat/`, `fix/`, `docs/`, `chore/`, `ci/` and `deps/`
+prefixes. Repository rulesets, rather than the legacy branch-protection API,
+are the observed enforcement mechanism.
 
-## Sources
+## Read-only API inspection
 
-- GitHub issue and pull request templates:
-  <https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/about-issue-and-pull-request-templates>
-- GitHub security policy:
-  <https://docs.github.com/en/code-security/getting-started/adding-a-security-policy-to-your-repository>
-- GitHub CODEOWNERS:
-  <https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners>
-- GitHub repository security:
-  <https://docs.github.com/en/code-security/getting-started/securing-your-repository>
+```sh
+gh api repos/dantte-lp/gobfd/rulesets
+gh api repos/dantte-lp/gobfd/rulesets/13093259
+gh api repos/dantte-lp/gobfd/rulesets/21655254
+gh api repos/dantte-lp/gobfd/rulesets/21655273
+gh api repos/dantte-lp/gobfd/rulesets/26083762
+```
+
+Inspect only selected non-secret metadata in reports. Recheck immutable-release
+settings and required checks on the actual publication candidate; a dated
+snapshot does not authorize mutation.

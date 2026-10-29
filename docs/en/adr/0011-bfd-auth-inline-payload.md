@@ -1,72 +1,40 @@
 # ADR-0011: Inline BFD authentication payload ownership
 
+[Russian translation](../../ru/adr/0011-bfd-auth-inline-payload.md).
+
 | Field | Value |
-|---|---|
+|:---|:---|
 | Status | Accepted |
 | Date | 2026-10-26 |
 
 ## Context
 
-[ADR-0010](0010-bfd-auth-value-ownership.md) removed the allocated authentication
-section and preserved received wire during verification. Its slice payload
-still shares backing storage when a packet is copied. Signing needs independent
-password/digest storage: local samples show one allocation for Simple Password
-and two for each hash mode after the digest-result optimization.
-
-RFC 5880 bounds all supported authentication payloads: passwords occupy 1–16
-bytes, MD5 digests 16 bytes, and SHA1 digests 20 bytes. There is no supported
-authentication payload larger than 20 bytes.
+[ADR-0010](0010-bfd-auth-value-ownership.md) keeps metadata by value but shares slice backing storage. Supported passwords occupy 1–16 bytes, MD5 digests 16 and SHA1 digests 20. A bounded inline representation can own every supported payload without a separate allocation. [RFC 5880 §§4.2–4.4](../../rfc/rfc5880.txt) defines those bounds.
 
 ## Decision
 
-`AuthSection.Data` is a 20-byte array inside the value. `DataLen` records the
-logical payload length independently of the wire `Len` field. This preserves
-rejection of missing, short, long and inconsistent outbound payloads before any
-wire write. Marshal and Verify validate the logical length before accessing
-payload bytes. The complete zero value denotes an absent section.
+`AuthSection.Data` is a 20-byte array in the value. Logical `DataLen` is separate from wire `Len`. Marshal and Verify reject missing, short, long and inconsistent payload lengths before byte access or wire writes. Complete zero value means absent authentication.
 
-Decode copies the bounded payload into a local authentication value and
-publishes that value only after the section validates. Packet assignment owns
-both metadata and payload bytes; input reuse or mutation of another packet copy
-cannot change them. This is not a promise of atomic destination headers on a
-failed decode; ingress still drops every failed decode.
+Decode validates into a local authentication value and publishes it only after complete section validation. Assignment copies metadata and payload; input-buffer reuse and mutation of another packet cannot change it. Failed header decode is not atomic and ingress drops every decode failure.
 
-Built-in Sign reads package-owned immutable keys through the existing private
-accessor and copies their bytes into packet-owned storage. Public key-store
-accessors retain their caller-owned copies. Hash signing replaces the inline
-key with the fixed-value digest and writes only the RFC-defined digest length.
-No packet exposes the store's backing bytes or another packet's payload.
+Built-in Sign reads package-owned immutable keys through its private accessor and copies into packet-owned storage. Public key-store accessors still return owned copies. Hash signing writes the fixed digest width and exposes no key-store or other-packet backing bytes.
 
-Read-only Verify and DemuxWithWire continue to pass packet values. Hash
-verification retains the bounded scratch PDU, exact digest widths, constant-time
-comparison and replay-state update after success. Default and overlay receivers
-still retain the complete authenticated datagram for verification after pooled
-input release; owned decoded payloads do not remove this wire requirement.
-They no longer need to decode that retained copy a second time.
+Read-only Verify and DemuxWithWire pass values. Hash verification preserves bounded scratch PDU, digest-width checks, constant-time comparison and replay-state changes only on success. Receivers still retain complete authenticated wire before pool release; owned decoded payload does not replace it. They do not reparse the retained copy.
 
-The internal Go representation changes; protobuf, configuration and BFD wire
-formats remain unchanged. Unsupported future authentication types fail closed;
-supporting a larger payload requires a separate design and qualification.
+Protobuf, configuration and BFD wire formats remain unchanged. Unsupported future auth types fail closed; payloads above 20 bytes require a new design and qualification. This record supersedes ADR-0010 and preserves its immutable-verification and value-transfer decisions.
 
 ## Consequences
 
-The required target is zero allocations for all five built-in Sign methods and
-the authenticated owner/event loop with real metrics. Qualification must cover
-independent vectors, invalid lengths and keys, packet copies, repeated signing,
-store isolation, race/fuzz checks and both supported compilation targets.
-Local linux/amd64 layout is `ControlPacket` 60 bytes and `AuthSection` 28 bytes,
-previously 64 and 32. The receive queue element remains 160 bytes because of
-alignment; the smaller packet does not reduce that element. No retained RSS
-estimate follows from these sizes. Allocation benchmarks do not qualify UDP, native arm64,
-scale, timer distributions or the release candidate.
+Required allocation targets cover all five built-in Sign methods and the authenticated owner/event loop with real metrics. Qualification covers independent vectors, invalid lengths/keys, packet copies, repeated signing, key-store isolation, races, fuzzing and both supported compilation targets.
 
-Beads `gobfd-qj0.8.2.8.6.3.2.2` owns implementation and source qualification;
-the full comparison remains `gobfd-qj0.8.2.8.6.3.2`. This ADR supersedes ADR-0010
-while retaining its value-transfer and immutable-verification decisions.
+Local linux/amd64 layout is ControlPacket 60 bytes and AuthSection 28, formerly 64 and 32. Alignment retains a 160-byte RX queue element; the smaller packet does not reduce it. No retained-RSS conclusion follows. UDP, native arm64, scale, timer distributions and release qualification remain outside an allocation benchmark.
+
+Source qualification must retain storage/allocation regressions; the full runtime comparison remains separate.
 
 ## References
 
-- [RFC 5880](../../rfc/rfc5880.txt), Sections 4.2–4.4 and 6.7.
-- [Go value representation](https://go.dev/ref/spec#Representation_of_values).
-- [Packet codec](../../../internal/bfd/packet.go) and [authentication](../../../internal/bfd/auth.go).
-- [Allocation measurements](../12-benchmarks.md).
+- [Codec and inline type](../../../internal/bfd/packet.go).
+- [Key access, Sign and Verify](../../../internal/bfd/auth.go).
+- [Storage and allocation regression tests](../../../internal/bfd/packet_auth_storage_test.go).
+- [Padded independent vectors](../../../internal/bfd/auth_padding_test.go).
+- [Allocation evidence](../12-benchmarks.md).

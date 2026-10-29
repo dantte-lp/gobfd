@@ -1,69 +1,35 @@
 # ADR-0010: Value ownership of BFD authentication metadata
 
 | Field | Value |
-|---|---|
+|:---|:---|
 | Status | Superseded by ADR-0011 |
 | Date | 2026-10-26 |
 
-Historical decision. [ADR-0011](0011-bfd-auth-inline-payload.md) replaces payload
-storage and retains value transfer and immutable hash verification.
-
 ## Context
 
-Authenticated decode allocated an `AuthSection` for every packet. Reusing that
-pointer or pointing into the destination packet would let a later decode change
-metadata retained by a shallow packet copy. Separate password and digest slices
-also represented mutually exclusive payloads twice.
-
-The receiver, overlay receiver and session queue retain authenticated wire.
-Hash verification previously replaced its digest slot with key material. A
-decoded payload aliases that slot, so admission verification could invalidate
-the trigger before the session owner verified it again. A transmit-side fixture
-with an independently copied digest did not model this receive lifetime.
+Allocated authentication metadata adds receive allocation. A pointer into a reusable packet lets a later decode alter shallow copies. Hash verification that replaces a digest in received wire also destroys the input needed by a later owner verification.
 
 ## Decision
 
-`ControlPacket.Auth` is an `AuthSection` value. Its zero value denotes absence;
-`AuthSection.IsZero()` checks the complete metadata, and marshal validates its
-agreement with the A bit before writing. `AuthSection.Data` is the single
-type-dependent password or digest slice. Decode publishes the value only after
-the entire authentication section validates.
+This historical decision uses value `ControlPacket.Auth` and one type-dependent slice `AuthSection.Data`. The complete zero value denotes absence; `IsZero` checks every field. Marshal validates A-bit agreement before writing; decode publishes authentication only after complete shape validation.
 
-Read-only `DemuxWithWire` and `Authenticator.Verify` boundaries pass packet
-values. `Sign` retains a mutable packet pointer. These are internal Go contracts;
-the protobuf API, configuration and BFD wire formats are unchanged.
+Read-only `DemuxWithWire` and `Verify` pass packet values; `Sign` retains a mutable pointer. Scalar metadata and slice descriptors belong to each copy; payload backing bytes remain borrowed and immutable. Default and overlay receivers copy the complete authenticated datagram and reparse before releasing pooled input.
 
-The payload still borrows immutable wire. Default and overlay receivers copy
-the complete authenticated datagram and reparse before releasing pooled input.
-Packet copies own their scalar metadata and slice descriptors, while the backing
-bytes remain shared and must stay alive until processing finishes.
+Hash verification copies only declared BFD Length into a local 255-byte scratch PDU before key substitution. Digest must fit Length, Length must fit received wire. Transport padding remains outside the hash boundary. Constant-time comparison and replay-state update after success remain required; success and failure preserve received wire.
 
-Hash verification copies only the validated BFD PDU into a local 255-byte
-scratch array before substituting the key. The one-octet Length bounds this
-copy; RFC 9764 transport padding stays outside the authenticated PDU. Received
-wire is unchanged on success and failure. Constant-time digest comparison and
-replay-state updates after successful verification are retained.
+[ADR-0011](0011-bfd-auth-inline-payload.md) replaces borrowed slice storage with an owned inline array and removes the retained-wire reparse. It preserves value transfer, immutable verification and complete-wire retention. Current code follows ADR-0011; this record is not the current payload representation.
 
 ## Consequences
 
-Local linux/amd64 measurements with the pinned compiler report 0 B/op and
-0 allocs/op for authenticated decode at 200000 iterations in three runs.
-The existing in-memory unauthenticated RX benchmark changes from 176 B/op and
-2 allocs/op to 128 B/op and 1 alloc/op. It excludes sockets and session commit.
+Historical local linux/amd64 samples report authenticated decode at 0 B/op and 0 allocs/op for 200000 iterations in three runs. The in-memory unauthenticated RX benchmark changes 176 B/2 allocs to 128 B/1 alloc; it excludes sockets and owner commit.
 
-Measured `ControlPacket` grows from 40 to 64 bytes while `AuthSection` shrinks
-from 64 to 32 bytes. At 16 receive slots this adds 384 bytes of queue elements
-per session; it is not a per-packet heap allocation or a retained RSS estimate.
-These source measurements do not qualify native arm64, reference scale,
-latency distributions or the final release candidate.
+Historical layout changes ControlPacket 40→64 bytes and AuthSection 64→32 bytes. Sixteen RX slots add 384 bytes of queue elements per session. These are layout observations, not per-packet heap or RSS estimates. Native arm64, scale, latency distributions and release acceptance remain separate.
 
-Beads `gobfd-qj0.8.2.1.18` owns the allocation and lifetime qualification;
-`gobfd-qj0.8.2.1.18.1` owns immutable verification and the decoded unsolicited
-trigger regression. Final runtime and release gates remain separate.
+Allocation/lifetime qualification must include immutable verification and the unsolicited decoded-trigger regression. The historical measurements are not rerun by this documentation change.
 
 ## References
 
-- [Go value representation](https://go.dev/ref/spec#Representation_of_values).
-- [RFC 5880](../../rfc/rfc5880.txt), Sections 4.1-4.4 and 6.7.
-- [Packet codec](../../../internal/bfd/packet.go) and [authentication](../../../internal/bfd/auth.go).
+- [Current codec](../../../internal/bfd/packet.go), [authentication](../../../internal/bfd/auth.go).
+- [Ownership regression tests](../../../internal/bfd/packet_auth_storage_test.go).
+- [RFC 5880 §§4.1–4.4, 6.7](../../rfc/rfc5880.txt).
 - [Performance scope](../14-performance-analysis.md).

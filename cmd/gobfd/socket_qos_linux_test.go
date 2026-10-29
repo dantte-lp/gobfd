@@ -76,7 +76,7 @@ func TestSocketQoSFactoryReadback(t *testing.T) {
 				{unix.SOL_SOCKET, unix.SO_PRIORITY, test.priority},
 				{unix.SOL_SOCKET, unix.SO_MARK, 0},
 			} {
-				if got := socketOptionAt(t, local, port, expected.level, expected.option); got != expected.value {
+				if got := testutil.SocketOptionAt(t, local, port, expected.level, expected.option); got != expected.value {
 					t.Errorf("socket option level=%d option=%d = %d, want %d",
 						expected.level, expected.option, got, expected.value)
 				}

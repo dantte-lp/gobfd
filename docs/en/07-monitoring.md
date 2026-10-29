@@ -1,462 +1,130 @@
 # Monitoring
 
-![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?style=for-the-badge&logo=prometheus)
-![Grafana](https://img.shields.io/badge/Grafana-Dashboard-F46800?style=for-the-badge&logo=grafana)
-![slog](https://img.shields.io/badge/log%2Fslog-Structured-00ADD8?style=for-the-badge)
-![FlightRecorder](https://img.shields.io/badge/Flight_Recorder-Go_1.27-34a853?style=for-the-badge)
+[Russian translation](../ru/07-monitoring.md).
 
-> Prometheus metrics, Grafana dashboard, structured logging, and the runtime flight recorder for production observability.
+The default endpoint is `http://127.0.0.1:9100/metrics`, without authentication. Bind beyond loopback only with an explicit network access policy. The metrics listener exposes no debug handlers. Sources: [configuration](../../internal/config/config.go), [collector](../../internal/metrics/collector.go).
 
----
+BFD means Bidirectional Forwarding Detection. RX and TX denote reception and transmission; a finite state machine (FSM) governs state transitions. A remote procedure call (RPC) performs an external API operation. Mutual TLS (mTLS) authenticates both management endpoints.
 
-## Table of Contents
+## Signal boundaries
 
-- [Prometheus Metrics](#prometheus-metrics)
-- [Grafana Dashboard](#grafana-dashboard)
-- [Alerting Rules](#alerting-rules)
-- [Structured Logging](#structured-logging)
-- [Flight Recorder](#flight-recorder)
-- [Endpoints](#endpoints)
+`gobfd_bfd_sessions` counts registered Control and Echo sessions, including Micro-BFD, VXLAN and Geneve Control types. A registered session need not be Up. Echo registers its own `session_type` series and contributes packet/transition increments to shared families. Peer/local packet counters have no discriminator, interface or type dimension: identical address pairs aggregate across wires. Use API snapshots to identify individual sessions. Sources: [Echo registration](../../internal/bfd/manager_echo.go), [direct collector wiring](../../cmd/gobfd/factory.go).
 
-### Prometheus Metrics
+```mermaid
+flowchart LR
+    accTitle: Observation boundaries
+    accDescr: Receive, parsing, admission and owner stages expose separate metrics; owner publication feeds Watch and GoBGP actuation.
+  rx["UDP receive"]:::srv --> parser["Parse and demultiplex"]:::srv
+  parser --> queue["Admission queue"]:::srv
+  queue --> owner["Session owner"]:::srv
+  owner -.-> watch["Revisioned Watch"]:::mgt
+  owner --> action["GoBGP actuation"]:::brt
+  rx -.-> metrics["Metrics scrape"]:::mgt
+  parser -.-> metrics
+  queue -.-> metrics
+  owner -.-> metrics
+  classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
+  classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
+  classDef brt fill:#fff3e0,stroke:#bf360c,color:#000
+```
 
-GoBFD exposes Prometheus metrics at the configured endpoint (default `127.0.0.1:9100/metrics`). Metrics use the `gobfd_` namespace.
+## Metric reference
 
-Control session `gobfd_bfd_packets_dropped_total` records queue full/closed,
-owner zero-TX/auth refusals and stop abandonment. `gobfd_bfd_auth_failures_total`
-is the auth subset of those drops. Parser, TTL, unknown-peer and unsolicited
-pre-session refusals appear only in the process-lifetime
-`gobfd_bfd_delivery_outcomes_total{source,outcome}` ledger; they create no peer
-labels. All supported pairs are preinitialized to zero. Every stage has a
-separate denominator: `queued` is not owner `committed`, and stage counts must
-not be summed as packet totals. `read_error` does not prove packet loss.
-ListSessions exposes the same fixed rows as sampled `delivery_counters`,
-including after the last session is deleted; its revision does not cover
-atomic counter sampling. Zero counts may be omitted by protobuf JSON encoding.
-The `demux` source counts refusals after session selection: `scope_mismatch`
-for a packet of the other transport class (multihop listener 4784 against a
-single-hop session, or the reverse) or from another receive interface of a
-single-hop session; `ttl_rejected` for a multihop packet with TTL below
-`255 - multihop_max_hops` or a single-hop packet with TTL other than 255.
-Echo has separate `echo_read`, `echo_parse`, `echo_ttl`, `echo_demux`,
-`echo_admission` and `echo_owner` sources. Zero discriminators are parser
-refusals, not demux attempts; ordinary closed/canceled reads are not read
-errors. Echo queue refusals and owner abandonment also project to the existing
-packet-drop metric for the admitted identity.
+| Metric | Type | Labels | Meaning |
+|:---|:---|:---|:---|
+| `gobfd_bfd_sessions` | gauge | `peer_addr,local_addr,session_type` | Registered Control and Echo sessions |
+| `gobfd_bfd_packets_sent_total` | counter | `peer_addr,local_addr` | Successful Control/Echo sends |
+| `gobfd_bfd_packets_received_total` | counter | `peer_addr,local_addr` | Owner-validated Control/Echo receives |
+| `gobfd_bfd_packets_dropped_total` | counter | `peer_addr,local_addr` | Admitted-identity refusals/abandonment |
+| `gobfd_bfd_state_transitions_total` | counter | `peer_addr,local_addr,from_state,to_state` | FSM changes |
+| `gobfd_bfd_auth_failures_total` | counter | `peer_addr,local_addr` | Authentication refusal subset |
+| `gobfd_bfd_delivery_outcomes_total` | counter | `source,outcome` | Fixed pipeline/notification decisions |
+| `gobfd_bfd_control_rx_timing_total` | counter | `outcome` | Owner commits by clock validity |
+| `gobfd_bfd_control_rx_commit_seconds` | histogram | none | Kernel software RX to completed owner processing |
+| `gobfd_bfd_timer_events_total` | counter | `timer,event` | Dispatch and terminal timer observations |
+| `gobfd_bfd_timer_delay_seconds` | histogram | `timer,stage` | Valid dispatch/effect delay |
+| `gobfd_bfd_socket_drop_samples_total` | counter | `kind,outcome` | Socket-drop sample validity |
+| `gobfd_bfd_socket_drops_total` | counter | `kind` | Ordered observed drop increments |
+| `gobfd_gobgp_rpc_errors_total` | counter | `rpc` | Failed GoBGP API/preflight calls |
+| `gobfd_gobgp_endpoint_compatible` | gauge | none | 1 after compatibility preflight |
+| `gobfd_gobgp_dampening_penalty` | gauge | `peer_addr` | Decayed penalty at scrape |
+| `gobfd_gobgp_dampening_suppressed` | gauge | `peer_addr` | Recovery currently held |
+| `gobfd_gobgp_dampening_suppression_deadline_seconds` | gauge | `peer_addr` | Maximum suppression deadline, Unix seconds; otherwise 0 |
+| `gobfd_gobgp_pending_action` | gauge | `peer_addr,action` | Unapplied `up`/`down` intent |
+| `gobfd_gobgp_pending_action_deadline_seconds` | gauge | `peer_addr,action` | Next retry/recheck deadline, Unix seconds; otherwise 0 |
 
-`control_notification`, `unsolicited_notification` and `echo_notification`
-count each actual raw enqueue attempt. `notification_dispatch` distinguishes
-accepted, stale and shutdown-abandoned raw events. `watch_recipient` counts
-each recipient's original event as `queued` or `gapped`, including repeated
-overflow while its single GAP marker remains queued. The GAP marker is not an
-original successful event. `legacy_notification` counts queued/full attempts;
-skipped Added events, closed channels and nil sinks are not attempts.
-Notification loss never increments Control packet-drop counters. Raw shutdown
-abandonment is counted after all producers and Manager workers join.
-Kernel `SO_RXQ_OVFL` observations use the separate socket-drop metrics below;
-this ledger does not qualify Echo transport/security. Echo Watch lifecycle is implemented separately
-by `gobfd-qj0.8.2.1.3.10`: frozen rows sample actual Echo counters and timestamps
-without counter-only observation-version churn. Its unowned drop/auth fields
-are zero and do not replace the delivery ledger or prove absence of loss.
-Public Control/Echo raw `queue_full` invalidates live revisioned subscribers
-through a coalesced GAP and authoritative resnapshot. Recovery markers add no
-`notification_dispatch`, `watch_recipient` or `legacy_notification` outcomes;
-each originally queued raw event still has one accepted/stale/abandoned result.
-Private unsolicited failures remain cleanup-only. Legacy delivery stays best
-effort, and canceled dispatch has no restart/progress guarantee.
+Sources: [base metrics](../../internal/metrics/collector.go), [Control validation/counting](../../internal/bfd/session_packet.go), [accepted Echo returns](../../internal/bfd/echo.go), [timing](../../internal/metrics/receive_timing.go), [timers](../../internal/metrics/timer.go), [socket drops](../../internal/metrics/socket_drops.go), [GoBGP](../../internal/metrics/gobgp.go).
 
-| Metric | Type | Labels | Description |
-|---|---|---|---|
-| `gobfd_bfd_sessions` | Gauge | `peer_addr`, `local_addr`, `session_type` | Currently active BFD sessions |
-| `gobfd_bfd_packets_sent_total` | Counter | `peer_addr`, `local_addr` | BFD Control and Echo packets transmitted |
-| `gobfd_bfd_packets_received_total` | Counter | `peer_addr`, `local_addr` | BFD Control and Echo packets received |
-| `gobfd_bfd_packets_dropped_total` | Counter | `peer_addr`, `local_addr` | Packets dropped (validation/buffer) |
-| `gobfd_bfd_state_transitions_total` | Counter | `peer_addr`, `local_addr`, `from_state`, `to_state` | FSM state transitions |
-| `gobfd_bfd_auth_failures_total` | Counter | `peer_addr`, `local_addr` | Authentication failures (RFC 5880 Section 6.7) |
-| `gobfd_bfd_control_rx_timing_total` | Counter | `outcome` | Completed Control packets by six fixed clock-validity outcomes |
-| `gobfd_bfd_control_rx_commit_seconds` | Histogram | none | Software kernel RX to normal owner completion; valid samples only |
-| `gobfd_bfd_timer_events_total` | Counter | `timer`, `event` | Fixed Control/Echo dispatch, effect, no-effect and invalid timing outcomes |
-| `gobfd_bfd_timer_delay_seconds` | Histogram | `timer`, `stage` | Scheduled timer firing to owner dispatch or qualifying effect; valid samples only |
-| `gobfd_bfd_socket_drop_samples_total` | Counter | `kind`, `outcome` | Consumed datagrams by fixed Control/Echo socket-drop validity outcomes |
-| `gobfd_bfd_socket_drops_total` | Counter | `kind` | Observed forward socket-drop increments within one counter epoch |
-| `gobfd_bfd_delivery_outcomes_total` | Counter | `source`, `outcome` | Fixed Control, Echo and notification stage decisions, retained after session deletion |
-| `gobfd_gobgp_rpc_errors_total` | Counter | `rpc` | Failed GoBGP API calls: `DisablePeer`, `EnablePeer`, `CheckCompatibility` (preflight) |
-| `gobfd_gobgp_endpoint_compatible` | Gauge | -- | 1 after the GoBGP v4 compatibility preflight passed, else 0 |
-| `gobfd_gobgp_dampening_penalty` | Gauge | `peer_addr` | Effective decayed flap penalty at scrape time |
-| `gobfd_gobgp_dampening_suppressed` | Gauge | `peer_addr` | 1 when recovery would still be held by dampening |
-| `gobfd_gobgp_dampening_suppression_deadline_seconds` | Gauge | `peer_addr` | Unix timestamp of the current maximum suppression bound; 0 when unsuppressed |
-| `gobfd_gobgp_pending_action` | Gauge | `peer_addr`, `action` | 1 for the unapplied desired action (`up` or `down`); 0 otherwise |
-| `gobfd_gobgp_pending_action_deadline_seconds` | Gauge | `peer_addr`, `action` | Unix timestamp of its next retry or suppression recheck; 0 when none |
+### Delivery ledger
 
-`gobfd_bfd_sessions` counts registered Control sessions, including Micro-BFD,
-VXLAN and Geneve; it excludes the separate Echo registry and does not mean
-sessions are Up. Echo nevertheless contributes TX/RX/drop and transition
-increments to the same metric families. These counters have no interface,
-discriminator or session-type label, so equal peer/local pairs aggregate
-across wires and modes. Use API status for individual wires and the fixed
-delivery ledger to distinguish Control and Echo stages. See
-[`Collector`](../../internal/metrics/collector.go),
-[`manager_echo.go`](../../internal/bfd/manager_echo.go) and
-[`echo.go`](../../internal/bfd/echo.go).
+Parser, TTL and unknown-peer refusals create no peer labels. The process-lifetime ledger preinitializes supported source/outcome pairs and survives last-session removal. Each stage has its own denominator: `queued` is not `committed`; summing stages does not produce packet loss.
 
-Timing outcomes cover `valid`, `unavailable`, `invalid`, `before_calibration`,
-`future` and `clock_step`. A missing sample is not zero latency. Rejected or
-queued packets are not owner commits. Overlay and legacy paths without kernel
-timing remain unavailable; clock revocation persists until listener recreation.
-See the [measurement boundary](14-performance-analysis.md#linux-receive-telemetry-boundary).
+Control demux reports `scope_mismatch` for wrong transport/interface and `ttl_rejected` for failed hop policy. Echo uses separate `echo_read`, `echo_parse`, `echo_ttl`, `echo_demux`, `echo_admission` and `echo_owner` sources. Zero Echo discriminators fail parsing. Ordinary canceled/closed reads are not read errors.
 
-Timer kinds are `control_tx`, `control_detection`, `echo_tx` and
-`echo_detection`. The fixed events are `dispatch`, `effect`, `no_effect`,
-`invalid_dispatch` and `invalid_effect`; histograms contain only valid
-`dispatch` and `effect` stages. A TX effect means successful transport return,
-not peer delivery. A detection effect means publication of timeout-caused Down,
-before logs, notifications and announcement transmission. Suppressed/failed
-sends and already-Down/AdminDown detection are `no_effect`; a panic or an
-in-flight handler may leave dispatch without a terminal event. Immediate
-non-timer actions do not enter these observations. See the
-[timer boundary](14-performance-analysis.md#timer-observation-boundary).
+Notification attempts use `control_notification`, `unsolicited_notification` and `echo_notification`. Dispatch distinguishes accepted, stale and shutdown-abandoned raw events. `watch_recipient` records each original event as queued/gapped; a coalesced GAP marker is not another original event. Public Control/Echo raw queue overflow invalidates revisioned subscribers, which must resnapshot. Legacy delivery remains best effort. Notification loss never increments packet-drop counters. ListSessions exposes sampled `delivery_counters`; snapshot revision does not atomically version those counters. Source: [delivery model](../../internal/bfd/delivery.go).
 
-Socket-drop kinds are `control` and `echo`; outcomes are `initial`, `sample`,
-`unavailable`, `invalid` and `ambiguous`. Fresh daemon sockets start at their
-known zero creation baseline. Existing/custom transports establish a baseline
-with their first known sample; that sample contributes no inferred loss.
-Rejected datagrams still supply telemetry, while ordinary I/O errors and
-timeouts supply no sample. Unavailable or invalid data never proves zero
-loss. See the [socket-drop boundary](14-performance-analysis.md#socket-drop-observation-boundary)
-for wrap, reset, ordering and final-marker limits.
+### Timing and socket loss
 
-Control-session registration initializes the four packet/auth counters at zero and caches their
-handles for active peer/local pairs. Shared registrations retain the handles
-until the last unregister. Historical counter series survive session removal;
-the active-handle cache does not retain retired pairs. Resetting or deleting
-vector series while their handles are active is unsupported.
+| Observation | Fixed values | Interpretation |
+|:---|:---|:---|
+| Receive timing outcome | `valid`, `unavailable`, `invalid`, `before_calibration`, `future`, `clock_step` | Histograms accept valid commits only |
+| Timer | `control_tx`, `control_detection`, `echo_tx`, `echo_detection` | Owner-specific observations |
+| Timer event | `dispatch`, `effect`, `no_effect`, `invalid_dispatch`, `invalid_effect` | Histograms include valid dispatch/effect |
+| Socket kind | `control`, `echo` | Separate consumed-datagram streams |
+| Socket outcome | `initial`, `sample`, `unavailable`, `invalid`, `ambiguous` | Only ordered samples contribute drop deltas |
 
-GoBGP per-peer metrics exist only with the integration enabled, for peers in
-the latest validated `sessions` configuration. The allowlist changes on accepted
-reloads; removed peers disappear on the next scrape, and invalid candidates
-preserve the previous allowlist. IPv4-mapped addresses are unmapped and
-duplicates are merged. API and unsolicited sessions do not create new metric
-labels. Each configured peer has seven samples across the five gauges,
-including zero-valued `up` and `down` action samples when idle.
+Missing samples do not mean zero latency/loss. Overlay/legacy transports without kernel timestamps report unavailable. Clock revocation persists until listener recreation. TX effect means successful transport return, not peer delivery. Detection effect means timeout-caused Down publication before logging/notifications. A panic/in-flight handler can leave dispatch without terminal observation. Fresh owned sockets start at known zero; existing/custom sockets establish a first-sample baseline without inferred historical loss. See [performance measurement boundaries](14-performance-analysis.md).
 
-Penalty and suppression are evaluated at scrape time using `half_life`,
-`reuse_threshold` and `max_suppress_time`. Once recovery suppression expires,
-the reported penalty is zero, as when the handler releases suppression.
-Observation does not change routing state or record a flap. The suppression
-deadline is `suppressed_since + max_suppress_time`; decay can release recovery
-earlier. This bound describes eligibility for recovery, not RPC completion.
+### GoBGP status
 
-Pending action and deadline reflect the last completed handler event or
-attempt. They cover transient RPC retries and a recovery held by dampening.
-The action deadline is the next scheduled attempt or recheck, and may be in
-the past while an RPC is in progress. It is neither the suppression bound nor
-a guarantee of successful application. Successful application, cancellation,
-session deletion or handler shutdown clears the pending action. AdminDown
-cancels a pending Down; an Up that re-enables a peer GoBFD disabled remains.
+Per-peer gauges exist only for integration-enabled peers in the accepted declarative `sessions` set. API/unsolicited input cannot create labels. Reload updates the allowlist; removed peers disappear on next scrape. IPv4-mapped peers normalize and deduplicate. Each peer produces seven samples across five gauges, including both idle action values.
 
-#### Label Values
+Penalty/suppression are evaluated at scrape time without changing routes. Maximum suppression bounds eligibility, not RPC completion. Pending intent reflects the last completed handler step; its deadline may be past while an RPC runs. Success, cancellation, deletion or shutdown clears intent. Source: [GoBGP status metrics](../../internal/metrics/gobgp.go).
 
-| Label | Example Values |
-|---|---|
-| `peer_addr` | `10.0.0.1`, `192.168.1.1`, `fd00::1` |
-| `local_addr` | `10.0.0.2`, `192.168.1.2`, `fd00::2` |
-| `session_type` | `SingleHop`, `MultiHop`, `MicroBFD`, `VXLAN`, `Geneve` |
-| `from_state` | `AdminDown`, `Down`, `Init`, `Up` |
-| `to_state` | `AdminDown`, `Down`, `Init`, `Up` |
+## Queries and alerts
 
-#### Example Queries
+These are illustrative PromQL expressions, not measured results:
 
 ```promql
-# Total active sessions
 sum(gobfd_bfd_sessions)
-
-# Packet rate per peer (5 minute window)
-rate(gobfd_bfd_packets_sent_total[5m])
-
-# Session flaps (Up -> Down transitions in last hour)
-increase(gobfd_bfd_state_transitions_total{from_state="Up", to_state="Down"}[1h])
-
-# Auth failure rate
+increase(gobfd_bfd_state_transitions_total{from_state="Up",to_state="Down"}[1m])
 rate(gobfd_bfd_auth_failures_total[5m])
-
-# Packet drop rate
-rate(gobfd_bfd_packets_dropped_total[5m])
+rate(gobfd_bfd_delivery_outcomes_total[5m])
 ```
 
-Transition counters cannot reconstruct current Up sessions. There is no
-per-session state gauge; read `local_state` from the CLI/API snapshot.
+The first query measures registrations, not Up sessions. Shipped [alert rules](../../deployments/integrations/observability/configs/prometheus/alert-rules.yml) define:
 
-### Grafana Dashboard
+| Alert | Condition | Hold |
+|:---|:---|---:|
+| `BFDNoActiveSessions` | Healthy exporter without positive registration series | `10s` |
+| `BFDExporterUnavailable` | Failed or absent `gobfd` scrape target | `10s` |
+| `BFDSessionDownTransition` | Up→Down increase over 1 minute | `0s` |
+| `BFDSessionFlapping` | More than 3 transitions over 5 minutes | `1m` |
+| `BFDAuthFailures` | Positive failure rate over 5 minutes | `30s` |
+| `BFDPacketDrops` | Positive admitted-peer drop rate over 5 minutes | `1m` |
 
-A pre-built Grafana dashboard is included at:
+An exporter with no sessions differs from an unreachable exporter. `BFDNoActiveSessions` evaluates all positive registration series, including Echo, although its shipped annotation says “Control sessions”; it is not a Control-only or Up-state test. A transition alert does not prove current Down state. Dashboard source: [Grafana JSON](../../deployments/integrations/observability/configs/grafana/dashboards/bfd.json).
 
-```text
-deployments/compose/configs/grafana/dashboards/bfd.json
+### Prometheus readback
+
+Use read access to the published API of one admitted observability lab and record its intended GoBFD target, rules and accepted peer/forwarding state. The following unexecuted commands only read API state and may be repeated; they create no resources and need no rollback. Inspect the API before fault injection:
+
+```sh
+curl -fsS http://localhost:9090/api/v1/targets
+curl -fsS http://localhost:9090/api/v1/rules
+curl -fsS http://localhost:9090/api/v1/alerts
 ```
 
-The dashboard provides:
+Require the intended GoBFD target with health `up` and no scrape error, all expected alert rules loaded, a firing transition alert during the admitted fault and an inactive rule after recovery. An empty target/rule response or HTTP 200 alone is insufficient. The [Prometheus HTTP API](https://prometheus.io/docs/prometheus/latest/querying/api/) defines these responses; the [Go-owned observability gate](11-integrations.md#observability) supplies assertions and exact-owned lifecycle.
 
-| Panel | Description |
-|---|---|
-| **Session Overview** | Active sessions and active sessions by peer; not peer-Up counts |
-| **Packet Rates** | TX/RX packet rates per peer |
-| **State Transitions** | Transition counters over the selected time window |
-| **Error Rates** | Auth failures, dropped packets |
+Stop before fault injection on a failed request, missing target/rule or unhealthy baseline. Perform mutations only through that gate or the [operational drill](16-production-runbooks.md) with its target, privileges and recovery path. If recovery fails, stop the drill, restore its recorded accepted configuration and peer/forwarding state, then repeat the target, rule and alert readbacks before acceptance. A successful readback does not authorize cleanup of unrelated resources.
 
-To import:
-1. Start the example stack: `podman compose -f deployments/compose/compose.yml up -d`
-2. Open Grafana at `http://localhost:3000` and use the deployment's configured credentials
-3. The dashboard auto-provisions from the JSON file
+## Logging, health and traces
 
-### Alerting Rules
+`log/slog` emits configured JSON/text at debug/info/warn/error levels. Record local/remote state, diagnostic, principal, reconciliation generation and pending resource errors as applicable. Keep peer addresses and traces within the operational evidence boundary.
 
-Recommended Prometheus alerting rules for BFD:
+Management health distinguishes service readiness from BFD Up. Unsafe anonymous loopback mutation mode forces `gobfd.management` to `NOT_SERVING`. GoBGP ambiguity/incompatibility and reconciliation failures require their own health checks; a successful metrics scrape cannot substitute.
 
-```yaml
-groups:
-  - name: gobfd
-    rules:
-      # Alert when no Control sessions are configured or dynamically active.
-      - alert: BFDNoActiveSessions
-        expr: (up{job="gobfd"} == 1) unless on(job, instance) (gobfd_bfd_sessions{job="gobfd"} > 0)
-        for: 10s
-        labels:
-          severity: warning
-        annotations:
-          summary: "No active BFD Control sessions"
+`grpc.flight_recorder` enables `/debug/flightrecorder` only on management listeners. Unix principals and authorized mTLS identities may obtain traces; anonymous callers remain denied even in unsafe mode. Store traces as sensitive artifacts and run analysis UIs on loopback. Sources: [management debug](../../cmd/gobfd/shutdown.go), [security](15-security.md), [observability drill](16-production-runbooks.md).
 
-      - alert: BFDExporterUnavailable
-        expr: (up{job="gobfd"} == 0) or absent(up{job="gobfd"})
-        for: 10s
-        labels:
-          severity: critical
-        annotations:
-          summary: "BFD metrics exporter unavailable"
-
-      # Alert on BFD session going Down.
-      - alert: BFDSessionDownTransition
-        expr: increase(gobfd_bfd_state_transitions_total{from_state="Up",to_state="Down"}[1m]) > 0
-        for: 0s
-        labels:
-          severity: critical
-        annotations:
-          summary: "BFD session {{ $labels.local_addr }} -> {{ $labels.peer_addr }} went Down"
-
-      # Alert on excessive session flapping.
-      - alert: BFDSessionFlapping
-        expr: sum by (peer_addr, local_addr) (increase(gobfd_bfd_state_transitions_total[5m])) > 3
-        for: 1m
-        labels:
-          severity: warning
-        annotations:
-          summary: "BFD session {{ $labels.local_addr }} -> {{ $labels.peer_addr }} is flapping"
-
-      # Alert on authentication failures
-      - alert: BFDAuthFailures
-        expr: rate(gobfd_bfd_auth_failures_total[5m]) > 0
-        for: 30s
-        labels:
-          severity: warning
-        annotations:
-          summary: "BFD auth failures from {{ $labels.peer_addr }}"
-
-      # Alert on high packet drop rate
-      - alert: BFDPacketDrops
-        expr: rate(gobfd_bfd_packets_dropped_total[5m]) > 0
-        for: 1m
-        labels:
-          severity: warning
-        annotations:
-          summary: "BFD packet drops for {{ $labels.peer_addr }}"
-```
-
-`BFDNoActiveSessions` selects each healthy scrape target in job `gobfd` that
-has no positive Control-session series, including a fresh or Echo-only daemon.
-Matching by `job, instance` keeps a populated daemon from hiding an empty one;
-zero-count retained series do not suppress the alert. The ten-second hold starts
-when the condition becomes true and resets when a session is registered.
-`BFDExporterUnavailable` separately reports failed scrapes or an entirely absent
-`gobfd` scrape job. Removing one target from a nonempty job requires an inventory
-alert; it cannot be inferred from absent telemetry alone. Federated deployments
-must include their cluster or tenant identity in matching when `job, instance`
-is not unique. See the Prometheus
-[operator](https://prometheus.io/docs/prometheus/latest/querying/operators/)
-and [function](https://prometheus.io/docs/prometheus/latest/querying/functions/)
-references. The shipped observability lab uses these expressions and runs the
-shared virtual-time fixtures with its pinned `promtool` before runtime checks.
-
-### Structured Logging
-
-Daemon structured logs use `log/slog`. CLI output and bridge protocol output
-are separate from logging.
-
-#### Log Levels
-
-| Level | Usage |
-|---|---|
-| `debug` | Authentication verification refusals and Poll completion |
-| `info` | Session state changes, daemon start/stop, config reload |
-| `warn` | Failed packet sends and notification queue overflow |
-| `error` | Packet encoding/signing failures and incomplete reconciliation |
-
-#### Structured Fields
-
-Example Control state-change record; transitions to Down also use INFO:
-
-```json
-{
-  "time": "2026-02-21T12:00:00.000Z",
-  "level": "INFO",
-  "msg": "session state changed",
-  "peer": "10.0.0.1",
-  "local_discr": 42,
-  "old_state": "Down",
-  "new_state": "Up",
-  "diag": "None"
-}
-```
-
-#### Runtime Log Level Change
-
-The log level can be changed at runtime without restart via SIGHUP:
-
-```bash
-# Edit config to set log.level: debug
-sudo vim /etc/gobfd/gobfd.yml
-
-# Reload
-sudo systemctl reload gobfd
-```
-
-For each valid startup or SIGHUP candidate, the coordinator emits one aggregate
-structured event: the INFO event `configuration reconciliation converged` only
-after all five sources converge, or the ERROR event `configuration
-reconciliation incomplete` for a stale generation. The configured logging
-threshold applies normally, so INFO convergence events are filtered at WARN or
-ERROR. Fields include `desired_generation`, `applied_generation`, `stale`,
-aggregate `pending`/`failed`, and per-source `created`, `released`, `pending`,
-`failed`, fixed `interface_pending`/`address_pending` presence flags, and bounded
-error-code counts. The flags describe resource classes, not counts or identities.
-Raw error text may appear only in that
-immediate event; it is not retained in the runtime snapshot or used as a label.
-
-Linux interface events update these same receipts without advancing the desired
-generation. Unavailable dependencies make readiness stale and sources pending;
-successful automatic retry can restore convergence. A transition from an absent
-interface to an unavailable address emits a new receipt at the same pending
-count. Convergence clears the flags; identical receipts emit no extra event.
-Netlink receive overflow logs a resync request; a full event
-channel retains that request until it can be delivered. Queue size is fixed,
-independent of event volume. The same retry opens a listener whose interface
-appears. Address events and resyncs also retry sources pending on an
-unassigned local address, including overlay backends, without changing session
-state. Non-Linux stubs do not auto-retry.
-
-### Flight Recorder
-
-`runtime/trace.FlightRecorder` captures a rolling window of execution traces for post-mortem debugging:
-
-| Parameter | Value |
-|---|---|
-| Configured minimum age (`MinAge`) | 500ms |
-| Configured buffer target (`MaxBytes`) | 2 MiB |
-
-`MaxBytes` takes precedence over `MinAge` and is a hint, not a bound on dump
-size or total recorder memory. See [`trace.FlightRecorderConfig`](https://pkg.go.dev/runtime/trace#FlightRecorderConfig).
-
-The flight recorder captures scheduling events, goroutine creation, GC pauses, and network I/O. On BFD session failure, the trace snapshot can be dumped for analysis with `go tool trace`.
-
-The HTTP dump is off by default. With `grpc.flight_recorder: true` it is served at
-`/debug/flightrecorder` on the management server, to callers with a principal only
-(the Unix socket, or an mTLS identity allowed by `grpc.mutating_identities`); anonymous
-loopback TCP callers get `403` even under `grpc.unsafe_loopback_mutations`. The
-metrics listener serves no debug endpoint:
-
-```bash
-curl --unix-socket /run/gobfd/gobfd.sock -o trace.out http://localhost/debug/flightrecorder
-go tool trace -http=127.0.0.1:0 trace.out
-```
-
-Treat trace files as sensitive data: they can contain process and network
-details. Keep the analysis HTTP server on loopback.
-
-### Endpoints
-
-| Endpoint | Port | Path | Description |
-|---|---|---|---|
-| Prometheus metrics | `127.0.0.1:9100` | `/metrics` | Prometheus scrape target |
-| gRPC API | `unix:///run/gobfd/gobfd.sock` | -- | ConnectRPC/gRPC API; optional TCP via `grpc.addr` |
-| gRPC Health | `unix:///run/gobfd/gobfd.sock` | `/grpc.health.v1.Health/Check` | Empty service is aggregate dataplane readiness; `bfd.v1` named services are component-derived |
-
-One aggregator writes the empty service and the `bfd.v1` named services. Each
-status is the AND of the components the service needs:
-
-| Service | Components |
-|---|---|
-| empty service | all components below |
-| `bfd.v1.BfdService` | base, VXLAN and Geneve reconciliation sources; runtime workers; control listener interfaces and local addresses, including unsolicited and API claims |
-| `bfd.v1.EchoService` | Echo reconciliation source; runtime workers; Echo listener interfaces and local addresses |
-| `bfd.v1.MicroBFDService` | Micro-BFD source (groups with their member sessions); runtime workers; member listener interfaces and local addresses |
-| `grpc.health.v1.Health` | none; always `SERVING` as the liveness signal |
-
-- A reconciliation source is ready when the latest desired generation has no
-  pending or failed entry in it. The empty aggregate and each dependent
-  `bfd.v1` service are `NOT_SERVING` before that source's first converged
-  generation and while its apply runs. Sender health is the sender creation
-  outcome recorded in the source receipt.
-- A device-bound listener interface is ready while it exists, is up and
-  running, and keeps the ifindex resolved before its latest bind. Link events
-  and inventory resyncs re-check it. A link down/up recovers. An interface
-  deleted and recreated under the same name is `NOT_SERVING` until the listener
-  owner rebinds the same socket to the new ifindex on that check; a failed
-  rebind, for example without `CAP_NET_RAW`, stays `NOT_SERVING` and is
-  retried (`03-configuration.md`, Hot Reload (SIGHUP)). Listeners closed by a
-  reload leave the binding set.
-- Required local addresses are checked for every owned listener, including
-  unbound and API-created listeners. Missing, IPv6-tentative or DAD-failed
-  addresses make the affected binding component `NOT_SERVING`. Wildcard
-  listeners do not depend on one assigned address. VXLAN and Geneve outer
-  local addresses are checked through their source receipts. An API-only
-  listener can clear binding readiness while configuration sources stay converged.
-- Runtime workers are the BFD dispatch loop and the control, Echo, Micro-BFD and
-  overlay receivers. A worker that returns while the daemon runs, for example a
-  receiver whose socket closed, sets the empty aggregate and `bfd.v1` services
-  `NOT_SERVING`, and the daemon drains sessions and exits with an error
-  (fail-stop) for systemd `Restart=on-failure`. Shutdown clears the same
-  readiness services; `grpc.health.v1.Health` remains `SERVING` while the
-  health endpoint is available.
-- Link and address events re-check listener dependencies; a 2 s periodic check
-  also covers all five sources with a disabled or stopped monitor. An interface
-  inventory read error retains previous binding bits; an address inventory
-  error clears the affected binding bit and fails the affected source. Failed
-  sources need an explicit valid SIGHUP after the cause is corrected.
-
-Deleting an active IPv4 or IPv6 address marks the affected source pending and
-the same generation stale; re-adding a usable address restores convergence
-automatically. Applied may still equal desired during this loss; inspect
-`stale`, `pending`, `failed` and health together. See the
-[reload availability boundary](03-configuration.md#hot-reload-sighup).
-Neither health nor systemd readiness proves peer reachability.
-
-`gobfd.management` is `NOT_SERVING` while `grpc.unsafe_loopback_mutations`
-is enabled, `SERVING` otherwise. The flag's transport requirements are
-described in [Security](15-security.md#connectrpc-api). With
-`gobgp.enabled`, the named check `gobfd.gobgp` is `NOT_SERVING` until the
-GoBGP v4 preflight passes, and after a failed preflight or a failed
-`DisablePeer`/`EnablePeer` until the next success; a BFD Down for a
-neighbor with more than one base session also sets it `NOT_SERVING` until
-the next success
-(`03-configuration.md`, Session Identity). `gobfd.gobgp` and
-`gobfd.management` stay outside the empty service, and LAG actuator health is
-not part of `bfd.v1.MicroBFDService`. systemd `READY=1` continues to describe
-process/listener startup rather than configuration convergence.
-
-### Related Documents
-
-- [03-configuration.md](./03-configuration.md) -- Metrics endpoint configuration
-- [06-deployment.md](./06-deployment.md) -- Production stack with Prometheus + Grafana
-- [04-cli.md](./04-cli.md) -- CLI monitor command for live events
-
----
-
-*Reviewed against `dev` source: 2026-10-25 (`49d8954479a172b311a8a05adb5e0714528c4116`); known readiness and receipt gaps remain explicit.*
+No monitoring or production drill is executed by this reference page.

@@ -14,6 +14,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/dantte-lp/gobfd/test/internal/benchreport"
+)
+
+var errCriticalBenchmarkRegression = errors.New(
+	"critical benchmark regression detected; review retained benchmark reports",
 )
 
 const (
@@ -112,12 +118,22 @@ func BenchmarkReport(ctx context.Context, options BenchmarkReportOptions) error 
 	if err := writeBenchmarkReportArtifacts(outputs, report, jsonReport, options.ReleaseContext); err != nil {
 		return err
 	}
+	return finishBenchmarkReport(options, report.comparison)
+}
+
+func finishBenchmarkReport(options BenchmarkReportOptions, comparison benchmarkComparison) error {
+	var summaryErr error
 	if !options.SkipStepSummary {
-		if err := appendBenchmarkSummary(options.StepSummary, report.comparison); err != nil {
-			return err
+		summaryErr = appendBenchmarkSummary(options.StepSummary, comparison)
+	}
+	var regressionErr error
+	for _, row := range comparison.ComparisonRows {
+		if row.RegressionClassification == "critical" {
+			regressionErr = errCriticalBenchmarkRegression
+			break
 		}
 	}
-	return writeBenchmarkWarnings(options.Warning, report.comparison)
+	return errors.Join(summaryErr, writeBenchmarkWarnings(options.Warning, comparison), regressionErr)
 }
 
 func validateBenchmarkInputs(root string, options BenchmarkReportOptions) error {
@@ -129,11 +145,16 @@ func validateBenchmarkInputs(root string, options BenchmarkReportOptions) error 
 	if newPathErr != nil {
 		return newPathErr
 	}
-	if _, err := readRegularFile(oldPath, "old benchmark input"); err != nil {
-		return err
-	}
-	if _, err := readRegularFile(newPath, "new benchmark input"); err != nil {
-		return err
+	for _, input := range []struct{ path, purpose string }{
+		{oldPath, "old benchmark input"}, {newPath, "new benchmark input"},
+	} {
+		data, err := readRegularFile(input.path, input.purpose)
+		if err != nil {
+			return err
+		}
+		if err := benchreport.ValidateGoInput(data); err != nil {
+			return fmt.Errorf("validate %s: %w", input.purpose, err)
+		}
 	}
 	return nil
 }
@@ -180,12 +201,11 @@ func runBenchstatReport(ctx context.Context, root string, options BenchmarkRepor
 		Name: "go", Args: append([]string(nil), baseArguments...), Dir: root,
 		Stdout: &textOutput, Stderr: &textOutput,
 	})
+	if textErr != nil {
+		return benchmarkReportData{}, fmt.Errorf("generate benchstat text: %w", textErr)
+	}
 	if textOutput.Len() == 0 {
-		if textErr != nil {
-			textOutput.WriteString("benchstat comparison failed\n")
-		} else {
-			return benchmarkReportData{}, fmt.Errorf("benchstat text output is empty: %w", errInvalidConfig)
-		}
+		return benchmarkReportData{}, fmt.Errorf("benchstat text output is empty: %w", errInvalidConfig)
 	}
 
 	var csvOutput bytes.Buffer
@@ -505,17 +525,30 @@ func writeBenchmarkWarnings(output io.Writer, comparison benchmarkComparison) er
 			continue
 		}
 		if !wroteHeader {
-			if _, err := io.WriteString(
+			if err := writeBenchmarkWarningLine(
 				output,
 				"::warning::Critical benchmark regression detected (>=10%). Review bench-report.md.\n",
+				"header",
 			); err != nil {
-				return fmt.Errorf("write critical benchmark warning header: %w", err)
+				return err
 			}
 			wroteHeader = true
 		}
-		if _, err := fmt.Fprintf(output, "%s,%s,%s\n", row.Name, row.Delta, row.Significance); err != nil {
-			return fmt.Errorf("write critical benchmark warning row: %w", err)
+		if err := writeBenchmarkWarningLine(output,
+			fmt.Sprintf("%s,%s,%s\n", row.Name, row.Delta, row.Significance), "row"); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+func writeBenchmarkWarningLine(output io.Writer, line, purpose string) error {
+	n, err := io.WriteString(output, line)
+	if err == nil && n < len(line) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		return fmt.Errorf("write critical benchmark warning %s: %w", purpose, err)
 	}
 	return nil
 }

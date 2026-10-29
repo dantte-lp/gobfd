@@ -1,32 +1,35 @@
 # Support
 
-## Support Channels
+## Request routing
 
-| Request type | Channel | Required information |
-|---|---|---|
-| Bug report | GitHub issue form | GoBFD version, OS, deployment mode, config excerpt, logs, reproduction steps |
-| Feature request | GitHub issue form | Use case, expected behavior, protocol or operational reference |
-| Documentation issue | GitHub issue form | Affected page, expected correction, source reference |
-| Security vulnerability | GitHub Security Advisory | Affected versions, impact, reproduction, mitigation |
+| Request | Channel | Required evidence |
+|:---|:---|:---|
+| Reproducible defect | [GitHub issue](https://github.com/dantte-lp/gobfd/issues/new/choose) | Commit/version, Linux/kernel, deployment, enabled profile, minimal configuration and reproduction |
+| Feature | [GitHub issue](https://github.com/dantte-lp/gobfd/issues/new/choose) | Operational use case, expected behavior and RFC/vendor source |
+| Documentation correction | [GitHub issue](https://github.com/dantte-lp/gobfd/issues/new/choose) | Page/anchor, conflicting source and proposed correction |
+| Vulnerability | [Private security advisory](https://github.com/dantte-lp/gobfd/security/advisories/new) | Follow [Security policy](SECURITY.md); do not use a public issue |
 
-## Unsupported Channels
+## Reproduction record
 
-- Security vulnerabilities are not handled in public issues.
-- Private support SLAs are not provided by this repository.
-- Operational consulting for third-party networks is outside repository support.
+1. Record the exact commit and component version. Identify `dev`, stable or
+   experimental scope; use the matching documentation.
+2. Reduce the configuration to the failing session/profile. Remove credentials
+   and private topology data before sharing it.
+3. Record expected and observed state, terminal status and relevant structured
+   logs. For timing defects, retain clock source, packet timestamps, CPU/memory
+   limits and both endpoints' negotiated intervals.
+4. Distinguish daemon state, client action and route state. Include a bounded
+   reproduction rather than an unqualified failover-time claim.
 
-## Compatibility Scope
+## Support boundaries
 
-| Area | Policy |
-|---|---|
-| Go version | See `go.mod` and CI configuration. |
-| Operating system | Linux is the production target for raw sockets and interface monitoring. |
-| Containers | Podman is the project validation environment. |
-| Public API | Pre-1.0 API stability follows Semantic Versioning rule 4. |
-| Releases | Supported version is the latest published release unless stated otherwise in `SECURITY.md`. |
+| Area | Contract |
+|:---|:---|
+| Runtime | Linux sockets and interface/backend behavior; see [Deployment](docs/en/06-deployment.md) |
+| Build | Repository-pinned compiler and Podman workflow; see [Development](docs/en/09-development.md) |
+| Equipment | A specific NOS/platform/profile requires evidence; see [Vendor references](docs/en/reference/vendor-bfd.md) |
+| API | Pre-1.0 compatibility and supported release-line contracts remain explicit |
+| Service | No private support SLA or third-party network consulting is provided |
 
-## References
-
-- Security policy: [SECURITY.md](./SECURITY.md)
-- Contributing rules: [CONTRIBUTING.md](./CONTRIBUTING.md)
-- Development workflow: [docs/en/09-development.md](./docs/en/09-development.md)
+[Contributing](CONTRIBUTING.md) defines change review and checks.
+[Maintainers](MAINTAINERS.md) defines decision ownership.

@@ -5,6 +5,10 @@ on:
     tags:
       - "v*"
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -106,6 +110,7 @@ jobs:
     permissions:
       contents: write
       packages: write
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -125,6 +130,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: go run ./test/cmd/cictl release-notes
+
+      - name: Verify merged release PR and bind its URL to release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: go run ./test/cmd/cictl release-pr-check
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -210,6 +220,7 @@ jobs:
         run: go run ./test/cmd/cictl release-verify
 
       - name: Promote verified OCI aliases
+        if: ${{ !contains(github.ref_name, '-') }}
         working-directory: .release-verifier
         env:
           RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}

@@ -52,6 +52,7 @@ func validatePeerHistory(peer PeerSessionObservation, profile Profile) error {
 
 func validOmissionWindowStart(window PeerBlackholeWindow, profile Profile, previous int64) bool {
 	return profile.BlackholeEvery > 0 && profile.BlackholeFor > 0 &&
+		(!profile.TXOnlyBlackhole || window.RXOmitted == 0) &&
 		window.StartNS >= int64(profile.BlackholeEvery) && window.StartNS%int64(profile.BlackholeEvery) == 0 &&
 		window.StartNS > previous
 }
@@ -147,12 +148,6 @@ func (d *omissionDirection) observe(segment PeerOmissionSegment, start, end, dur
 	return nil
 }
 
-type omissionCoverage struct {
-	count                 uint64
-	first, last, interval int64
-	sequence              uint64
-}
-
 func classifyOmissions(
 	owner OwnerWorkloadObservation, peers PeerObservation, peer PeerSessionObservation,
 	witness OwnerDownWitness, progress bool,
@@ -197,29 +192,11 @@ func conditionalOmissionCoverage(
 	if !receiveOK || !dueOK {
 		return downUnresolved, "receive/deadline projection overflow"
 	}
-	var coverage omissionCoverage
-	if reason := coverage.collect(owner, peers, window, witness, validatedUpper, dueUpper); reason != "" {
+	last, count, reason := controlOmissionInputs(owner, peers, window, witness, validatedUpper, dueUpper)
+	if reason != "" {
 		return downUnresolved, reason
 	}
-	firstLimit, firstOK := addNS(witness.Timing.ValidatedNS, coverage.interval)
-	lastLimit, lastOK := addNS(coverage.last, coverage.interval)
-	firstUpper, upperOK := addNS(coverage.first, peers.Phase.BracketNS)
-	if !firstOK || !lastOK || !upperOK || !coverage.coversDetection(witness.Timing.DetectionNS) ||
-		firstUpper > firstLimit || lastLimit < dueUpper {
-		return downUnresolved, "actual omission sequence does not cover the old receive-to-deadline model"
-	}
-	return downIntentional, "intentional only under the stated unchanged-transport and no-independent-fault assumptions"
-}
-
-func (c *omissionCoverage) coversDetection(detection int64) bool {
-	if c.interval <= 0 || detection <= 0 {
-		return false
-	}
-	required := detection / c.interval
-	if required < 1 || required > maxPeerOmissionTimes {
-		return false
-	}
-	return c.count >= uint64(required)
+	return classifyDeadlineExtension(last, count, witness.Timing.DetectionNS, dueUpper)
 }
 
 func uncontestedMeasurementProgress(owner OwnerWorkloadObservation) bool {
@@ -299,62 +276,105 @@ func committedMeasurementPackets(owner OwnerObservation) (uint64, bool) {
 	return count, found
 }
 
-func (c *omissionCoverage) collect(
+func controlOmissionInputs(
 	owner OwnerWorkloadObservation, peers PeerObservation, window PeerBlackholeWindow,
 	witness OwnerDownWitness, validatedUpper, dueUpper int64,
-) string {
+) (int64, uint64, string) {
+	var selection controlOmissionSelection
 	for _, segment := range window.Segments {
 		if segment.Direction != "tx" {
 			continue
 		}
-		for index, offset := range segment.OffsetsNS {
-			upper, valid := addNS(offset, peers.Phase.BracketNS)
-			if !valid {
-				return "omission projection overflow"
-			}
-			if upper <= witness.Timing.ValidatedNS || offset >= dueUpper {
-				continue
-			}
-			if offset <= validatedUpper || upper >= witness.Timing.DetectionDueNS {
-				return "omission interval intersects validated receive or actual due"
-			}
-			if !c.add(segment, index, owner, witness) {
-				return "omitted wire identity, negotiated interval or actual progress is unproven"
-			}
+		if reason := selection.observe(segment, owner.Config.Profile, witness,
+			validatedUpper, dueUpper, peers.Phase.BracketNS); reason != "" {
+			return 0, 0, reason
 		}
+	}
+	return selection.last, selection.count, ""
+}
+
+type controlOmissionSelection struct {
+	last    int64
+	count   uint64
+	expired bool
+}
+
+func (s *controlOmissionSelection) observe(
+	segment PeerOmissionSegment, profile Profile, witness OwnerDownWitness, validatedUpper, dueUpper, peerBracket int64,
+) string {
+	for _, offset := range segment.OffsetsNS {
+		wasExpired := s.expired
+		s.expired = s.expired || segment.State == bfd.StateDown
+		upper, valid := addNS(offset, peerBracket)
+		if !valid {
+			return "omission projection overflow"
+		}
+		if upper <= witness.Timing.ValidatedNS || offset >= dueUpper {
+			continue
+		}
+		up, reason := controlOmissionKind(segment, profile, witness)
+		if reason != "" {
+			return reason
+		}
+		if !up {
+			continue
+		}
+		if wasExpired {
+			return "actual Control Up follows expired Down inside the retained blackhole"
+		}
+		if offset <= validatedUpper || upper >= witness.Timing.DetectionDueNS {
+			return "restored Up interval intersects validated receive or actual due"
+		}
+		s.last, s.count = offset, s.count+1
 	}
 	return ""
 }
 
-func (c *omissionCoverage) add(
-	segment PeerOmissionSegment, index int, owner OwnerWorkloadObservation, witness OwnerDownWitness,
-) bool {
-	interval := max(int64(owner.Config.Profile.Interval), int64(segment.DesiredMinTXUS)*int64(time.Microsecond))
-	if !knownOmittedTX(segment, witness, interval) {
-		return false
+func controlOmissionKind(segment PeerOmissionSegment, profile Profile, witness OwnerDownWitness) (bool, string) {
+	if !knownControlOmissionIdentity(segment, witness) {
+		return false, "actual Control omission codec or peer identity is unproven"
 	}
-	offset, sequence := segment.OffsetsNS[index], segment.Sequences[index]
-	if c.count > 0 && (interval != c.interval || offset-c.last > interval || c.sequence == math.MaxUint64 ||
-		sequence != c.sequence+1) {
-		return false
+	switch segment.State {
+	case bfd.StateUp:
+		if !knownStableControlUp(segment, profile, witness) {
+			return false, "actual Control Up does not preserve the owner and stable timer tuple"
+		}
+		return true, ""
+	case bfd.StateDown:
+		if !knownWithheldControlDown(segment, profile) {
+			return false, "withheld Control Down is not the supported peer expiry packet"
+		}
+		return false, ""
+	case bfd.StateAdminDown, bfd.StateInit:
+		return false, "actual Control omission state is unsupported"
 	}
-	if c.count == 0 {
-		c.first, c.interval = offset, interval
-	}
-	c.last, c.sequence = offset, sequence
-	c.count++
-	return true
+	return false, "actual Control omission state is unknown"
 }
 
-func knownOmittedTX(segment PeerOmissionSegment, witness OwnerDownWitness, interval int64) bool {
+func knownControlOmissionIdentity(segment PeerOmissionSegment, witness OwnerDownWitness) bool {
 	slot := witness.Incarnation.Slot
 	if slot < 0 || slot >= sourcePortCapacity {
 		return false
 	}
-	return segment.Valid && segment.State == bfd.StateUp &&
+	return segment.Valid &&
 		segment.MyDiscriminator == uint32(slot)+1 &&
-		segment.MyDiscriminator == witness.Timing.ValidatedRemoteDiscriminator &&
-		segment.YourDiscriminator == witness.LocalDiscriminator &&
-		segment.DetectMult != 0 && interval > 0 && interval <= math.MaxInt64/int64(segment.DetectMult) &&
-		interval*int64(segment.DetectMult) == witness.Timing.DetectionNS
+		segment.MyDiscriminator == witness.Timing.ValidatedRemoteDiscriminator
+}
+
+func knownStableControlUp(segment PeerOmissionSegment, profile Profile, witness OwnerDownWitness) bool {
+	interval, multiplier := int64(profile.Interval), int64(segment.DetectMult)
+	return interval > 0 && multiplier > 0 && interval <= math.MaxInt64/multiplier &&
+		segment.YourDiscriminator == witness.LocalDiscriminator && segment.Diag == bfd.DiagNone &&
+		!segment.Poll && !segment.Final && segment.DetectMult == profile.DetectMultiplier &&
+		time.Duration(segment.DesiredMinTXUS)*time.Microsecond == profile.Interval &&
+		time.Duration(segment.RequiredMinRXUS)*time.Microsecond == profile.Interval &&
+		interval*multiplier == witness.Timing.DetectionNS
+}
+
+func knownWithheldControlDown(segment PeerOmissionSegment, profile Profile) bool {
+	slow := peerInitialTXUS * time.Microsecond
+	return segment.YourDiscriminator == 0 && segment.Diag == bfd.DiagControlTimeExpired && !segment.Final &&
+		time.Duration(segment.RequiredMinRXUS)*time.Microsecond == profile.Interval &&
+		time.Duration(segment.DesiredMinTXUS)*time.Microsecond == max(profile.Interval, slow) &&
+		segment.DetectMult == profile.DetectMultiplier && segment.Poll == (profile.Interval < slow)
 }

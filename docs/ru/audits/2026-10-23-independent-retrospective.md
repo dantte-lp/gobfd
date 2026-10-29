@@ -1,3 +1,7 @@
+# Независимый ретроспективный аудит — 2026-10-23
+
+Производная публикации; оригинал сохранён в Git-срезе `c5bcbfcb7e058a5a7f22b8a6811c8e4250963d50`, blob `7e843315955edc3fa547ed98b2f60019a2f11747`. Удалены только внутренние идентификаторы и служебная привязка владельцев; результаты, статусы, оценки и ограничения относятся к исходной дате. [Английская версия](../../en/audits/2026-10-23-independent-retrospective.md).
+
 **Итог:** выполнено; независимая сверка выявила шесть дефектов, полное соответствие контракту v1.0.0 не подтверждено.
 **От вас:** не требуется
 
@@ -5,10 +9,10 @@
 
 Период: 2026-02-20 — 2026-10-23. Проверенная реализация: `dev`,
 `f9ed31bdd81425ba4efaf9688bb452ddea142266`.
-Техническое задание: `docs/superpowers/specs/2026-08-18-gobfd-v1-production-contract-design.md`
+Техническое задание: [production contract](../reference/production-contract.md)
 с октябрьскими поправками. Прочитаны четыре ADR и их русские переводы.
 Источники требований отделены от исторических планов и датированных roadmaps.
-Исполнимые задачи, зависимости и критерии остаются исключительно в Beads.
+Документ фиксирует исторический результат, а не исполняемый план.
 
 Реестр охватывает 543 отслеживаемых Go-файла: 212 файлов без тестов и
 генерированного кода, 329 тестовых, два генерированных. Все 541 рукописных
@@ -22,7 +26,7 @@
 Ретроспектива развития:
 
 | Период | План и фактический результат | Проверяемая граница |
-|---|---|---|
+|:---|:---|:---|
 | 20–24 февраля | Основа: codec/FSM, sessions/timers, auth/netio, API/CLI и интеграции | Начальный план и история не доказывают production acceptance |
 | 19 августа | Введён отдельный production contract v1 | Stable/preview, ownership, security и измеряемая нагрузка стали самостоятельными требованиями |
 | Август–сентябрь | Канонические ключи, claims/leases, source reconciliation, точные overlay identities, Poll/Final | Реализованные компоненты отделены от wire-квалификации |
@@ -37,7 +41,7 @@
 а не результаты свежих Actions; удалённые изменения не выполнялись.
 
 | Сравнение деревьев | Коммиты после базы | Файлы | Добавлено строк | Удалено строк |
-|---|---:|---:|---:|---:|
+|:---|---:|---:|---:|---:|
 | Начальный коммит → проверенный `dev` | 757, из них 726 без merge | 806 | 235207 | 2987 |
 | Родитель первого production contract → проверенный `dev` | 623 | 705 | 132206 | 16743 |
 
@@ -51,7 +55,7 @@
 Сопоставление требований и реализации:
 
 | Область | Подтверждено исходниками и выбранными проверками | Остаток |
-|---|---|---|
+|:---|:---|:---|
 | RFC core | Одна FSM; взаимоисключение Poll/Final; bounded timer queue; monotonic commit-based detection | Полный RFC/wire/load gate; source-port/QoS и allocation boundaries уже имеют задачи |
 | Base ownership | Typed owners, canonical keys, lazy sender leases, source-scoped release, детальные receipts | Same-key mutation policy и взаимодействие старого drain с новым wire epoch |
 | Идемпотентность | Повтор Micro reconcile, shared base claims и concurrent Close проходят выбранные тесты | Echo Add создаёт дубликат; Echo Delete не изолирует principal |
@@ -97,8 +101,8 @@ Context7 использован для Go, golangci-lint и godbus; спорно
 - Конкретные кандидаты на повторное использование: `repositoryRoot` в
   `test/cmd/e2ectl/main.go` и `test/cmd/integrationctl/main.go`; последовательность
   write/sync/stat/close в `benchreport.finishTemporary` и
-  `routingartifacts.writePreparedOutput`. Они отнесены к существующему P2
-  `gobfd-qj0.8.2.8.6.1`, без приоритета перед выпуском.
+  `routingartifacts.writePreparedOutput`. Они отнесены к существующей P2
+  оценке переиспользования, без приоритета перед выпуском.
 - Base и Micro уже используют typed owner/lease инфраструктуру. Echo сохраняет
   отдельный compatibility lifecycle и не получает тех же гарантий. Это
   функциональный пробел переиспользования, подтверждённый diagnostic RED.
@@ -110,7 +114,7 @@ Context7 использован для Go, golangci-lint и godbus; спорно
 Это количество задач, а не процент готовности или оценка срока. P2/P3 и
 общие inventories не автоматически становятся обязательствами до v1.
 
-Release gate `gobfd-qj0.8.2.6` теперь явно зависит от шести новых defect tasks.
+Окончательная квалификация выпуска теперь явно зависит от шести новых defect tasks.
 Первый приоритет — устранение подмены transport principal. Остальные текущие
 блокеры не отменены: preview fail-closed, typed mutation policy, завершение
 UDP workload/clock accounting, A/B thread pinning, reference/engineering load,
@@ -124,7 +128,7 @@ UDP workload/clock accounting, A/B thread pinning, reference/engineering load,
 Локальные evidence сохранены под `reports/independent-retro-20261023/`.
 
 | Проверка | Результат | Доказательство |
-|---|---|---|
+|:---|:---|:---|
 | Независимая сверка ADR | 4 EN/RU пары, code/test mapping | `adr-delivery.txt` |
 | Позитивные critical regressions с race | 9 top-level, 19 с под-тестами; 0 FAIL | `critical-baseline01.log` |
 | Runtime/CLI vet | exit 0, без diagnostic errors | `vet01.log`, `critical-run01.log` |
@@ -140,16 +144,16 @@ Benchmarks измеряют отдельные функции на linux/amd64, 
 ## Неуспешно
 
 | № | Требование и нарушение | Доказательство | Статус | Дальше |
-|---|---|---|---|---|
-| Н1 | P0: TLS identity принимается за привилегированный Unix UID | `internal/server/principal.go:72`, `critical-red02.log` | задача | `gobfd-qj0.8.2.3.5` |
-| Н2 | P1: startup contract пропускает отзыв anonymous mutation policy | `cmd/gobfd/startup_contract.go:185`, diagnostic RED | задача | `gobfd-qj0.8.2.3.6` |
-| Н3 | P1: Echo допускает cross-owner Delete и повторную wire identity на одинаковом Add | `internal/server/echo.go:115`, два diagnostic RED | задача | `gobfd-qj0.8.2.2.8` |
-| Н4 | P1: NetworkManager использует active/cached профиль другого bond | `internal/netio/lag_networkmanager.go:142`, три diagnostic RED | задача | `gobfd-qj0.8.2.2.9` |
-| Н5 | P1: NM property reads обходят actuator context/deadline | `internal/netio/lag_networkmanager.go:310`, upstream v5.2.2 source | задача | `gobfd-qj0.8.2.2.10` |
-| Н6 | P1: proto guard пропускает новые untracked generated-файлы | `test/internal/cirunner/proto.go:68`, isolated Git fixture | задача | `gobfd-qj0.8.2.8.7.3.3.1` |
-| Н7 | Не доказана безопасность same-key replacement при незавершённом старом drain | `internal/bfd/manager_claim_drain_test.go:215`, source-only observation | задача | `gobfd-qj0.8.2.1.3.12` |
-| Н8 | Timer addendum противоречит принятому immediate non-Up поведению | Timer addendum:53–55, `internal/bfd/session_update.go:192` | задача | `gobfd-qj0.8.2.8.7.2` |
-| Н9 | Reference envelope и окончательная release qualification не завершены | ТЗ:443–480, действующие открытые Beads | задача | `gobfd-qj0.8.2.6` |
+|:---|:---|:---|:---|:---|
+| Н1 | P0: TLS identity принимается за привилегированный Unix UID | `internal/server/principal.go:72`, `critical-red02.log` | задача | изоляция transport principal |
+| Н2 | P1: startup contract пропускает отзыв anonymous mutation policy | `cmd/gobfd/startup_contract.go:185`, diagnostic RED | задача | startup-only политика loopback mutations |
+| Н3 | P1: Echo допускает cross-owner Delete и повторную wire identity на одинаковом Add | `internal/server/echo.go:115`, два diagnostic RED | задача | claims principal в Echo |
+| Н4 | P1: NetworkManager использует active/cached профиль другого bond | `internal/netio/lag_networkmanager.go:142`, три diagnostic RED | задача | владение bond в NetworkManager |
+| Н5 | P1: NM property reads обходят actuator context/deadline | `internal/netio/lag_networkmanager.go:310`, upstream v5.2.2 source | задача | ограниченные чтения свойств NetworkManager |
+| Н6 | P1: proto guard пропускает новые untracked generated-файлы | `test/internal/cirunner/proto.go:68`, isolated Git fixture | задача | обнаружение новых generated-файлов |
+| Н7 | Не доказана безопасность same-key replacement при незавершённом старом drain | `internal/bfd/manager_claim_drain_test.go:215`, source-only observation | задача | квалификация same-key replacement |
+| Н8 | Timer addendum противоречит принятому immediate non-Up поведению | Timer addendum:53–55, `internal/bfd/session_update.go:192` | задача | исправление контракта документации |
+| Н9 | Reference envelope и окончательная release qualification не завершены | ТЗ:443–480, открытая квалификация | задача | окончательная квалификация выпуска |
 
 Н1 требует сертификата, выданного доверенной CA; случайный недоверенный
 сертификат TLS не принимается. Diagnostic использует verified-chain fixture,
@@ -163,14 +167,14 @@ startup-field; последствия reload подтверждаются пут
 
 Исправления runtime в рамках аудита не применялись. Диагностические тесты
 предназначены для воспроизведения дефектов, а не для постоянного принятия
-неверного поведения. Полные входы и дальнейшие критерии сохранены в Beads.
+неверного поведения. Полные входы и критерии сохранены в исходных материалах аудита.
 
 ## Ошибки и предупреждения
 
 | № | Источник | Суть | Статус | Дальше |
-|---|---|---|---|---|
-| О1 | `pkg/bfdpb/bfd/v1/bfd.pb.go:17` | Generated protobuf использует unsafe; абсолютный запрет не описывает фактическую границу | задача | Уточнить контракт в `gobfd-qj0.8.2.8.7.2` |
-| О2 | Полная квалификация | Не запускались full race suite, все 19 lint profiles, live interop, vulnerability/Buf breaking и 24h load | принято | Аудит не заменяет `gobfd-qj0.8.2.6` и `gobfd-qj0.8.2.7` |
+|:---|:---|:---|:---|:---|
+| О1 | `pkg/bfdpb/bfd/v1/bfd.pb.go:17` | Generated protobuf использует unsafe; абсолютный запрет не описывает фактическую границу | задача | Уточнить контракт документации |
+| О2 | Полная квалификация | Не запускались full race suite, все 19 lint profiles, live interop, vulnerability/Buf breaking и 24h load | принято | Аудит не заменяет окончательную квалификацию выпуска и независимую проверку кандидата |
 | О3 | Незавершённые рабочие деревья | UDP, Echo port и bond worktrees не включены в принятую реализацию `dev` | принято | Их исходники и receipts сохранены отдельно; квалификация по собственным задачам |
 
 Не проверены полностью runtime kernels, все target architectures и внешние

@@ -1,161 +1,104 @@
-# BGP Fast Failover Integration
+# BGP fast failover
 
-This example demonstrates GoBFD driving GoBGP peer control while peering with
-FRR. It is a generic lab topology for validating BFD-assisted route withdrawal;
-it does not encode vendor-specific or private network assumptions.
+This owned FRR/GoBGP lab checks route withdrawal and restoration driven by GoBFD. The source example does not establish stable-release acceptance or production forwarding continuity. English references: [integrations](../../../docs/en/11-integrations.md), [runbook](../../../docs/en/16-production-runbooks.md). Russian references: [интеграции](../../../docs/ru/11-integrations.md), [регламент](../../../docs/ru/16-production-runbooks.md).
 
-This is a lab procedure for current `dev` source, not a fresh execution receipt
-or stable-release acceptance. Final-candidate qualification and publication
-authorization remain separate. Русские руководства:
-[интеграции](../../../docs/ru/11-integrations.md#быстрое-переключение-bgp) и
-[эксплуатационная проверка](../../../docs/ru/16-production-runbooks.md#проверка-быстрого-переключения-bgp).
+## Topology and policy
 
-## Topology
-
-| Component | Address | Role |
-|---|---|---|
-| GoBFD | `172.22.0.10` | BFD daemon and GoBGP integration client |
-| GoBGP | `172.22.0.10` | eBGP speaker, AS 65001, shared network namespace with GoBFD |
-| FRR | `172.22.0.20` | eBGP peer, AS 65002, `bgpd` + `bfdd` |
-| tshark | shared with GoBFD | Packet capture for RFC-visible verification |
-
-FRR announces `10.20.0.0/24` to GoBGP. GoBFD monitors FRR with a single-hop
-BFD session and uses the GoBGP integration strategy `disable-peer` when the
-session goes Down.
-
-FRR 10.7.1 and GoBGP v4.10.0 use the shared Debian trixie recipes in
-`test/interop/frr/` and `test/interop/gobgp/`. GoBGP v4.10.0 is built from
-upstream commit `da824d99912e02124b53741245ee4186c381adcc` with Go 1.27.3.
-GoBFD on `dev` requires a GoBGP v4 daemon; a GoBGP v3 daemon is
-wire-incompatible. This example does not enable GoBGP native BFD; GoBFD owns
-the BFD session. Builds are limited to 2 CPUs and 2 GiB;
-each runtime container is limited to 1 CPU, 256 MiB and 128 PIDs.
-
-The configured management TCP listener is loopback-only `127.0.0.1:50052`;
-the default Unix management socket remains available inside GoBFD. Sharing
-GoBFD/GoBGP networking does not share the socket filesystem path. The lab
-metrics listener is `:9100` without authentication; keep this network isolated.
-
-## RFC Baseline
-
-The packet-level expectations are intentionally small and observable:
-
-| Check | Expected value | Source |
-|---|---|---|
-| UDP destination port | `3784` | RFC 5881 single-hop BFD |
-| UDP source port | `49152-65535` | RFC 5881 dynamic source port range |
-| TTL / Hop Limit | `255` | RFC 5881 GTSM-style single-hop protection |
-| Detect multiplier | `3` | Example configuration |
-| Desired min TX / required min RX | `300ms / 300ms` | Example configuration |
-| Detection target | about `900ms` plus scheduling jitter | RFC 5880 detection-time calculation |
-
-The demo pauses the FRR container, so the observed withdrawal time also includes
-container scheduling, GoBFD event handling, GoBGP gRPC handling, and BGP RIB
-update latency.
-
-## Run
-
-First follow the pinned [Compose-provider setup](../../../docs/en/06-deployment.md#podman-compose),
-render the selected Compose file and admit resources. The manual topology uses
-fixed container names and `172.22.0.0/24`, which overlaps the RFC interop lab.
-Do not run those networks concurrently on the same Podman engine. The selected
-build and runtime limits are source contracts, not measured resource admission.
-
-Use the authoritative Go testcontainers gate for automated validation. It
-writes packet, container, and JSON test evidence under
-`reports/e2e/bgp-fast-failover/run.*/` and removes its exact test-owned
-resources:
-
-```bash
-make int-bgp-failover
+```mermaid
+flowchart LR
+  accTitle: Owned BGP fast-failover lab
+  accDescr: GoBFD and GoBGP share a network namespace, FRR is the BFD and eBGP peer, and tshark observes traffic; GoBFD state drives the separate GoBGP actuator.
+  subgraph local["Shared network namespace"]
+    bfd["GoBFD"]:::srv
+    bgp["GoBGP<br/>AS 65001"]:::brt
+    cap["tshark"]:::mgt
+  end
+  frr["FRR<br/>AS 65002"]:::brt
+  bfd -->|"UDP 3784"| frr
+  bgp -.->|"eBGP"| frr
+  bfd -.-> bgp
+  cap -.-> bfd
+  classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
+  classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
+  classDef brt fill:#fff3e0,stroke:#bf360c,color:#000
 ```
 
-The operational Compose example uses the ownership-checked Go controller,
-sequential capped builds and startup without implicit builds. Its packet
-capture stays in container storage; copy it before `-down` if needed:
+GoBFD exchanges Control packets with FRR and reports state to GoBGP. The BGP
+session and packet capture remain separate from the BFD session owner.
 
-```bash
+| Endpoint | Address | Contract |
+|:---|:---|:---|
+| GoBFD + GoBGP | `172.22.0.10` | Shared network namespace; filesystem/socket path remains container-local |
+| FRR | `172.22.0.20` | BGP/BFD peer, advertises `10.20.0.0/24` |
+| Lab network | `172.22.0.0/24` | Gateway `172.22.0.1`; overlaps RFC interop lab |
+| Management TCP | `127.0.0.1:50052` | Plaintext read-only; Unix socket remains available |
+| Metrics | `:9100` | Unauthenticated lab listener |
+
+Sources: [Compose](compose.yml), [GoBFD config](gobfd/gobfd.yml), [GoBGP config](gobgp/gobgp.toml), [FRR config](frr/frr.conf).
+
+The source recipes under [FRR](../../../test/interop/frr/Containerfile) and [GoBGP](../../../test/interop/gobgp/Containerfile) own build identities. The current daemon requires GoBGP v4 API; native GoBGP BFD remains disabled for GoBFD-managed peers. Each manual runtime container is limited to one CPU, 256 MiB and 128 PIDs; source limits are not measured resource admission. The lab grants network capabilities and FRR additionally receives `SYS_ADMIN`; preserve isolation.
+
+## Packet contract
+
+| Field | Expected | Source |
+|:---|:---|:---|
+| UDP destination | `3784` | [RFC 5881](https://www.rfc-editor.org/rfc/rfc5881.html) |
+| UDP source | `49152–65535` | RFC 5881 |
+| TTL/Hop Limit | `255` | RFC 5881 |
+| BFD version | `1` | [RFC 5880](https://www.rfc-editor.org/rfc/rfc5880.html) |
+| TX/RX, Detect Mult | `300ms/300ms`, `3` | Checked-in GoBFD/FRR configuration |
+
+The symmetric configured detection interval is approximately 900 ms before scheduling/consumer delay. Negotiated values and measured withdrawal latency must be read separately. Pausing FRR also pauses its BGP/control processing; this fault is not a pure data-plane blackhole.
+
+## Automated gate
+
+1. Admit local Podman resources and follow [provider setup](../../../docs/en/06-deployment.md#podman-compose).
+2. Ensure fixed-name manual labs and overlapping subnets are absent.
+3. Run the Go-owned assertion lifecycle.
+
+```sh
+make int-bgp-failover-testcontainers
+```
+
+`make int-bgp-failover` aliases the same target. The [test](../../../test/e2e/bgp-failover/testcontainers_test.go) builds/starts owned resources, waits for exact neighbor Established and route presence, captures packets, pauses FRR, requires route absence within 20 seconds, unpauses FRR and requires route restoration. Evidence is retained under `reports/e2e/bgp-fast-failover/run.*/`, including JSON/container/packet observations. The lifecycle cleans its exact owned test resources.
+
+The assertions do not directly time GoBFD Down to 900 ms, prove all RFC fields, qualify hardware offload or measure independent forwarding continuity.
+
+## Manual inspection
+
+Use the ownership-checked Go controller only after resource admission. Preserve captures before approved teardown.
+
+```sh
 make int-bgp-failover-up
 podman exec gobgp-bgp-failover gobgp neighbor
 podman exec gobgp-bgp-failover gobgp global rib
 podman exec gobfd-bgp-failover gobfdctl session list
-# Optional: follow logs in a separate terminal.
-# make int-bgp-failover-logs
+podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd
 ```
 
-After retaining the required evidence, use `make int-bgp-failover-down` only
-for the verified owned topology and with the required deletion approval.
+Require BFD Up, BGP Established and exact route `10.20.0.0/24` before failure testing. Keep detailed packet evidence in restricted storage. `make int-bgp-failover-logs` follows the owned topology. `make int-bgp-failover-down` removes owned resources; perform it only after retaining evidence and obtaining required deletion approval. Do not start the automated gate while the manual topology owns fixed names.
 
-## Failure Drill
+### Packet field readback
 
-The Go testcontainers gate performs this sequence:
-
-1. Build and start the topology.
-2. Wait for the GoBGP to FRR eBGP session to establish.
-3. Verify that `10.20.0.0/24` is present in the GoBGP RIB.
-4. Capture BFD packets with tshark.
-5. Pause FRR to stop BFD and BGP control-plane progress.
-6. Require the exact route to disappear from the GoBGP RIB within the test's 20-second bound.
-7. Unpause FRR and verify route restoration.
-
-The gate directly asserts GoBGP neighbor/RIB state; it does not directly query
-GoBFD Down or measure a 900 ms detection bound. Packet capture retention also
-does not establish forwarding continuity or the full RFC matrix. Source:
-[`testcontainers_test.go`](../../../test/e2e/bgp-failover/testcontainers_test.go).
-Use the existing Go-owned lifecycle for the failure sequence. Stop the
-verified owned manual topology first to release its fixed names:
-
-```bash
-make int-bgp-failover-down
-make int-bgp-failover
-```
-
-## Packet Verification
-
-Inspect the capture rather than relying only on log messages:
-
-```bash
+```sh
 podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd \
-  -T fields \
-  -e frame.time_relative \
-  -e ip.src \
-  -e ip.dst \
-  -e udp.srcport \
-  -e udp.dstport \
-  -e ip.ttl \
-  -e bfd.version \
-  -e bfd.diag \
-  -e bfd.sta \
-  -e bfd.detect_time_multiplier \
-  -e bfd.desired_min_tx_interval \
-  -e bfd.required_min_rx_interval \
-  -E header=y \
-  -E separator=,
+  -T fields -e frame.time_relative -e ip.src -e ip.dst \
+  -e udp.srcport -e udp.dstport -e ip.ttl \
+  -e bfd.version -e bfd.diag -e bfd.sta \
+  -e bfd.detect_time_multiplier -e bfd.desired_min_tx_interval \
+  -e bfd.required_min_rx_interval -E header=y -E separator=,
 ```
 
-Expected single-hop values:
+Compare destination/source ports, TTL, version and negotiated timer fields with the packet contract above. Correlate both directions and the exact failure/recovery interval. Require Down/Init/Up transitions and distinguish protocol Detection Time from subsequent client/RIB latency. The retained capture does not establish independent data-plane continuity.
 
-- `udp.dstport` is `3784`.
-- `udp.srcport` is in `49152-65535`.
-- `ip.ttl` is `255`.
-- `bfd.version` is `1`.
-- The state progresses from Down/Init to Up, then back to Down during failure.
+## Failure checks
 
-## Troubleshooting
+| Symptom | Check | Required result |
+|:---|:---|:---|
+| BGP absent | Neighbor output and FRR logs | Exact peer Established |
+| Initial route absent | FRR network/Null0 route and GoBGP RIB | Exact prefix present |
+| No BFD | Source/local/interface bindings, capabilities, capture | Bidirectional valid Control |
+| No withdrawal | GoBGP compatibility, canonical BFD owner and pending-action status | Route absent under admitted fault |
+| No recovery | FRR unpaused, BFD/GoBGP state and dampening | Route restored and independent probe succeeds |
 
-| Symptom | Check |
-|---|---|
-| BGP never establishes | `podman exec gobgp-bgp-failover gobgp neighbor` and FRR logs |
-| Route is missing before failure | FRR `network 10.20.0.0/24` and static Null0 route |
-| BFD packets are absent | GoBFD config, `NET_RAW` capability, and tshark capture sidecar |
-| Route remains after failure | GoBFD GoBGP address, `disable-peer` strategy, and GoBGP gRPC reachability |
-| Recovery is slow | FRR unpause status, BFD Up transition, and BGP neighbor state |
-
-## Public Vendor Notes
-
-Optional vendor verification notes are kept outside the runnable topology:
-
-- [Arista EOS verification note](vendor-notes/arista-eos.md)
-
-The example itself remains FRR/GoBGP based so it can run locally without access
-to vendor hardware or a dedicated lab.
+Official vendor semantics remain separate: [four-vendor guide](../../../docs/en/reference/vendor-bfd.md), [EOS note](vendor-notes/arista-eos.md).

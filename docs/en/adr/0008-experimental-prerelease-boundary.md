@@ -1,62 +1,52 @@
 # ADR-0008: Experimental prerelease boundary
 
+[Russian translation](../../ru/adr/0008-experimental-prerelease-boundary.md).
+
 | Field | Value |
-|---|---|
-| Status | Proposed; no publication authorization |
-| Date | — |
+|:---|:---|
+| Status | Accepted policy; candidate qualification and publication separate |
+| Date | 2026-10-30 |
 
 ## Context
 
-The requested `v1.0.0-alpha.1` is an experimental delivery milestone. Stable
-acceptance includes unfinished implementation and qualification, beyond the
-24-hour run. Current release preflight and release notes deliberately accept
-canonical stable tags only; a prerelease cannot use that path unchanged.
+An experimental `v1.0.0-alpha.1` exposes implemented behavior before stable v1 qualification is complete. The maintainer authorizes this prerelease channel on 2026-10-30. The authorization covers its reviewed delivery path and does not waive stable acceptance or authorize unrelated remote changes.
+
+[SemVer §9](https://semver.org/spec/v2.0.0.html#spec-item-9) identifies a prerelease as unstable. A version suffix does not establish protocol conformance, supported scale or deployment compatibility. The [RFC matrix](../08-rfc-compliance.md) and exact-candidate evidence define those boundaries.
 
 ## Decision
 
-Propose a separate prerelease channel with explicit experimental scope and
-known limitations. Prerelease status does not establish supported scale,
-stable API compatibility, complete RFC coverage or production readiness.
-Functional and security failures remain blocking within the advertised alpha
-scope. Beads `gobfd-qj0.8.2.6.4` owns the executable acceptance and delivery
-plan; stable gates remain in their existing tasks.
+Accept only canonical `v1.0.0-alpha.N` tags for the experimental channel, where `N` is a positive decimal integer without leading zeroes. Bind each annotated, immutable tag to the exact reviewed HEAD of `release/v1.0`. Keep stable tag validation and qualification requirements unchanged.
 
-Keep stable tag validation and stable OCI alias promotion unchanged. A future
-prerelease path must identify its channel explicitly, retain reviewed release
-branch and immutable tag ownership, verify draft assets before publication,
-and avoid promoting stable aliases. Continue development on `dev` until the
-alpha candidate and its dedicated checks are complete. The existing remote
-delivery hold remains in force; this proposal creates no tag, draft or asset.
+| Stage | Owner and requirement |
+|:---|:---|
+| Release proposal | Release Please creates a release PR only; `skip-github-release: true` prevents a second tag/release owner |
+| Release record | The reviewed PR updates the version manifest and both curated, dated changelog sections; preserve published history and link real contributing PRs |
+| Tag authorization | The maintainer pushes the reviewed annotated tag after merge and required checks; never move, delete or reuse it |
+| Draft creation | GoReleaser builds versioned products and a GitHub prerelease draft; primary upload remains disabled until package finalization |
+| Independent verification | Validate exact source, merged release PR, notes, 12 assets, checksums, SBOMs and versioned OCI evidence before publication |
+| Publication | Publish with `--prerelease --latest=false`; leave stable GitHub latest and OCI aliases unchanged |
 
-Run long qualification independently of an interactive SSH session on an
-owned VM in the authorized `um-gate/netlab2` contour. VM provisioning belongs
-to `um-iac` through an isolated Pulumi stack with a reviewed preview. Actual
-guest resource, clock, source and binary admission precedes workload execution;
-hypervisor capacity alone is insufficient. Retain logs, terminal status and
-evidence after completion. Final qualification names the exact post-fix source;
-a baseline run on an older candidate is diagnostic evidence.
+[Release Please](https://github.com/googleapis/release-please-action/blob/45996ed1f6d02564a971a2fa1b5860e934307cf7/README.md) owns the proposal, not publication. The maintainer tag push triggers the existing release workflow; a tag written with `GITHUB_TOKEN` is not assumed to trigger another workflow. [GitHub's event rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow) define this boundary.
+
+The alpha path shares stable artifact and identity checks. `release-pr-check` validates the merged release PR's base, merge commit, manifest version and both changelog headings, then appends its verified URL to release notes. `release-promote` rejects alpha. Alpha publication rechecks versioned OCI identities instead of requiring stable aliases to point to the candidate.
+
+Functional or security failures in the advertised alpha scope block publication. Require exact-candidate builds, critical protocol/authentication/reload/management regressions, a fresh dependency-security disposition, package lifecycle checks and complete verified draft evidence. Record remaining limitations in both changelogs and the release body; acceptance of this policy is not a passing result.
+
+## Alternatives
+
+Retaining a stable-only path prevents an experimental release while final qualification continues. Making Release Please create the release as well as GoReleaser creates competing tag/draft ownership. Publishing alpha through stable alias promotion changes the stable delivery channel. The separate PR-only proposal and verified prerelease publication avoid those conflicts.
 
 ## Consequences
 
-The original pinned Control and Echo candidate retained its OS threads. At least
-1,000 Control threads cannot meet the stable reference bound of 48 threads.
-Moving that candidate to a VM does not resolve this implementation gap.
-An alpha must disclose any retained limitations; a 25% CPU fixture is not
-evidence for the approved 80% reference workload or 24-hour acceptance.
+Alpha does not establish stable API compatibility, supported session scale, complete RFC coverage or production readiness. Strict CPU-window acceptance, native Control/Echo A/B, calibrated reference distributions, the 24-hour run and final wire qualification remain separate stable conditions. A short fixture or an aggregate CPU percentage cannot substitute for those measurements.
 
-### Local source integration — 2026-10-28
+The original pinned Control/Echo candidate could not meet the 48-thread reference bound with 1000 owners. The maintainer's local consolidation instruction of 2026-10-28 separately authorizes source integration removing permanent owner pins. This does not close native A/B, the 48-thread bound, 24-hour operation or final wire gates. Retain the conservative PID budget from [ADR-0007](0007-workload-phase-accounting.md) until measured revision.
 
-The maintainer requested consolidation of local changes into `dev`. Permanent
-Control/Echo owner pins are removed in that source integration. Native A/B,
-the 48-thread reference bound, 24-hour operation and final wire qualification
-remain open in Beads. The conservative baseline PID budget remains unchanged.
+Run long qualification independently of interactive SSH in the separately authorized environment. Bind guest resources, clocks, source and binary to retained logs and the terminal result. Alpha delivery neither closes that work nor changes the latest accepted stable state on `master`.
 
 ## References
 
-- [Control owner loop](../../../internal/bfd/session_loop.go)
-- [Echo owner loop](../../../internal/bfd/echo.go)
-- [Stable release preflight](../../../test/internal/cirunner/release_preflight.go)
-- [Stable release notes validation](../../../test/internal/cirunner/release_notes.go)
-- [SemVer prerelease semantics](https://semver.org/spec/v2.0.0.html#spec-item-9)
-- [Workload accounting boundary](./0007-workload-phase-accounting.md)
-- [Dated status projection](../roadmap.md)
+- [Release guide](../10-changelog.md), [automation contract](../reference/automation.md).
+- [GoReleaser release configuration](https://github.com/goreleaser/goreleaser/blob/main/www/content/customization/publish/scm/_index.md).
+- [Control owner](../../../internal/bfd/session_loop.go), [Echo owner](../../../internal/bfd/echo.go).
+- [Workload accounting](0007-workload-phase-accounting.md), [dated roadmap projection](../roadmap.md).

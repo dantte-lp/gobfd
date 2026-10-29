@@ -1,33 +1,30 @@
 # Maintainers
 
-## Current Maintainers
+## Authority
 
-| GitHub user | Role | Scope |
-|---|---|---|
-| `@dantte-lp` | Owner | Repository administration, releases, security advisories, final merge authority |
+| Account | Responsibility |
+|:---|:---|
+| `@dantte-lp` | Repository administration, release authority, security disclosure and final merge decision |
 
-## Review Ownership
+Maintainer changes require explicit approval by an existing maintainer.
+Sustained contributions to protocol correctness, operations, security or
+documentation establish the review basis; contribution count alone does not
+assign release authority.
 
-| Path | Primary review focus |
-|---|---|
-| `api/`, `pkg/bfdpb/` | Public API compatibility, protobuf generation, Buf gates |
-| `cmd/` | CLI behavior, daemon entrypoints, package documentation |
-| `internal/bfd/` | RFC 5880/5881 protocol correctness, timers, authentication |
-| `internal/netio/` | Linux sockets, overlay transports, interface monitoring |
-| `internal/server/` | ConnectRPC/gRPC API, request validation |
-| `deployments/`, `.github/` | Packaging, CI, security scans, repository automation |
-| `docs/`, `README.md`, `CHANGELOG*.md` | Declarative documentation, release notes, source references |
+## Review ownership
 
-## Maintainer Rules
+| Paths | Review contract |
+|:---|:---|
+| `api/`, `pkg/bfdpb/` | Public wire/API compatibility and generated binding provenance |
+| `internal/bfd/` | State machine, timer transactions, authentication and ownership |
+| `internal/netio/` | Linux sockets, metadata, interface and overlay boundaries |
+| `internal/server/`, `cmd/` | Principals, validation, CLI and lifecycle |
+| `deployments/`, `.github/`, `test/` | Packaging, qualification, resource limits and CI |
+| `docs/`, root Markdown | Code correspondence, EN/RU parity, normative references and publication claims |
 
-- Repository settings changes require an issue, pull request, or recorded
-  maintainer note.
-- Security reports remain private until disclosure is coordinated.
-- Release tags are immutable.
-- Generated files are updated only through the documented generator targets.
-
-## Becoming a Maintainer
-
-Maintainer status requires sustained contributions in protocol correctness,
-security, operations, or documentation and explicit approval from an existing
-maintainer.
+Before merging, inspect the complete diff and exact source/target commits;
+retain independent review evidence and measured checks. Follow
+[Governance](GOVERNANCE.md) and [Contributing](CONTRIBUTING.md).
+Keep security reports private, release tags immutable and generated files
+owned by their generator. Record repository-setting changes in an issue,
+pull request or maintainer note.

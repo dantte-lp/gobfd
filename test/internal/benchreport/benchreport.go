@@ -175,6 +175,16 @@ func parseGoInput(path string) (goInput, error) {
 	if !found {
 		return goInput{}, invalidInputf("required Go benchmark input does not exist: %s", path)
 	}
+	return parseGoData(path, data)
+}
+
+// ValidateGoInput validates captured Go benchmark output; the caller bounds its byte size.
+func ValidateGoInput(data []byte) error {
+	_, err := parseGoData("benchmark input", data)
+	return err
+}
+
+func parseGoData(path string, data []byte) (goInput, error) {
 	var result goInput
 	var goos string
 	var goarch string

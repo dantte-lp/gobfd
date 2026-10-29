@@ -1,14 +1,18 @@
-# Config-owned timer update transactions
+# Timer update transactions
 
 Status: queue ordering and cancellation policy approved by the maintainer on
 2026-09-08; independent document review passed and the maintainer approved
 continuation into implementation after reviewing this written contract.
-Owner: Beads `gobfd-qj0.8.2.1.1.1.4.1`. Implementation and peer qualification
-remain `.4.2` and `.4.3`; this document is not evidence of runtime support.
+Implementation and peer qualification remain separate from approval;
+this document is not evidence of runtime support.
+
+[Russian translation](../../ru/reference/timer-transactions.md).
+
+Source: design dated 2026-09-08, preserved in repository snapshot `c5bcbfcb7e058a5a7f22b8a6811c8e4250963d50`, Git blob `1f3d09fb78478f85817db0184fb91391064e6804`. Later non-Up recovery clarification is retained. [ADR-0006](../adr/0006-session-preserving-reload-policy.md) owns the accepted five-field extension; this reference preserves the detailed TX/RX queue and receipt contract. Current implementation status belongs to [RFC coverage](../08-rfc-compliance.md), actual peer qualification to [interop](../05-interop.md).
 
 ## Scope and existing path
 
-Extend `reloadConfig` → `applyBaseSessionCandidates` →
+The update path is `reloadConfig` → `applyBaseSessionCandidates` →
 `Manager.ReconcileSessionsForOwnerDetailed` → the existing Session event loop.
 At the pre-implementation baseline, Manager rejected changed effective parameters,
 the pending interval fields had no production writer, and receipts lacked `Updated`.
@@ -55,7 +59,7 @@ Outside Up, a promoted proposal takes local effect immediately under RFC 5880
 §6.8.3; it need not wait for Up or Final to release a local zero-RX hold-down.
 Poll still confirms the receipt, and unresolved recovery work retains its
 ordering. This supersedes the original Up-only promotion restriction and matches
-the accepted implementation and [ADR-0006](../../en/adr/0006-session-preserving-reload-policy.md).
+the accepted implementation and [ADR-0006](../adr/0006-session-preserving-reload-policy.md).
 Promotion to active changes the advertised tuple and initiates Poll. Reuse
 scheduled transmissions; add no Poll-only packet when periodic TX is already
 running. Crossed Poll replies remain `P=0,F=1`, followed by the local Poll.
@@ -64,7 +68,7 @@ Only a successfully transmitted `P=1,F=0` establishes `pollSent`.
 While Up, apply the RFC 5880 §6.8.3 matrix to the active proposal:
 
 | Change | Advertised value | Local effect |
-|---|---|---|
+|:---|:---|:---|
 | TX increases | New TX | Retain previous effective TX until Final |
 | TX decreases | New TX | Use new TX immediately |
 | RX decreases, including zero | New RX | Retain previous detection RX until Final |
@@ -159,18 +163,18 @@ existing interface-only retry entrypoints or on receiving another SIGHUP.
 
 ## Acceptance and sources
 
-Reuse existing Session sender/timer helpers for focused race-enabled cases:
+Acceptance uses existing Session sender/timer helpers for focused race-enabled cases:
 the four-way matrix, explicit RX zero, active plus superseded waiting reloads,
 reverse updates, crossed Poll, failed first sends, early/late Final, expiry,
 cancellation, ownership conflicts, non-Up admission/recovery and shutdown.
 One daemon-level regression
 must prove generation/readiness convergence without a second reload. Existing
 Go-owned FRR/BIRD tests must then prove real config reload, wire flags, timing,
-stable discriminator and truthful receipts. H-05 remains partial until both
+stable discriminator and truthful receipts. Timer-update qualification remains partial until both
 implementation and peer qualification pass.
 
 Normative sources: [RFC 5880 §§6.5, 6.6, 6.8.3–6.8.4](../../rfc/rfc5880.txt)
-and the [production contract](2026-08-18-gobfd-v1-production-contract-design.md).
+and the [production contract](production-contract.md).
 Context7 Go documentation was consulted; the pinned
 [Go 1.27 context source](https://github.com/golang/go/blob/go1.27.0/src/context/context.go)
 confirms that cancellation does not wait for work to stop. It is not a protocol

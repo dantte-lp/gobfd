@@ -1,103 +1,73 @@
-# Changelog and Release Guide
+# Changelog and releases
 
-User-visible history lives in [CHANGELOG.md](../../CHANGELOG.md) and
-[CHANGELOG.ru.md](../../CHANGELOG.ru.md). Keep both versions semantically
-aligned. This guide describes the process; it does not duplicate the changing
-`Unreleased` entries.
+[Russian translation](../ru/10-changelog.md).
 
-## Changelog format
+[CHANGELOG.md](../../CHANGELOG.md) is the English release history; [CHANGELOG.ru.md](../../CHANGELOG.ru.md) is the Russian translation. The [dated translation corrections](reference/changelog-errata.md) supply four omitted historical v0.5.0 entries without changing published sections. Published entries and tags remain preserved. Branch roles and publication constraints are defined in [AGENTS.md](../../AGENTS.md).
 
-Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-Keep `Unreleased` first, followed by dated release sections in reverse order.
-Dates use `YYYY-MM-DD`; version headings link to immutable tags or comparisons.
-Preserve published history. Add only nonempty `Added`, `Changed`, `Deprecated`,
-`Removed`, `Fixed` or `Security` sections.
+## Maintain an entry
 
-Record changes to user-visible behavior: configuration, defaults, protocol
-procedures, API, CLI, metrics, security and compatibility. Internal refactoring,
-test changes and typo corrections do not need release entries on their own.
-Describe the resulting behavior and its limits. Do not paste commit logs or
-claim a timing improvement without measurements.
+1. Identify the user-visible result: protocol procedure, configuration/default, API, CLI, metrics, security or compatibility.
+2. Add a concise entry to `Unreleased` in both changelogs. State resulting behavior and limitations; omit internal task IDs and tracker commands according to the [documentation standard](reference/documentation-standard.md#changelog-and-public-development-status).
+3. Use only nonempty Added, Changed, Deprecated, Removed, Fixed or Security groups.
+4. Link each change to its real contributing PR where one exists. Do not substitute an unrelated PR or invent a number for unpublished commits.
+5. Verify that both entries preserve the same conditions, identifiers, PR links and acceptance scope.
+6. Keep internal refactoring and test-only work out of user release history unless they change a supported contract.
 
-```markdown
-## [Unreleased]
-
-### Fixed
-- Reject unsupported authentication changes before accepting a reload generation.
-```
-
-Use the actual behavior and acceptance scope in entries. An illustrative
-example is not a declaration that another RFC procedure is implemented.
+The layout follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/): newest entries first and dated releases. Version selection follows [SemVer](https://semver.org/spec/v2.0.0.html). A release entry is curated user history, not raw commit output. An implementation entry does not imply wire, native or production acceptance.
 
 ## Branch ownership
 
 | Branch | Role |
-|---|---|
-| `dev` | Integrates the next product line; never tagged for a stable release |
-| `master` | Default branch with the latest accepted stable state |
-| `release/vMAJOR.MINOR` | Reviewed and qualified supported product line |
-| `fix/vMAJOR.MINOR-*` | Maintenance fix targeting its supported line |
+|:---|:---|
+| `dev` | Next product line; never a stable tag target |
+| `master` | Latest accepted stable state |
+| `release/vMAJOR.MINOR` | Release line; alpha uses the narrower ADR-0008 scope |
+| `fix/vMAJOR.MINOR-*` | Fix targeting the corresponding supported line |
 
-`release/v0.6` retains GoBGP v3.37.0 and the v0.6 contracts. A change accepted
-on `dev` does not establish delivery to that line or to `master`.
+The v0.6 line preserves GoBGP v3.37.0 and its public contracts. Acceptance on `dev` does not deliver a fix to a stable line.
 
-After publishing a maintenance patch, deliver its accepted stable history and
-both changelogs to `master` before release closeout. Forward-port applicable
-changes to `dev` separately. Do not rewrite existing tags or reuse failed cuts.
+## Prepare a release
 
-## Release process
+1. Select the stable or approved alpha acceptance scope. Complete its exact-candidate checks; retain branch, full commit, build identities and evidence.
+2. Verify matching branch/tag rulesets before creating either resource.
+3. Select a new unused version allowed by that channel. Bind its annotated tag to the exact reviewed release-branch HEAD; never move, delete or reuse tags.
+4. Review the Release Please release PR. Move accepted Unreleased entries into a dated version section in both languages, verify its version manifest and real contributing PR links, and update immutable tag/comparison links. Preserve published sections.
+5. Run source, critical functional, security, package and supply-chain checks against that candidate. Stable delivery additionally requires its native, wire and reference-load gates; preserve failed/skipped gates explicitly.
+6. Follow the separately authorized release workflow. Verify complete draft assets before immutable publication.
+7. Read back published assets, release flags, notes and OCI identities. Deliver accepted stable history and both changelogs to `master` for stable releases; alpha leaves the accepted stable state unchanged. Assess forward-port to `dev` separately.
 
-Release preparation starts only after implementation and final qualification
-are complete. Beads owns the executable plan and approval gates. Current
-prepublication documentation reconciliation is owned by `gobfd-qj0.8.2.8.7.2`.
+Existing `v0.1.0` through `v0.6.1` tags remain unchanged. The executable process lives in [.github/workflows/release.yml](../../.github/workflows/release.yml) and [Go-owned automation](reference/automation.md). A workflow definition is not evidence of a successful release. This guide does not authorize push, tag, draft, promotion or publication.
 
-Before creating a release branch or tag, verify that the matching branch and
-tag rulesets are active. A tag identifies the exact reviewed release-branch
-commit. Existing tags remain immutable, including failed or unpublished cuts.
-Choose a new unused version rather than copying an old tagging example.
+Treat publication steps as state changes, not repeatable checks. After a failure, read back the exact tag, draft, assets and OCI aliases before selecting a recovery or retry. Preserve accepted tags and published history; the [automation contract](reference/automation.md#release-sequence) limits alias rollback and keeps postpublication verification separate.
 
-Update both changelogs for the actual candidate, move accepted `Unreleased`
-entries into its dated section, and update comparison links. Run the required
-local and release qualification against that commit. Remote writes remain
-subject to the current publication authorization; these instructions do not
-remove a delivery hold.
+## Release evidence
 
-The current documentation work is local-only: no push, release branch, tag,
-draft, OCI alias promotion or publication is authorized by this guide.
+The workflow validates preflight identities, derives notes from all maintenance sections since the preceding published stable release, verifies the merged release PR and appends its URL, builds binaries/packages/OCI products, completes the draft and verifies downloaded evidence. Stable releases then promote checked OCI aliases; alpha bypasses that mutation and rechecks versioned OCI identities. Publication is the terminal mutation. The first release in a line uses the preceding published stable release across lines.
 
-The source workflow in [release.yml](../../.github/workflows/release.yml)
-uses Go-owned `cictl` preflight, notes, verification and publication steps:
+The supported OCI product is digest-pinned Debian trixie. Generic RPM generation remains available; Oracle Linux 10 is outside v1 OCI/lifecycle qualification. [Automation reference](reference/automation.md) records asset and verifier boundaries.
 
-1. Refuse existing releases, drafts and versioned OCI tags for the candidate.
-2. Extract every maintenance section since the preceding published stable
-   release in the same line; the first cut in a line uses the preceding stable
-   release across lines. Bind notes and comparison links to the immutable tag.
-3. Build binaries, DEB/RPM packages and Debian trixie OCI products. Oracle
-   Linux 10 is outside the v1 OCI and lifecycle qualification scope; generic
-   RPM generation remains available.
-4. Attach all required assets to a draft and verify checksums, notes, target
-   commit, SBOM/provenance, packages, OCI evidence and the release report.
-5. Promote the verified OCI aliases, then publish the complete verified draft.
-   Independent postpublication
-   readback and supported-branch closeout are separate maintainer steps;
-   `release-publish` is the workflow's terminal mutation.
+## Prerelease boundary
 
-Workflow implementation is not evidence that the current candidate has passed
-these steps. Never run publication commands just to validate documentation.
+[ADR-0008](adr/0008-experimental-prerelease-boundary.md) accepts an experimental `v1.0.0-alpha.N` channel, where `N` is a positive decimal integer without leading zeroes. Use `release/v1.0`; never tag `dev` or `master` for this channel. Other prerelease spellings are rejected deliberately.
 
-## Experimental prereleases
+Release Please prepares the release PR in manifest mode with `skip-github-release: true` and `skip-changelog: true`. Curate both root changelogs in that same PR using `## [1.0.0-alpha.1] - YYYY-MM-DD` with the actual release date. The manifest version and both version headings must agree. Release Please neither creates the tag nor publishes the draft. The [release-please workflow](../../.github/workflows/release-please.yml) proposes releases on `release/v1.0` pushes. Manual dispatch is available only after GitHub registers the workflow from the default branch; the release-line push remains the initial trigger.
 
-SemVer permits a prerelease suffix such as `v1.0.0-alpha.1`. Current
-`cictl release-preflight` and `release-notes` accept canonical **stable** tags
-only. They do not provide an alpha delivery path.
-[ADR-0008](adr/0008-experimental-prerelease-boundary.md) remains proposed;
-Beads `gobfd-qj0.8.2.6.4` owns a separately qualified experimental channel.
-Stable aliases and stable acceptance must not be promoted by an alpha.
+Commit the curated English/Russian sections to the release PR source branch using the maintainer identity. Confirm that all required PR checks run and pass; approve workflow runs when GitHub requires it. Do not merge an automation-created PR without those checks.
 
-## Related documents
+Merge the reviewed PR only after its required checks. Push the annotated tag to its exact merge commit while it remains the release-branch HEAD. `release-pr-check` rejects a missing or mismatched merged PR and appends the verified release PR URL to the notes. Notes retain links to the contributing PRs from the curated changelog. Do not rely on a `GITHUB_TOKEN` tag mutation to trigger another workflow; [GitHub event rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow) govern event recursion.
 
-- [Development](09-development.md) — local checks and branch workflow.
-- [Contributing](../../CONTRIBUTING.md) — contribution and review policy.
-- [RFC compliance](08-rfc-compliance.md) — exact support boundaries.
-- [Roadmap](roadmap.md) — dated status, not release approval.
+GoReleaser creates a prerelease draft; the verifier checks its `isPrerelease` state, assets and versioned OCI identities. Publish alpha with `--prerelease --latest=false`. Do not call `release-promote` for alpha; it rejects prerelease tags. Preserve stable `latest` and `debian-trixie` OCI aliases and the GitHub latest release.
+
+Alpha is experimental and does not promise stable API compatibility, supported scale, full RFC conformance or production readiness. Record remaining strict CPU-window, native Control/Echo A/B, calibrated reference/24-hour and final wire qualification in both languages. Functional/security failures within the advertised alpha scope still block its publication; pending stable qualification remains open.
+
+## Diagnose release documentation
+
+| Symptom | Check | Action |
+|:---|:---|:---|
+| Missing maintenance notes | Previous published stable tag and changelog range | Include every maintenance section in the range |
+| EN/RU mismatch | Conditions, versions, negation and acceptance claims | Correct both entries before candidate review |
+| Existing version/tag | Host release, draft and OCI identity | Select a new unused version; preserve old objects |
+| Green source gate only | Native/wire/load/package evidence | Keep release qualification open |
+| Stable history absent from master | Branch ancestry and both changelogs | Complete supported-line closeout |
+
+[Development](09-development.md), [governance](../../GOVERNANCE.md), [security policy](../../SECURITY.md).

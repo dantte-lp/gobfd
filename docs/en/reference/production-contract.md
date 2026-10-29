@@ -1,58 +1,12 @@
-# GoBFD v1.0 Production Contract Design
+# Production contract
 
-**Status:** Implementation in progress; execution state reconciled on
-2026-10-20 in Beads and the [roadmap](../../en/roadmap.md). Local development
-acceptance does not establish stable release qualification.
+Status: accepted v1 design requirements with dated amendments; implementation and final qualification remain separate. Capability labels below identify release targets, not a certification of the current binary. [Russian translation](../../ru/reference/production-contract.md).
 
-**Compatibility decision:** preserve `bfd.v1` and the current YAML schema;
-evolve them additively
+Source: production design dated 2026-08-18, preserved in repository snapshot `c5bcbfcb7e058a5a7f22b8a6811c8e4250963d50`, Git blob `8aa7c8c00e54ecd7160986edd5ec8a2732c1d61e`. The full original remains in that immutable Git history. This reference retains technical requirements; historical release sequencing and superseded dependency pins are described in [design records](design-records.md). [RFC coverage](../08-rfc-compliance.md) owns current implementation status; [roadmap](../roadmap.md) owns dated qualification status.
 
-**GoBGP target:** development uses the selected v4 pin in `go.mod`, currently
-v4.10.0 under the 2026-10-13 maintainer decision. The original v4.8.0 target
-is historical. Stable v1 requires the four `GO-2026-4736` conditions of the
-2026-10-21 amendment in the GoBGP v4 actuator section; the development
-exception alone is not a stable waiver. The Go vulnerability database still
-lists no fixed v4 range on 2026-10-20:
-[advisory](https://vuln.go.dev/ID/GO-2026-4736).
+The 2026-10-13 decision selects GoBGP v4.10.0 instead of the original v4.8.0; v3 `/apipb.GobgpApi` and v4 `/api.GoBgpService` are incompatible. The 2026-10-21 decision allows the precise module-only `GO-2026-4736` exception under four conditions in [GoBGP v4 actuator](#gobgp-v4-actuator). The 2026-10-20 delivery amendment prioritizes v1 while preserving every normative, security, scale, OCI and required quality gate. These dates and versions identify decisions; they are not a fresh upstream-version or advisory query. [Dependency risk](dependency-risk.md) records the selected graph and exception policy.
 
-**2026-10-13 amendment (GoBGP target):** the maintainer selected GoBGP
-v4.10.0, the latest release (published 2026-10-04), in place of v4.8.0
-(Beads `gobfd-qj0.8.4`). GoBGP v3 `/apipb.GobgpApi` and v4
-`/api.GoBgpService` are wire-incompatible, so `dev` requires a GoBGP v4
-daemon; `release/v0.6` keeps GoBGP v3.37.0. The `GO-2026-4736` allowlist
-entry on `dev` is `ModuleOnly` for `github.com/osrg/gobgp/v4` and expires on
-2026-12-31; see the GoBGP v4 actuator section.
-
-**2026-10-21 amendment (stable GoBGP advisory gate):** by maintainer decision
-(Beads `gobfd-qj0.8.4.1`, option C), stable v1.0.0 may ship GoBGP v4.10.0 with
-the module-only `GO-2026-4736` entry. This replaces the original "does not
-report `GO-2026-4736`" stable condition; the four conditions are in the GoBGP
-v4 actuator section.
-
-**Delivery priority — 2026-10-20 maintainer amendment:** release v1.0.0 first;
-general dependency freshness, cosmetic refactoring and independent v0.6 follow-ups
-run afterward. Existing stable release evidence is retained; later maintenance
-backlog is not a prerequisite for v1 qualification. P0 tracks direct v1
-correctness/security/ownership blockers and final release owner
-`gobfd-qj0.8.2.6`; P1 retains mandatory qualification tasks.
-No normative, security, performance/scale, OCI or required quality gate is waived.
-Every component is revalidated against its delivery channel on the final reviewed
-v1 candidate: current-compatible target or an explicit reviewed exception with
-owner and date. A deferred upgrade is not an automatic exception.
-
-Stable-v1 security is owned by `gobfd-qj0.8.4.1`, independently of the cross-line
-advisory umbrella and v0.6 maintenance. `gobfd-qj0.8.6.11` owns the final candidate
-dependency compatibility/inventory gate. The stable GoBGP/advisory condition below
-remains unchanged. Broad Q5 inventories/wrapper cleanup may remain open after v1;
-required Sonar/security truth, performance evidence, zero-shell/Python and OCI
-policy remain in their release gates. Preview graduation is outside stable v1;
-default-off/fail-closed preview boundaries remain required before release.
-
-**2026-08-27 measurement boundary:** v0.6.2 renamed the enqueue-only receive
-benchmark to `BenchmarkRecvDecodeLookupEnqueue` and removed end-to-end packet
-rate and GC-immunity claims derived from it. This does not close the v1 gate:
-v1 still requires acknowledged UDP-to-FSM commit latency, timer error,
-false-Down, and loss accounting under the reference workload.
+The 2026-08-27 measurement correction renames the enqueue-only benchmark to `BenchmarkRecvDecodeLookupEnqueue`; it supplies no end-to-end packet rate or GC-immunity guarantee. Committed UDP-to-FSM latency, timer error, false Down and loss accounting remain required.
 
 ## Product contract
 
@@ -86,7 +40,7 @@ default-off even if their API messages already exist.
 ## Stable and preview capabilities
 
 | Capability | v1 status | Release condition |
-|---|---|---|
+|:---|:---|:---|
 | RFC 5880 asynchronous core | stable | Poll/Final, timers, auth, diagnostics, demux, and AdminDown gates pass |
 | RFC 5881 numbered multiaccess single-hop | stable | IPv4/IPv6, ports, source binding, and TTL tests pass |
 | RFC 7419 common intervals | stable | existing unit tests plus FRR/BIRD timer interop pass |
@@ -108,16 +62,22 @@ graceful-restart automation are outside the v1 stable contract.
 
 ```mermaid
 flowchart LR
-    CFG["YAML generation"] --> CMP["Validate and compile"]
-    API["bfd.v1 API"] --> CLM["Owner claims"]
-    UNS["Unsolicited/preview sources"] --> CLM
+    accTitle: Desired ownership and external actuation
+    accDescr: Configuration and API claims share an exact wire identity, whose facts feed status and routing reconciliation.
+    CFG["YAML generation"]:::mgt --> CMP["Validate and compile"]:::mgt
+    API["bfd.v1 API"]:::mgt --> CLM["Owner claims"]:::srv
+    UNS["Unsolicited/preview sources"]:::mgt --> CLM
     CMP --> CLM
-    CLM --> REG["Canonical session registry"]
-    REG --> WIRE["One wire session per exact key"]
-    WIRE --> EVT["Cause-aware state facts"]
-    EVT --> STAT["API / CLI / metrics / health"]
-    EVT --> ACT["GoBGP desired-action reconciler"]
-    ACT --> V4["GoBGP v4 gRPC"]
+    CLM --> REG["Canonical session registry"]:::srv
+    REG --> WIRE["One wire session per exact key"]:::leaf
+    WIRE --> EVT["Cause-aware state facts"]:::srv
+    EVT --> STAT["API / CLI / metrics / health"]:::mgt
+    EVT --> ACT["GoBGP desired-action reconciler"]:::srv
+    ACT --> V4["GoBGP v4 gRPC"]:::brt
+    classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
+    classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
+    classDef leaf fill:#e3f2fd,stroke:#1976d2,color:#000
+    classDef brt fill:#fff3e0,stroke:#bf360c,color:#000
 ```
 
 The design separates desired ownership, wire-session execution, observed
@@ -205,12 +165,7 @@ four-way matrix rather than a blanket "apply after Final" rule:
 Only Poll-class changes promise an unchanged discriminator and uninterrupted
 Up state.
 
-The [timer transaction addendum](2026-09-08-gobfd-timer-update-transactions-design.md)
-records the approved one-active/one-latest-waiting queue and cancellation
-policy and the approved expiry, recovery and receipt rules from Beads
-`gobfd-qj0.8.2.1.1.1.4.1`. Runtime implementation and local validation are
-recorded in `.4.2`; live peer qualification remains `.4.3`. Design approval
-and local checks do not replace that wire evidence.
+The [timer transaction reference](timer-transactions.md) defines the approved one-active/one-latest-waiting queue, cancellation, expiry, recovery and receipts. [ADR-0006](../adr/0006-session-preserving-reload-policy.md) defines the accepted five-field extension. Design approval and local checks do not replace actual peer qualification.
 
 ## RFC core corrections
 
@@ -293,7 +248,7 @@ creating indefinite suppression.
 The default GoBGP policy is:
 
 | Cause | BFD result | GoBGP action |
-|---|---|---|
+|:---|:---|:---|
 | remote AdminDown | Down | none |
 | local AdminDown | AdminDown | none |
 | detection timeout | Down | disable managed peer |
@@ -339,8 +294,7 @@ blocked until a compatible GoBGP v4 release no longer reported the advisory;
 the 2026-10-21 amendment below replaces that condition. Renewing or
 broadening the exception requires a separate explicit maintainer decision.
 
-**2026-10-13 amendment:** the maintainer selected GoBGP v4.10.0 (Beads
-`gobfd-qj0.8.4`); the client builds against it instead of v4.8.0. GoBGP v3
+**2026-10-13 amendment:** the maintainer selected GoBGP v4.10.0; the client builds against it instead of v4.8.0. GoBGP v3
 serves `/apipb.GobgpApi` and v4 serves `/api.GoBgpService`; the two are
 wire-incompatible, so a GoBFD built from `dev` requires a GoBGP v4 daemon.
 GoBGP v4 native BFD is disabled by default, and no repository GoBGP
@@ -355,7 +309,7 @@ expires on 2026-12-31. This amendment does not lift the stable v1.0.0
 condition above.
 
 **2026-10-21 amendment (stable GoBGP advisory gate):** by maintainer decision
-(Beads `gobfd-qj0.8.4.1`, option C), stable v1.0.0 may ship GoBGP v4.10.0 with
+(option C), stable v1.0.0 may ship GoBGP v4.10.0 with
 the `ModuleOnly` `GO-2026-4736` entry while all four conditions hold:
 
 1. GHSA-4p9m-8gc4-rw2h and its OSV record list a fixed version (4.4.0) at or
@@ -450,7 +404,7 @@ than introducing another scheduler control. v1 retains goroutine-per-session
 scheduling unless measurements require a sharded timer loop.
 
 Control sockets set configurable IPv4 DSCP/IPv6 Traffic Class with CS6 as the
-operational default, matching FRR/BIRD practice, plus configurable
+operational default, as the selected operational policy, plus configurable
 `SO_PRIORITY`; `SO_MARK` defaults to zero. These are deployment policy, not RFC
 requirements, and packet captures verify both address families. v1 retains a
 stable per-session UDP source port. A common connected TX socket is rejected;
@@ -483,70 +437,11 @@ without separate evidence. More aggressive p99.9 jitter goals proposed for
 the corrected UDP-to-FSM harness establishes a reproducible baseline; they are
 not substituted for the qualification thresholds above.
 
-## Independent RFC, FRR, and BIRD cross-check
+## Final candidate qualification
 
-| Reference | Independent finding | v1 decision |
-|---|---|---|
-| RFC 5880 | Poll initiation and several timer/discriminator paths are incomplete | stable core gate before operational work |
-| RFC 5880 errata | timeout while already Down does not update the diagnostic | implement Held Erratum 5205 and test Held Erratum 7240 behavior |
-| RFC 5881 | p2p initial demux cannot rely on source address | stable scope is numbered multiaccess; p2p remains deferred |
-| RFC 5882 | dampening may suppress failure indefinitely; AdminDown is not failure | replace suppression with bounded hysteresis and cause-aware actions |
-| RFC 5883 | `TTL >= 254` is not a protocol requirement | add configurable hop/security policy |
-| RFC 9384 | communication text is not wire Cease/10 | mark not implemented |
-| RFC 9468 | allowed-prefix ACL is not interface-subnet validation | keep preview until validated |
-| RFC 9747 | current two-state echo FSM conflicts with the required base FSM | keep preview until replaced |
-| RFC 7130 | member interface and multicast L2 requirements are incomplete | experimental |
-| RFC 8971/9521 | mandatory inner validation and VNI/VAP demux are incomplete | experimental |
-| RFC 9764 | authenticated padding uses inconsistent hashed length | fix before stable graduation |
-| FRR 10.7.0 | shared sessions, owner refcounts, profiles, cause-aware BGP, status | adopt concepts, not FRR wildcard keys or JSON schema |
-| BIRD 3.3.2 | request-owned shared sessions, Poll sequencing, bounded event loop | adopt concepts, not first-requester parameters or broad jitter |
-| GoBGP v4.8.0 | native BFD can conflict with external UDP/3784 ownership | preflight-reject dual ownership per peer and namespace |
-| Cilium 1.20.1 | independent TC/XDP attachment can be removed or clobber another program | any future acceleration uses a Cilium-owned hook/plugin contract |
+Stable v1 requires no known release-blocking RFC, ownership, security or actuation defect, and the four GoBGP advisory conditions above. The final reviewed candidate requires a fresh inventory of runtime/tool modules, Go-owned tools, OCI images, Actions, generators, interop peers and repository-owned toolchains: each component needs a channel-backed current-compatible target or an explicit reviewed exception with owner and date. A deferred upgrade is not an automatic exception.
 
-## Release sequence
-
-### v1.0.0-alpha.1 — contract and RFC core
-
-- Correct public compliance and performance claims.
-- Introduce canonical keys, owner claims, additive status fields, and config
-  generations.
-- Fix Poll/Final, timer updates, diagnostic ordering, and core demux paths.
-- Make packet delivery typed and observable; add versioned snapshots and
-  level-triggered actuator reconciliation.
-- Remove permanent OS-thread pinning.
-
-### v1.0.0-beta.1 — operations and GoBGP v4
-
-- Add owner-scoped reconciliation, profiles, pending resources, and apply
-  receipts.
-- Migrate to the selected GoBGP v4 API with mTLS, retries, ownership
-  receipts, and native BFD conflict checks.
-- Secure management defaults and secret-file inputs.
-- Fix ExaBGP desired/applied state across reconnect, HAProxy Watch reconnect and
-  bind policy, and the companion endpoint-default mismatch.
-
-### v1.0.0-rc.1 — evidence and packaging
-
-- Complete status, metrics, health, shutdown, and Kubernetes packaging.
-- Run the reviewed, immutable FRR/BIRD peer recipes, selected fixed GoBGP v4
-  matrix and the retained FRR 10.2.5/GoBGP v4.8.0 regression lanes from the
-  acceptance contract. Regression lanes do not expand the supported product
-  baseline. A peer or dependency update requires fresh evidence; historical
-  version-specific receipts do not qualify the new baseline.
-- Complete the 24-hour scale qualification, failure drills, upgrade/rollback
-  documentation, signed artifacts, provenance, and SBOM.
-
-`v1.0.0` contains no known release-blocking RFC, ownership, security, or
-actuation defect from these gates and uses a compatible GoBGP v4 release that
-meets the four `GO-2026-4736` conditions of the 2026-10-21 amendment in the
-GoBGP v4 actuator section.
-
-The release inventory is rerun against the final reviewed v1 candidate.
-Runtime and tool modules, Go-owned tools, OCI images, GitHub Actions,
-generators, interop peers, and repository-owned toolchains each require a
-channel-backed current-compatible target or an explicit reviewed exception.
-No unresolved inventory item or known release-blocking RFC compliance gap is
-silently deferred from the stable v1 release.
+Required qualification includes status, metrics, health, shutdown, Kubernetes packaging, failure drills, upgrade/rollback documentation, signed artifacts, provenance and SBOM. Reviewed immutable FRR/BIRD recipes and a selected compatible GoBGP v4 matrix remain mandatory; FRR 10.2.5 and GoBGP v4.8.0 are historical regression lanes, not expanded support. Every peer or dependency update requires fresh evidence. Broad housekeeping and preview graduation do not waive security, performance/scale, zero-shell/Python, OCI or required quality gates.
 
 ## Acceptance gates
 

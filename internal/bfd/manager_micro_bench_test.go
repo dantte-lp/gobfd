@@ -57,13 +57,24 @@ func BenchmarkMicroBFDDispatchJSON(b *testing.B) {
 }
 
 func TestMicroBFDDispatchAllocations(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		step := newMicroDispatchStep(t, slog.DiscardHandler, nil)
-		synctest.Wait()
-		if allocs := testing.AllocsPerRun(200000, step); allocs != 0 {
-			t.Fatalf("Micro-BFD state dispatch allocations=%g, want 0", allocs)
-		}
-	})
+	for _, tc := range []struct {
+		name      string
+		actuator  MicroBFDActuator
+		maxAllocs float64
+	}{
+		{name: "nil-actuator"},
+		{name: "noop-actuator", actuator: benchMicroActuator{}, maxAllocs: 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				step := newMicroDispatchStep(t, slog.DiscardHandler, tc.actuator)
+				synctest.Wait()
+				if allocs := testing.AllocsPerRun(200000, step); allocs > tc.maxAllocs {
+					t.Fatalf("Micro-BFD state dispatch allocations=%g, limit %g", allocs, tc.maxAllocs)
+				}
+			})
+		})
+	}
 }
 
 func TestMicroBFDDispatchLogFields(t *testing.T) {

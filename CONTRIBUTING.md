@@ -1,171 +1,51 @@
 # Contributing to GoBFD
 
-## Contribution Policy
+Contributions follow [GOVERNANCE.md](GOVERNANCE.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) and the repository contract in [AGENTS.md](AGENTS.md). Report vulnerabilities through [SECURITY.md](SECURITY.md); route other requests through [SUPPORT.md](SUPPORT.md). Review ownership is listed in [MAINTAINERS.md](MAINTAINERS.md) and [.github/CODEOWNERS](.github/CODEOWNERS).
+
+## Prepare a contribution
+
+1. Discuss significant behavior or compatibility changes in an issue. Record acceptance criteria and review ownership.
+2. Start features from `dev` and target `dev`. Start maintenance fixes from their `release/vMAJOR.MINOR` line on `fix/vMAJOR.MINOR-*`; target that supported line.
+3. Configure the pinned Podman Compose provider and a unique checkout project using [Development](docs/en/09-development.md).
+4. Read affected callers, tests, configuration and public contracts before editing.
+5. Keep the change focused; include tests and complete English/Russian documentation for changed behavior. Follow the [documentation standard](docs/en/reference/documentation-standard.md).
+
+## Validate
+
+```sh
+make up
+make test
+make verify
+```
+
+`verify` covers build, race tests, gopls, lint, documentation, protobuf lint and controlled vulnerability audit. It does not execute every tagged test, interoperability topology or release gate. Select additional checks from [Development](docs/en/09-development.md) and [Interoperability](docs/en/05-interop.md).
+
+For protobuf changes, run `make proto-gen`, `make proto-lint` and the applicable breaking check. Regenerate `pkg/bfdpb/`; do not edit generated files. Measure allocation and binary-size boundaries for hot-path or compiler changes using the [benchmark guide](docs/en/12-benchmarks.md).
+
+Build/test/lint normally use the pinned container. Some retained bootstrap, integration and report entry points invoke Go directly; consult the execution-boundary table before using them. Repository tooling remains Go-owned; do not add Python environments or Bash scripts. The upstream ExaBGP runtime exception is limited to its pinned Debian peer image.
+
+## Code requirements
 
 | Area | Requirement |
-|---|---|
-| Conduct | Follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). |
-| Support | Use [SUPPORT.md](SUPPORT.md) for request routing. |
-| Security | Use [SECURITY.md](SECURITY.md) for private vulnerability disclosure. |
-| Governance | Follow [GOVERNANCE.md](GOVERNANCE.md) for release and maintainer rules. |
-| Maintainers | See [MAINTAINERS.md](MAINTAINERS.md) for review ownership. |
+|:---|:---|
+| Errors | Context plus `%w`; `errors.Is`/`errors.As` |
+| Concurrency | Context-bound lifetime; sender closes channels |
+| Logging | Structured `log/slog` |
+| Tests | Table-driven where useful; safe parallelism; race detector |
+| Protocol | Exact RFC section, microsecond units, preserved validation |
+| Memory | Named benchmark evidence for zero-allocation claims |
+| Security | No handwritten unsafe; preserve socket error handling and trust boundaries |
+| Dependencies | Runtime and isolated tools modules; fresh controlled security audit |
+| Containers | Digest-pinned Debian trixie |
 
-## Getting Started
+## Submit a pull request
 
-1. Fork the repository and clone its `dev` branch for next-line development.
-   For a supported-line fix, select the branch in [Branch Selection](#branch-selection).
-2. Select the pinned Compose provider using
-   [Deployment](docs/en/06-deployment.md#podman-compose), then start the environment:
-   ```bash
-   make up
-   ```
-3. Make your changes on a feature branch
-4. Submit a pull request
+1. Use descriptive Conventional Commit subjects; validate with `make lint-commit MSG='fix(bfd): reject invalid input'`.
+2. State the concrete behavior, executed checks and remaining limitations in the request template.
+3. Include exact revision and evidence paths for protocol, wire or runtime claims. Name skipped tests and required acceptance gates.
+4. Update both changelogs for user-visible changes according to the [release guide](docs/en/10-changelog.md).
+5. Request applicable owner review. Preserve the source branch and follow repository merge policy.
 
-## Development Workflow
+Published fixes remain on their supported line until separately delivered to `master` and, when applicable, `dev`. A merged development task is not stable release delivery. Tags, drafts and publication follow separate maintainer authorization.
 
-### Branch Selection
-
-- Features start from `dev` and target `dev` through a reviewed pull request.
-- v0.6 maintenance fixes start from `release/v0.6` on a
-  `fix/v0.6-*` branch and target `release/v0.6` through a reviewed pull
-  request.
-- Release-preparation changes start from and target the applicable supported
-  `release/vMAJOR.MINOR` line.
-- After publishing a maintenance patch, its accepted stable history and both
-  changelogs must reach `master` before closeout. Assess the forward-port to
-  `dev` separately.
-
-### Build and Test
-
-Build, test and lint commands below run inside Podman containers. Some host
-bootstrap, integration and report targets still invoke `go run` directly;
-run those entrypoints explicitly inside the pinned container. The full target
-and exception inventory is in [Development](docs/en/09-development.md).
-
-```bash
-make up            # Start dev container
-make build         # Compile all binaries (gobfd, gobfdctl, gobfd-haproxy-agent, gobfd-exabgp-bridge)
-make test          # Run tests with -race -count=1
-make lint          # Run golangci-lint v2
-make lint-docs     # Run Markdown, YAML, and spelling checks
-make verify        # build + test + lint + docs + proto + vuln audit
-```
-
-### Interoperability Tests
-
-If your change affects protocol behavior, run the interop test suite:
-
-```bash
-make interop       # Full cycle: build, start 4-peer topology, test, cleanup
-```
-
-### Protobuf Changes
-
-If you modify `api/bfd/v1/bfd.proto`:
-
-```bash
-make proto-gen     # Regenerate Go code
-make proto-lint    # Lint proto definitions
-```
-
-Never modify generated files in `pkg/bfdpb/` manually.
-
-### Documentation and Release Standards
-
-The repository follows:
-
-- [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/)
-- [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
-- [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/)
-- [Compose Specification](https://github.com/compose-spec/compose-spec/blob/main/00-overview.md)
-- [Containerfile.5](https://github.com/containers/common/blob/main/docs/Containerfile.5.md)
-- [.containerignore.5](https://github.com/containers/common/blob/main/docs/containerignore.5.md)
-- [containers.conf.5](https://github.com/containers/common/blob/main/docs/containers.conf.5.md)
-
-Changelog entries are curated for users. Do not paste raw git logs into
-`CHANGELOG.md`. Keep the `Unreleased` section current while work is in progress.
-
-### Commit Messages
-
-Commits and PR titles use Conventional Commits:
-
-```text
-feat(bfd): add echo failure diagnostics
-fix(interop): run RFC tests from the dev container
-docs(release): describe SemVer policy
-```
-
-Validate a candidate message before committing:
-
-```bash
-make lint-commit MSG='fix(interop): run RFC tests from the dev container'
-```
-
-## Code Standards
-
-### Go Conventions
-
-- **Errors**: Always wrap with context using `%w`:
-  `fmt.Errorf("send control packet to %s: %w", peer, err)`
-- **Error handling**: Use `errors.Is`/`errors.As`, never string matching
-- **Context**: First parameter, never stored in struct
-- **Logging**: Only `log/slog` with structured fields. Never `fmt.Println` or `log`
-- **Naming**: Avoid stutter (`package bfd; type Session` not `BFDSession`)
-- **Imports**: stdlib, blank line, external, blank line, internal
-- **Tests**: Table-driven, `t.Parallel()` where safe, always `-race`
-
-### RFC Compliance
-
-- FSM transitions **must** match RFC 5880 Section 6.8.6 exactly
-- Timer intervals are in **microseconds** per RFC -- do not confuse with milliseconds
-- Every protocol behavior change must reference the relevant RFC section
-
-### Linting
-
-The project uses golangci-lint v2 with a strict 92-linter base configuration
-and 18 build-tag profiles. Your code must pass the canonical wrapper:
-
-```bash
-make lint
-```
-
-### Security
-
-- Never introduce `unsafe` in handwritten code. Generated protobuf descriptor
-  code uses the standard generator implementation; regenerate it with
-  `make proto-gen` rather than editing it manually.
-- Never use `math/rand` -- use `math/rand/v2` or `crypto/rand`
-- Run `make vulncheck` before adding new dependencies
-
-## Pull Request Process
-
-1. Open an issue first to discuss significant changes
-2. Choose the source and target branch according to [Branch Selection](#branch-selection)
-3. Make focused, reviewable commits with descriptive messages
-4. Ensure all routine checks pass: `make verify`
-5. Update documentation if your change affects user-facing behavior
-6. Add or update tests for new functionality
-7. Request review from code owners when files match `.github/CODEOWNERS`
-
-### PR Checklist
-
-- [ ] Tests added or updated
-- [ ] `make verify` passes
-- [ ] `make lint-docs` passes for documentation changes
-- [ ] `make proto-lint` passes (if proto files changed)
-- [ ] Documentation updated (if applicable)
-- [ ] CHANGELOG.md updated (if user-facing change)
-- [ ] Commit messages are descriptive
-
-## Reporting Issues
-
-- **Bugs**: Use the GitHub Issues tab with a clear description, steps to
-  reproduce, expected vs actual behavior, and Go/OS version
-- **Features**: Open a GitHub Issue to discuss before implementing
-- **Security**: See [SECURITY.md](SECURITY.md) for responsible disclosure
-
-## License
-
-By contributing to GoBFD, you agree that your contributions will be licensed
-under the [Apache License 2.0](LICENSE).
+Contributions are licensed under [Apache License 2.0](LICENSE). Russian procedures are available in [Разработка](docs/ru/09-development.md).

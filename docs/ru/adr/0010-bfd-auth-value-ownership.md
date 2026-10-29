@@ -1,70 +1,35 @@
-# ADR-0010: Владение метаданными аутентификации BFD по значению
+# ADR-0010: Владение authentication metadata по значению
 
 | Поле | Значение |
-|---|---|
-| Статус | Superseded by ADR-0011 |
-| Дата | 2026-10-26 |
-
-Историческое решение. [ADR-0011](0011-bfd-auth-inline-payload.md) заменяет хранение
-payload, сохраняя передачу значений и неизменяемую hash verification.
+|:---|:---|
+| Status | Superseded by ADR-0011 |
+| Date | 2026-10-26 |
 
 ## Контекст
 
-Разбор с аутентификацией создавал `AuthSection` для каждого пакета.
-Переиспользование указателя или указатель на поле самого пакета позволили бы
-повторному разбору изменить метаданные сохранённой поверхностной копии.
-Раздельные срезы пароля и дайджеста также дублировали представление
-взаимоисключающих payload.
-
-Обычный и overlay receiver, а также очередь сессии сохраняют wire с
-аутентификацией. Hash verification ранее заменяла digest slot материалом ключа.
-Декодированный payload ссылается на этот slot, поэтому проверка admission могла
-сделать trigger непригодным до повторной проверки владельцем сессии. Fixture
-передачи с независимо скопированным дайджестом не моделировала время жизни RX.
+Allocated authentication metadata добавляет receive allocation. Pointer внутрь повторно используемого packet позволяет следующему decode менять shallow copies. Hash verification с заменой digest в received wire уничтожает input для последующей owner verification.
 
 ## Решение
 
-`ControlPacket.Auth` — значение `AuthSection`. Нулевое значение означает
-отсутствие секции; `AuthSection.IsZero()` проверяет все метаданные, а marshal
-проверяет согласованность с битом A до записи. `AuthSection.Data` — единый срез
-пароля или дайджеста в зависимости от типа. Decode публикует значение только
-после успешной проверки всей секции аутентификации.
+Историческое решение использует value `ControlPacket.Auth` и один type-dependent slice `AuthSection.Data`. Полный zero value означает отсутствие; `IsZero` проверяет все поля. Marshal проверяет соответствие A-bit до записи; decode публикует auth после полной shape validation.
 
-Границы чтения `DemuxWithWire` и `Authenticator.Verify` передают пакет по
-значению. `Sign` сохраняет изменяемый указатель. Это внутренние Go-контракты;
-protobuf API, конфигурация и форматы BFD wire не изменены.
+Read-only `DemuxWithWire` и `Verify` передают packet values; `Sign` сохраняет mutable pointer. Scalar metadata и slice descriptor принадлежат копии; backing bytes остаются borrowed и immutable. Default/overlay receivers копируют полную authenticated datagram и выполняют reparse до возврата pooled input.
 
-Payload по-прежнему заимствует неизменяемый wire. Обычный и overlay receiver
-копируют всю датаграмму с аутентификацией и повторяют разбор до освобождения
-буфера из пула. Копии пакета владеют скалярными метаданными и дескрипторами
-срезов; backing bytes остаются общими и должны жить до завершения обработки.
+Hash verification копирует объявленный BFD Length в local scratch PDU 255 байт перед подстановкой key. Digest должен помещаться в Length, Length — в received wire. Transport padding исключается из hash boundary. Constant-time comparison и изменение replay state только после успеха сохраняются; success/failure не меняют received wire.
 
-Hash verification копирует только проверенный BFD PDU в локальный scratch
-массив из 255 байт перед подстановкой ключа. Однобайтовый Length ограничивает
-копию; transport padding RFC 9764 остаётся вне аутентифицируемого PDU. Входной
-wire не изменяется при успехе и отказе. Сохранены сравнение дайджестов за
-постоянное время и обновление replay state после успешной проверки.
+[ADR-0011](0011-bfd-auth-inline-payload.md) заменяет borrowed slice на owned inline array и удаляет retained-wire reparse. Value transfer, immutable verification и complete-wire retention сохраняются. Current code следует ADR-0011; этот record не задаёт текущий payload representation.
 
 ## Последствия
 
-Локальные измерения linux/amd64 закреплённым компилятором показывают 0 B/op и
-0 allocs/op для разбора с аутентификацией в трёх сериях по 200000 итераций.
-Существующий in-memory benchmark RX без аутентификации меняется со 176 B/op
-и 2 allocs/op на 128 B/op и 1 alloc/op. Сокеты и фиксация сессией в него не входят.
+Исторические local linux/amd64 samples дают authenticated decode 0 B/op и 0 allocs/op при 200000 iterations в трёх запусках. In-memory unauthenticated RX benchmark меняется с 176 B/2 allocs на 128 B/1 alloc; sockets и owner commit исключены.
 
-Измеренный `ControlPacket` растёт с 40 до 64 байт, а `AuthSection` сокращается
-с 64 до 32 байт. При 16 слотах приёма это добавляет 384 байта элементов очереди
-на сессию; это не выделение heap на пакет и не оценка удерживаемого RSS.
-Эти измерения исходников не квалифицируют native arm64, эталонный масштаб,
-распределения задержек или финальный кандидат релиза.
+Исторический layout: ControlPacket 40→64 байта, AuthSection 64→32 байта. Шестнадцать RX slots добавляют 384 байта queue elements на сессию. Это layout observations, а не per-packet heap либо RSS estimate. Native arm64, scale, latency distributions и release acceptance отдельны.
 
-Beads `gobfd-qj0.8.2.1.18` отвечает за квалификацию аллокаций и времени жизни;
-`gobfd-qj0.8.2.1.18.1` — за неизменяемость verification и регрессию decoded
-unsolicited trigger. Финальные runtime и release gates остаются отдельными.
+Allocation/lifetime qualification должна включать immutable verification и unsolicited decoded-trigger regression. Документационное изменение не повторяет исторические измерения.
 
 ## Источники
 
-- [Представление значений Go](https://go.dev/ref/spec#Representation_of_values).
-- [RFC 5880](../../rfc/rfc5880.txt), разделы 4.1-4.4 и 6.7.
-- [Кодек пакетов](../../../internal/bfd/packet.go) и [аутентификация](../../../internal/bfd/auth.go).
-- [Границы измерений производительности](../14-performance-analysis.md).
+- [Текущий codec](../../../internal/bfd/packet.go), [аутентификация](../../../internal/bfd/auth.go).
+- [Ownership regression tests](../../../internal/bfd/packet_auth_storage_test.go).
+- [RFC 5880 §§4.1–4.4, 6.7](../../rfc/rfc5880.txt).
+- [Performance scope](../14-performance-analysis.md).

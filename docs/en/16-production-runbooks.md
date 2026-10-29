@@ -1,241 +1,166 @@
-# Production Integration Runbooks
+# Runbook: configuration reload (Linux systemd)
 
-![Linux](https://img.shields.io/badge/Linux-Hosts-FCC624?style=for-the-badge&logo=linux&logoColor=black)
-![Kubernetes](https://img.shields.io/badge/Kubernetes-DaemonSet-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
-![BGP](https://img.shields.io/badge/BGP-Fast_Failover-00ADD8?style=for-the-badge)
-![Overlay](https://img.shields.io/badge/Overlay-Lab_Only-ea4335?style=for-the-badge)
+[Russian translation](../ru/16-production-runbooks.md).
 
-> Runbooks for deploying and validating GoBFD in Linux, Kubernetes, BGP, and overlay-network environments.
+This source-derived procedure replaces declarative configuration on one owned Linux host using the shipped `gobfd.service`. No production execution or elapsed-time receipt is recorded. Prerequisites: installed accepted binaries/unit, root shell, existing healthy service, protected candidate `/etc/gobfd/gobfd.candidate.yml` and independent access for recovery.
 
-These are operator procedures for the current `dev` source, not fresh execution
-receipts or stable-release acceptance. Run drills only against an admitted,
-owned lab and retain the exact source/image identities and observed results.
-Source integration into `dev` is authorized; release publication remains on hold.
+## 0. Rules without exceptions
 
----
+1. Admit one host and an explicit peer/consumer set. Preserve independent console/access before routing or authentication changes.
+2. Record exact binary/source identities and accepted configuration before apply. Keep secrets out of logs and shared artifacts.
+3. Classify every changed field against [the startup contract](03-configuration.md#hot-reload-sighup). Authentication on retained sessions and startup-owned fields require a maintenance restart.
+4. Retain the accepted binary/package for full rollback; this procedure changes configuration only.
+5. Stop on candidate rejection, pending reconciliation, peer-state divergence or consumer forwarding failure. A successful signal command does not prove acceptance.
 
-## Evidence Baseline
+## 1. Pre-flight checks
 
-- RFC 5880 detection-time rules: in Asynchronous mode, local detection time is
-  the remote Detect Mult multiplied by the negotiated receive interval.
-- RFC 5881 single-hop encapsulation: UDP destination port 3784, source port in
-  the dynamic range, and TTL/Hop Limit 255.
-- RFC 7130 Micro-BFD: independent sessions per LAG member on UDP port 6784.
-- RFC 8971 VXLAN BFD: Management VNI, inner UDP destination port 3784, and
-  inner TTL/Hop Limit 255.
-- RFC 9521 Geneve BFD: Geneve BFD for point-to-point Geneve tunnels with inner
-  TTL/Hop Limit 255 and traffic-managed rate assumptions.
-- The VXLAN/Geneve userspace IPv4 Format A paths have local packet-validation
-  and identity checks. Bounded wire evidence does not qualify owner-specific
-  dataplane integration, vendor forwarding or production deployment. These
-  remain opt-in incomplete previews; see [Development](09-development.md#overlay-wire-qualification)
-  and [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go).
-- Kubernetes host-network pods require `dnsPolicy: ClusterFirstWithHostNet`
-  when `hostNetwork: true` is set.
-- Vendor examples remain optional and must cite public vendor documentation.
+Run in one root shell; subsequent blocks reuse `backup_dir`.
 
-## Deployment Profiles
-
-| Profile | Use case | Assets |
-|---|---|---|
-| BGP failover | Linux routing host or lab pair with FRR/GoBGP | `deployments/integrations/bgp-fast-failover/` |
-| Kubernetes daemon | One GoBFD instance per node with host networking | `deployments/integrations/kubernetes/` |
-| Observability | Prometheus alerts and Grafana dashboard | `deployments/integrations/observability/` |
-| Overlay lab | Isolated VXLAN/Geneve validation only | [ADR-0003](./adr/0003-linux-advanced-bfd-applicability.md) |
-
-## Kubernetes Host-Network Daemon
-
-Use this pattern when BFD peers are reachable from the node network namespace.
-The DaemonSet is intentionally generic: it does not encode site topology,
-private addresses, or vendor-specific assumptions.
-
-Required properties:
-
-- `hostNetwork: true`
-- `dnsPolicy: ClusterFirstWithHostNet`
-- Linux nodes only
-- `NET_RAW` for BFD packet sockets
-- `NET_ADMIN` for enabled socket options and interface operations
-- Exec `gobfdctl` readiness over the Unix socket; metrics TCP liveness
-
-Before applying manifests, provide `gobfd:local` and `gobgp:local` in every
-eligible node's image store: the manifest sets `imagePullPolicy: Never`.
-The example runner imports into its local k3s store only and retains a pod-label
-mismatch and obsolete probes (`gobfd-qj0.8.2.8.7.1.4.1`). These are separate
-from the direct manifest commands below.
-
-Deploy:
-
-```bash
-kubectl apply -f deployments/integrations/kubernetes/manifests/
-kubectl -n gobfd rollout status daemonset/gobfd --timeout=120s
-kubectl -n gobfd get pods -o wide
+```sh
+backup_dir=$(mktemp -d /var/backups/gobfd.XXXXXXXX)
+chmod 0700 "$backup_dir"
+install -m 0600 /etc/gobfd/gobfd.yml "$backup_dir/gobfd.yml"
+cmp /etc/gobfd/gobfd.yml "$backup_dir/gobfd.yml"
+gobfd -version
+gobfdctl version
+systemctl show gobfd -p ActiveState -p SubState -p MainPID -p NRestarts
+systemctl cat gobfd
+stat -c '%a %U %G %n' /run/gobfd/gobfd.sock
+gobfdctl --format json session list > "$backup_dir/sessions-before.json"
+gobfdctl --format json capabilities > "$backup_dir/capabilities-before.json"
+journalctl -u gobfd --since '-2 min' --no-pager
+test -s /etc/gobfd/gobfd.candidate.yml
+test -s "$backup_dir/gobfd.yml"
+printf '%s\n' "$backup_dir"
 ```
 
-Validate host networking and probes:
+Continue only when backup comparison succeeds, service is active/running, expected sessions/consumers are healthy, socket permissions match policy, and the candidate belongs to this change. The daemon has no `-check` flag. Review full YAML/default/environment effects before apply; compare secrets only inside protected processes. Persist the displayed backup path in the restricted change record.
 
-```bash
-kubectl -n gobfd describe daemonset/gobfd
-kubectl -n gobfd get endpoints gobfd
-kubectl -n gobfd logs -l app.kubernetes.io/name=gobfd -c gobfd --tail=100
+A repeated pre-flight creates another backup directory and reassigns `backup_dir`; record the accepted original path before repeating it. Do not overwrite the original before/after evidence with another attempt. Repeating a restart interrupts sessions again and discards in-memory/API ownership; repeating reload does not restore earlier intent. After any failed apply, use the recorded backup and section 4, then repeat section 3. The [reload policy](adr/0006-session-preserving-reload-policy.md) defines supported reapplication and its limits.
+
+## 2. Install and reload
+
+### 2.1 Reloadable configuration
+
+```sh
+install -o root -g gobfd -m 0640 /etc/gobfd/gobfd.candidate.yml /etc/gobfd/gobfd.yml && \
+  cmp /etc/gobfd/gobfd.candidate.yml /etc/gobfd/gobfd.yml && \
+  systemctl reload gobfd
+journalctl -u gobfd --since '-2 min' --no-pager
+gobfdctl --format json session list > "$backup_dir/sessions-after.json"
 ```
 
-Operational notes:
+Continue only when the installed file matches, logs report converged reconciliation without rejected/pending resources, and affected sessions reach their intended state. A retained compatible timer update preserves its discriminator; removed configuration claims may leave API-owned sessions.
 
-- For static environments, commit BFD sessions in `configmap-gobfd.yml`.
-- For dynamic environments, create sessions through `gobfdctl` or a controller
-  after node or peer discovery.
-- Keep the default Unix socket. Remote TCP management requires mTLS; a trusted
-  network does not permit a non-loopback plaintext listener.
-- The shipped ConfigMap exposes unauthenticated metrics on `:9100` in the host
-  network. Restrict reachability at the node boundary before using the example.
-- The GoBGP sidecar binds its API to `127.0.0.1:50051`. Both GoBGP probes
-  execute the shipped `gobgp global` command against that loopback API with
-  a three-second timeout. Host-local plaintext API access remains. Verify
-  probes, OOM counters and restart behavior under the declared resource limits;
-  `gobfd-qj0.8.2.8.7.1.4.1.1` retains live-cluster qualification.
+### 2.2 Startup-owned changes
 
-The Kubernetes image import and live-cluster qualification remain incomplete.
-These manifests and probes are examples, not an accepted cluster deployment.
-Readiness demonstrates management access, not session or route convergence.
+Use an admitted maintenance interval with expected session interruption. Complete section 1 first. When GoBGP integration is enabled, retain peer administrative states and the journal evidence of which peers GoBFD disabled. That ownership map is memory-only and is lost on restart. Do not restart during a failure without a documented peer recovery decision.
 
-## BGP Fast-Failover Drill
-
-Run the generic FRR/GoBGP integration:
-
-```bash
-make int-bgp-failover-up
-# Optional: follow logs in a separate terminal.
-# make int-bgp-failover-logs
+```sh
+gobgp neighbor > "$backup_dir/gobgp-before.txt"
+journalctl -u gobfd --since '-1 hour' --no-pager > "$backup_dir/daemon-before.log"
+gobgp neighbor 192.0.2.2
 ```
 
-Full example documentation:
-[`deployments/integrations/bgp-fast-failover/README.md`](../../deployments/integrations/bgp-fast-failover/README.md).
+The peer address is the example configuration's peer; substitute the admitted neighbor. An administrative Down state alone does not prove GoBFD ownership. Preserve independent operator intent before enabling any peer.
 
-Baseline checks:
-
-```bash
-podman exec gobgp-bgp-failover gobgp neighbor
-podman exec gobgp-bgp-failover gobgp global rib
-podman exec gobfd-bgp-failover gobfdctl session list
-podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd
+```sh
+install -o root -g gobfd -m 0640 /etc/gobfd/gobfd.candidate.yml /etc/gobfd/gobfd.yml && \
+  cmp /etc/gobfd/gobfd.candidate.yml /etc/gobfd/gobfd.yml && \
+  systemctl restart gobfd
+systemctl show gobfd -p ActiveState -p SubState -p MainPID -p NRestarts
+journalctl -u gobfd --since '-2 min' --no-pager
+gobfdctl session list
 ```
 
-Confirm BFD Up and route `10.20.0.0/24` present before the failure drill.
-The commands below display observations; `make int-bgp-failover` performs the
-separate assertion-based withdrawal/restoration gate.
+Continue only when the new process runs, reconciliation converges and each affected peer/consumer recovers. `daemon-reload` is required after changing unit/drop-in files; it does not reload daemon YAML or restart a process. Sources: [shipped ExecReload](../../deployments/systemd/gobfd.service), [systemctl manual](https://www.freedesktop.org/software/systemd/man/latest/systemctl.html).
 
-Use the Go-owned assertion-based lifecycle for the failure drill. Stop the
-separately started demo first to release its fixed names; the test creates
-an owned topology and checks route withdrawal and recovery:
+If an admitted peer remains administratively disabled after BFD returns Up, require proof that GoBFD disabled it and no later operator action requires it to remain disabled. Only then explicitly recover that peer:
 
-```bash
-make int-bgp-failover-down
-make int-bgp-failover
+```sh
+gobgp neighbor 192.0.2.2 enable
+gobgp neighbor 192.0.2.2
+gobgp global rib
 ```
 
-Expected result:
+Require Established, intended routes and the independent forwarding probe. Never bulk-enable all disabled neighbors. Sources: [in-memory disable ownership](../../internal/gobgp/handler.go), [official GoBGP CLI](https://github.com/osrg/gobgp/blob/master/docs/sources/cli-operations.md).
 
-- BFD transitions from Up to Down before the normal BGP hold timer expires.
-- GoBGP disables the affected peer.
-- Route `10.20.0.0/24` returns to the GoBGP RIB after BFD Up; verify forwarding separately.
+## 3. Post-check
 
-## Prometheus Alert Validation
-
-Use an isolated host: this lab publishes host ports 9090/3000 and has default
-Grafana credentials, as described in [Integrations](11-integrations.md#observability).
-The drill below is a local procedure; this documentation edit does not record
-a new execution. The inspection commands require `curl`.
-
-Start the observability stack:
-
-```bash
-make int-observability-up
+```sh
+gobfdctl --format json session list
+gobfdctl --format json capabilities
+systemctl show gobfd -p ActiveState -p SubState -p MainPID -p NRestarts
+journalctl -u gobfd --since '-2 min' --no-pager
 ```
 
-Check targets and rules:
+Compare the protected before/after inventories, including peer/local/interface identity, discriminator, state, diagnostics and negotiated timers. Verify management writer/read-only policy and intended metrics reachability. Measure consumer-specific route/backend behavior and an independent forwarding/application probe; management access alone does not satisfy acceptance.
 
-```bash
-curl -fsS http://localhost:9090/api/v1/targets
-curl -fsS http://localhost:9090/api/v1/rules
+| Gate | Required result | Evidence |
+|:---|:---|:---|
+| Configuration | Accepted intended generation, no pending resources | Restricted journal excerpt |
+| Retained wire | Expected identity/discriminator and negotiated state | Before/after JSON |
+| Consumer | Intended route/backend action and recovery | Consumer readback |
+| Forwarding | Declared probe succeeds on intended path | Timestamped external probe |
+| Resources | No unexpected restart/OOM; within admitted budget | Service/cgroup/host measurement |
+
+For an owned disposable FRR topology, the separate BGP gate is:
+
+```sh
+make int-bgp-failover-testcontainers
 ```
 
-Use the Go-owned testcontainers lifecycle for assertions. Stop the inspection
-demo first; the test creates an owned topology, verifies healthy scraping,
-fails the FRR path, requires a firing transition alert and verifies recovery:
+It asserts route withdrawal within its 20-second test bound and restoration; it does not prove a 900 ms bound or production forwarding. The observability counterpart is `make int-observability-testcontainers`; it requires scraping, alert firing and recovery. Do not run overlapping fixed-name manual labs concurrently. See [integration qualification](11-integrations.md).
 
-```bash
-make int-observability-down
-make int-observability-testcontainers
+## 4. Rollback
+
+Restore the backup in the same shell; substitute the recorded protected backup path if the shell was lost.
+
+```sh
+test -s "$backup_dir/gobfd.yml" && \
+  install -o root -g gobfd -m 0640 "$backup_dir/gobfd.yml" /etc/gobfd/gobfd.yml && \
+  cmp "$backup_dir/gobfd.yml" /etc/gobfd/gobfd.yml && \
+  systemctl reload gobfd
+journalctl -u gobfd --since '-2 min' --no-pager
+gobfdctl session list
 ```
 
-Exit 0 requires BFD recovery, a healthy scrape target and an inactive transition
-alert after the failure phase. HTTP 200 alone is insufficient. The lifecycle
-retains evidence and cleans its owned resources. Response fields follow the Prometheus
-[alerts API](https://prometheus.io/docs/prometheus/latest/querying/api/#alerts).
+For startup-owned rollback, replace reload with `systemctl restart gobfd` and repeat section 3. For a binary/package upgrade, restore the exact previously accepted artifact through its packaging procedure before restart.
 
-Alert intent:
+Rollback restores desired configuration, not lost session uptime, old discriminator after recreation, transient route withdrawals or external consumer history. API claims may need owner-specific reprovisioning after restart. Preserve evidence and the backup until acceptance closes; cleanup is a separate approved operation.
 
-| Alert | Meaning |
-|---|---|
-| `BFDNoActiveSessions` | Healthy exporter with no active Control sessions, including a fresh-empty exporter. |
-| `BFDSessionDownTransition` | A session transitioned from Up to Down. |
-| `BFDSessionFlapping` | A session changed state more than 3 times in 5 minutes. |
-| `BFDAuthFailures` | RFC 5880 authentication verification failed. |
-| `BFDPacketDrops` | Admitted peer packet drops increased; pre-session parser/demux outcomes use the separate delivery ledger. |
+## 5. Traps that cost time
 
-## Packet Verification
+This procedure is not executed against a production host. The following are source-defined failure checks, not invented incident observations.
 
-Use packet captures to verify RFC-visible behavior rather than relying only on
-logs:
+| Symptom | Cause | Check/fix |
+|:---|:---|:---|
+| Reload command succeeds, settings stay old | Rejected candidate/startup-field change | Read rejection fields; restore or schedule restart |
+| Session absent after acceptance | Pending address/interface/listener resource | Read source-specific receipt; restore binding and require convergence |
+| CLI cannot mutate over TCP | Anonymous/read-only principal | Use permitted socket/mTLS identity |
+| BGP does not act | Ambiguous base sessions/native-owner conflict/API incompatibility | Require one owner and compatible GoBGP endpoint |
+| Session removal leaves a wire | Another principal/config claim remains | Release only the intended owner's claim |
 
-```bash
-podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd \
-  -T fields \
-  -e frame.time_relative \
-  -e ip.src \
-  -e ip.dst \
-  -e udp.srcport \
-  -e udp.dstport \
-  -e ip.ttl \
-  -e bfd.sta \
-  -e bfd.detect_time_multiplier \
-  -E header=y \
-  -E separator=,
+## 6. Command cheat-sheet
+
+```sh
+# Read current session state.
+gobfdctl session list
+# Read preview maturity and local readiness.
+gobfdctl capabilities
+# Request reload of reloadable YAML.
+systemctl reload gobfd
+# Inspect daemon acceptance/rejection.
+journalctl -u gobfd --since '-2 min' --no-pager
+# Read service process state.
+systemctl show gobfd -p ActiveState -p MainPID -p NRestarts
 ```
 
-Expected single-hop values:
+## Links
 
-| Field | Expected |
-|---|---|
-| UDP destination port | 3784 |
-| UDP source port | 49152-65535 |
-| TTL/Hop Limit | 255 |
-| BFD version | 1 |
-| State progression | Down -> Init -> Up |
-
-## Public Vendor Notes
-
-GoBFD examples stay vendor-neutral. Vendor snippets require primary vendor
-documentation.
-
-Published optional notes:
-
-- [Arista EOS BFD verification note](../../deployments/integrations/bgp-fast-failover/vendor-notes/arista-eos.md)
-
-Use that note's primary references for the exact vendor release and profile.
-An optional vendor command example does not qualify hardware offload, Micro-BFD
-member enforcement or forwarding continuity in GoBFD.
-
-## Open Production Gaps
-
-| Gap | Status |
-|---|---|
-| Echo and Micro-BFD API/CLI creation | Implemented preview; transport/owner/RFC qualification remains separate |
-| Dedicated VXLAN/Geneve create API/CLI | Not implemented; use opt-in declarative profiles |
-| Kernel/OVS/OVN/Cilium/Calico/NSX overlay backends beyond `userspace-udp` | Future |
-| OCI SBOM/provenance and release checksums | Workflow implemented; verify the exact candidate before publication; no signing step is configured |
-
----
-
-*Reviewed against `dev` source: 2026-10-25; commands were inspected, not executed.*
+- [Configuration](03-configuration.md): complete defaults, field inventory and restart boundary.
+- [Deployment](06-deployment.md): artifacts, service sandbox and Kubernetes prerequisites.
+- [Monitoring](07-monitoring.md): signal denominators and alerts.
+- [Security](15-security.md): identity, secrets and actuator permissions.
+- [BGP example](../../deployments/integrations/bgp-fast-failover/README.md): exact disposable topology and gate.
+- [Official vendor references](reference/vendor-bfd.md): Cisco, Arista, Juniper and Huawei platform boundaries.

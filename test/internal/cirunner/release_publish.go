@@ -75,11 +75,17 @@ func PublishVerifiedRelease(ctx context.Context, options PublishVerifiedReleaseO
 	if closeErr != nil {
 		return closeErr
 	}
+	arguments := []string{
+		ghReleaseCommand, "edit", options.RefName, ghRepositoryFlag, inputs.owner + "/" + inputs.repository,
+		"--draft=false",
+	}
+	if isAlphaReleaseTag(options.RefName) {
+		arguments = append(arguments, "--prerelease", "--latest=false")
+	} else {
+		arguments = append(arguments, "--latest")
+	}
 	if err := options.Runner.RunCommand(ctx, CommandSpec{
-		Name: "gh", Args: []string{
-			ghReleaseCommand, "edit", options.RefName, ghRepositoryFlag, inputs.owner + "/" + inputs.repository,
-			"--draft=false", "--latest",
-		}, Dir: inputs.root, Env: options.Environment,
+		Name: "gh", Args: arguments, Dir: inputs.root, Env: options.Environment,
 	}); err != nil {
 		return fmt.Errorf("publish exact verified release: %w", err)
 	}
@@ -101,7 +107,7 @@ func validateReleasePublicationInputs(options PublishVerifiedReleaseOptions) (re
 	if err != nil {
 		return releasePublicationInputs{}, err
 	}
-	inputs.version, inputs.releaseBranch, err = parseStableReleaseVersion(options.RefName)
+	inputs.version, inputs.releaseBranch, err = parseReleaseVersion(options.RefName)
 	if err != nil {
 		return releasePublicationInputs{}, err
 	}
@@ -137,16 +143,28 @@ func verifyReleasePublication(
 	if err != nil {
 		return err
 	}
-	const imageRepository = "ghcr.io/dantte-lp/gobfd"
-	aliases := []releaseOCIImageDigest{
-		{Image: imageRepository + ":latest", Digest: evidence.versioned[0].Digest},
-		{Image: imageRepository + ":debian-trixie", Digest: evidence.versioned[0].Digest},
-	}
-	if _, aliasesErr := inspectReleaseOCIAliases(
-		ctx, options.Runner, inputs.root, aliases,
-		withoutEnvironmentKeys(options.Environment, "GH_TOKEN", "GITHUB_TOKEN"),
-	); aliasesErr != nil {
-		return aliasesErr
+	if isAlphaReleaseTag(options.RefName) {
+		actual, inspectErr := inspectReleaseOCIManifests(
+			ctx, options.Runner, inputs.root, options.RefName, options.Environment,
+		)
+		if inspectErr != nil {
+			return inspectErr
+		}
+		if !bytes.Equal(renderReleaseOCIDigestReceipt(actual), evidence.digests) {
+			return fmt.Errorf("versioned OCI manifests changed before alpha publication: %w", errInvalidConfig)
+		}
+	} else {
+		const imageRepository = "ghcr.io/dantte-lp/gobfd"
+		aliases := []releaseOCIImageDigest{
+			{Image: imageRepository + ":latest", Digest: evidence.versioned[0].Digest},
+			{Image: imageRepository + ":debian-trixie", Digest: evidence.versioned[0].Digest},
+		}
+		if _, aliasesErr := inspectReleaseOCIAliases(
+			ctx, options.Runner, inputs.root, aliases,
+			withoutEnvironmentKeys(options.Environment, "GH_TOKEN", "GITHUB_TOKEN"),
+		); aliasesErr != nil {
+			return aliasesErr
+		}
 	}
 	if err := verifyRemoteReleasePublication(ctx, options, inputs, evidence); err != nil {
 		return err
@@ -227,7 +245,7 @@ func verifyRemoteReleasePublication(
 	draftData, err := runReleasePreflightCommand(ctx, options.Runner, CommandSpec{
 		Name: "gh", Args: []string{
 			ghReleaseCommand, "view", options.RefName, ghRepositoryFlag, inputs.owner + "/" + inputs.repository,
-			"--json", "isDraft,tagName,body,assets",
+			"--json", "isDraft,isPrerelease,tagName,body,assets",
 		}, Dir: inputs.root, Env: options.Environment,
 	}, "read exact release draft before publication")
 	if err != nil {

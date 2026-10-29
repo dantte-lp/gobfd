@@ -908,7 +908,9 @@ func (m *Manager) StateChanges() <-chan StateChange {
 }
 
 // SubscribeStateChanges returns a per-consumer channel that receives every
-// manager state change until ctx is cancelled or Manager.Close begins. Each
+// manager state change until ctx is cancelled or Manager.Close begins. With
+// WithShutdownNotificationDrain, Close joins producers and drains queued changes
+// before subscriber EOF; cancellation and overflow still limit delivery. Each
 // change carries a dispatch revision. A slow subscriber drops its own events
 // without affecting other subscribers or session goroutines, and receives a
 // StateChange with Gap set in their place: Watch resyncs from
@@ -939,10 +941,10 @@ func (m *Manager) SubscribeStateChanges(ctx context.Context) (<-chan StateChange
 	m.subscribers[ch] = &subscriber{}
 	m.subMu.Unlock()
 
-	m.workers.Go(func() {
+	m.subscriberWorkers.Go(func() {
 		select {
 		case <-ctx.Done():
-		case <-m.shutdownCh:
+		case <-m.subscriberShutdownCh:
 		}
 		m.subMu.Lock()
 		if _, ok := m.subscribers[ch]; ok {

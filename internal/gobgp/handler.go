@@ -45,7 +45,7 @@ const (
 	actionRetryFirst   = time.Second
 	actionRetryCeiling = 30 * time.Second
 
-	// ponytail: fixed re-check, so a held recovery lands up to one
+	// Fixed re-check, so a held recovery lands up to one
 	// interval after suppression ends; compute the exact release time if
 	// that lag matters.
 	suppressionRecheck = time.Second

@@ -88,7 +88,7 @@ func validateReleaseDraftVerification(options VerifyReleaseDraftOptions) (releas
 	if err != nil {
 		return releaseDraftVerification{}, err
 	}
-	verification.version, verification.releaseBranch, err = parseStableReleaseVersion(options.RefName)
+	verification.version, verification.releaseBranch, err = parseReleaseVersion(options.RefName)
 	if err != nil {
 		return releaseDraftVerification{}, err
 	}
@@ -184,7 +184,7 @@ func verifyReleaseDraftEvidence(
 		Args: []string{
 			ghReleaseCommand, "view", verification.options.RefName, ghRepositoryFlag,
 			verification.owner + "/" + verification.repository,
-			"--json", "isDraft,tagName,body,assets",
+			"--json", "isDraft,isPrerelease,tagName,body,assets",
 		},
 		Dir: verification.root, Env: verification.options.Environment,
 	}, "read exact release draft")
@@ -340,7 +340,9 @@ func validateExactReleaseDraft(
 	releaseNotes []byte,
 	expectedAssets []string,
 ) ([]releaseRemoteAssetIdentity, error) {
-	fields, err := decodeRequiredJSONObject(data, "release draft fields", []string{"isDraft", "tagName", "body", "assets"})
+	fields, err := decodeRequiredJSONObject(
+		data, "release draft fields", []string{"isDraft", "isPrerelease", "tagName", "body", "assets"},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -349,6 +351,14 @@ func validateExactReleaseDraft(
 		fields["isDraft"], &isDraft, "release draft state",
 	); decodeErr != nil || isDraft == nil || !*isDraft {
 		return nil, fmt.Errorf("release is not an explicit draft: %w", errors.Join(decodeErr, errInvalidConfig))
+	}
+	var isPrerelease *bool
+	if decodeErr := decodeJSONDocument(
+		fields["isPrerelease"], &isPrerelease, "release prerelease state",
+	); decodeErr != nil || isPrerelease == nil || *isPrerelease != isAlphaReleaseTag(refName) {
+		return nil, fmt.Errorf(
+			"release prerelease state differs from the release channel: %w", errors.Join(decodeErr, errInvalidConfig),
+		)
 	}
 	tagName, err := decodeRequiredJSONString(fields["tagName"], "release draft tag")
 	if err != nil {

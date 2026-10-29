@@ -5,10 +5,11 @@ partial RFC 5880/5881 boundaries.
 Four binaries: `gobfd` (daemon), `gobfdctl` (CLI), `gobfd-haproxy-agent` (HAProxy bridge), `gobfd-exabgp-bridge` (ExaBGP bridge).
 
 ## Commands
+
 ```sh
 make build                                         # сборка всех 4 бинарников с ldflags
 go test ./... -race -count=1                       # тесты с race detector
-go test -run '^TestFSMTransition$' ./internal/bfd  # один тест
+go test -race -run '^TestFSMTransition$' ./internal/bfd  # один тест
 make lint                                          # линтер (v2, 92 линтера + 18 build-tag profiles)
 buf generate                                       # генерация proto
 buf lint                                           # проверка proto
@@ -25,6 +26,7 @@ make int-k8s                                       # integration: Kubernetes Dae
 ```
 
 ## Architecture
+
 - `internal/bfd/` — FSM (RFC 5880 §6.8), session management, packet codec, auth
 - `internal/server/` — ConnectRPC server, interceptors
 - `internal/netio/` — raw socket abstraction (Linux-specific), UDP listeners 3784/4784
@@ -45,6 +47,7 @@ make int-k8s                                       # integration: Kubernetes Dae
 - `tools/` — isolated Go tool module; never add developer tools to the runtime `go.mod`
 
 ## Code style
+
 - Errors: always wrap with `%w` and context: `fmt.Errorf("send control packet to %s: %w", peer, err)`
 - Use `errors.Is`/`errors.As`, never string matching
 - Context: first param, never store in struct
@@ -60,6 +63,7 @@ make int-k8s                                       # integration: Kubernetes Dae
 - Go 1.27 best practices: use `testing/synctest` and `synctest.Sleep` for virtual-time timer tests, `runtime/trace.FlightRecorder` for debugging, `os.Root` for sandboxed I/O, a deployment-qualified `GOMEMLIMIT` with the default `GOGC` unless measurements justify an override, generic methods only when justified, range-over-func iterators, and `slices`/`maps`/`cmp` stdlib packages
 
 ## Go 1.27 project rules
+
 The baseline is `go 1.27` with `toolchain go1.27.3`. Keep every first-party
 compiler pin in Containerfiles, CI, release workflows, and test harnesses on
 that exact toolchain. Use the official
@@ -145,19 +149,27 @@ an upstream image name alone is not an exception.
 
 ## Planning
 
-- Beads is the sole source of executable plans, priorities, dependencies,
+- The project issue tracker is the sole source of executable plans, priorities, dependencies,
   acceptance criteria, blockers and handoff/resume steps.
-- Do not create or maintain Markdown task/checklist plans. Files under
-  `docs/superpowers/plans/` are Beads entrypoints only; roadmaps are dated
-  status projections, not task authority. Keep measured evidence separate.
-- Read and update the relevant Beads issue before implementation. A skill's
+- Do not create or maintain Markdown task/checklist plans. Canonical technical
+  requirements live in `docs/en/reference/production-contract.md` and its Russian
+  counterpart; roadmaps are dated status projections, not task authority.
+  Keep measured evidence separate from executable work items.
+- Read and update the relevant issue before implementation. A skill's
   Markdown-plan workflow does not override this repository requirement.
 
 ## Release branches
 
-- New releases are prepared and published only after development and final
+- Stable releases are prepared and published only after development and final
   qualification are complete. Continue implementation in `dev`; do not create
   release tags, drafts, or release artifacts during intermediate tasks.
+- Exception: the maintainer authorizes the experimental `v1.0.0-alpha.N`
+  channel on 2026-10-30 under ADR-0008. Use positive canonical ordinals, a
+  reviewed `release/v1.0` HEAD, an immutable annotated tag, a merged release
+  PR, fresh critical/security/package checks and complete verified draft
+  assets. Release Please creates the PR only; GoReleaser and the Go-owned
+  verifier publish the prerelease with `latest=false`. Never promote stable
+  OCI aliases or close stable qualification from alpha delivery.
 - `dev` integrates the next product line and is never tagged for a stable
   release.
 - Acceptance records name the branch, commit, and evidence; closed `dev` tasks
@@ -185,10 +197,36 @@ an upstream image name alone is not an exception.
   the immutable tag.
 
 ## Git
-- Commits: NEVER add Co-Authored-By or any AI/Claude mentions in commit messages
+
+- Commit messages and pull request titles/descriptions use English.
+- Documentation is English first under `docs/en/`, with complete Russian
+  counterparts under `docs/ru/`; conversation remains technical Russian.
+- Commits: preserve verified human identity; do not add assistant attribution
 - Module: `github.com/dantte-lp/gobfd` — owner dantte-lp, NOT wolfguard
 
+## Documentation contract
+
+- The canonical [documentation standard](docs/en/reference/documentation-standard.md)
+  and its [Russian translation](docs/ru/reference/documentation-standard.md)
+  define prose, Markdown, diagrams, source attribution and public changelog/status rules.
+- Keep internal task identifiers, tracker-specific commands, session transcripts
+  and tool-specific prompts out of current user documentation and release notes.
+  Scan identifiers as well as tracker names; preserve original historical evidence
+  before preparing publishable derivatives.
+- State verified behavior declaratively; write procedures as imperative steps
+  with prerequisites, expected results and rollback where a change needs one.
+- Keep plain Markdown, existing document paths and useful link anchors.
+  Use compact tables for values and Mermaid for ownership, packet flow and
+  lifecycle; use the installed `um-docs` style and diagram skills.
+- Link technical claims to repository source, exact RFC sections and official
+  vendor manuals. Name the platform and NOS scope; a vendor document is not
+  a GoBFD interoperability receipt.
+- Preserve historical measurements, published changelog history, legal text,
+  verbatim RFCs and third-party material. Keep dated evidence separate from
+  current operational references and executable issue-tracker plans.
+
 ## Important: don't
+
 - NEVER modify generated files in `pkg/bfdpb/` — regenerate with `buf generate`
 - NEVER use `unsafe` package — this is a network daemon handling untrusted input
 - NEVER skip error checks on socket operations in `internal/netio/`

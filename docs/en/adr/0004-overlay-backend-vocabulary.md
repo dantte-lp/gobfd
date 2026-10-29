@@ -1,54 +1,36 @@
 # ADR-0004: Shared overlay backend vocabulary
 
+[Russian translation](../../ru/adr/0004-overlay-backend-vocabulary.md).
+
 | Field | Value |
-|---|---|
+|:---|:---|
 | Status | Accepted |
 | Date | 2026-08-28 |
 
 ## Context
 
-The configuration and network-I/O packages independently defined the same
-seven VXLAN and Geneve backend names. They also normalized the input at
-different boundaries: configuration validation trimmed surrounding whitespace,
-while the backend constructor required the exact stored value. A whitespace-
-padded value could therefore pass startup validation and fail later while the
-daemon created its socket.
-
-Neither package is a suitable owner for the shared vocabulary. Importing
-`internal/netio` from `internal/config` would couple configuration to Linux I/O,
-and importing `internal/config` from `internal/netio` would pull configuration
-policy and Koanf dependencies into the socket adapter.
+Startup validation and network-I/O construction must accept the same backend spellings and normalization. A dependency from configuration to Linux I/O, or from sockets to configuration loaders, would cross the package boundary.
 
 ## Decision
 
-`internal/overlay` owns the backend type, the seven wire/configuration
-spellings, normalization, recognition, and implementation status. It is a leaf
-package that imports only the Go standard library. Both `internal/config` and
-`internal/netio` import it and keep their existing exported compatibility names
-and package-specific sentinel errors.
+[`internal/overlay`](../../../internal/overlay/backend.go) owns the backend type, seven spellings, parser and implementation status. It imports only the standard library. Configuration and network I/O consume it while retaining their compatibility aliases and package-specific sentinel errors.
 
-The shared parser preserves the external configuration behavior: it trims
-surrounding whitespace, maps an empty value to `userspace-udp`, treats spelling
-as case-sensitive, and recognizes the six reserved backend names. Only
-`userspace-udp` is implemented. The network-I/O constructor now applies the
-same normalization as startup validation.
+| Input | Result |
+|:---|:---|
+| Surrounding whitespace | Trim |
+| Empty value | `userspace-udp` |
+| Case variant | Reject; names are case-sensitive |
+| `userspace-udp` | Recognized and implemented |
+| `kernel`, `ovs`, `ovn`, `cilium`, `calico`, `nsx` | Recognized, unsupported; fail closed |
+| Other name | Invalid |
 
 ## Consequences
 
-- YAML and environment field names, values, defaults, and configuration types
-  do not change.
-- `config` continues to distinguish invalid names from recognized but
-  unsupported backends through its existing errors.
-- `netio` retains its own invalid, unsupported, and invalid-input errors and
-  constructor context.
-- Adding a backend spelling or changing implementation status has one source
-  of truth.
-- This decision does not implement any reserved backend or change protobuf
-  contracts.
+YAML/environment field names, defaults, values and public configuration types remain unchanged. Both startup validation and backend construction apply the parser. Invalid, unsupported and invalid-input errors retain package context. Adding a spelling or implementation status has one owner; recognition never creates a dataplane backend or changes protobuf.
 
 ## References
 
-- [Shared backend parser](../../../internal/overlay/backend.go)
-- [Backend constructor admission](../../../internal/netio/overlay_backend.go)
-- [Go 1.27 specification: Import declarations](https://go.dev/ref/spec#Import_declarations)
-- [ADR-0003: Linux applicability of Micro-BFD, VXLAN BFD, and Geneve BFD](./0003-linux-advanced-bfd-applicability.md)
+- [Shared parser](../../../internal/overlay/backend.go).
+- [Constructor admission](../../../internal/netio/overlay_backend.go).
+- [Configuration validation](../../../internal/config/config.go).
+- [Linux applicability](0003-linux-advanced-bfd-applicability.md).

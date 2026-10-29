@@ -84,7 +84,7 @@ func validateReleaseArtifactOptions(options ReleaseArtifactsOptions) (string, st
 	if err != nil {
 		return "", "", "", "", err
 	}
-	version, _, err := parseStableReleaseVersion(options.RefName)
+	version, _, err := parseReleaseVersion(options.RefName)
 	if err != nil {
 		return "", "", "", "", err
 	}

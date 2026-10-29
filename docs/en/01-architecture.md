@@ -1,720 +1,184 @@
 # Architecture
 
-![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)
-![RFC 5880](https://img.shields.io/badge/RFC-5880-1a73e8?style=for-the-badge)
-![ConnectRPC](https://img.shields.io/badge/ConnectRPC-gRPC-ea4335?style=for-the-badge)
-![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?style=for-the-badge&logo=prometheus)
-![Linux](https://img.shields.io/badge/Linux-Raw_Sockets-FCC624?style=for-the-badge&logo=linux&logoColor=black)
+[Russian translation](../ru/01-architecture.md).
 
-> System architecture of GoBFD: package dependencies, packet flow, session lifecycle, and goroutine model.
+GoBFD separates Bidirectional Forwarding Detection (BFD) state machines, Linux UDP input/output (I/O), management authorization and routing actuators. A physical session belongs to the session Manager; configuration and API principals hold claims on that session. A claim does not own an independent protocol instance. Sources: [session identity](../../internal/bfd/session_identity.go), [Manager](../../internal/bfd/manager.go).
 
----
+A finite state machine (FSM) owns protocol transitions. Receive (RX) and transmit (TX) identify packet directions; time to live (TTL) is the IPv4 hop bound, and IPv6 uses Hop Limit. A protocol data unit (PDU) is the declared BFD packet. VXLAN network identifiers (VNIs) separate overlay scopes; link aggregation groups (LAGs) contain member links. Mutual TLS (mTLS) authenticates both management endpoints.
 
-## Table of Contents
-
-- [System Overview](#system-overview)
-- [Package Dependency Diagram](#package-dependency-diagram)
-- [Dependency Rules](#dependency-rules)
-- [Packet RX Flow](#packet-rx-flow)
-- [Packet TX Flow](#packet-tx-flow)
-- [Demultiplexing](#demultiplexing)
-- [Session Identity and Ownership](#session-identity-and-ownership)
-- [Three-Way Handshake](#three-way-handshake)
-- [Goroutine Model](#goroutine-model)
-- [Graceful Shutdown](#graceful-shutdown)
-- [Project Structure](#project-structure)
-- [Technology Stack](#technology-stack)
-
-### System Overview
-
-GoBFD is a BFD (Bidirectional Forwarding Detection) protocol daemon with
-[explicit partial and preview RFC boundaries](08-rfc-compliance.md). It consists of four binaries:
-
-- **gobfd** -- the daemon that manages BFD sessions, sends/receives BFD Control packets, and integrates with GoBGP
-- **gobfdctl** -- the CLI client that communicates with gobfd via ConnectRPC
-- **gobfd-haproxy-agent** -- HAProxy agent-check bridge (BFD state to TCP agent responses)
-- **gobfd-exabgp-bridge** -- ExaBGP process API bridge (BFD state to route announcements)
+## System Overview
 
 ```mermaid
-graph TB
-    subgraph "gobfd daemon"
-        MAIN["cmd/gobfd<br/>main.go"]
-        CFG["internal/config<br/>koanf/v2"]
-        SRV["internal/server<br/>ConnectRPC"]
-        BFD["internal/bfd<br/>FSM + Sessions"]
-        NET["internal/netio<br/>Raw Sockets"]
-        MET["internal/metrics<br/>Prometheus"]
-        BGP["internal/gobgp<br/>GoBGP Client"]
-        PB["pkg/bfdpb<br/>Generated Proto"]
-    end
-
-    subgraph "gobfdctl CLI"
-        CLI["cmd/gobfdctl<br/>Cobra + reeflective/console"]
-    end
-
-    subgraph "External"
-        GOBGP["GoBGP<br/>gRPC 127.0.0.1:50051"]
-        PROM["Prometheus<br/>:9100/metrics"]
-        PEER["BFD Peers<br/>UDP 3784/4784/3785/6784/4789/6081"]
-    end
-
-    MAIN --> CFG
-    MAIN --> SRV
-    MAIN --> NET
-    MAIN --> MET
-    MAIN --> BGP
-    SRV --> BFD
-    SRV --> PB
-    NET --> BFD
-    CLI --> SRV
-    BGP --> GOBGP
-    MET --> PROM
-    NET --> PEER
-
-    style BFD fill:#1a73e8,color:#fff
-    style NET fill:#34a853,color:#fff
-    style SRV fill:#ea4335,color:#fff
+flowchart LR
+    accTitle: Component ownership and message flow
+    accDescr: Configuration and management feed the Manager; session owners receive packets, transmit through leases and publish observations.
+    cli["gobfdctl and bridges"]:::mgt --> rpc["Management API"]:::mgt
+    cfg["Validated configuration"]:::mgt --> rec["Reconciliation coordinator"]:::srv
+    rpc --> mgr["Session Manager"]:::srv
+    rec --> mgr
+    peer["BFD peer"]:::brt --> rx["Listener and receiver"]:::leaf
+    rx --> mgr
+    mgr --> owner["Session owner: FSM and timers"]:::srv
+    owner --> tx["Sender lease"]:::leaf
+    tx --> peer
+    owner --> events["Observation and dispatch"]:::srv
+    events --> rpc
+    events -.-> act["GoBGP and external actuators"]:::brt
+    owner -.-> met["Prometheus collectors"]:::mgt
+    classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
+    classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
+    classDef leaf fill:#e3f2fd,stroke:#1976d2,color:#000
+    classDef brt fill:#fff3e0,stroke:#bf360c,color:#000
 ```
 
-### Package Dependency Diagram
+The diagram shows process boundaries and message direction. It does not assert that the monitored path fate-shares with any routing or overlay dataplane. [RFC 5882](../rfc/rfc5882.txt) defines client interactions; [ADR-0003](adr/0003-linux-advanced-bfd-applicability.md) constrains Linux ownership.
 
-```mermaid
-graph TB
-    subgraph "cmd/"
-        GOBFD["cmd/gobfd<br/>main.go"]
-        GOBFDCTL["cmd/gobfdctl<br/>main.go + commands/"]
-    end
+## Package Dependency Diagram
 
-    subgraph "internal/"
-        CFG["config<br/>koanf/v2"]
-        SRV["server<br/>ConnectRPC"]
-        BFD["bfd<br/>FSM, Session,<br/>Packet, Auth"]
-        NET["netio<br/>Raw Sockets,<br/>UDP Listeners"]
-        MET["metrics<br/>Prometheus"]
-        BGP["gobgp<br/>gRPC Client"]
-        VER["version<br/>Build Info"]
-    end
-
-    PB["pkg/bfdpb<br/>Generated Proto"]
-
-    GOBFD --> CFG
-    GOBFD --> SRV
-    GOBFD --> NET
-    GOBFD --> MET
-    GOBFD --> BGP
-    GOBFD --> VER
-    SRV --> BFD
-    SRV --> PB
-    NET --> BFD
-    GOBFDCTL --> PB
-
-    style BFD fill:#1a73e8,color:#fff
-```
+| Package | Responsibility | Boundary |
+|:---|:---|:---|
+| [`internal/bfd`](../../internal/bfd) | Codec, authentication, FSM, owners, claims, delivery ledger | No Linux socket ownership |
+| [`internal/netio`](../../internal/netio) | UDP sockets, ancillary metadata, overlays, interface monitor, LAG backends | Adapts I/O to core interfaces |
+| [`internal/config`](../../internal/config) | Decode and validate YAML, environment and defaults | Produces complete candidate |
+| [`internal/server`](../../internal/server) | API conversion, authorization, Watch, capabilities | Principal comes from transport |
+| [`internal/overlay`](../../internal/overlay) | Shared backend vocabulary | Standard-library leaf package |
+| [`internal/gobgp`](../../internal/gobgp) | BFD-to-BGP action policy | External action has a deadline |
+| [`cmd/gobfd`](../../cmd/gobfd) | Startup, resource owners, reload, readiness, shutdown | Composes runtime services |
+| [`api/bfd/v1`](../../api/bfd/v1) | Public protobuf schema | Generated clients are in `pkg/bfdpb` |
 
 ### Dependency Rules
 
-- `internal/bfd` has **zero** dependency on `internal/server`, `internal/netio`, or `internal/config`
-- `internal/server` depends on `internal/bfd` (Manager, Session, types) and `pkg/bfdpb`
-- `internal/netio` reuses the BFD packet codec, pool, packet metadata, sender
-  interface, and Micro-BFD state/event types from `internal/bfd`
-- `pkg/bfdpb` is generated code -- never edited manually
+The FSM returns actions; the session executes them. Socket adapters depend on core interfaces. Configuration and network I/O share overlay names through the leaf package. Generated protobuf code is not edited directly. See [FSM](../../internal/bfd/fsm.go), [receiver interface](../../internal/netio/receiver.go), [ADR-0004](adr/0004-overlay-backend-vocabulary.md).
 
-### Packet RX Flow
+## Packet RX Flow
 
 ```mermaid
 flowchart TD
-    NET["Network<br/>UDP 3784 / 4784"] --> LISTEN["netio.Listener<br/>ReadMsgUDP<br/>PacketPool.Get()"]
-    LISTEN --> UNMARSHAL["bfd.UnmarshalControlPacket<br/>header and auth-section shape<br/>version, length, detect mult,<br/>multipoint, discriminators"]
-    UNMARSHAL --> DEMUX["Manager.DemuxWithWire<br/>YourDiscr or scoped peer key<br/>transport, interface, TTL admission"]
-    DEMUX --> RECV["Session.recvPacket<br/>buffered recvCh"]
-    RECV --> HANDLE["handleRecvPacket<br/>auth, FSM event, timer reset"]
+    accTitle: Control receive pipeline
+    accDescr: A datagram passes transport checks, decoding, lookup, admission and owner validation before state commit and notification.
+    socket["UDP datagram and ancillary metadata"]:::leaf --> transport["Length, truncation and transport checks"]:::leaf
+    transport --> codec["Decode Control header and auth shape"]:::srv
+    codec --> scope["Discriminator or initial-key lookup"]:::srv
+    scope --> gate["Exact scope, interface and TTL admission"]:::srv
+    gate --> queue["Bounded owner queue"]:::srv
+    queue --> validate["Owner authentication and protocol validation"]:::srv
+    validate --> commit["FSM, timers and coherent observation commit"]:::srv
+    commit --> notify["Metrics and notification"]:::mgt
+    classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
+    classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
+    classDef leaf fill:#e3f2fd,stroke:#1976d2,color:#000
 ```
 
-Receive processing for RFC 5880 Section 6.8.6 spans three layers. The step
-numbers in code comments group checks locally; the RFC includes session
-selection between the header and authentication checks.
+[Receiver](../../internal/netio/receiver.go) returns the pooled datagram buffer after demultiplexing. Authenticated input retains an owned copy of the complete wire payload for owner verification. Decoded authentication metadata and up to 20 payload bytes belong to the packet value; this does not remove the wire requirement. [ADR-0011](adr/0011-bfd-auth-inline-payload.md) defines the lifetime.
 
-| Layer | Source | Responsibility |
-|---|---|---|
-| **Codec** | [`packet.go`](../../internal/bfd/packet.go) | Version, lengths, detect mult, multipoint, nonzero My Discriminator and zero Your Discriminator state restriction |
-| **Manager** | [`manager_session.go`](../../internal/bfd/manager_session.go) | Session lookup, transport scope, interface and TTL admission |
-| **Session** | [`session_packet.go`](../../internal/bfd/session_packet.go) | Zero Desired Min TX rejection, auth verification, FSM event, timer and state-variable updates |
+`Queued` confirms admission only. Full, closed and stopped paths return typed outcomes. A common admission/stop barrier prevents enqueue after terminal drain; owner shutdown accounts abandoned entries. [Delivery accounting](../../internal/bfd/delivery.go) keeps stage denominators separate; a sum of all stages is not a packet total.
 
-The codec rejects malformed packets before session lookup or locking.
+## Packet TX Flow
 
-Packets own authentication metadata and a bounded inline payload by value.
-`DataLen` records its logical length independently of the wire authentication
-length. The default and overlay receivers retain complete authenticated wire
-before releasing pooled input. Demux and verification pass packet values;
-hash verification changes only a bounded local PDU copy. Packet copies retain
-independent payload bytes. See [ADR-0011](adr/0011-bfd-auth-inline-payload.md)
-for packet and retained-wire ownership.
+The owner builds or updates its cached Control packet, signs it when authentication is enabled, applies the configured transport-padding target and sends through `PacketSender`. The sender lease fixes the source-port and resource lifetime. Padding is outside the declared BFD Length and authentication domain; transmission never truncates an authenticated PDU. Sources: [packet construction](../../internal/bfd/session_packet.go), [send loop](../../internal/bfd/session_loop.go), [UDP sender](../../internal/netio/sender.go).
 
-### Packet TX Flow
+## Demultiplexing
 
-```mermaid
-flowchart TD
-    TIMER["txTimer fires<br/>jittered per RFC 5880 6.8.7"] --> CHECK["maybeSendControl<br/>passive role check,<br/>RemoteMinRx check"]
-    CHECK --> REBUILD["rebuildCachedPacket<br/>reused buffer<br/>rebuilt before each send"]
-    REBUILD --> SEND["PacketSender.SendPacket<br/>raw UDP socket"]
-```
+A nonzero Your Discriminator selects a candidate session. Zero uses the initial transport-aware address key. Selection alone is insufficient: transport class, ingress interface, exact overlay scope and TTL are checked before queue delivery. Single-hop packets cannot enter multihop sessions through a known discriminator. Overlay identity includes the outer endpoints, VNI and supported inner IP/MAC tuple. Sources: [Manager receive path](../../internal/bfd/manager_session.go), [overlay checks](../../internal/netio/overlay_inner.go), [identity tests](../../internal/bfd/overlay_identity_test.go).
 
-**Reused packet buffer:** `sendControl` calls `rebuildCachedPacket` before each
-send, including header serialization and authentication. Padding growth prepares
-one waiting buffer at control admission; the owner swaps it before field commit.
-The packet loop reuses that capacity rather than allocating a growth buffer.
+The single-hop implementation binds numbered multiaccess sessions to one explicit or derived receive interface. Point-to-point initial acceptance from an arbitrary source remains outside the qualified profile. IPv6 link-local zones select the interface but do not enter the initial demux key. See [RFC coverage](08-rfc-compliance.md#rfc-5881-implementation-notes).
 
-### Demultiplexing
+## Session Identity and Ownership
 
-Two-tier lookup per RFC 5880 Section 6.8.6:
+| Object | Identity or policy | Lifetime |
+|:---|:---|:---|
+| `SessionKey` | Type, family, normalized peer/local addresses, interface, network scope, transport scope | One physical Control wire |
+| `SessionOwner` | Typed source and source-local owner ID | One claim |
+| Effective parameters | Role, timer tuple, TTL, padding, auth type and immutable key fingerprint | Must agree for shared claims |
+| `SenderLease` | Accepted sender plus idempotent release | Retained through owner drain and join |
+| Echo key | Structured peer/local addresses and exact interface | One shared Echo wire |
 
-1. **Tier 1** -- Your Discriminator is nonzero: O(1) map lookup by discriminator. Fast path for established sessions.
-2. **Tier 2** -- Your Discriminator is zero AND state is Down/AdminDown: lookup by composite key (SrcIP, DstIP, Interface, transport scope). Used for establishment or re-establishment after the peer forgets the discriminator.
+IPv4-mapped addresses are unmapped. Compatibility API, authenticated API principal, configuration and unsolicited claims remain distinct. A matching claim shares the existing session and discriminator; release removes only that owner's claim. Unknown key-store semantics fail closed. Sources: [identity and effective parameters](../../internal/bfd/session_identity.go), [authentication store](../../internal/bfd/auth.go), [Echo ownership](../../internal/bfd/manager_echo.go).
 
-### Session Identity and Ownership
+Lock order is lifecycle, ownership, then registry. No Manager mutation lock spans peer notification drain or release callbacks. The retiring exact key remains reserved until owner join, lease/discriminator release and metrics cleanup finish, including failure. A conflicting Add returns `AlreadyExists`; retry after Delete completes. See [replacement lifecycle](../../internal/bfd/manager_replace.go) and [ADR-0006](adr/0006-session-preserving-reload-policy.md).
 
-`SessionKey` is the comparable canonical identity of one desired wire session.
-It contains the session type and address family, normalized peer and local
-addresses, interface, network scope, and transport scope. IPv4-mapped
-addresses are normalized to IPv4. This identity is separate from the smaller
-packet demultiplexing key used only for initial packet delivery.
+### Reconciliation and receive ownership
 
-Enabled unsolicited interfaces open separate IPv4 and IPv6 wildcard single-hop
-listeners bound with `SO_BINDTODEVICE`, independently of configured sessions.
-Ancillary data retains the actual destination and ingress index. Configured
-peer lookup runs first; an unbound listener resolves an unmatched ingress index
-through a startup snapshot of enabled interfaces before unsolicited lookup and
-admission. No packet triggers a system interface-name lookup. Changing the
-configured unsolicited interface set or policy requires a restart.
+Startup and SIGHUP share one serialized coordinator. A candidate must satisfy the retained startup-runtime contract and complete session validation before a desired generation is published. Authentication admission compares both retained accepted intent and the live registry. Rejection preserves the accepted configuration, generation and log level.
 
-The manager records typed claims from base configuration, Micro-BFD members,
-VXLAN, Geneve, the compatibility/API path, and unsolicited BFD. Ownership
-mutations are serialized. Each declarative adapter reconciles only its typed
-source. Claims with the same canonical key and effective parameters share one
-wire session and discriminator; releasing one claim preserves the others, and
-releasing the last claim destroys the wire session. Empty declarative sets are
-forwarded, so removing the final entry releases only that source's claims.
-Reconciliation claims/prepares desired resources before releasing stale claims.
-Old claims are released only with zero `Failed` and `ResourcePending`;
-`TimerPending` is separate. Fatal preparation rolls back only newly created
-claims, while valid disjoint claims may remain on resource-pending retries.
-The receive-key collision path permits a prepared SingleHop/MultiHop swap only
-for an interface-empty base identity whose sole owner is config, whose old key
-is absent from desired, and whose other identity fields are unchanged. Shared,
-API/unsolicited, same-type or other-scope collisions fail before the factory;
-the base admission guard also checks this before generation acceptance.
-The daemon validates the complete combined base, Micro-BFD member, VXLAN, and
-Geneve control-session candidate before applying any of those sources. Each
-source compiler also validates its complete set before that adapter opens
-senders or mutates session ownership.
+Each receipt covers five sources: base, Echo, Micro-BFD, VXLAN and Geneve. Each source prepares desired claims and receive resources before releasing stale claims. Failed or resource-pending preparation preserves old claims; timer negotiation is a separate pending class. The applied generation advances only after all sources converge. A partial apply does not roll back another source's accepted changes.
 
-A daemon-level coordinator serializes startup and SIGHUP compilation and apply.
-It retains a deep-copied startup-runtime contract. Every SIGHUP candidate is
-checked against that contract before candidate compilation or any generation,
-health, log-level, session, or resource mutation. Startup-owned server,
-unsolicited listener, socket, policy, actuator, GoBGP, and global overlay
-backend/VNI fields are rejected with
-bounded field identifiers; configuration values and secrets are not retained in
-the error. Desired-set membership changes may need new control, Echo, or Micro-BFD
-listeners or overlay backends, which their owners open as part of the
-generation. Solely config-owned base sessions with stable wire identity accept
-in-place TX/RX, Detect Multiplier, multihop minimum-TTL and qualified padding
-changes through one five-field tuple and generation/revision receipts, with
-unchanged authentication. A detect-only Async update applies locally
-without Poll; remote Demand with both ends Up requires Poll/Final. Combined
-TX/RX changes retain directional deferral, the active advertised tuple and the
-latest queued proposal. Local TTL-only updates publish the receive floor under
-`Session.mu` without Poll even under Demand. Padding permits positive-to-positive
-changes only on a constructor-proven DF-prepared sender in Async. Unknown or
-unprepared senders, padding enable/disable and shared-owner/API base padding
-updates are rejected before generation acceptance. The coordinator guards only
-`candidate.base`; Micro-BFD/overlay remain outside the qualified profile, with
-other-source conflicts/staleness unchanged. The owner
-rechecks queued policy before any field commit if Demand activates.
-Unsupported same-identity authentication changes are also rejected before accepting
-a generation. [ADR-0006](adr/0006-session-preserving-reload-policy.md) accepts the wider
-policy, not implementation or live peer qualification.
-The coordinator publishes a
-monotonic desired generation only after that check and the complete immutable
-session candidate compiles. One receipt then records claim-level `created`, `released`,
-`pending`, and `failed` counts plus a bounded error-code histogram for exactly
-five sources: base, Echo, Micro-BFD (groups with their member sessions), VXLAN, and Geneve.
-The applied generation advances only when every source converges. A partial
-pass preserves the last applied generation, marks the snapshot stale, and does
-not roll back changes already accepted by another source. A later SIGHUP is an
-explicit new generation and can converge the runtime. Unavailable interface
-claims become `pending` after whole-source preflight without releasing old
-claims. Linux link up/down/delete events trigger generation-scoped preflight
-and retry of affected pending sources. A fixed source mask and capacity-one
-wake-up coalesce events; stale generations and converged-source retries are
-discarded. Netlink or channel overflow requests a complete inventory resync.
-The monitor owns channel closure; cancellation stops the consumer and worker.
-The non-Linux stub emits no events and provides no automatic recovery.
-A listener owner (`cmd/gobfd/listeners.go`) makes receive sockets part of each
-source apply: the base, Echo, and Micro-BFD sources claim their listeners and
-open missing ones before the Manager apply, so a source cannot converge on
-senders alone. An absent listener interface leaves the source `pending` for the
-interface retry. After a source applies without failed or resource-pending
-entries, the source drops claims outside its desired set. API-created control
-and Echo sessions claim their listeners with their senders through the same
-owner, under one mutex, and fail the request when the listener cannot open; a
-listener closes when its last claim goes.
-Each listener runs its own required receiver; a deliberate close cancels that
-receiver first, so only an unexpected socket loss is fail-stop. A device-bound
-listener of a recreated interface is rebound in place with `SO_BINDTODEVICE`.
-An overlay owner (`cmd/gobfd/overlay_owner.go`) does the same for the VXLAN and
-Geneve sources: one backend per tunnel kind and outer local address, opened on
-the first claim, widened in place (`SetScopes` swaps a copy-on-write identity
-set read with one atomic load per packet) when an identity is added, pruned
-against current desired and physical lease refs, and closed when empty; live sessions never change socket.
-Acquire errors are classified per local endpoint, but any missing acquisition
-returns Pending/Failed before Manager apply or backend release for the whole
-overlay source, retaining all old live/draining sessions, exact scopes and
-backends. Actual physical-session sender factories increment scope refs;
-registered sessions retain refs through retirement drain and release them on
-idempotent lease close. Unused/unpublished leases use once-only cleanup without
-drain, including failed construction or cancellation. Pruning retains
-existing scopes in current desired plus scopes with refs, and removes obsolete
-unused preparations after successful preflight before further claims. Pure
-whole-source preflight refuses unequal same-wire scopes only against
-live/draining refs, including a VXLAN `local_mac` change. Such a change requires
-separate explicit removal/recreation; unused never-committed preparations may
-be superseded. Duplicate desired wire identities remain invalid. This is source-local apply protection, not
-five-source atomicity or global pre-generation overlay admission.
-Only `ENODEV` from a listener device binding (unavailable interface) and
-`EADDRNOTAVAIL` from a listener, sender, or overlay bind (unavailable address)
-are classified; both leave the source `pending`. Address events and resyncs
-retry every pending source without link side effects. Other runtime failures
-remain `failed`, without string classification.
+The listener owner shares sockets among source and physical-session claims. API Add acquires RX and TX together. Configuration withdrawal cannot remove Echo RX while an API claim survives. Overlay backends are shared per tunnel kind and outer local address; each physical sender holds an exact-scope reference through drain. Scope preflight precedes backend open and `SetScopes`; unequal live same-wire scopes require explicit removal/recreation.
 
-The empty-service gRPC health check is `NOT_SERVING` before the first converged
-generation and while desired differs from applied; it returns `SERVING` after
-convergence while no runtime worker is lost and every device-bound listener
-interface is up with the ifindex of its latest bind. One aggregator
-(`cmd/gobfd/readiness.go`) also derives the BFD, Echo, and Micro-BFD named
-services from their own sources, listeners and the runtime workers; the
-`grpc.health.v1.Health` service stays `SERVING`. Loss of a receiver or the
-dispatch loop is fail-stop: health becomes `NOT_SERVING` and the daemon exits
-with an error (see `07-monitoring.md`). SIGHUP is registered into a bounded channel before startup
-apply, but its handler starts only after startup reconciliation, so an early
-reload cannot apply ahead of the startup candidate. systemd `READY=1` remains a
-process/listener readiness signal and is sent even when configuration health is
-stale.
+Sources: [coordinator](../../cmd/gobfd/reconciliation.go), [listener owner](../../cmd/gobfd/listeners.go), [overlay owner](../../cmd/gobfd/overlay_owner.go), [reload admission](../../internal/bfd/manager_auth_reload.go).
 
-For a newly accepted physical session, the manager opens one lazy sender lease
-and stores its idempotent release operation with the session entry. Unchanged
-reconciliation and matching claims from another source do not open another
-sender. Creation rollback, release of the last claim, and manager shutdown
-release the accepted lease once; releasing a non-last claim preserves it. Base
-configuration, Micro-BFD, and the compatibility API use owning UDP leases that
-also return the allocated source port. Overlay sessions use explicit
-non-owning leases because their sender shares the backend connection. Each
-RFC 9468 session owns a UDP lease on the local address and interface that
-received its triggering packet; cleanup of the session closes that lease once.
+### Recovery and readiness
 
-The session owner receives whether the unsolicited claim is the only claim
-through the existing timer-intent lock and wakeup. In that ownership mode,
-natural failure or an independent setup deadline stops non-Final Control TX.
-The deadline covers the greatest observed local RX Detection Time from the
-attempt start; repeated valid RX does not refresh it. Claim-mode changes
-preserve the original budget and failure latch. Configured/API claims retain
-generic Control TX even if the private setup budget expires. Setup expiry retains
-the RFC 5880 FSM and diagnostic. A private notification requests cleanup without
-broadcasting a synthetic state transition. Cleanup checks the local attempt
-under the owner lock and fences resumption before retiring a sole claim;
-shared configured/API claims preserve their wire session. Final replies and
-local AdminDown keep the RFC 5880 procedures.
+Linux link/address notifications and resync request bounded, generation-scoped retries. Only typed unavailable-interface/address errors become resource pending; other failures remain failed. A shared two-second availability check covers all five sources. Inventory errors require a new explicit SIGHUP. The non-Linux monitor supplies no automatic recovery.
 
-Echo sessions share one canonical wire across compatible config and API
-principal claims. An admitted same-owner retry preserves its discriminator,
-sender and protocol state; deletion releases only the caller's claim. The
-compatibility `CreateEchoSession` path retains its own owner and explicit
-non-owning raw-sender wrapper. API and declarative creation use lazy owning
-factories, and the physical Echo lease retains RX when configuration is removed
-but an API claim survives. Reconciliation validates the complete candidate
-against every owner, prepares new config claims before stale release and rolls
-back only those new claims on preparation failure. Final release or shutdown
-joins the Echo goroutine before closing its lease. See
-[ADR-0009](adr/0009-echo-principal-claims.md).
+Aggregate health is `NOT_SERVING` before first convergence, while desired differs from applied, or when required runtime/listener state is lost. Named BFD/Echo/Micro-BFD health describes each source. Unexpected receiver or dispatch loss is fail-stop. `READY=1` is process/listener readiness and does not imply configuration convergence. Sources: [interface events](../../cmd/gobfd/interface_events.go), [readiness](../../cmd/gobfd/readiness.go), [ADR-0001](adr/0001-link-state-rtnetlink.md).
 
-For authenticated sessions, the effective parameters include the built-in
-authenticator type and an immutable fingerprint of a `StaticAuthKeyStore`.
-The static store clones constructor inputs and returns caller-owned key copies;
-unknown key-store implementations fail closed because no stable semantic
-identity can be derived.
-
-`Manager.AdmitSessionReload` checks stable-field/ownership policy and compares
-authentication fingerprints with both retained
-accepted base intent, including entries with no live session, and the live
-Manager registry regardless of API/shared ownership. Enable/disable, algorithm,
-key IDs/material, selected TX key and receive-key-set changes fail before
-generation, log-level, readiness or configured-peer/resource changes. The old
-accepted configuration and session remain intact; startup/new/removed
-identities and semantically identical fresh stores remain admissible.
-Lock order is lifecycle → ownership → registry. Registry locks end before
-short local acceptance; ownership remains held through desired-generation
-publication and ends before callbacks or resource apply. Later API claims
-still encounter normal fail-closed reconciliation. This boundary does not make
-the subsequent whole-source apply atomic or guarantee seamless rollback.
-
-This is the C01.1 ownership core plus the C01.2 atomic-candidate/source
-isolation slice, the C01.3a accepted-control-session sender-lease slice, the
-C01.3b Manager lifecycle slice, and the C01.4a Echo sender-lease/source
-isolation slice, and the C01.4b generation/receipt coordinator slice. It is not
-the complete v1 reconciliation or RFC contract. The
-following boundaries remain deferred:
-
-- runtime changes of the global overlay backend and default VNI fields;
-- stable per-group and per-tunnel owner identifiers;
-- full Poll/Demand qualification beyond bounded config-owned TX/RX/Detect Multiplier updates.
-
-Transport-aware demultiplexing already validates transport class, interface,
-overlay scope and TTL before delivery. API claims derive from authenticated
-Unix UID or mTLS principals; the explicitly enabled anonymous compatibility
-path remains separate. These implemented boundaries do not close the broader
-qualification tasks.
-
-### Three-Way Handshake
-
-BFD sessions use a three-way handshake (RFC 5880 Section 6.2):
+## Three-Way Handshake
 
 ```mermaid
 sequenceDiagram
-    participant A as Peer A (Down)
-    participant B as Peer B (Down)
-
-    A->>B: Control(State=Down)
-    Note over B: Down -> Init
-    B->>A: Control(State=Init)
-    Note over A: Down -> Up
-    A->>B: Control(State=Up)
-    Note over B: Init -> Up
-    B->>A: Control(State=Up)
-    Note over A,B: Both peers Up
+    accTitle: Asynchronous Control startup
+    accDescr: Endpoint A sends Down, endpoint B replies Init and both endpoints progress to Up with learned discriminators.
+    participant A as Endpoint A
+    participant B as Endpoint B
+    A->>B: Down, Your Discriminator=0
+    B->>A: Init, Your Discriminator=A
+    A->>B: Up, Your Discriminator=B
+    B->>A: Up
 ```
 
-FSM transitions in sequence:
+This is one permitted asynchronous startup ordering. Simultaneous Down/Init exchanges follow the same [RFC 5880 §6.8.6](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.6) FSM. A local Up event does not establish route convergence.
 
-1. A(Down) sends State=Down. B(Down) receives State=Down --> B transitions to Init.
-2. B(Init) sends State=Init. A(Down) receives State=Init --> A transitions to Up.
-3. A(Up) sends State=Up. B(Init) receives State=Up --> B transitions to Up.
+## Goroutine Model
 
-### Goroutine Model
+One winning `Run` owns each Control session's packet processing, timers and administrative commands. One owner runs each Echo wire. Receivers run per listener; Manager dispatch fans out notifications. Current Control/Echo owners do not permanently pin an OS thread. Native A/B, thread bounds and scale acceptance remain separate. Sources: [Control loop](../../internal/bfd/session_loop.go), [Echo loop](../../internal/bfd/echo.go), [ADR-0008](adr/0008-experimental-prerelease-boundary.md).
 
-The session owner commits one causal observation under `Session.mu`: local
-state/diagnostic, remote-known/state/diagnostic, local/remote C-bits, cause and
-`ObservationVersion`. A packed atomic local pair also serves scalar getters
-and packet construction. Received remote facts remain staged until the final
-local pair commits. Timer transition handling observes the old state before
-commit; logging, notifications and sends run after the lock is released.
-Diagnostic-only or remote-only changes publish observations without increasing
-state-transition counters or changing `LastStateChange`. Unchanged packets do
-not advance the version.
+An observation commits local state/diagnostic, known remote facts, C-bits, cause and version coherently. Diagnostic-only changes advance the observation without a state-transition count. Manager versions identify semantic changes and physical identity; dispatch revision orders delivery separately. Neither is an atomic telemetry watermark. Counters, timers and configuration in API snapshots are sampled. See [observation model](../../internal/bfd/session_observation.go), [public schema](../../api/bfd/v1/bfd.proto).
 
-A Manager-owned clock supplies fresh registration, semantic commit and removal
-versions. `Revision` orders dispatch separately; snapshots may contain an owner
-observation ahead of dispatch. Consumers compare versions per row, including
-before deletion. Internal `SessionRef` prevents discriminator reuse from
-retargeting pending actions. The clock is not a global snapshot watermark.
-Control and Echo Watch events carry a value copy of the full API status.
-The causal tuple comes from the explicit owner commit; configuration, timers,
-counters and timestamps are sampled at publication or List boundaries, outside
-that tuple. Owner publication follows counter/`LastStateChange` updates and
-precedes an immediate Control send, so its TX count can precede that send.
-Telemetry does not advance `ObservationVersion` on every packet.
+Raw notification and subscription queues use the bounded policy `min(65536, 64 + 3*N)` at construction. They do not resize on reload. GAP means lost original events and requires consumer resynchronization; it does not count as a delivered original. Per-stage counters survive session deletion. [ADR-0007](adr/0007-workload-phase-accounting.md) defines sizing and completeness.
 
-Control delivery has separate stages: wire parse, base TTL or overlay
-decapsulation, demux, unsolicited policy, queue admission and owner processing.
-`Queued` means admission only. Full or stopped queues return typed refusals;
-the caller may reuse the header immediately, while authenticated wire storage
-remains immutable until owner processing. A shared admission/stop lock prevents
-enqueue after terminal drain. A canceled first `Run` abandons queued work once;
-abandoned AdminDown receipts never acknowledge commit. Full AdminDown admission
-still waits for capacity or its context without blocking RX.
+GoBGP and bridges act after state publication. A successful local observation, notification delivery and successful external action are different measurements. BGP disable/enable policy and deadlines are in the [handler](../../internal/gobgp/handler.go); generic route withdrawal is not implemented.
 
-`ListSessions.delivery_counters` and fixed-label Prometheus telemetry retain
-process-lifetime stage decisions after session deletion. Each stage has its own
-denominator; summing the ledger does not yield a packet total. Each bucket is
-sampled once in stable pair order, including zero rows; neither lifecycle
-revision nor observation version provides an atomic counter snapshot. Session
-drop/auth counters are projections of terminal reasons, with auth a subset of
-drops; they are not added back into the global ledger. Echo admission and its
-single winning owner share a terminal barrier: pre-Run admission is allowed,
-full/closed queues return typed refusals, and stop abandons pending RX once.
-Echo raw notifications use the same comparable `SessionRef` identity fence as
-Control, with exactly one private owner pointer. Managed Echo registration,
-state commits and removal share the Manager observation clock. A coherent
-Echo tuple contains local state, diagnostic, cause and version; initial and
-returned-Echo causes are Unknown, and detection expiry is DetectionTimeout.
-Watch maps actual Echo TX interval, detection parameters, sent/received counts,
-transitions and timestamps into the existing status shape. Unowned remote,
-negotiated, RX, authentication and drop fields are zero; zero Echo drop/auth
-fields do not prove absence of loss.
+## Graceful Shutdown
 
-Raw Control/private/Echo notifications, dispatch, each Watch recipient and
-legacy delivery have separate bounded ledger stages. GAP markers report lost
-original events and do not count as successful originals. Raw shutdown drain
-follows active-operation and worker joins.
+Default `Manager.Close` may abandon queued state notifications. The workload Owner opts into draining registered physical-session changes to live subscribers before EOF; this performs no external actuation and does not guarantee lossless delivery to canceled or slow subscribers. See [shutdown policy](adr/0007-workload-phase-accounting.md#down-journal).
 
-Private unsolicited failures commit before a coalesced capacity-one cleanup
-hint is sent, independently of best-effort raw notification admission. Dispatch
-scans failures only at startup or a coalesced hint. An initial attempt zero
-with no failure cause is preserved; a committed Down DetectionTimeout/PathDown
-at attempt zero is eligible. Each retained physical entry lazily owns at most
-one parked cleanup worker, one reused timer and one pending attempt/deadline.
-Duplicates do not extend retention; a newer failure replaces pending work.
-Retirement still fences identity, current attempt, AdminDown and shared claims.
-Dispatch cancellation has no restart/progress promise; Manager.Close joins and
-releases remaining resources. The worker bound follows retained physical
-entries, not MaxSessions.
+1. On SIGTERM/SIGINT, the daemon requests `Manager.DrainAllSessions` with one fresh ten-second budget.
+2. The drain waits for owner AdminDown/7 commit, the first successful permitted write and the negotiated notification window; failed writes retry on the normal TX timer.
+3. Shutdown closes the Manager, joins owners and dispatch, releases sender leases, then shuts down HTTP and receive resources.
 
-Public Control/Echo raw QueueFull sends a separate capacity-one loss hint after
-the owner commits and before external delivery callbacks. Dispatch consumes the
-hint before queuing a fresh revisioned GAP for every subscriber, including a
-subscriber whose earlier GAP was already consumed. A full subscriber already
-contains an unread GAP; its later snapshot covers the committed loss. Recovery
-markers do not count as original dispatch, recipient or legacy deliveries and
-do not invoke Micro actuators. Watch resnapshots both registries; GoBGP retains
-its Control-only snapshot. Their observation-version floors reject older raw
-events dispatched after the snapshot. Recovery needs no next owner edge or
-reconnect while dispatch runs. Private failure hints remain cleanup-only, and
-legacy `StateChanges()` remains best effort without resynchronization. Kernel
-`SO_RXQ_OVFL` observations have separate epochs and denominators; see
-[Performance](14-performance-analysis.md#socket-drop-observation-boundary).
-Unsolicited/Echo retain their preview qualification boundaries.
+The notification window begins at the first successful write and covers the larger of local receive Detection Time and `localDetectMult * max(advertisedAdminDownTX, remoteMinRX)`. A default multiplier of three and the one-second non-Up floor produce a three-second window. Earlier cancellation or insufficient time returns `DrainIncompleteError`. Local write completion is not peer acknowledgement.
 
-Registration publishes `SESSION_ADDED` after registry insertion and before the
-owner starts, including a passive session that stays Down. This lifecycle
-covers the Control registry (base, Micro-BFD, VXLAN/Geneve and unsolicited)
-and the separate Echo registry. It reaches revisioned subscribers without invoking Micro actuators
-or unsolicited cleanup; legacy `StateChanges()` retains FSM/removal events.
-Control and Echo updates and tombstones replace the whole client row, including
-zero, false, NONE and absent timestamps. Echo removal freezes its final tuple
-with a fresh global version before cancellation/join and lease release. API
-deletion, declarative removal and rollback use that shared detach path.
-Watch alone snapshots both registries under one Manager read lock, reading
-the dispatch revision before either registry. Control List/Get and GoBGP
-snapshots and typed Echo RPC shapes retain their existing scope. Manager.Close
-closes streams for reconnect; it does not guarantee per-session tombstones.
+Final Control-claim release uses the same drain outside Manager locks. Sole unsolicited failure cleanup cancels without this administrative exchange; Echo and group-only Micro-BFD removal do not own a Control AdminDown exchange. Shared overlay leases do not interrupt a backend used by other sessions. Arbitrary external sender callbacks have no universal shutdown bound. Sources: [drain](../../internal/bfd/session_drain.go), [Manager lifecycle](../../internal/bfd/manager.go), [RFC 5882 §8](https://www.rfc-editor.org/rfc/rfc5882.html#section-8).
 
-GoBGP suppresses local/known remote AdminDown and retains that remote fact
-through later timeout diagnostics. Explicit local PathDown remains actionable
-even while already Down. Its cause persists through a later Down timeout;
-the diagnostic becomes 1 without restarting the outstanding routing action.
-Current canonical identity and administrative policy
-are checked before each disable, including after a blocking `PeerAdminDown`
-read. This local preflight cannot make a remote RPC atomic with future BFD
-commits. C-bit reporting retains hard-fail behavior; it adds no graceful
-restart policy.
+## Project Structure
 
-Each BFD session runs as an independent goroutine with its own timers and
-state. Current [Control](../../internal/bfd/session_loop.go) and
-[Echo](../../internal/bfd/echo.go) owners use Go scheduling without permanent
-per-session OS-thread pins following the local source integration on
-2026-10-28. Actual OS-thread cost, supported scale and timer precision still
-require native qualification under `gobfd-qj0.8.2.1.7`.
-The session context is detached from the daemon signal context so SIGTERM does
-not stop it before the AdminDown drain. `Manager.Close()` cancels the
-per-session context explicitly and waits for every registered session and echo
-goroutine to exit before releasing its sender lease or discriminator.
+Keep protocol logic in `internal/bfd`, Linux resources in `internal/netio`, runtime composition in `cmd/gobfd`, public contracts in `api/bfd/v1` and executable qualification in `test`. [ADR index](adr/README.md) owns accepted decisions.
 
-The Manager lifecycle is `Open -> Closing -> Closed`. Once `Closing` begins,
-new session claims, reconciliation, unsolicited claims, and state-change
-subscriptions fail with stable lifecycle errors without mutation. The daemon
-still starts `RunDispatch` from its errgroup, but the Manager registers and
-owns that run for shutdown. `RunDispatch` is single-run: a second invocation
-returns immediately. Cancellation of its caller context or `Manager.Close()`
-stops dispatch and closes the legacy `StateChanges()` channel exactly once.
-Per-consumer subscription channels are closed exactly once by their registered
-subscriber goroutine when either the subscriber context or Manager closes.
+## Technology Stack
 
-After the lifecycle transition, Close detaches registries under `ownershipMu`
-and `manager.mu`, then releases both locks before cancellation and waits.
-Sender release callbacks run only after the corresponding session goroutine
-exits and without either lock; discriminator release and metrics unregister
-follow the sender release in that order. Concurrent Close calls wait for the
-same shutdown result. The operation releases the lifecycle mutation lock before
-detached or unused sender callbacks, so Close can transition to `Closing`, but
-keeps its active-operation registration through the callback, discriminator
-release, and metrics cleanup. Therefore Close waits for the complete cleanup,
-while a release callback may call Manager snapshot APIs and may attempt Manager
-mutations, which fail with `ErrManagerClosing`. It must not call the blocking
-`Manager.Close()` recursively: a synchronous callback is part of that same
-Close completion, so the two calls would wait on each other. An explicit
-recursive-safe callback or asynchronous shutdown API is deferred to
-`gobfd-qj0.8.2.2.5.1` rather than weakening concurrent Close semantics.
+The [runtime manifest](../../go.mod) and [tools manifest](../../tools/go.mod) declare dependencies. The [repository contract](../../AGENTS.md) owns compiler and container policies. A manifest pin is a source input, not compatibility or deployment evidence.
 
-The lifecycle gate covers control and echo session creation/destruction,
-control and echo reconciliation, Micro-BFD group creation/destruction and
-reconciliation, unsolicited claims, and subscription registration. Each
-top-level reconciliation holds one lifecycle operation and calls internal
-ungated helpers, avoiding a nested read-lock deadlock when Close has queued the
-write-side lifecycle transition.
+## UDP Port Map
 
-```mermaid
-graph TB
-    subgraph "Manager"
-        M["Manager<br/>serialized lifecycle and ownership"]
-    end
+| Destination port | Transport | Scope |
+|---:|:---|:---|
+| 3784 | Single-hop Control | IPv4/IPv6 numbered multiaccess profile |
+| 4784 | Multihop Control | Configured address pair and receive-hop policy |
+| 3785 | Unaffiliated Echo | Default-off preview |
+| 6784 | Micro-BFD | Default-off per-member preview |
+| 4789 | VXLAN outer UDP | `userspace-udp` preview |
+| 6081 | Geneve outer UDP | `userspace-udp` IPv4 Format A preview |
 
-    subgraph "Session N goroutines"
-        S1["Session 1<br/>TX timer + RX channel"]
-        S2["Session 2<br/>TX timer + RX channel"]
-        SN["Session N<br/>TX timer + RX channel"]
-        E["EchoSession<br/>TX timer + returned Echo channel"]
-    end
+Ordinary UDP senders require a fixed source port in 49152–65535, including Echo as a product policy. Source: [sender constructor](../../internal/netio/sender.go).
 
-    subgraph "Shared Receivers"
-        L["netio.Listener<br/>ReadMsgUDP goroutine"]
-        R["netio.Receiver<br/>demux + dispatch"]
-        ER["netio.EchoReceiver<br/>port 3785"]
-        OR["netio.OverlayReceiver<br/>VXLAN 4789 / Geneve 6081"]
-        MD["MicroBFD Dispatch<br/>port 6784 per-member"]
-    end
+## TCP/HTTP Port Map
 
-    L --> R
-    R --> S1
-    R --> S2
-    R --> SN
-    ER --> E
-    OR --> S2
-    MD --> SN
-    M --> S1
-    M --> S2
-    M --> SN
-    M --> E
-```
+Management endpoints and metrics bind addresses are configuration, not BFD protocol constants. Default management uses the Unix socket; TCP is disabled until configured. Plaintext TCP is loopback-only; non-loopback TCP requires mTLS. See [defaults and validation](../../internal/config/config.go), [configuration](03-configuration.md), [security](15-security.md).
 
-### Graceful Shutdown
+## Related Documents
 
-On SIGTERM/SIGINT (RFC 5880 Section 6.8.16):
-
-1. `Manager.DrainAllSessions(ctx)` -- capture concrete sessions, release Manager
-   locks, and concurrently wait for owner commit, a successful AdminDown/7 write,
-   and each negotiated notification window. All stages share a fresh ten-second
-   deadline detached from the cancelled signal context. `DrainIncompleteError`
-   preserves the failed stage, suppression reason and underlying error.
-2. Keep normal Control transmission during that window, retrying failed writes
-   through the existing TX timer and preserving RFC transmission suppression
-3. `Manager.Close()` -- enter Closing, detach sessions, cancel and wait for
-   registered Manager goroutines, close notification channels, and release
-   sender resources
-4. Shut down HTTP servers (gRPC, metrics)
-5. Close receive listener and backend sockets
-
-`Session.SetAdminDown(ctx)` queues through the existing control channel, including
-before `Run`. A full queue waits for capacity, cancellation, or owner exit; no
-caller changes session state directly. A receipt confirms owner state, cached
-state, and diagnostic before the immediate transmit attempt. Timeout leaves an
-admitted request pending; owner exit returns `ErrSessionStopped`. Repeated requests
-acknowledge the committed state without another transition or immediate TX burst.
-`Run` permits one owner for the session's lifetime and handles queued startup
-controls before timer transmission, preserving Passive-role restrictions.
-
-The drain window starts at the first successful AdminDown write and is the
-maximum of local receive Detection Time and the peer-facing bound
-`localDetectMult * max(advertisedAdminDownTX, remoteMinRX)`. The non-Up TX floor
-makes the default window three seconds. Larger negotiations extend the deadline;
-unchanged or smaller values never restart or shorten it. Concurrent drains share
-progress; owner exit before completion cannot turn into later success. Completion
-confirms local kernel writes and elapsed notification time, not peer receipt.
-
-Manager-owned UDP sender leases interrupt pending writes on session cancellation
-and join that callback before owner completion or source-port release. Non-owning
-shared overlay senders are never interrupted by a session lease. `Manager.Close()`
-does not promise a bound for an arbitrary external `PacketSender` or release
-callback.
-
-Releasing the last Control-session claim detaches its captured identity, then
-uses the same drain before cancel/join and sender/discriminator release. API,
-base configuration, Micro-BFD members, VXLAN, Geneve and
-accepted creation rollback share this path. Non-final claims leave the wire
-session unchanged. A private ten-second cap also bounds Background callers;
-earlier caller cancellation returns `DrainIncompleteError` while cleanup still
-releases resources. Reconciliation drains retired sessions concurrently within
-one budget. No Manager lock is held across the wait. A private reservation
-retains the exact canonical key through cancel/join, lease/discriminator release
-and metrics cleanup, including incomplete drain or lease-close errors. A new
-claim or reverse rekey to that key returns `ErrDuplicateSession` before sender
-acquisition (`AlreadyExists` over the API). Retry after Delete completes;
-conflict handling does not add automatic retries. `Manager.Close()` only
-cancels, joins and releases; daemon shutdown already drains its captured sessions.
-Rekey publishes the prepared replacement before the old captured session's
-actual AdminDown/drain, outside Manager and lifecycle mutation locks. The old
-lease/discriminator remain owned until drain completion or typed incomplete
-failure, then cleanup releases them once. Cancellation before replacement
-publication preserves the old identity and discards prepared resources; after
-peer-visible cutover, seamless rollback is not promised.
-RFC 9468 Section 2 failure cleanup cancels unsolicited Down sessions without
-AdminDown drain: the passive side must stop Control transmission. Standalone
-Echo and Micro-BFD group-only removal have no Control-session AdminDown
-exchange. Echo removal publishes its Watch tombstone without changing protocol state.
-
-### Project Structure
-
-| Path | Responsibility |
-|---|---|
-| `api/bfd/v1/`, `pkg/bfdpb/` | API schema and generated public bindings |
-| `cmd/` | Daemon, CLI, HAProxy agent and ExaBGP bridge |
-| `internal/bfd/` | Session owners, FSM, authentication, reconciliation |
-| `internal/netio/`, `internal/overlay/` | Linux sockets and shared overlay vocabulary |
-| `internal/config/`, `internal/server/`, `internal/apiclient/` | Configuration and management boundary |
-| `internal/gobgp/`, `internal/metrics/`, `internal/sdnotify/` | Routing coupling and operational signals |
-| `internal/stepca/`, `internal/version/` | Certificate renewal and build identity |
-| `test/`, `bench/` | Qualification harnesses and component benchmarks |
-| `configs/`, `deployments/` | Configuration and deployment examples |
-| `tools/` | Isolated developer-tool module |
-| `docs/` | English source, Russian translation, ADRs and RFC texts |
-
-### Technology Stack
-
-| Component | Technology | Purpose |
-|---|---|---|
-| Language | Go 1.27 | Green Tea GC, `testing/synctest`, flight recorder |
-| Network I/O | `x/net/ipv4`, `x/net/ipv6`, `x/sys/unix` | Raw sockets, TTL control, `SO_BINDTODEVICE` |
-| RPC Server | ConnectRPC | gRPC + Connect + gRPC-Web from one handler |
-| RPC Client | `google.golang.org/grpc` | GoBGP integration (gRPC client) |
-| CLI | Cobra + reeflective/console | Non-interactive + interactive shell |
-| Configuration | koanf/v2 | YAML + env vars + flags, hot reload |
-| Metrics | Prometheus `client_golang` | Counters, gauges, histograms |
-| Logging | `log/slog` (stdlib) | Structured JSON/text logging |
-| Protobuf | buf CLI | Lint, breaking detection, code generation |
-| Lint | golangci-lint v2.14.0 | 92 signal-bearing linters, schema and build-tag matrix gates |
-| Release | GoReleaser v2 | Binaries + deb/rpm + container images |
-| Containers | Podman + Podman Compose | Development and testing |
-| systemd | Type=notify, watchdog | Production daemon lifecycle |
-
-### UDP Port Map
-
-| Port | Protocol | RFC | Direction | Status |
-|---|---|---|---|---|
-| 3784 | BFD Single-Hop | RFC 5881 | TX + RX | Active |
-| 4784 | BFD Multi-Hop | RFC 5883 | TX + RX | Active |
-| 3785 | BFD Echo | RFC 9747 | TX + RX | Preview; default-off |
-| 6784 | Micro-BFD (LAG) | RFC 7130 | TX + RX | Preview; default-off |
-| 4789 | VXLAN BFD (outer) | RFC 8971 | TX + RX | Incomplete preview; default-off |
-| 6081 | Geneve BFD (outer) | RFC 9521 | TX + RX | Incomplete preview; default-off |
-| 7784 | S-BFD Reflector | RFC 7881 | RX (reflector) + TX (initiator) | Planned |
-
-Ports describe configured transport paths, not unconditional listeners or RFC
-qualification. Preview enablement and receive-path readiness are separate;
-see [`DefaultConfig`](../../internal/config/config.go),
-[`listeners.go`](../../cmd/gobfd/listeners.go) and the [RFC matrix](08-rfc-compliance.md).
-
-### TCP/HTTP Port Map
-
-| Port | Protocol | Purpose | Status |
-|---|---|---|---|
-| `/run/gobfd/gobfd.sock` | ConnectRPC (gRPC) over a Unix socket | Session management API; optional TCP via `grpc.addr` | Active |
-| 127.0.0.1:9100 | HTTP | Default Prometheus metrics listener (`/metrics`) | Active |
-
-### Related Documents
-
-- [02-protocol.md](./02-protocol.md) -- BFD protocol details (FSM, timers, packet format)
-- [03-configuration.md](./03-configuration.md) -- Configuration reference
-- [06-deployment.md](./06-deployment.md) -- Production deployment
-- [09-development.md](./09-development.md) -- Development workflow
-
----
-
-*Reviewed against `dev` source: 2026-10-25.*
+- [Protocol](02-protocol.md) — wire fields, state transitions and timing.
+- [RFC coverage](08-rfc-compliance.md) — implementation and qualification boundaries.
+- [Vendor BFD references](reference/vendor-bfd.md) — official peer documentation.
+- [Performance analysis](14-performance-analysis.md) — measurements and workload limits.
