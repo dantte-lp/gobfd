@@ -146,7 +146,7 @@ func validateReleasePreflightInputs(options ReleasePreflightOptions) (releasePre
 	if err != nil {
 		return releasePreflightInputs{}, err
 	}
-	inputs.version, inputs.releaseBranch, err = parseStableReleaseVersion(options.RefName)
+	inputs.version, inputs.releaseBranch, err = parseReleaseVersion(options.RefName)
 	if err != nil {
 		return releasePreflightInputs{}, err
 	}
@@ -357,6 +357,17 @@ func parseStableReleaseVersion(refName string) (string, string, error) {
 	version, canonical := parseCanonicalReleaseTag(refName)
 	if !canonical {
 		return "", "", fmt.Errorf("release tag is not canonical stable SemVer: %q: %w", refName, errInvalidConfig)
+	}
+	return strings.TrimPrefix(refName, "v"), "release/v" + version.Major + "." + version.Minor, nil
+}
+
+func parseReleaseVersion(refName string) (string, string, error) {
+	version, canonical := parseDeliveryReleaseTag(refName)
+	if !canonical {
+		return "", "", fmt.Errorf(
+			"release tag is not canonical stable SemVer or an approved v1.0.0 alpha: %q: %w",
+			refName, errInvalidConfig,
+		)
 	}
 	return strings.TrimPrefix(refName, "v"), "release/v" + version.Major + "." + version.Minor, nil
 }

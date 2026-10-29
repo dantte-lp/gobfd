@@ -44,7 +44,7 @@ func main() {
 }
 
 func run(root, refName string) error {
-	version, err := stableVersion(refName)
+	version, err := releaseVersion(refName)
 	if err != nil {
 		return err
 	}
@@ -81,6 +81,25 @@ func stableVersion(refName string) (string, error) {
 	return version, nil
 }
 
+func releaseVersion(refName string) (string, error) {
+	const alphaPrefix = "v1.0.0-alpha."
+	if !strings.HasPrefix(refName, alphaPrefix) {
+		return stableVersion(refName)
+	}
+	ordinal := strings.TrimPrefix(refName, alphaPrefix)
+	if len(refName) > 128 || ordinal == "" || ordinal[0] < '1' || ordinal[0] > '9' {
+		return "", fmt.Errorf("%w: release ref %q is not an approved canonical alpha", errInvalidPackageInput, refName)
+	}
+	for _, character := range ordinal[1:] {
+		if character < '0' || character > '9' {
+			return "", fmt.Errorf(
+				"%w: release ref %q is not an approved canonical alpha", errInvalidPackageInput, refName,
+			)
+		}
+	}
+	return strings.TrimPrefix(refName, "v"), nil
+}
+
 func replaceRPM(path, root, version, arch string) (returnErr error) {
 	temporary, err := os.CreateTemp(filepath.Dir(path), ".gobfd-rpm-*")
 	if err != nil {
@@ -115,6 +134,11 @@ func writeRPM(output io.Writer, root, version, arch string) error {
 	if arch != amd64 && arch != arm64 {
 		return fmt.Errorf("%w: unsupported RPM architecture %q", errInvalidPackageInput, arch)
 	}
+	if _, err := releaseVersion("v" + version); err != nil {
+		return err
+	}
+	// Match nFPM's prerelease ordering while retaining native lifecycle programs.
+	packageVersion := strings.Replace(version, "-alpha.", "~alpha.", 1)
 	rpmArch := "x86_64"
 	if arch == arm64 {
 		rpmArch = "aarch64"
@@ -134,7 +158,7 @@ func writeRPM(output io.Writer, root, version, arch string) error {
 	}
 	packageRPM, err := rpmpack.NewRPM(rpmpack.RPMMetaData{
 		Name: "gobfd", Summary: description, Description: description,
-		Version: version, Release: "1", Arch: rpmArch, OS: "linux", Vendor: "dantte-lp",
+		Version: packageVersion, Release: "1", Arch: rpmArch, OS: "linux", Vendor: "dantte-lp",
 		URL: "https://github.com/dantte-lp/gobfd", Packager: "dantte-lp", Licence: "Apache-2.0",
 		BuildHost: buildHost, BuildTime: time.Now(), Requires: requires,
 	})

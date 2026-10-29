@@ -35,7 +35,7 @@ not establish delivery to a supported release line.
 
 ## Release authority
 
-1. Complete the applicable implementation and qualification on the exact
+1. For stable delivery, complete the applicable implementation and qualification on the exact
    release-line commit. Run `make verify VERSION=vX.Y.Z` and the required
    protocol/interoperability gates.
 2. Curate both changelogs and review the release commit. Verify identity,
@@ -50,9 +50,18 @@ not establish delivery to a supported release line.
 6. Bring the accepted stable history and both changelogs to `master` before
    closeout. Assess forward-ports to `dev` separately; record inapplicability.
 
-[ADR-0008](docs/en/adr/0008-experimental-prerelease-boundary.md) proposes an
-experimental alpha boundary. It does not change the stable-only validation
-contract or authorize an unimplemented prerelease path.
+The maintainer authorizes the experimental `v1.0.0-alpha.N` channel on
+2026-10-30 under [ADR-0008](docs/en/adr/0008-experimental-prerelease-boundary.md).
+Use a reviewed `release/v1.0` HEAD and positive canonical ordinal. Release
+Please creates the release PR only; curate both changelogs and the version
+manifest in that PR. After merge and required checks, push its immutable
+annotated tag. The release workflow verifies the merged PR, exact candidate,
+fresh critical/security/package checks and complete draft evidence before
+publishing a GitHub prerelease with `latest=false`. Preserve stable GitHub
+latest, OCI aliases and `master`. Alpha does not establish stable readiness;
+strict CPU, native A/B, calibrated reference/24-hour and final wire acceptance
+remain required for stable v1. Policy acceptance does not certify those
+checks or a publication result.
 
 ## Standards
 

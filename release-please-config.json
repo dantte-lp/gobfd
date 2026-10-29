@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/v17.11.2/schemas/config.json",
+  "release-type": "go",
+  "include-component-in-tag": false,
+  "include-v-in-tag": true,
+  "skip-github-release": true,
+  "skip-changelog": true,
+  "pull-request-title-pattern": "chore: выпуск ${version}",
+  "pull-request-header": "Обновление версии экспериментального выпуска. Перед слиянием добавить датированные разделы EN/RU changelog и проверить ограничения alpha.",
+  "pull-request-footer": "Публикация выполняется после проверки merged PR и создания неизменяемого аннотированного тега. Stable latest и OCI aliases для alpha не изменяются.",
+  "packages": {
+    ".": {
+      "initial-version": "1.0.0-alpha.1",
+      "versioning": "prerelease",
+      "prerelease-type": "alpha",
+      "prerelease": true
+    }
+  }
+}

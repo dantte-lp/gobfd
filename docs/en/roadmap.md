@@ -2,7 +2,7 @@
 
 [Russian translation](../ru/roadmap.md).
 
-Snapshot: **2026-10-29**. This page records the technical acceptance boundary;
+Snapshot: **2026-10-30**. This page records the technical acceptance boundary;
 it does not authorize publication. Use the documentation at the candidate's
 commit and the applicable release-line contract.
 
@@ -34,10 +34,13 @@ for measurement conditions.
 
 ## Experimental prerelease
 
-[ADR-0008](adr/0008-experimental-prerelease-boundary.md) defines a proposed
-experimental boundary. The existing release path accepts stable tags; an
-alpha requires an explicitly implemented and accepted prerelease path.
-A documentation change does not authorize an alpha tag, draft or publication.
+[ADR-0008](adr/0008-experimental-prerelease-boundary.md) accepts the
+maintainer-authorized `v1.0.0-alpha.N` channel dated 2026-10-30. Release Please
+prepares the reviewed release PR; GoReleaser and the independent verifier
+own draft creation and publication. Alpha preserves stable latest and OCI
+aliases. Policy acceptance does not establish candidate qualification or a
+published release. Strict CPU-window acceptance, native A/B, calibrated
+reference/24-hour operation and final wire qualification remain stable gates.
 
 ## Additional scope
 

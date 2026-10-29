@@ -64,7 +64,7 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 				"buf-fetch-base|buf-breaking|sbom|proto-verify|"+
 				"benchmark-run|benchmark-base|benchmark-pair|benchmark-normalize|benchmark-report|"+
 				"release-build|release-test-report|release-benchmarks|release-benchmark-metadata|"+
-				"release-benchmark-comparison|release-reports-archive|release-preflight|release-notes|"+
+				"release-benchmark-comparison|release-reports-archive|release-preflight|release-notes|release-pr-check|"+
 				"release-upx|release-artifacts|release-assets-upload|release-oci-evidence|release-evidence|release-verify|"+
 				"release-promote|release-publish|package-build|package-lifecycle}: %w",
 			flag.ErrHelp,
@@ -147,6 +147,8 @@ func runReleaseCommand(
 		return true, runReleaseBuild(ctx, arguments, deps)
 	case "release-preflight":
 		return true, runReleasePreflight(ctx, arguments, deps)
+	case "release-pr-check":
+		return true, runReleasePullRequest(ctx, arguments, deps)
 	case "release-upx":
 		return true, runReleaseUPX(ctx, arguments, deps)
 	case "release-artifacts":
@@ -357,6 +359,20 @@ func runReleasePreflight(ctx context.Context, arguments []string, deps dependenc
 		Environment: deps.environ(), Runner: deps.specRunner,
 	}); err != nil {
 		return fmt.Errorf("refuse mutable release identity: %w", err)
+	}
+	return nil
+}
+
+func runReleasePullRequest(ctx context.Context, arguments []string, deps dependencies) error {
+	root, err := releaseRoot("release-pr-check", arguments, deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.VerifyReleasePullRequest(ctx, cirunner.ReleasePullRequestOptions{
+		Root: root, RefName: deps.getenv("GITHUB_REF_NAME"), SHA: deps.getenv("GITHUB_SHA"),
+		Repository: deps.getenv("GITHUB_REPOSITORY"), Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("verify release pull request: %w", err)
 	}
 	return nil
 }

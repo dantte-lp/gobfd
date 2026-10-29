@@ -43,9 +43,12 @@ func ReleaseNotes(ctx context.Context, options ReleaseNotesOptions) (returnErr e
 	if err != nil {
 		return err
 	}
-	current, canonical := parseCanonicalReleaseTag(options.RefName)
+	current, canonical := parseDeliveryReleaseTag(options.RefName)
 	if !canonical {
-		return fmt.Errorf("release tag is not canonical stable SemVer: %q: %w", options.RefName, errInvalidConfig)
+		return fmt.Errorf(
+			"release tag is not canonical stable SemVer or an approved v1.0.0 alpha: %q: %w",
+			options.RefName, errInvalidConfig,
+		)
 	}
 	owner, repository, err := parseGitHubRepository(options.Repository)
 	if err != nil {
@@ -132,7 +135,7 @@ func buildReleaseNotes(
 }
 
 func selectPreviousRelease(data []byte, currentTag string) (string, error) {
-	current, canonical := parseCanonicalReleaseTag(currentTag)
+	current, canonical := parseDeliveryReleaseTag(currentTag)
 	if !canonical {
 		return "", fmt.Errorf("current release tag is not canonical: %q: %w", currentTag, errInvalidConfig)
 	}
@@ -208,6 +211,9 @@ func bestPreviousReleases(
 	var bestLine *canonicalReleaseVersion
 	for index := range versions {
 		candidate := &versions[index]
+		if isAlphaReleaseTag(current.Tag) && compareReleaseVersions(*candidate, current) >= 0 {
+			continue
+		}
 		if bestOverall == nil || compareReleaseVersions(*candidate, *bestOverall) > 0 {
 			bestOverall = candidate
 		}
@@ -229,6 +235,33 @@ func parseCanonicalReleaseTag(tag string) (canonicalReleaseVersion, bool) {
 		return canonicalReleaseVersion{}, false
 	}
 	return canonicalReleaseVersion{Tag: tag, Major: matches[1], Minor: matches[2], Patch: matches[3]}, true
+}
+
+func parseDeliveryReleaseTag(tag string) (canonicalReleaseVersion, bool) {
+	if version, canonical := parseCanonicalReleaseTag(tag); canonical {
+		return version, true
+	}
+	if isAlphaReleaseTag(tag) {
+		return canonicalReleaseVersion{Tag: tag, Major: "1", Minor: "0", Patch: "0"}, true
+	}
+	return canonicalReleaseVersion{}, false
+}
+
+func isAlphaReleaseTag(tag string) bool {
+	const prefix = "v1.0.0-alpha."
+	if len(tag) > 128 || !strings.HasPrefix(tag, prefix) {
+		return false
+	}
+	ordinal := strings.TrimPrefix(tag, prefix)
+	if ordinal == "" || ordinal[0] < '1' || ordinal[0] > '9' {
+		return false
+	}
+	for _, character := range ordinal[1:] {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func compareReleaseVersions(left, right canonicalReleaseVersion) int {

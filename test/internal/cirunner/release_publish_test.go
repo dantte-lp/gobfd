@@ -265,7 +265,7 @@ func (runner *releasePublishRunner) RunCommand(_ context.Context, spec CommandSp
 	case spec.Name == "gh" && slices.Equal(spec.Args, []string{"api", "repos/dantte-lp/gobfd/git/ref/heads/release/v0.6"}):
 		data = fmt.Appendf(nil, `{"ref":"refs/heads/release/v0.6","object":{"type":"commit","sha":%q}}`, preflightCommit)
 	case spec.Name == "gh" && slices.Equal(spec.Args, []string{
-		"release", "view", "v0.6.2", "--repo", "dantte-lp/gobfd", "--json", "isDraft,tagName,body,assets",
+		"release", "view", "v0.6.2", "--repo", "dantte-lp/gobfd", "--json", "isDraft,isPrerelease,tagName,body,assets",
 	}):
 		data = runner.releaseView
 	case spec.Name == "docker" && runner.aliasIndex < len(runner.aliasDigests):

@@ -21,7 +21,7 @@ Reference sections use present-tense facts with repository sources. Procedures u
 | [0005](0005-smallstep-management-certificates.md) | External Smallstep certificate renewal | Accepted |
 | [0006](0006-session-preserving-reload-policy.md) | Session-preserving reload | Accepted policy; qualification separate |
 | [0007](0007-workload-phase-accounting.md) | Workload phases and terminal accounting | Accepted policy; qualification separate |
-| [0008](0008-experimental-prerelease-boundary.md) | Experimental prerelease channel | Proposed; no publication authorization |
+| [0008](0008-experimental-prerelease-boundary.md) | Experimental prerelease channel | Accepted policy; candidate qualification separate |
 | [0009](0009-echo-principal-claims.md) | Principal claims on shared Echo wire | Accepted policy; local qualification separate |
 | [0010](0010-bfd-auth-value-ownership.md) | Value auth metadata with borrowed payload | Superseded by ADR-0011 |
 | [0011](0011-bfd-auth-inline-payload.md) | Inline authentication payload | Accepted policy; source/runtime qualification separate |

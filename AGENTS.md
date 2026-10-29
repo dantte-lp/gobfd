@@ -160,9 +160,16 @@ an upstream image name alone is not an exception.
 
 ## Release branches
 
-- New releases are prepared and published only after development and final
+- Stable releases are prepared and published only after development and final
   qualification are complete. Continue implementation in `dev`; do not create
   release tags, drafts, or release artifacts during intermediate tasks.
+- Exception: the maintainer authorizes the experimental `v1.0.0-alpha.N`
+  channel on 2026-10-30 under ADR-0008. Use positive canonical ordinals, a
+  reviewed `release/v1.0` HEAD, an immutable annotated tag, a merged release
+  PR, fresh critical/security/package checks and complete verified draft
+  assets. Release Please creates the PR only; GoReleaser and the Go-owned
+  verifier publish the prerelease with `latest=false`. Never promote stable
+  OCI aliases or close stable qualification from alpha delivery.
 - `dev` integrates the next product line and is never tagged for a stable
   release.
 - Acceptance records name the branch, commit, and evidence; closed `dev` tasks

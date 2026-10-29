@@ -1,0 +1,33 @@
+name: Release Please
+
+on:
+  push:
+    branches: ["release/v1.0"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-pr:
+    if: github.repository == 'dantte-lp/gobfd' && github.ref == 'refs/heads/release/v1.0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Prepare the release pull request
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          target-branch: release/v1.0
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          # GoReleaser owns drafts and the verified publication sequence.
+          # The maintainer pushes an annotated tag after the release PR passes review.
+          skip-github-release: true

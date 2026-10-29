@@ -404,7 +404,7 @@ func inspectReleaseOCIManifests(
 	if err != nil {
 		return nil, err
 	}
-	version, _, err := parseStableReleaseVersion(refName)
+	version, _, err := parseReleaseVersion(refName)
 	if err != nil {
 		return nil, err
 	}

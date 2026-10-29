@@ -35,22 +35,24 @@ CI executable steps remain single commands; no multiline shell programs or expli
 
 ```mermaid
 flowchart LR
-  accTitle: Release verification and publication
-  accDescr: Independent verification precedes alias promotion and the terminal draft publication.
-    identity["Preflight and notes"]:::mgt --> build["Build and complete draft"]:::srv
-    build --> verify["Independent verifier checkout"]:::mgt
-    verify --> aliases["Promote checked OCI aliases"]:::srv
-    aliases --> publish["Publish verified draft"]:::mgt
+  accTitle: Release proposal, verification and publication
+  accDescr: A reviewed release PR and annotated tag precede draft verification; only stable releases promote aliases.
+    proposal["Reviewed PR<br/>and annotated tag"]:::mgt --> build["Preflight and<br/>complete draft"]:::srv
+    build --> verify["Independent<br/>verification"]:::mgt
+    verify -->|"stable"| aliases["Stable OCI<br/>aliases"]:::srv
+    aliases --> publish["Publish verified<br/>draft"]:::mgt
+    verify -->|"alpha"| publish
     classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
     classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
 ```
 
-The sequence separates build, independent evidence verification, alias changes and terminal publication. Preserve the exact candidate and stop at the first failed stage.
+Release Please creates the proposal only with `skip-github-release: true`; the reviewed PR curates both changelogs and the version manifest. The maintainer pushes its exact annotated tag. The sequence separates build, independent evidence verification and terminal publication. Only stable releases change aliases. Preserve the exact candidate and stop at the first failed stage.
 
 | Command | Validation or mutation |
 |:---|:---|
-| `release-preflight` | Canonical stable tag, annotation, repository, exact release-branch HEAD; reject existing release/draft/versioned OCI tags |
+| `release-preflight` | Canonical stable or approved alpha tag, annotation, repository, exact release-branch HEAD; reject existing release/draft/versioned OCI tags |
 | `release-notes` | Paginated published stable releases, complete maintenance range, real dates; immutable links |
+| `release-pr-check` | After notes: exact merged PR/base/commit, manifest version and both dated changelog headings; append verified PR URL |
 | `release-build` | Four binaries using GITHUB_REF_NAME/GITHUB_SHA metadata |
 | `release-upx` | Exact archive size/hash, complete tar-entry validation, bound executable version; rooted PATH publication |
 | `release-test-report` | Race tests and existing JUnit/JSON/HTML paths |
@@ -61,17 +63,17 @@ The sequence separates build, independent evidence verification, alias changes a
 | `release-assets-upload` | Upload receipt-bound primary assets without clobber |
 | `release-oci-evidence` | Both versioned indexes, amd64/arm64, SPDX and linked SLSA v1 attestations |
 | `release-evidence` | Hash report/digest snapshots and upload supplemental evidence |
-| `release-verify` | Recheck identities, draft body, exact 12 assets; download and semantically verify the same hashed bytes |
-| `release-promote` | Snapshot aliases, copy verified index, read back descriptors; bounded rollback on failure |
-| `release-publish` | Final identity/asset/digest checks, close roots, terminal draft-publication mutation |
+| `release-verify` | Recheck identities, draft/prerelease state, body and exact 12 assets; download and semantically verify the same hashed bytes |
+| `release-promote` | Stable only; reject alpha, snapshot aliases, copy verified index, read back descriptors; bounded rollback on failure |
+| `release-publish` | Final identity/asset/digest checks, close roots, terminal publication; alpha uses `--prerelease --latest=false` |
 
-GoReleaser creates a draft with primary upload disabled. Native package finalization replaces RPM lifecycle programs and refreshes checksums/manifests. The asset matrix requires two Linux archives, four DEB/RPM packages, two archive-matched CycloneDX SBOMs and checksums; reports, OCI digest and supplemental checksum receipts complete the 12 remote names.
+GoReleaser creates a draft with primary upload disabled, `prerelease: auto` and `make_latest: false`. Stable latest promotion is deferred to the verified final publisher. Alpha leaves stable GitHub latest and OCI aliases unchanged. Native package finalization replaces RPM lifecycle programs and refreshes checksums/manifests. The asset matrix requires two Linux archives, four DEB/RPM packages, two archive-matched CycloneDX SBOMs and checksums; reports, OCI digest and supplemental checksum receipts complete the 12 remote names.
 
 The verifier uses a separate checkout at the exact workflow SHA without persistent credentials. It binds original workspace paths to opened roots and preflight receipts. Strict JSON rejects invalid UTF-8, duplicate/noncanonical contract fields and unsafe paths. Downloads reject missing/extra/linked/empty/oversized files. Archive parsing rejects extra gzip members, trailing data, unsafe/duplicate entries, links and special files.
 
 The [producer](../../../test/internal/cirunner/release.go) clears comparison outputs before checking `testdata/benchmarks/baseline.txt` and packages reports without an aggregate output bound. The downstream verifier limits the [compressed asset](../../../test/internal/cirunner/release_download.go) to 64 MiB and the [reports archive](../../../test/internal/cirunner/release_asset_content.go) to 256 MiB expanded and 4096 entries. These verifier limits do not bound archive creation.
 
-OCI evidence is queried by immutable index digest. Both primary and Debian product digests must match and contain exactly linux/amd64 and linux/arm64 with linked attestations. Git/Docker do not receive GitHub tokens. Alias rollback verifies restored identities; terminal publication has no subsequent fallible release step. Postpublication readback and stable-branch closeout remain separate maintainer obligations.
+OCI evidence is queried by immutable index digest. Both primary and Debian product digests must match and contain exactly linux/amd64 and linux/arm64 with linked attestations. Git/Docker do not receive GitHub tokens. Alpha publication rechecks versioned OCI identities and does not inspect or require stable aliases to match its digest. Stable alias rollback verifies restored identities; terminal publication has no subsequent fallible release step. Postpublication readback and stable-branch closeout remain separate maintainer obligations.
 
 ## Dependency inventory
 
