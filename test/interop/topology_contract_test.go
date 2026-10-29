@@ -994,8 +994,6 @@ func TestTrackedOperationalTextHasNoRemovedReferences(t *testing.T) {
 	allowed := map[string]struct{}{
 		"CHANGELOG.md":    {},
 		"CHANGELOG.ru.md": {},
-		"docs/superpowers/plans/2026-08-21-" + "aio" + "bfd-to-holo-interop.md":        {},
-		"docs/superpowers/specs/2026-08-20-" + "aio" + "bfd-to-holo-interop-design.md": {},
 	}
 	removed := []string{"aio" + "bfd", "bit" + "string"}
 	if err := validateTrackedOperationalText(t.Context(), root, allowed, removed); err != nil {
