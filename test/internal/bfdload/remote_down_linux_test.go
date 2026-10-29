@@ -49,6 +49,148 @@ func remoteDownFixture(t *testing.T) (OwnerWorkloadObservation, PeerObservation)
 	return owner, peers
 }
 
+func remoteDownOriginsFixture(t *testing.T, origins int) (OwnerWorkloadObservation, PeerObservation) {
+	t.Helper()
+	owner, peers := remoteDownFixture(t)
+	p := &peers.Peers[0]
+	for index := 1; index < origins; index++ {
+		shift := int64(index) * 800000000
+		expiry := p.DetectionExpiryEvents[0]
+		expiry.ID += uint64(index)
+		expiry.LastReceiveNS += shift
+		expiry.DetectionDueNS += shift
+		expiry.ExpiredNS += shift
+		expiry.FirstDownWrite.Scheduled += uint64(4 * index)
+		expiry.FirstDownWrite.DecisionNS += shift
+		expiry.FirstDownWrite.StartedNS += shift
+		expiry.FirstDownWrite.EndedNS += shift
+		p.DetectionExpiryEvents = append(p.DetectionExpiryEvents, expiry)
+		window := p.BlackholeWindows[0]
+		window.StartNS += shift
+		window.FirstTXNS += shift
+		window.LastTXNS += shift
+		window.FirstRXNS += shift
+		window.LastRXNS += shift
+		window.Segments = append([]PeerOmissionSegment(nil), window.Segments...)
+		for segmentIndex := range window.Segments {
+			segment := &window.Segments[segmentIndex]
+			segment.FirstNS += shift
+			segment.LastNS += shift
+			segment.OffsetsNS = append([]int64(nil), segment.OffsetsNS...)
+			segment.Sequences = append([]uint64(nil), segment.Sequences...)
+			for offsetIndex := range segment.OffsetsNS {
+				segment.OffsetsNS[offsetIndex] += shift
+				segment.Sequences[offsetIndex] += uint64(4 * index)
+			}
+		}
+		p.BlackholeWindows = append(p.BlackholeWindows, window)
+		p.DetectionExpirations++
+		p.DownTransitions++
+		p.Scheduled += 4
+		p.WriteAttempts++
+		p.Written++
+		p.BlackholeOmitted += 3
+		p.Read += 4
+		p.Accepted++
+		p.ReceiveBlackholeOmitted += 3
+	}
+	shift := int64(origins-1) * 800000000
+	w := &owner.DownWitnesses[0]
+	w.Timing.ValidatedNS += shift
+	w.Timing.CommitStartNS += shift
+	w.Timing.CommitEndNS += shift
+	owner.Config.Profile.Duration += time.Duration(shift)
+	peers.Profile.Duration = owner.Config.Profile.Duration
+	return owner, peers
+}
+
+func TestRemoteDownRequiresEveryPossibleOrigin(t *testing.T) {
+	t.Parallel()
+	for missing := range 8 {
+		owner, peers := remoteDownOriginsFixture(t, 3)
+		for index := range 3 {
+			if missing&(1<<index) != 0 {
+				peers.Peers[0].BlackholeWindows[index].Segments[1].ReceiveQualified = false
+			}
+		}
+		got := ClassifyDowns(owner, peers)
+		if missing == 0 {
+			if !got.Passing || got.Intentional != 1 || !got.Conditional || got.ReferenceQualified {
+				t.Fatalf("all three proven possible origins did not qualify: %+v", got)
+			}
+		} else if got.Passing || got.Intentional != 0 || got.Unresolved != 1 {
+			t.Fatalf("unproven origin subset %03b was ignored: %+v", missing, got)
+		}
+		if !reflect.DeepEqual(got, ClassifyDowns(owner, peers)) {
+			t.Fatal("reassessment mutated possible-origin evidence")
+		}
+	}
+}
+
+func TestRemoteDownLaterOriginRejectsIncompleteProof(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"state", "identity", "missing_write", "late_write", "prefix", "boundary"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			owner, peers := remoteDownOriginsFixture(t, 2)
+			e := &peers.Peers[0].DetectionExpiryEvents[1]
+			switch name {
+			case "state":
+				e.PreviousState = bfd.StateInit
+			case "identity":
+				e.RemoteDiscriminator++
+			case "missing_write":
+				e.FirstDownWrite.Known = false
+			case "late_write":
+				e.FirstDownWrite.StartedNS = owner.DownWitnesses[0].Timing.ValidatedNS
+				e.FirstDownWrite.EndedNS = e.FirstDownWrite.StartedNS
+			case "prefix":
+				e.FirstDownWrite.Scheduled--
+			case "boundary":
+				e.ExpiredNS = owner.DownWitnesses[0].Timing.ValidatedNS + owner.Phase.BracketNS
+			}
+			got := ClassifyDowns(owner, peers)
+			if got.Passing || got.Intentional != 0 || got.Unresolved != 1 {
+				t.Fatalf("unsupported later-origin %s proof passed: %+v", name, got)
+			}
+		})
+	}
+}
+
+func TestRemoteDownPossibleOriginsRoundTrip(t *testing.T) {
+	t.Parallel()
+	owner, peers := remoteDownOriginsFixture(t, 2)
+	before, err := json.Marshal(peers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded PeerObservation
+	if decodeErr := json.Unmarshal(before, &decoded); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	got := ClassifyDowns(owner, decoded)
+	if !got.Passing || got.Intentional != 1 || got.ReferenceQualified {
+		t.Fatalf("serialized possible-origin proofs did not qualify conditionally: %+v", got)
+	}
+	after, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) || !reflect.DeepEqual(got, ClassifyDowns(owner, decoded)) {
+		t.Fatal("classification mutated serialized origin evidence or changed on repeated assessment")
+	}
+}
+
+func TestRemoteDownWithoutPossibleOriginRemainsUnresolved(t *testing.T) {
+	t.Parallel()
+	owner, peers := remoteDownFixture(t)
+	w := &owner.DownWitnesses[0]
+	w.Timing.ValidatedNS, w.Timing.CommitStartNS, w.Timing.CommitEndNS = 600000000, 610000000, 610000001
+	if got := ClassifyDowns(owner, peers); got.Passing || got.Intentional != 0 || got.Unresolved != 1 {
+		t.Fatalf("an empty possible-origin set was accepted: %+v", got)
+	}
+}
+
 func TestRemoteDownFirstExpiryExcludesOnlyStrictlyLaterEpochs(t *testing.T) {
 	t.Parallel()
 	owner, peers := remoteDownFixture(t)

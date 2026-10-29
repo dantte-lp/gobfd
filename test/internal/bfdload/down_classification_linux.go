@@ -94,10 +94,10 @@ func ClassifyDowns(owner OwnerWorkloadObservation, peers PeerObservation) DownCl
 			result.Assumptions = append(result.Assumptions,
 				"the owner-delivery intervention above applies only to local detection verdicts",
 				"for RemoteDown, only selected qualified stable Up RX omissions are restored at the peer; "+
-					"peer acceptance and detection Reset complete before its first old deadline; "+
+					"peer acceptance and detection Reset complete before each possible origin's old deadline; "+
 					"all other dispositions stay unchanged",
-				"RemoteDown ancestry requires the first peer expiry to be the only possible prior expired-Down origin; "+
-					"this concerns that peer old deadline, not absence of later peer or owner Down")
+				"every possible prior peer expiry origin requires its own conditional old-deadline proof; "+
+					"these separate interventions do not prove one physical replay or absence of later peer or owner Down")
 			remoteModel = true
 		}
 		result.observe(owner, peers, index, witness, progress)

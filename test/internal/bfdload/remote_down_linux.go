@@ -18,24 +18,44 @@ func classifyRemoteDown(
 	if !knownRemoteDownReceive(witness, peer.ID) || !completePeerExpiryHistory(peer) {
 		return downUnresolved, "remote Down lacks a complete matching peer expiry origin or validated receive"
 	}
-	first := peer.DetectionExpiryEvents[0]
 	receivedUpper, valid := addNS(witness.Timing.ValidatedNS, owner.Phase.BracketNS)
-	if !valid || first.PreviousState != bfd.StateUp || first.RemoteDiscriminator != witness.LocalDiscriminator {
-		return downUnresolved, "first peer expiry does not match this owner incarnation"
+	if !valid {
+		return downUnresolved, "owner validated receive projection overflows"
 	}
-	for _, later := range peer.DetectionExpiryEvents[1:] {
-		if later.ExpiredNS <= receivedUpper {
-			return downUnresolved, "another peer expiry can originate the indistinguishable received Down"
+	var origins int
+	for _, expiry := range peer.DetectionExpiryEvents {
+		// Without a delivery bound, any earlier expiry may originate a delayed Down.
+		if expiry.ExpiredNS > receivedUpper {
+			continue
+		}
+		origins++
+		outcome, reason := classifyPeerExpiryOrigin(peers, peer, witness, expiry)
+		if outcome != downIntentional {
+			return outcome, reason
 		}
 	}
-	if !knownFirstExpiryWrite(first, peer.Scheduled, peers.Profile) || !validFirstWritePrefix(first.FirstDownWrite, peer) {
-		return downUnresolved, "first peer expiry has no matching successful Down write"
+	if origins == 0 {
+		return downUnresolved, "no peer expiry can precede the validated remote Down"
 	}
-	writeUpper, valid := addNS(first.FirstDownWrite.StartedNS, peers.Phase.BracketNS)
+	return downIntentional, "every possible peer old-deadline origin has qualified RX omissions " +
+		"under the stated per-origin acceptance/reset assumptions"
+}
+
+func classifyPeerExpiryOrigin(
+	peers PeerObservation, peer PeerSessionObservation, witness OwnerDownWitness, expiry PeerDetectionExpiry,
+) (string, string) {
+	if expiry.PreviousState != bfd.StateUp || expiry.RemoteDiscriminator != witness.LocalDiscriminator {
+		return downUnresolved, "possible peer expiry origin does not match this Up owner incarnation"
+	}
+	if !knownFirstExpiryWrite(expiry, peer.Scheduled, peers.Profile) ||
+		!validFirstWritePrefix(expiry.FirstDownWrite, peer) {
+		return downUnresolved, "possible peer expiry origin has no matching successful Down write"
+	}
+	writeUpper, valid := addNS(expiry.FirstDownWrite.StartedNS, peers.Phase.BracketNS)
 	if !valid || writeUpper >= witness.Timing.ValidatedNS {
 		return downUnresolved, "first Down write and owner validated receive are not strictly ordered"
 	}
-	return classifyFirstExpiryOmissions(peers, peer, first)
+	return classifyPeerExpiryOmissions(peers, peer, expiry)
 }
 
 func validFirstWritePrefix(write PeerExpiryWrite, peer PeerSessionObservation) bool {
@@ -90,24 +110,24 @@ func validPeerExpiry(row PeerDetectionExpiry, peerID uint64) bool {
 		(row.PreviousState == bfd.StateUp || row.PreviousState == bfd.StateInit || row.PreviousState == bfd.StateDown)
 }
 
-func knownFirstExpiryWrite(first PeerDetectionExpiry, scheduled uint64, profile Profile) bool {
-	w := first.FirstDownWrite
+func knownFirstExpiryWrite(expiry PeerDetectionExpiry, scheduled uint64, profile Profile) bool {
+	w := expiry.FirstDownWrite
 	return w.Known && w.TimingKnown && w.Scheduled > 0 && w.Scheduled <= scheduled &&
-		w.MyDiscriminator == first.LocalDiscriminator && w.State == bfd.StateDown &&
-		first.ExpiredNS <= w.DecisionNS && w.DecisionNS <= w.StartedNS && w.StartedNS <= w.EndedNS &&
+		w.MyDiscriminator == expiry.LocalDiscriminator && w.State == bfd.StateDown &&
+		expiry.ExpiredNS <= w.DecisionNS && w.DecisionNS <= w.StartedNS && w.StartedNS <= w.EndedNS &&
 		knownWithheldControlDown(PeerOmissionSegment{
 			YourDiscriminator: w.YourDiscriminator, Diag: w.Diag, DesiredMinTXUS: w.DesiredMinTXUS,
 			RequiredMinRXUS: w.RequiredMinRXUS, DetectMult: w.DetectMult, Poll: w.Poll, Final: w.Final,
 		}, profile)
 }
 
-func classifyFirstExpiryOmissions(
-	peers PeerObservation, peer PeerSessionObservation, first PeerDetectionExpiry,
+func classifyPeerExpiryOmissions(
+	peers PeerObservation, peer PeerSessionObservation, expiry PeerDetectionExpiry,
 ) (string, string) {
 	bracket := peers.Phase.BracketNS
-	expiredUpper, valid := addNS(first.ExpiredNS, bracket)
-	if !valid || first.ExpiredNS < 0 || expiredUpper >= int64(peers.Profile.Duration) {
-		return downUnresolved, "first peer expiry is outside measurement or its projection overflows"
+	expiredUpper, valid := addNS(expiry.ExpiredNS, bracket)
+	if !valid || expiry.ExpiredNS < 0 || expiredUpper >= int64(peers.Profile.Duration) {
+		return downUnresolved, "peer expiry origin is outside measurement or its projection overflows"
 	}
 	for _, window := range peer.BlackholeWindows {
 		startUpper, startOK := addNS(window.StartNS, bracket)
@@ -115,19 +135,19 @@ func classifyFirstExpiryOmissions(
 		if !startOK || !endOK {
 			return downUnresolved, "peer blackhole projection overflow"
 		}
-		if first.DetectionDueNS >= startUpper && expiredUpper < end {
-			return firstExpiryRXCoverage(window, first, peers.Profile, bracket)
+		if expiry.DetectionDueNS >= startUpper && expiredUpper < end {
+			return peerExpiryRXCoverage(window, expiry, peers.Profile, bracket)
 		}
 	}
-	return downUnresolved, "first peer old deadline and expiry are not inside one actual RX blackhole"
+	return downUnresolved, "peer old deadline and expiry are not inside one actual RX blackhole"
 }
 
-func firstExpiryRXCoverage(
-	window PeerBlackholeWindow, first PeerDetectionExpiry, profile Profile, bracket int64,
+func peerExpiryRXCoverage(
+	window PeerBlackholeWindow, expiry PeerDetectionExpiry, profile Profile, bracket int64,
 ) (string, string) {
-	receiveUpper, receiveOK := addNS(first.LastReceiveNS, bracket)
-	dueUpper, dueOK := addNS(first.DetectionDueNS, bracket)
-	detection, detectionOK := addNS(first.DetectionDueNS, -first.LastReceiveNS)
+	receiveUpper, receiveOK := addNS(expiry.LastReceiveNS, bracket)
+	dueUpper, dueOK := addNS(expiry.DetectionDueNS, bracket)
+	detection, detectionOK := addNS(expiry.DetectionDueNS, -expiry.LastReceiveNS)
 	if !receiveOK || !dueOK || !detectionOK || detection <= 0 {
 		return downUnresolved, "peer receive or old detection interval projection overflow"
 	}
@@ -142,28 +162,24 @@ func firstExpiryRXCoverage(
 			if !valid {
 				return downUnresolved, "peer RX omission projection overflow"
 			}
-			if upper <= first.LastReceiveNS || offset >= dueUpper {
+			if upper <= expiry.LastReceiveNS || offset >= dueUpper {
 				continue
 			}
-			if offset <= receiveUpper || upper >= first.DetectionDueNS ||
-				!knownQualifiedControlRX(segment, profile, first, detection) {
+			if offset <= receiveUpper || upper >= expiry.DetectionDueNS ||
+				!knownQualifiedControlRX(segment, profile, expiry, detection) {
 				return downUnresolved, "peer RX omission acceptance, stable wire identity or old-deadline relation is unproven"
 			}
 			last, count = offset, count+1
 		}
 	}
-	outcome, reason := classifyDeadlineExtension(last, count, detection, dueUpper)
-	if outcome == downIntentional {
-		reason = "RemoteDown originates from the first peer old deadline under the stated peer acceptance/reset assumptions"
-	}
-	return outcome, reason
+	return classifyDeadlineExtension(last, count, detection, dueUpper)
 }
 
 func knownQualifiedControlRX(
-	segment PeerOmissionSegment, profile Profile, first PeerDetectionExpiry, detection int64,
+	segment PeerOmissionSegment, profile Profile, expiry PeerDetectionExpiry, detection int64,
 ) bool {
 	return segment.ReceiveQualified && !segment.Valid && segment.State == bfd.StateUp &&
-		segment.MyDiscriminator == first.RemoteDiscriminator && knownStableControlUp(segment, profile, OwnerDownWitness{
-		LocalDiscriminator: first.LocalDiscriminator, Timing: OwnerDownTiming{DetectionNS: detection},
+		segment.MyDiscriminator == expiry.RemoteDiscriminator && knownStableControlUp(segment, profile, OwnerDownWitness{
+		LocalDiscriminator: expiry.LocalDiscriminator, Timing: OwnerDownTiming{DetectionNS: detection},
 	})
 }
