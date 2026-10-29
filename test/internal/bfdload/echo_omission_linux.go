@@ -18,6 +18,9 @@ func validEchoPeerLedger(peer PeerSessionObservation) bool {
 }
 
 func validWorkloadOmission(segment PeerOmissionSegment, echo bool) bool {
+	if segment.ReceiveQualified && (echo || segment.Direction != "rx") {
+		return false
+	}
 	if echo {
 		return segment.Valid && len(segment.ReceivedSequences) == len(segment.OffsetsNS) &&
 			omissionPacket(segment.controlPacket(), false).Valid

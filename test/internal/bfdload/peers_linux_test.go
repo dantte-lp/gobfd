@@ -232,13 +232,20 @@ func TestPeersBlackholeCausesDownAndRecovery(t *testing.T) {
 			t.Fatalf("blackhole did not traverse actual UDP Down/recovery: %+v", peer)
 		}
 		var tx, rx uint64
+		qualified := false
 		for _, window := range peer.BlackholeWindows {
 			tx += window.TXOmitted
 			rx += window.RXOmitted
+			for _, segment := range window.Segments {
+				qualified = qualified || segment.Direction == "rx" && segment.ReceiveQualified
+			}
 		}
 		if len(peer.BlackholeWindows) == 0 || peer.BlackholeEventsOmitted != 0 ||
 			tx != peer.BlackholeOmitted || rx != peer.ReceiveBlackholeOmitted {
 			t.Fatalf("actual UDP blackhole journal lost directional omissions: %+v", peer)
+		}
+		if !qualified {
+			t.Fatal("actual UDP blackhole lost all qualified Control RX evidence")
 		}
 		if uint64(len(peer.DetectionExpiryEvents)) != peer.DetectionExpirations || peer.DetectionExpiryEventsOmitted != 0 {
 			t.Fatal("actual UDP peer expiry journal lost events")

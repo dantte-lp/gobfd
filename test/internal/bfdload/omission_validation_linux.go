@@ -52,6 +52,7 @@ func validatePeerHistory(peer PeerSessionObservation, profile Profile) error {
 
 func validOmissionWindowStart(window PeerBlackholeWindow, profile Profile, previous int64) bool {
 	return profile.BlackholeEvery > 0 && profile.BlackholeFor > 0 &&
+		(!profile.TXOnlyBlackhole || window.RXOmitted == 0) &&
 		window.StartNS >= int64(profile.BlackholeEvery) && window.StartNS%int64(profile.BlackholeEvery) == 0 &&
 		window.StartNS > previous
 }

@@ -88,7 +88,18 @@ func ClassifyDowns(owner OwnerWorkloadObservation, peers PeerObservation) DownCl
 	result.Error = classificationInputs(owner, peers)
 	result.Complete = result.Error == ""
 	progress := uncontestedMeasurementProgress(owner)
+	remoteModel := false
 	for index, witness := range owner.DownWitnesses {
+		if witness.Cause == bfd.CauseRemoteDown && !remoteModel {
+			result.Assumptions = append(result.Assumptions,
+				"the owner-delivery intervention above applies only to local detection verdicts",
+				"for RemoteDown, only selected qualified stable Up RX omissions are restored at the peer; "+
+					"peer acceptance and detection Reset complete before its first old deadline; "+
+					"all other dispositions stay unchanged",
+				"RemoteDown ancestry requires the first peer expiry to be the only possible prior expired-Down origin; "+
+					"this concerns that peer old deadline, not absence of later peer or owner Down")
+			remoteModel = true
+		}
 		result.observe(owner, peers, index, witness, progress)
 	}
 	result.Passing = result.Complete && result.Eligible > 0 && result.False == 0 && result.Unresolved == 0
@@ -220,7 +231,10 @@ func classifyDownWitness(
 	if !knownDownIdentity(owner, witness) {
 		return downUnresolved, "frozen source identity is missing, inconsistent or ambiguous across incarnations"
 	}
-	if witness.Cause == bfd.CauseRemoteDown || witness.Cause == bfd.CauseRemoteAdminDown {
+	if witness.Cause == bfd.CauseRemoteDown {
+		return classifyRemoteDown(owner, peers, witness, progress)
+	}
+	if witness.Cause == bfd.CauseRemoteAdminDown {
 		return downUnresolved, "remote Down has no independently joined peer expiry/cause witness"
 	}
 	if witness.Cause != bfd.CauseDetectionTimeout {

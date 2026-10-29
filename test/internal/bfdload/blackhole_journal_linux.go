@@ -16,13 +16,15 @@ const (
 
 // PeerOmissionSegment coalesces equal wire identities, retaining every actual omission time and decision sequence.
 // Valid means a codec-verified would-be TX packet, not transport, incarnation or delivery proof.
-// Control RX remains unqualified; Echo RX records actual codec/tuple/TTL-checked input.
+// ReceiveQualified independently records Control RX acceptance checks on a state copy.
+// Echo RX records actual codec/tuple/TTL-checked input.
 type PeerOmissionSegment struct {
 	Direction         string    `json:"direction"`
 	FirstNS           int64     `json:"first_ns"`
 	LastNS            int64     `json:"last_ns"`
 	Count             uint64    `json:"count"`
 	Valid             bool      `json:"valid"`
+	ReceiveQualified  bool      `json:"receive_qualified,omitempty"`
 	MyDiscriminator   uint32    `json:"my_discriminator"`
 	YourDiscriminator uint32    `json:"your_discriminator"`
 	State             bfd.State `json:"state"`
@@ -68,6 +70,7 @@ func (s PeerOmissionSegment) controlPacket() bfd.ControlPacket {
 
 func sameOmissionIdentity(left, right PeerOmissionSegment) bool {
 	return left.Direction == right.Direction && left.Valid == right.Valid &&
+		left.ReceiveQualified == right.ReceiveQualified &&
 		left.MyDiscriminator == right.MyDiscriminator && left.YourDiscriminator == right.YourDiscriminator &&
 		left.State == right.State && left.Diag == right.Diag &&
 		left.DesiredMinTXUS == right.DesiredMinTXUS && left.RequiredMinRXUS == right.RequiredMinRXUS &&
@@ -92,6 +95,10 @@ func (p *peerRuntime) recordBlackhole(decision packetDecision, receive bool, pac
 	if err != nil {
 		return err
 	}
+	return p.recordBlackholeSegment(decision, receive, segment)
+}
+
+func (p *peerRuntime) recordBlackholeSegment(decision packetDecision, receive bool, segment PeerOmissionSegment) error {
 	schedule := p.tx
 	if receive {
 		schedule = p.rx

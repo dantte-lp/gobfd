@@ -211,7 +211,13 @@ func (p *peerRuntime) onInput(ctx context.Context, input peerInput, started time
 		return nil
 	case packetBlackhole:
 		p.observed.ReceiveBlackholeOmitted++
-		return p.recordBlackhole(decision, true, input.packet)
+		segment := omissionPacket(input.packet, true)
+		if p.validInput(input) {
+			candidate := p.state
+			_, err := candidate.receive(input.packet, now)
+			segment.ReceiveQualified = err == nil
+		}
+		return p.recordBlackholeSegment(decision, true, segment)
 	case packetTransmit:
 	}
 	previousState, previousInterval := p.state.state, p.state.periodicInterval()
@@ -244,8 +250,7 @@ func (p *peerRuntime) observeSocketDrops(meta netio.PacketMeta) {
 }
 
 func (p *peerRuntime) accept(input peerInput, now time.Time) (bool, bool) {
-	if input.invalid || input.meta.SrcAddr != p.observed.Endpoint.Local.Addr() ||
-		input.meta.DstAddr != p.observed.Endpoint.Peer.Addr() || netio.ValidateTTL(input.meta) != nil {
+	if !p.validInput(input) {
 		p.observed.Rejected++
 		return false, false
 	}
@@ -259,6 +264,11 @@ func (p *peerRuntime) accept(input peerInput, now time.Time) (bool, bool) {
 	p.pendingExpiry = 0
 	p.observeState(previousState)
 	return true, final
+}
+
+func (p *peerRuntime) validInput(input peerInput) bool {
+	return !input.invalid && input.meta.SrcAddr == p.observed.Endpoint.Local.Addr() &&
+		input.meta.DstAddr == p.observed.Endpoint.Peer.Addr() && netio.ValidateTTL(input.meta) == nil
 }
 
 func (p *peerRuntime) onTransmit(ctx context.Context, started time.Time, timers *peerTimers) error {
