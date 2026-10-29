@@ -1,3 +1,7 @@
+# Ретроспектива выпуска v1 и оценка трудозатрат — 2026-10-26
+
+Производная публикации; оригинал сохранён в Git-срезе `c5bcbfcb7e058a5a7f22b8a6811c8e4250963d50`, blob `257da081eaf44d463535aa46b22a30bb2536cd6c`. Удалены только внутренние идентификаторы и служебная привязка владельцев; результаты, статусы, оценки и ограничения относятся к исходной дате. [Английская версия](../../en/audits/2026-10-26-release-retrospective.md).
+
 **Итог:** выполнено; сверка выявила незавершённую разработку, уточнила критический путь и дала оценку готовности v1 за 4–6 суток.
 **От вас:** не требуется
 
@@ -6,7 +10,7 @@
 Сравнены [аудит 23 октября](2026-10-23-independent-retrospective.md) и локальный
 `dev@1c535f9ac1de7a12f7d85054a9d0fe81216f02c0`.
 Предыдущий аудит проверял `f9ed31bdd81425ba4efaf9688bb452ddea142266`.
-Область выпуска определяют [production contract](../../superpowers/specs/2026-08-18-gobfd-v1-production-contract-design.md)
+Область выпуска определяют [production contract](../reference/production-contract.md)
 и принятые поправки. Исполнение и критерии приёмки учитываются отдельно. Документ фиксирует состояние на дату и не разрешает
 публикацию исходников, Dolt, Actions или релиза.
 
@@ -23,16 +27,16 @@ Teleport/PVE и доставка образа остаются путём provis
 исходниках:
 
 | Предыдущее нарушение | Текущая граница реализации | Историческая запись |
-|---|---|---|
-| TLS identity могла получить привилегии Unix UID | Типизированный transport principal разделяет Unix, TLS URI и TLS DNS | `gobfd-qj0.8.2.3.5` закрыта |
-| Unsafe loopback mutation policy пропущена в startup-only контракте reload | Startup contract включает `grpc.unsafe_loopback_mutations` | `gobfd-qj0.8.2.3.6` закрыта |
-| Повтор Echo Add и cross-owner Delete | Канонический admission и claims transport principal | `gobfd-qj0.8.2.2.8` закрыта |
-| NetworkManager мог выбрать профиль другого bond | Проверяются active/cached profile и владелец controller | `gobfd-qj0.8.2.2.9` закрыта |
-| Чтения свойств NetworkManager обходили context | Используются `CallWithContext` и ограниченная настройка соединения | `gobfd-qj0.8.2.2.10` закрыта |
-| Proto guard пропускал untracked generated-файлы | Git status включает untracked под `pkg/bfdpb` | `gobfd-qj0.8.2.8.7.3.3.1` закрыта |
+|:---|:---|:---|
+| TLS identity могла получить привилегии Unix UID | Типизированный transport principal разделяет Unix, TLS URI и TLS DNS | закрыта |
+| Unsafe loopback mutation policy пропущена в startup-only контракте reload | Startup contract включает `grpc.unsafe_loopback_mutations` | закрыта |
+| Повтор Echo Add и cross-owner Delete | Канонический admission и claims transport principal | закрыта |
+| NetworkManager мог выбрать профиль другого bond | Проверяются active/cached profile и владелец controller | закрыта |
+| Чтения свойств NetworkManager обходили context | Используются `CallWithContext` и ограниченная настройка соединения | закрыта |
+| Proto guard пропускал untracked generated-файлы | Git status включает untracked под `pkg/bfdpb` | закрыта |
 
 Квалификация same-key replacement при незавершённом старом drain остаётся
-открытой в `gobfd-qj0.8.2.1.3.12`. Timer addendum теперь явно отменяет прежнее
+открытой как отдельная квалификация same-key replacement. Timer addendum теперь явно отменяет прежнее
 ограничение promotion только состоянием Up. Эти результаты не означают
 окончательную wire-приёмку.
 
@@ -40,7 +44,7 @@ Teleport/PVE и доставка образа остаются путём provis
 Разность конечных деревьев: 386 файлов, +41 665/−8 562 строки:
 
 | Область | Файлов изменено | Добавлено | Удалено |
-|---|---:|---:|---:|
+|:---|---:|---:|---:|
 | Runtime/API без тестов и generated | 59 | 3 341 | 581 |
 | Тесты, инструменты, scripts и CI | 240 | 25 608 | 887 |
 | Документация и данные под docs | 81 | 12 095 | 7 080 |
@@ -67,7 +71,7 @@ blackhole теперь имеет период 10 минут: два плано�
 ### План в сравнении с кодом
 
 | Область | Подтверждённое текущее состояние | Остаток до выпуска |
-|---|---|---|
+|:---|:---|:---|
 | Протокол, владение и управление | RFC/timer, claims, reload, principal и preview-границы реализованы с отдельными receipts | Packet/reload/cross-consumer/failure-квалификация одного окончательного кандидата |
 | Классификация Down | Реализованы timing, фактические окна пропусков и slot/generation | Историческая идентичность валидного пропущенного пакета, provenance прогона/часов, независимая классификация и actual execution |
 | Receive/timer qualification | Есть actual UDP и условные данные часов; общая неопределённость остаётся неизвестной | Распределения с проверкой валидности, численный pass/fail и допущенный reference-прогон |
@@ -79,7 +83,7 @@ blackhole теперь имеет период 10 минут: два плано�
 | OCI и integration | Общие trixie recipes и часть consumers приняты; Containerlab candidate `4852538df409e0b0309b89505b6dc88861a49540` остаётся изолированным | Native FRR lifecycle/wire assertions, Kubernetes immutable build/import, архитектуры и явные vendor OS-policy dispositions |
 | Runner | Исправление datastore в Pulumi source/operator принято в um-iac; VM отсутствует | Существующий Teleport/PVE, применимая предварительная проверка, управляемая доставка Debian image, preview/apply и guest admission |
 | Финальный выпуск | Есть локальные данные отдельных изменений | Окончательные security/inventory, package upgrade/rollback, обязательные quality/review, engineering и 24-часовой reference |
-| Внешние по отношению к v1-дереву security/failure owners | Recipes сохраняют base из исторического сканирования с исправляемым liblzma5; intermittent race-run failure не атрибутирован | Fresh-candidate disposition/remediation в `gobfd-cs8` и `gobfd-sow`; исторические finding не объявляются свежими измерениями |
+| Внешние по отношению к v1-дереву security/failure owners | Recipes сохраняют base из исторического сканирования с исправляемым liblzma5; intermittent race-run failure не атрибутирован | Fresh-candidate disposition/remediation в security disposition базового образа и диагностике intermittent race failure; исторические finding не объявляются свежими измерениями |
 
 Проверенные входы: `internal/bfd/session_loop.go`, `internal/bfd/echo.go`,
 `internal/bfd/manager_micro.go`, `internal/server/principal.go`,
@@ -90,12 +94,12 @@ blackhole теперь имеет период 10 минут: два плано�
 `deployments/docker/Containerfile.debug` и
 `deployments/integrations/observability/configs/prometheus/alert-rules.yml`.
 
-Исторический срез исполнения построен по реальным связям `parent` под `gobfd-qj0.8.2`, до
+Исторический срез исполнения построен по реальным связям `parent` в иерархии работ v1, до
 закрытия задачи самой ретроспективы. Включены отложенные работы и parents
 приёмки.
 
 | Показатель | 23 октября | 26 октября |
-|---|---:|---:|
+|:---|---:|---:|
 | Потомков | 423 | 523 |
 | Закрытых потомков | 293 | 384 |
 | Незакрытых потомков | 130 | 139 |
@@ -112,9 +116,8 @@ parent не обязательно означает отсутствие реа�
 У release owner не было прямых blocking edges к восьми обязательным owners:
 QoS, thread pinning, latency qualification, benchmark regression exit,
 Micro-BFD allocations, OCI migration, fresh-empty alert и containerized E2E
-launchers. Эти зависимости добавлены в `gobfd-qj0.8.2.6`. Подготовка alpha
-`gobfd-qj0.8.2.6.4` переведена в open/P2 и не является условием stable.
-Два дополнительных обязательных внешних owner — `gobfd-sow` и `gobfd-cs8` —
+launchers. Эти зависимости добавлены в окончательную квалификацию выпуска. Подготовка alpha переведена в open/P2 и не является условием stable.
+Два дополнительных обязательных внешних owner — диагностика intermittent race failure и security disposition базового образа —
 также стали прямыми release blockers. Они включены в H; отсутствие в
 подсчитанном v1-дереве не переводит их в post-v1.
 
@@ -124,18 +127,18 @@ launchers. Эти зависимости добавлены в `gobfd-qj0.8.2.6`
 Каждая строка включает реализацию, сфокусированные тесты, документацию и
 review. Оценки parent и его детей не складываются.
 
-| Пакет работ | Активных часов | Существующий owner |
-|---|---:|---|
-| A: завершить UDP/clock/causal verdict одним сквозным результатом | 10–16 | `gobfd-qj0.8.2.1.6.3` |
-| B: убрать постоянное закрепление потоков и разобрать native A/B | 3–5 | `gobfd-qj0.8.2.1.7` |
-| C: реализовать socket QoS и packet checks | 4–6 | `gobfd-qj0.8.2.1.4.1` |
-| D: завершить bounded actuator allocation | 3–5 | `gobfd-qj0.8.2.8.6.3.2.3` |
-| E: critical regression, alert, launchers и zero-shell | 4–7 | Существующие индивидуальные quality owners |
-| F: закрыть OCI consumers и финальную interop/wire-квалификацию | 8–12 | `gobfd-qj0.8.2.8.5.2` и существующие wire owners |
-| G: Pulumi runner и guest admission после G0 | 2–4 | `gobfd-qj0.8.2.1.6.3.4.4.1` |
-| H: финальные security/base и intermittent-failure disposition, packages, upgrade/rollback, review и docs | 6–10 | `gobfd-qj0.8.2.6` и существующие acceptance owners |
-| Активная инженерная работа, всего | **40–65** | Агрегат без повторного счёта |
-| Обязательный reference-прогон | **24 часа elapsed** | Точный окончательный кандидат |
+| Пакет работ | Активных часов |
+|:---|---:|
+| A: завершить UDP/clock/causal verdict одним сквозным результатом | 10–16 |
+| B: убрать постоянное закрепление потоков и разобрать native A/B | 3–5 |
+| C: реализовать socket QoS и packet checks | 4–6 |
+| D: завершить bounded actuator allocation | 3–5 |
+| E: critical regression, alert, launchers и zero-shell | 4–7 |
+| F: закрыть OCI consumers и финальную interop/wire-квалификацию | 8–12 |
+| G: Pulumi runner и guest admission после G0 | 2–4 |
+| H: финальные security/base и intermittent-failure disposition, packages, upgrade/rollback, review и docs | 6–10 |
+| Активная инженерная работа, всего | **40–65** |
+| Обязательный reference-прогон | **24 часа elapsed** |
 
 Без переделок последовательный диапазон составляет 64–89 часов. Часть
 integration-работ может идти параллельно, но квалификация требует кода после
@@ -163,7 +166,7 @@ native architecture resources и решения vendor licensing/OS-policy.
 таймера вне blackhole. Классификатор обязан показать такой результат, не
 переименовывая его в intentional. Неуспешный resource/latency/false-Down gate
 может потребовать исправления и полного повтора. Clock uncertainty и оставшиеся
-actuator allocations — технические риски A и D, не принятые исключения.
+actuator allocations — технические риски квалификации UDP/clock/causal и allocations actuator, не принятые исключения.
 
 ### Причины задержки и корректировка процесса
 
@@ -173,7 +176,7 @@ actuator allocations — технические риски A и D, не прин
 поздние lint-замечания добавляли повторную проверку; исторические receipts
 не квалифицировали окончательного кандидата.
 
-Исполнение остаётся в назначенных технических владельцев. A завершается одним сквозным
+Исполнение остаётся за назначенными техническими владельцами. A завершается одним сквозным
 результатом с минимально необходимыми входными данными. Static checks идут
 перед дорогими критическими тестами; повторы нужны при изменении поведения или
 незакрытых findings. Общая свежесть зависимостей, широкие Q5 duplicate/wrapper
@@ -188,7 +191,7 @@ quality, OCI, wire и scale gates сохраняются.
 Это данные листовой приёмки, а не приёмка выпуска.
 
 | Проверка | Результат | Доказательство |
-|---|---|---|
+|:---|:---|:---|
 | Критические race-тесты identity leaf | 330 named PASS, 0 FAIL/SKIP | `down-incarnation-final01-tests.json` |
 | Scoped static identity leaf | 92 линтера, 0 issues; root/scoped vet, tidy, gopls, CLI build PASS | `down-incarnation-final01-*` |
 | Документация до новой ретроспективы | 102 MD, 1108 links без ошибок, 34 EN/RU pairs | `down-incarnation-final01-*` |
@@ -202,17 +205,17 @@ Evidence находятся под `reports/clab-frr-owned-20261025/`.
 ## Неуспешно
 
 | № | Что | Причина | Статус | Дальше |
-|---|---|---|---|---|
-| Н1 | Создание reference VM | Остаются PVE preview, доставка image и проверка применимости инфраструктурного аудита | задача | gobfd-qj0.8.2.1.6.3.4.4.1: завершить предварительные проверки и guest admission |
-| Н2 | Готовность v1.0.0 | Остались реализации и квалификации A–H, 24h не запускался | задача | gobfd-qj0.8.2.6: доказательства окончательного кандидата по всем обязательным gates |
+|:---|:---|:---|:---|:---|
+| Н1 | Создание reference VM | Остаются PVE preview, доставка image и проверка применимости инфраструктурного аудита | задача | допуск reference runner: завершить предварительные проверки и guest admission |
+| Н2 | Готовность v1.0.0 | Остались реализации и квалификации A–H, 24h не запускался | задача | окончательная квалификация выпуска: доказательства окончательного кандидата по всем обязательным gates |
 
 ## Ошибки и предупреждения
 
 | № | Источник | Суть | Статус | Дальше |
-|---|---|---|---|---|
-| О1 | Предыдущая оценка остатка | «Остались только два прогона» не соответствовало предыдущему аудиту и коду | исправлено | Сверка и диапазон A–H записаны в gobfd-qj0.8.2.6 |
-| О2 | Release dependency graph | Не было восьми прямых обязательных dependencies | исправлено | Blocking edges добавлены к gobfd-qj0.8.2.6 |
-| О3 | Финальный symbol-level scan identity leaf | 0 reachable/imported, но 2 module-only finding остаются | задача | `gobfd-qj0.8.4.1`: final-candidate disposition, без расширения исключений |
+|:---|:---|:---|:---|:---|
+| О1 | Предыдущая оценка остатка | «Остались только два прогона» не соответствовало предыдущему аудиту и коду | исправлено | Сверка и диапазон A–H записаны в окончательной квалификации выпуска |
+| О2 | Release dependency graph | Не было восьми прямых обязательных dependencies | исправлено | Blocking edges добавлены к окончательной квалификации выпуска |
+| О3 | Финальный symbol-level scan identity leaf | 0 reachable/imported, но 2 module-only finding остаются | задача | security disposition окончательного кандидата: final-candidate disposition, без расширения исключений |
 | О4 | Календарный прогноз | Зависит от native baseline, внешних ресурсов и результатов пороговых проверок | принято | Резерв включён; внешнее ожидание учитывается отдельно и не скрывается |
 
 Полный семантический аудит всех функций и финальная runtime/wire/security

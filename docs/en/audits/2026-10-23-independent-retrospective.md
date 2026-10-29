@@ -1,5 +1,7 @@
 # Independent retrospective audit — 2026-10-23
 
+Publication derivative; the original is preserved in Git snapshot `c5bcbfcb7e058a5a7f22b8a6811c8e4250963d50`, blob `c3af026c84cc5277e99a6749dfd3590219d14cb5`. Internal identifiers and owner metadata are omitted; results, states, estimates and limitations retain their original date. [Russian translation](../../ru/audits/2026-10-23-independent-retrospective.md).
+
 This is the English counterpart of the [historical Russian audit](../../ru/audits/2026-10-23-independent-retrospective.md). All results, policies, task states and limitations below describe the 2026-10-23 snapshot at `f9ed31bdd81425ba4efaf9688bb452ddea142266`, not fresh qualification.
 
 **Result:** completed; the independent review identified six defects; full compliance with the v1.0.0 contract was not confirmed.
@@ -9,7 +11,7 @@ This is the English counterpart of the [historical Russian audit](../../ru/audit
 
 Period: 2026-02-20 — 2026-10-23. Reviewed implementation: `dev`,
 `f9ed31bdd81425ba4efaf9688bb452ddea142266`.
-Specification: `docs/superpowers/specs/2026-08-18-gobfd-v1-production-contract-design.md`
+Specification: [production contract](../reference/production-contract.md)
 with the October amendments. Four ADRs and their Russian translations were read.
 Requirement sources were separated from historical plans and dated roadmaps.
 This document records a historical result, not an executable plan.
@@ -26,7 +28,7 @@ individually. Coverage and exclusion maps were retained in local records
 Development retrospective:
 
 | Period | Plan and actual result | Verification boundary |
-|---|---|---|
+|:---|:---|:---|
 | 20–24 February | Foundation: codec/FSM, sessions/timers, auth/netio, API/CLI and integrations | The initial plan and history do not prove production acceptance |
 | 19 August | Separate v1 production contract introduced | Stable/preview, ownership, security and measurable load became independent requirements |
 | August–September | Canonical keys, claims/leases, source reconciliation, exact overlay identities, Poll/Final | Implemented components were separated from wire qualification |
@@ -41,7 +43,7 @@ Latest published stable checked through the GitHub API: `v0.6.4`,
 delivery history, not fresh Actions results; no remote changes were made.
 
 | Tree comparison | Commits after base | Files | Lines added | Lines removed |
-|---|---:|---:|---:|---:|
+|:---|---:|---:|---:|---:|
 | Initial commit → reviewed `dev` | 757, including 726 non-merge | 806 | 235207 | 2987 |
 | Parent of first production contract → reviewed `dev` | 623 | 705 | 132206 | 16743 |
 
@@ -55,7 +57,7 @@ documentation; line count alone does not confirm quality.
 Requirements-to-implementation mapping:
 
 | Area | Confirmed by source and selected checks | Remaining boundary |
-|---|---|---|
+|:---|:---|:---|
 | RFC core | One FSM; Poll/Final mutual exclusion; bounded timer queue; monotonic commit-based detection | Full RFC/wire/load gate; source-port/QoS and allocation boundaries already have tasks |
 | Base ownership | Typed owners, canonical keys, lazy sender leases, source-scoped release, detailed receipts | Same-key mutation policy and interaction between the old drain and new wire epoch |
 | Idempotency | Repeated Micro reconcile, shared base claims and concurrent Close pass selected tests | Echo Add creates a duplicate; Echo Delete does not isolate the principal |
@@ -102,7 +104,7 @@ Duplication and reuse:
 - Specific reuse candidates: `repositoryRoot` in `test/cmd/e2ectl/main.go`
   and `test/cmd/integrationctl/main.go`; the write/sync/stat/close sequence in
   `benchreport.finishTemporary` and `routingartifacts.writePreparedOutput`.
-  They were assigned to the existing P2 `gobfd-qj0.8.2.8.6.1`, without
+  They were assigned to the existing P2 reuse assessment, without
   prerelease priority.
 - Base and Micro already share typed owner/lease infrastructure. Echo retains
   a separate compatibility lifecycle and does not receive the same guarantees.
@@ -115,7 +117,7 @@ Counts use actual `parent` relationships, not ID prefixes. These are task
 counts, not a readiness percentage or schedule estimate. P2/P3 and general
 inventories do not automatically become obligations before v1.
 
-Release gate `gobfd-qj0.8.2.6` explicitly depends on six new defect tasks.
+Final release qualification explicitly depends on six new defect tasks.
 The first priority is eliminating transport-principal impersonation. Other
 blockers remain: preview fail-closed, typed mutation policy, completion of
 UDP workload/clock accounting, A/B thread pinning, reference/engineering load,
@@ -129,7 +131,7 @@ The supported envelope still requires 1000 mixed IPv4/IPv6 sessions at
 Local evidence was retained under `reports/independent-retro-20261023/`.
 
 | Check | Result | Evidence |
-|---|---|---|
+|:---|:---|:---|
 | Independent ADR review | 4 EN/RU pairs, code/test mapping | `adr-delivery.txt` |
 | Positive critical regressions with race | 9 top-level, 19 including subtests; 0 FAIL | `critical-baseline01.log` |
 | Runtime/CLI vet | exit 0, no diagnostic errors | `vet01.log`, `critical-run01.log` |
@@ -145,16 +147,16 @@ allocation gate or proof of supported scale.
 ## Unsuccessful checks
 
 | ID | Requirement and violation | Evidence | Status | Next |
-|---|---|---|---|---|
-| Н1 | P0: TLS identity is accepted as a privileged Unix UID | `internal/server/principal.go:72`, `critical-red02.log` | task | `gobfd-qj0.8.2.3.5` |
-| Н2 | P1: startup contract omits revocation of anonymous mutation policy | `cmd/gobfd/startup_contract.go:185`, diagnostic RED | task | `gobfd-qj0.8.2.3.6` |
-| Н3 | P1: Echo permits cross-owner Delete and repeated wire identity on identical Add | `internal/server/echo.go:115`, two diagnostic RED cases | task | `gobfd-qj0.8.2.2.8` |
-| Н4 | P1: NetworkManager uses another bond's active/cached profile | `internal/netio/lag_networkmanager.go:142`, three diagnostic RED cases | task | `gobfd-qj0.8.2.2.9` |
-| Н5 | P1: NM property reads bypass actuator context/deadline | `internal/netio/lag_networkmanager.go:310`, upstream v5.2.2 source | task | `gobfd-qj0.8.2.2.10` |
-| Н6 | P1: proto guard misses new untracked generated files | `test/internal/cirunner/proto.go:68`, isolated Git fixture | task | `gobfd-qj0.8.2.8.7.3.3.1` |
-| Н7 | Same-key replacement safety with an unfinished old drain is unproven | `internal/bfd/manager_claim_drain_test.go:215`, source-only observation | task | `gobfd-qj0.8.2.1.3.12` |
-| Н8 | Timer addendum contradicts accepted immediate non-Up behavior | Timer addendum:53–55, `internal/bfd/session_update.go:192` | task | `gobfd-qj0.8.2.8.7.2` |
-| Н9 | Reference envelope and final release qualification are incomplete | Specification:443–480, open qualification | task | `gobfd-qj0.8.2.6` |
+|:---|:---|:---|:---|:---|
+| Н1 | P0: TLS identity is accepted as a privileged Unix UID | `internal/server/principal.go:72`, `critical-red02.log` | task | transport-principal isolation |
+| Н2 | P1: startup contract omits revocation of anonymous mutation policy | `cmd/gobfd/startup_contract.go:185`, diagnostic RED | task | startup-only loopback mutation policy |
+| Н3 | P1: Echo permits cross-owner Delete and repeated wire identity on identical Add | `internal/server/echo.go:115`, two diagnostic RED cases | task | Echo principal claims |
+| Н4 | P1: NetworkManager uses another bond's active/cached profile | `internal/netio/lag_networkmanager.go:142`, three diagnostic RED cases | task | NetworkManager bond ownership |
+| Н5 | P1: NM property reads bypass actuator context/deadline | `internal/netio/lag_networkmanager.go:310`, upstream v5.2.2 source | task | bounded NetworkManager property reads |
+| Н6 | P1: proto guard misses new untracked generated files | `test/internal/cirunner/proto.go:68`, isolated Git fixture | task | generated-file drift detection |
+| Н7 | Same-key replacement safety with an unfinished old drain is unproven | `internal/bfd/manager_claim_drain_test.go:215`, source-only observation | task | same-key replacement qualification |
+| Н8 | Timer addendum contradicts accepted immediate non-Up behavior | Timer addendum:53–55, `internal/bfd/session_update.go:192` | task | documentation contract correction |
+| Н9 | Reference envelope and final release qualification are incomplete | Specification:443–480, open qualification | task | final release qualification |
 
 Н1 requires a certificate issued by a trusted CA; an arbitrary untrusted TLS
 certificate is not accepted. The diagnostic uses a verified-chain fixture,
@@ -173,9 +175,9 @@ and criteria were retained in the original audit materials.
 ## Errors and warnings
 
 | ID | Source | Issue | Status | Next |
-|---|---|---|---|---|
-| О1 | `pkg/bfdpb/bfd/v1/bfd.pb.go:17` | Generated protobuf uses unsafe; the absolute prohibition does not describe the actual boundary | task | Clarify the contract in `gobfd-qj0.8.2.8.7.2` |
-| О2 | Full qualification | Full race suite, all 19 lint profiles, live interop, vulnerability/Buf breaking and 24h load were not run | accepted | The audit does not replace `gobfd-qj0.8.2.6` or `gobfd-qj0.8.2.7` |
+|:---|:---|:---|:---|:---|
+| О1 | `pkg/bfdpb/bfd/v1/bfd.pb.go:17` | Generated protobuf uses unsafe; the absolute prohibition does not describe the actual boundary | task | Clarify the documentation contract |
+| О2 | Full qualification | Full race suite, all 19 lint profiles, live interop, vulnerability/Buf breaking and 24h load were not run | accepted | The audit does not replace final release qualification or independent candidate review |
 | О3 | Unfinished worktrees | UDP, Echo port and bond worktrees are not included in the accepted `dev` implementation | accepted | Their sources and receipts were retained separately; qualification follows their own tasks |
 
 Runtime kernels, all target architectures and external dataplane integrations

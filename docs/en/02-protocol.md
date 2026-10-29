@@ -1,15 +1,19 @@
 # BFD Protocol
 
-The asynchronous Control implementation follows the four-state model of [RFC 5880](../rfc/rfc5880.txt). Single-hop, constrained multihop and preview transports reuse that core. Local Demand, affiliated Echo and complete extension coverage remain outside it. The [RFC matrix](08-rfc-compliance.md) states each boundary.
+[Russian translation](../ru/02-protocol.md).
+
+The asynchronous Bidirectional Forwarding Detection (BFD) Control implementation follows the four-state model of [RFC 5880](../rfc/rfc5880.txt). Single-hop, constrained multihop and preview transports reuse that core. Local Demand, affiliated Echo and complete extension coverage remain outside it. The [RFC matrix](08-rfc-compliance.md) states each boundary.
+
+The finite state machine (FSM) governs session state. TX and RX denote transmit and receive intervals. A protocol data unit (PDU) contains the declared BFD packet; transport padding follows it.
 
 ## BFD Control Packet Format
 
 All multibyte integers use network byte order. The fixed header is 24 bytes; interval fields use microseconds. Sources: [RFC 5880 §4.1](https://www.rfc-editor.org/rfc/rfc5880.html#section-4.1), [codec](../../internal/bfd/packet.go).
 
-| Offset | Bytes | Field | Validation or meaning |
-|:---|---:|:---|:---|
+| Offset, bytes | Bytes | Field | Validation or meaning |
+|---:|---:|:---|:---|
 | 0 | 1 | Version:3, Diagnostic:5 | Version 1 |
-| 1 | 1 | State:2, P/F/C/A/D/M:6 | Poll, Final, CPI, Auth, Demand, Multipoint |
+| 1 | 1 | State:2, P/F/C/A/D/M:6 | Poll, Final, Control Plane Independent (CPI), Auth, Demand, Multipoint |
 | 2 | 1 | Detect Multiplier | Nonzero |
 | 3 | 1 | Length | Declared BFD PDU; excludes transport padding |
 | 4–7 | 4 | My Discriminator | Nonzero |
@@ -27,6 +31,8 @@ A caller-supplied buffer receives marshal output. `AuthSection` owns its bounded
 
 ```mermaid
 stateDiagram-v2
+    accTitle: Control session states
+    accDescr: Receive events, detection expiry and local enable or disable actions drive the Down, Init, Up and AdminDown states.
     [*] --> Down
     Down --> Init: Receive Down
     Down --> Up: Receive Init
@@ -93,12 +99,14 @@ Each direction computes its own Detection Time. With local RX 300 ms, received T
 | Greater than 1 | 75–100% of negotiated interval |
 | Equal to 1 | 75–90% of negotiated interval |
 
-Jitter uses session-local PRNG state, seeded cryptographically when available and from time on seed failure. It prevents synchronization; it is not an authentication boundary. Sources: [RFC 5880 §6.8.7](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.7), [implementation](../../internal/bfd/session_packet.go).
+Jitter uses session-local pseudorandom number generator (PRNG) state, seeded cryptographically when available and from time on seed failure. It prevents synchronization; it is not an authentication boundary. Sources: [RFC 5880 §6.8.7](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.7), [implementation](../../internal/bfd/session_packet.go).
 
 ## Poll Sequence
 
 ```mermaid
 sequenceDiagram
+    accTitle: Serialized timer update exchange
+    accDescr: A successful Poll send and its Final response confirm protected effects; the next queued Poll waits for exchange separation.
     participant A as Updating owner
     participant B as Peer
     A->>B: Successfully send Poll with active tuple
@@ -110,9 +118,9 @@ sequenceDiagram
 
 While Up, TX increases and RX decreases retain old protected local effects until the relevant Final. TX decreases and RX increases take effect when the proposal activates. A promoted non-Up tuple applies locally before Final, while active Poll and separation still serialize promotion.
 
-One proposal is advertised and the latest waiting proposal is retained, including explicit RX=0. Final confirms only after a successful local Poll send; crossed Final-only replies do not confirm it. Consecutive transactions wait the measured exchange duration after Final. Expiry fails the receipt without undoing already advertised values. Sources: [transaction owner](../../internal/bfd/session_update.go), [transaction tests](../../internal/bfd/session_update_test.go), [original transaction contract](../superpowers/specs/2026-09-08-gobfd-timer-update-transactions-design.md).
+One proposal is advertised and the latest waiting proposal is retained, including explicit RX=0. Final confirms only after a successful local Poll send; crossed Final-only replies do not confirm it. Consecutive transactions wait the measured exchange duration after Final. Expiry fails the receipt without undoing already advertised values. Sources: [transaction owner](../../internal/bfd/session_update.go), [transaction tests](../../internal/bfd/session_update_test.go), [timer transaction contract](reference/timer-transactions.md).
 
-Detect-only asynchronous updates need no Poll. Remote Demand with both ends Up adds Poll/Final requirements. Local multihop TTL changes need no Poll; qualified padding updates are limited to already DF-prepared asynchronous sessions. [ADR-0006](adr/0006-session-preserving-reload-policy.md) specifies the complete five-field tuple, admission and ownership limits. Bounded wire slices in [interop](05-interop.md) do not close general Poll/Demand or final-candidate qualification.
+Detect-only asynchronous updates need no Poll. Remote Demand with both ends Up adds Poll/Final requirements. Local multihop TTL changes need no Poll; qualified padding updates are limited to asynchronous sessions already prepared for IPv4 Don’t Fragment (DF). [ADR-0006](adr/0006-session-preserving-reload-policy.md) specifies the complete five-field tuple, admission and ownership limits. Bounded wire slices in [interop](05-interop.md) do not close general Poll/Demand or final-candidate qualification.
 
 ## Authentication
 

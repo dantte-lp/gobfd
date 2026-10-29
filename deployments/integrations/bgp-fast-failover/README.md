@@ -6,6 +6,8 @@ This owned FRR/GoBGP lab checks route withdrawal and restoration driven by GoBFD
 
 ```mermaid
 flowchart LR
+  accTitle: Owned BGP fast-failover lab
+  accDescr: GoBFD and GoBGP share a network namespace, FRR is the BFD and eBGP peer, and tshark observes traffic; GoBFD state drives the separate GoBGP actuator.
   subgraph local["Shared network namespace"]
     bfd["GoBFD"]:::srv
     bgp["GoBGP<br/>AS 65001"]:::brt
@@ -21,8 +23,11 @@ flowchart LR
   classDef brt fill:#fff3e0,stroke:#bf360c,color:#000
 ```
 
+GoBFD exchanges Control packets with FRR and reports state to GoBGP. The BGP
+session and packet capture remain separate from the BFD session owner.
+
 | Endpoint | Address | Contract |
-| :--- | :--- | :--- |
+|:---|:---|:---|
 | GoBFD + GoBGP | `172.22.0.10` | Shared network namespace; filesystem/socket path remains container-local |
 | FRR | `172.22.0.20` | BGP/BFD peer, advertises `10.20.0.0/24` |
 | Lab network | `172.22.0.0/24` | Gateway `172.22.0.1`; overlaps RFC interop lab |
@@ -36,7 +41,7 @@ The source recipes under [FRR](../../../test/interop/frr/Containerfile) and [GoB
 ## Packet contract
 
 | Field | Expected | Source |
-| :--- | :--- | :--- |
+|:---|:---|:---|
 | UDP destination | `3784` | [RFC 5881](https://www.rfc-editor.org/rfc/rfc5881.html) |
 | UDP source | `49152–65535` | RFC 5881 |
 | TTL/Hop Limit | `255` | RFC 5881 |
@@ -63,7 +68,7 @@ The assertions do not directly time GoBFD Down to 900 ms, prove all RFC fields, 
 
 Use the ownership-checked Go controller only after resource admission. Preserve captures before approved teardown.
 
-```sh title="bgp-manual-inspection.sh"
+```sh
 make int-bgp-failover-up
 podman exec gobgp-bgp-failover gobgp neighbor
 podman exec gobgp-bgp-failover gobgp global rib
@@ -75,7 +80,7 @@ Require BFD Up, BGP Established and exact route `10.20.0.0/24` before failure te
 
 ### Packet field readback
 
-```sh title="bfd-packet-fields.sh"
+```sh
 podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd \
   -T fields -e frame.time_relative -e ip.src -e ip.dst \
   -e udp.srcport -e udp.dstport -e ip.ttl \
@@ -89,7 +94,7 @@ Compare destination/source ports, TTL, version and negotiated timer fields with 
 ## Failure checks
 
 | Symptom | Check | Required result |
-| :--- | :--- | :--- |
+|:---|:---|:---|
 | BGP absent | Neighbor output and FRR logs | Exact peer Established |
 | Initial route absent | FRR network/Null0 route and GoBGP RIB | Exact prefix present |
 | No BFD | Source/local/interface bindings, capabilities, capture | Bidirectional valid Control |

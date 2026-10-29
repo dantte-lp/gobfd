@@ -1,6 +1,10 @@
 # Мониторинг
 
+[Английский оригинал](../en/07-monitoring.md).
+
 Конечная точка по умолчанию — `http://127.0.0.1:9100/metrics` без аутентификации. Открывать вне loopback только с явной сетевой политикой. Слушающий сокет метрик не содержит обработчиков отладки. Источники: [конфигурация](../../internal/config/config.go), [коллектор](../../internal/metrics/collector.go).
+
+BFD означает Bidirectional Forwarding Detection. RX и TX обозначают приём и передачу; конечный автомат (FSM) задаёт переходы состояния. Удалённый вызов процедуры (RPC) выполняет внешнюю операцию API. Взаимная TLS-аутентификация (mTLS) проверяет обе конечные точки управления.
 
 ## Границы сигналов
 
@@ -8,6 +12,8 @@
 
 ```mermaid
 flowchart LR
+    accTitle: Границы наблюдений
+    accDescr: Приём, разбор, допуск и владелец предоставляют раздельные метрики; публикация владельца передаёт данные Watch и управлению GoBGP.
   rx["Приём UDP"]:::srv --> parser["Разбор и демультиплексирование"]:::srv
   parser --> queue["Очередь допуска"]:::srv
   queue --> owner["Владелец сессии"]:::srv
@@ -25,7 +31,7 @@ flowchart LR
 ## Справочник метрик
 
 | Метрика | Тип | Метки | Значение |
-| :--- | :--- | :--- | :--- |
+|:---|:---|:---|:---|
 | `gobfd_bfd_sessions` | gauge | `peer_addr,local_addr,session_type` | Зарегистрированные Control и Echo |
 | `gobfd_bfd_packets_sent_total` | counter | `peer_addr,local_addr` | Успешные отправки Control/Echo |
 | `gobfd_bfd_packets_received_total` | counter | `peer_addr,local_addr` | Приёмы Control/Echo, проверенные владельцем |
@@ -43,9 +49,9 @@ flowchart LR
 | `gobfd_gobgp_endpoint_compatible` | gauge | нет | 1 после предварительной проверки совместимости |
 | `gobfd_gobgp_dampening_penalty` | gauge | `peer_addr` | Затухший штраф при сборе метрик |
 | `gobfd_gobgp_dampening_suppressed` | gauge | `peer_addr` | Восстановление удерживается |
-| `gobfd_gobgp_dampening_suppression_deadline_seconds` | gauge | `peer_addr` | Максимальный срок подавления в формате Unix, иначе 0 |
+| `gobfd_gobgp_dampening_suppression_deadline_seconds` | gauge | `peer_addr` | Максимальный срок подавления, секунды Unix; иначе 0 |
 | `gobfd_gobgp_pending_action` | gauge | `peer_addr,action` | Неприменённое намерение `up`/`down` |
-| `gobfd_gobgp_pending_action_deadline_seconds` | gauge | `peer_addr,action` | Срок повтора/перепроверки в формате Unix, иначе 0 |
+| `gobfd_gobgp_pending_action_deadline_seconds` | gauge | `peer_addr,action` | Срок повтора/перепроверки, секунды Unix; иначе 0 |
 
 Источники: [базовые метрики](../../internal/metrics/collector.go), [проверка и учёт Control](../../internal/bfd/session_packet.go), [принятые возвраты Echo](../../internal/bfd/echo.go), [время приёма](../../internal/metrics/receive_timing.go), [таймеры](../../internal/metrics/timer.go), [потери сокетов](../../internal/metrics/socket_drops.go), [GoBGP](../../internal/metrics/gobgp.go).
 
@@ -64,7 +70,7 @@ flowchart LR
 ### Время и потери сокетов
 
 | Наблюдение | Фиксированные значения | Значение |
-| :--- | :--- | :--- |
+|:---|:---|:---|
 | Исход приёма | `valid`, `unavailable`, `invalid`, `before_calibration`, `future`, `clock_step` | Гистограмма принимает только достоверные фиксации |
 | Таймер | `control_tx`, `control_detection`, `echo_tx`, `echo_detection` | Наблюдения владельцев |
 | Событие таймера | `dispatch`, `effect`, `no_effect`, `invalid_dispatch`, `invalid_effect` | Гистограмма содержит достоверные вызовы и эффекты |
@@ -83,7 +89,9 @@ flowchart LR
 
 ## Запросы и оповещения
 
-```promql title="bfd-observations.promql"
+Это иллюстративные выражения PromQL, а не измеренные результаты:
+
+```promql
 sum(gobfd_bfd_sessions)
 increase(gobfd_bfd_state_transitions_total{from_state="Up",to_state="Down"}[1m])
 rate(gobfd_bfd_auth_failures_total[5m])
@@ -93,7 +101,7 @@ rate(gobfd_bfd_delivery_outcomes_total[5m])
 Первый запрос считает регистрации, а не Up. Поставляемые [правила](../../deployments/integrations/observability/configs/prometheus/alert-rules.yml):
 
 | Оповещение | Условие | Удержание |
-| :--- | :--- | :--- |
+|:---|:---|---:|
 | `BFDNoActiveSessions` | Исправный экспортёр без положительного ряда регистраций | `10s` |
 | `BFDExporterUnavailable` | Ошибка или отсутствие цели сбора `gobfd` | `10s` |
 | `BFDSessionDownTransition` | Рост Up→Down за минуту | `0s` |
@@ -105,15 +113,17 @@ rate(gobfd_bfd_delivery_outcomes_total[5m])
 
 ### Проверка Prometheus
 
-В согласованной лаборатории наблюдаемости проверить опубликованный локальный API до внесения отказа:
+Использовать доступ на чтение к опубликованному API одной согласованной лаборатории наблюдаемости; записать нужную цель GoBFD, правила и принятые состояния соседа и пересылки. Следующие невыполненные команды только читают API и допускают повтор; они не создают ресурсы и не требуют отката. Проверить API до внесения отказа:
 
-```sh title="prometheus-readback.sh"
+```sh
 curl -fsS http://localhost:9090/api/v1/targets
 curl -fsS http://localhost:9090/api/v1/rules
 curl -fsS http://localhost:9090/api/v1/alerts
 ```
 
 Требовать нужную цель GoBFD с health `up` без ошибки сбора метрик, загрузки всех ожидаемых правил, срабатывания оповещения о переходе при согласованном отказе и неактивного правила после восстановления. Пустого ответа targets/rules либо HTTP 200 недостаточно. [Prometheus HTTP API](https://prometheus.io/docs/prometheus/latest/querying/api/) определяет ответы; [проверка наблюдаемости под управлением Go](11-integrations.md#наблюдаемость) содержит условия проверок и жизненный цикл только собственных ресурсов.
+
+Остановиться до внесения отказа при ошибке запроса, отсутствии цели или правила либо неработоспособном исходном состоянии. Изменять состояние только через эту проверку или [эксплуатационную тренировку](16-production-runbooks.md) с её областью воздействия, полномочиями и путём восстановления. При неуспешном восстановлении остановить тренировку, вернуть записанные принятые конфигурацию и состояния соседа и пересылки, затем повторить чтение целей, правил и оповещений до приёмки. Успешное чтение не разрешает очистку посторонних ресурсов.
 
 <a id="журнал-health-и-traces"></a>
 

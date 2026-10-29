@@ -56,7 +56,9 @@ The [RFC coverage matrix](../08-rfc-compliance.md) owns implementation status. A
 
 For Cisco, Arista, Juniper and Huawei, cite the official manual section and name the hardware or virtual platform, NOS family/version and relevant mode. Use the existing [vendor reference](vendor-bfd.md); a manual establishes vendor behavior, not a successful GoBFD peer test. Record the actual peer/version, topology, configuration, packet evidence and result before claiming compatibility.
 
-Examples use documentation addresses: IPv4 `192.0.2.0/24`, `198.51.100.0/24` or `203.0.113.0/24` from [RFC 5737 §3](https://www.rfc-editor.org/rfc/rfc5737.html#section-3), IPv6 `2001:db8::/32` from [RFC 3849 §2](https://www.rfc-editor.org/rfc/rfc3849.html#section-2), and reserved domains from [RFC 2606 §§2–3](https://www.rfc-editor.org/rfc/rfc2606.html#section-2). Identify loopback, multicast or link-local addresses separately when their actual semantics are required. Do not publish real credentials or private operational identifiers.
+Standalone illustrative examples use documentation addresses: IPv4 `192.0.2.0/24`, `198.51.100.0/24` or `203.0.113.0/24` from [RFC 5737 §3](https://www.rfc-editor.org/rfc/rfc5737.html#section-3), IPv6 `2001:db8::/32` from [RFC 3849 §2](https://www.rfc-editor.org/rfc/rfc3849.html#section-2), and reserved domains from [RFC 2606 §§2–3](https://www.rfc-editor.org/rfc/rfc2606.html#section-2). Identify loopback, multicast or link-local addresses separately when their actual semantics are required. Do not publish real credentials or private operational identifiers.
+
+An executable example that mirrors a checked-in lab MUST retain the fixture's literal addresses and link to its configuration. Label fixed lab networks and require collision checks before starting the lab; changing documentation addresses alone would make the procedure inconsistent with its source. This project convention does not authorize using private live-environment addresses in illustrative examples.
 
 Write dates as `YYYY-MM-DD`; use [RFC 3339 §5.6](https://www.rfc-editor.org/rfc/rfc3339.html#section-5.6) timestamps with an explicit offset, preferably UTC `Z`, for observations. Every duration and bound MUST have a unit. Distinguish configuration units, encoded wire units, nominal equations and measured distributions; never infer a guaranteed failure-detection bound from a nominal timer formula.
 
@@ -79,6 +81,7 @@ Keep flowcharts at no more than 30 nodes. Quote labels, use stable node identifi
 | `mgt` | Management or configuration | `#d7ccc8` | `#5d4037` | `#000` |
 | `leaf` | Packet I/O or device | `#e3f2fd` | `#1976d2` | `#000` |
 | `brt` | Peer or routing actuator | `#fff3e0` | `#bf360c` | `#000` |
+| `vrf` | Virtual routing and forwarding context | `#ede7f6` | `#512da8` | `#000` |
 
 For example, the publication decision depends on both source comparison and independent review; an unsuccessful check returns to editing.
 

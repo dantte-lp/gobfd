@@ -1,5 +1,7 @@
 # ADR-0005: External Smallstep CA renewal for management certificates
 
+[Russian translation](../../ru/adr/0005-smallstep-management-certificates.md).
+
 | Field | Value |
 |:---|:---|
 | Status | Accepted |
@@ -13,7 +15,7 @@ The daemon loads PEM credentials on each new TLS handshake; clients load them at
 
 Use an external step-ca with the standard-library-only `internal/stepca` adapter. The CLI renews one explicit existing identity and replaces only its public certificate. It neither contacts the GoBFD RPC endpoint nor changes/prints the private key.
 
-```bash
+```sh
 gobfdctl certificate renew --ca-url https://ca.example.net --ca-root /etc/gobfd/ca.pem --cert /etc/gobfd/client.pem --key /etc/gobfd/client-key.pem
 ```
 
@@ -32,6 +34,10 @@ This is a parameterized example, not a configured CA. The [renewal model](https:
 | Commit | Same-directory atomic certificate replacement; preserve mode and UID/GID; check close/cleanup errors | [files_linux.go](../../../internal/stepca/files_linux.go) |
 
 Directory and inputs belong to root or calling UID, including root invocation. Linked inputs fail closed. Parse the bootstrap key once and recheck it before commit. Identity/hash checks are not compare-and-swap against privileged non-cooperative writers. Response TLS options cannot change daemon policy. TLS URI/DNS and Unix UID owner namespaces remain separate.
+
+## Alternatives
+
+Daemon-owned enrollment, unattended renewal and trust-root rollover remain outside this adapter. Replacing the private key or granting mutation permission through certificate issuance would cross the separate key and authorization boundaries. Existing PEM tooling remains compatible.
 
 ## Consequences
 

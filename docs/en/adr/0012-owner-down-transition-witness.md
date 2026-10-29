@@ -1,5 +1,7 @@
 # ADR-0012: Owner-monotonic Down transition evidence
 
+[Russian translation](../../ru/adr/0012-owner-down-transition-witness.md).
+
 | Field | Value |
 |:---|:---|
 | Status | Accepted |
@@ -108,6 +110,10 @@ The explicit assumption is that selected withheld inputs would return, be accept
 Missing/replayed read indices, boundary intersection, absent strict extension, arithmetic overflow, mismatched wire inputs or independent observed losses remain unresolved and make Echo assessment incomplete. Validate every selected input before accepting the proof. Peer kernel drops/invalid drop samples block qualification; unphased lifetime counters cannot be assigned to an unrelated window. The software returner qualifies neither forwarding plane nor RFC 9747 authentication.
 
 Sources: [Echo omission model](../../../test/internal/bfdload/echo_omission_linux.go), [Echo classification regressions](../../../test/internal/bfdload/echo_classification_linux_test.go), [RFC 9747 §2](https://www.rfc-editor.org/rfc/rfc9747.html#section-2).
+
+## Alternatives
+
+Unix-time receive fields and post-commit notification timestamps cannot replace a local monotonic commit witness. Omission counts and nominal cadence cannot replace the checked old-deadline extension. Reassessment can change a conditional verdict but cannot recover missing producer evidence or establish native acceptance.
 
 ## Consequences
 

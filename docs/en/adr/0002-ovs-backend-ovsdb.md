@@ -1,5 +1,7 @@
 # ADR-0002: Native OVSDB client for the OVS LAG backend
 
+[Russian translation](../../ru/adr/0002-ovs-backend-ovsdb.md).
+
 | Field | Value |
 |:---|:---|
 | Status | Accepted |

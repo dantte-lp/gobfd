@@ -1,5 +1,7 @@
 # Dependency risk and exceptions
 
+[Russian translation](../../ru/reference/dependency-risk.md).
+
 Selected versions belong to [go.mod](../../../go.mod), [tools/go.mod](../../../tools/go.mod) and the separate [Smallstep profile](../../../test/stepca/README.md). The authoritative runtime/tools exception implementation is [vuln-audit.go](../../../scripts/vuln-audit.go). This register records source policy; current advisory databases and the final selected graph require a fresh scan.
 
 ## Graph ownership
@@ -51,7 +53,7 @@ The retained x/net update addresses [GO-2026-6860](https://vuln.go.dev/ID/GO-202
 ## Validate a candidate
 
 1. Record exact runtime/tools/provider graph identities.
-2. Run make dependency-inventory-check and the controlled make vulncheck in the pinned environment.
+2. Run `make dependency-inventory-check` and the controlled `make vulncheck` in the pinned environment.
 3. Inspect raw scanner results, reachability and exact exception matches.
 4. Run impacted transport/CLI/API regressions and provider qualification where applicable.
 5. Retain scanner version/data time, source SHA, findings and disposition. Keep supported-line and release acceptance separate.

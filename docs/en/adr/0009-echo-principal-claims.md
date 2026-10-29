@@ -1,5 +1,7 @@
 # ADR-0009: Principal claims on a shared Echo wire
 
+[Russian translation](../../ru/adr/0009-echo-principal-claims.md).
+
 | Field | Value |
 |:---|:---|
 | Status | Accepted policy; local qualification separate |

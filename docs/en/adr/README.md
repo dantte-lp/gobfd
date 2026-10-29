@@ -1,5 +1,7 @@
 # Architecture Decision Records
 
+[Russian translation](../../ru/adr/README.md).
+
 ADRs record architectural policy and its consequences. Acceptance of an ADR does not prove implementation, runtime qualification or stable delivery.
 
 ## Record contract

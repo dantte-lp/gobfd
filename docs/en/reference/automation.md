@@ -1,5 +1,7 @@
 # CI and release automation
 
+[Russian translation](../../ru/reference/automation.md).
+
 Go commands own workflow execution. [.github/workflows/ci.yml](../../../.github/workflows/ci.yml), [security.yml](../../../.github/workflows/security.yml), [e2e.yml](../../../.github/workflows/e2e.yml) and [release.yml](../../../.github/workflows/release.yml) select the commands. [cictl](../../../test/cmd/cictl/main.go), [cirunner](../../../test/internal/cirunner/) and [toolbootstrap](../../../test/cmd/toolbootstrap/main.go) implement them.
 
 These are source contracts. A command's existence does not establish candidate acceptance or authorize a remote mutation.
@@ -33,6 +35,8 @@ CI executable steps remain single commands; no multiline shell programs or expli
 
 ```mermaid
 flowchart LR
+  accTitle: Release verification and publication
+  accDescr: Independent verification precedes alias promotion and the terminal draft publication.
     identity["Preflight and notes"]:::mgt --> build["Build and complete draft"]:::srv
     build --> verify["Independent verifier checkout"]:::mgt
     verify --> aliases["Promote checked OCI aliases"]:::srv
@@ -40,6 +44,8 @@ flowchart LR
     classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
     classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
 ```
+
+The sequence separates build, independent evidence verification, alias changes and terminal publication. Preserve the exact candidate and stop at the first failed stage.
 
 | Command | Validation or mutation |
 |:---|:---|

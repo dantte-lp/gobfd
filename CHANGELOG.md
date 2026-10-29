@@ -344,8 +344,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   actions with their next retry/recheck timestamp.
   Accepted reloads replace the peer allowlist; scrapes do not change routing
   decisions or create labels from API or unsolicited sessions.
-- Versioned session snapshots and gap-aware Watch streams
-  (H-29, M-08). `bfd.v1` adds `revision` to
+- Versioned session snapshots and gap-aware Watch streams. `bfd.v1` adds `revision` to
   `ListSessionsResponse`, `GetSessionResponse` and
   `WatchSessionEventsResponse`, and the event types `GAP` and
   `SYNC_COMPLETE`. `WatchSessionEvents` subscribes before its snapshot,
@@ -480,7 +479,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Local dispatch samples fall from 11 to 0 allocs/op without an actuator and
   from 15 to 4 with a noop actuator; per-call deadline and cancellation remain.
 
-- gRPC health readiness derives from components (H-30).
+- gRPC health readiness derives from components.
   The empty service is the AND of the five reconciliation sources, the runtime
   workers and the device-bound listener interfaces. `bfd.v1.BfdService`
   follows base, VXLAN and Geneve sessions and the control listeners, including
@@ -495,7 +494,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   another ifindex makes its services `NOT_SERVING`. Interface events and a 2 s
   periodic check re-evaluate the bindings; an interface inventory failure fails
   startup and leaves the previous state at runtime.
-- Receive listeners are owned per reconciliation generation (H-23). SIGHUP may add or
+- Receive listeners are owned per reconciliation generation. SIGHUP may add or
   re-key control, Echo and Micro-BFD
   entries that need a new local address, interface or session type: the source
   opens its missing listeners before the Manager apply, so it cannot converge
@@ -508,7 +507,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ifindex is rebound in place on the next check, which needs `CAP_NET_RAW`; a
   failed rebind stays `NOT_SERVING` and is retried. A deliberately closed
   listener is not receiver loss. Startup still fails on any listener error.
-- VXLAN and Geneve backends are owned per reconciliation generation (H-23). SIGHUP may
+- VXLAN and Geneve backends are owned per reconciliation generation. SIGHUP may
   add, remove or re-key overlay identities,
   including a new local endpoint or per-peer Geneve VNI: a new endpoint opens a
   backend, an identity added on an open endpoint widens that socket's identity
@@ -589,20 +588,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Vary` headers; the container integration client fixes cancellation and
   deadlines during HTTP upgrade.
 - **Breaking:** GoBGP flap dampening never holds a BFD Down
-  (H-27, v1 dampening contract). Every qualifying Down
+  (v1 dampening contract). Every qualifying Down
   disables the peer at once; once suppressed, dampening holds only the
   recovery Up, and a Down cancels a held recovery. Validation rejects
   `gobgp.dampening.reuse_threshold <= 0` and `max_suppress_time <= 0`
   (`ErrInvalidDampeningMaxSuppressTime`).
 - **Breaking:** `GetSession` by a peer address that matches more than one
   session fails with `FAILED_PRECONDITION` and lists the local
-  discriminators, instead of returning the first match (M-07).
+  discriminators, instead of returning the first match.
 - The GoBGP handler resyncs after lost BFD state changes: on a stream gap it rebuilds
   Down and Up edges from
   a revisioned snapshot and its last seen state per session, so a peer is
   no longer left enabled over a failed path or disabled after recovery.
 - **Breaking:** the GoBGP handler acts only on the canonical single-hop or
-  multi-hop session of a BGP neighbor (H-31). Micro-BFD
+  multi-hop session of a BGP neighbor. Micro-BFD
   member links, VXLAN, Geneve and Echo sessions to the neighbor address no
   longer disable or enable the peer; IPv4-mapped peer addresses are
   unmapped. With `gobgp.enabled`, configuration validation rejects two
@@ -661,7 +660,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Logging and recovery interceptors now also cover streaming calls; a
   client closing `WatchSessionEvents` logs `rpc canceled` at Info.
 - **Breaking:** RFC 9468 unsolicited admission is bounded and checked
-  against the connected subnet (audit findings H-17, H-18). A packet creates
+  against the connected subnet (audit findings). A packet creates
   a session only when it arrives single-hop with TTL 255 (not on the
   multi-hop listener), its source belongs to the subnets of the local address
   that received it, is inside `allowed_prefixes` when set and is not the
@@ -669,8 +668,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   be >= 1 when `unsolicited.enabled` is true (configuration validation
   rejects 0, which used to mean unlimited), and new sessions are admitted at
   up to 10 per second with a burst of 20.
-- **Breaking:** an enabled RFC 9468 unsolicited policy is validated at load
-  (audit finding H-19): `session_defaults` intervals must be 1µs to
+- **Breaking:** an enabled RFC 9468 unsolicited policy is validated at load: `session_defaults` intervals must be 1µs to
   2^32-1µs with a nonzero `required_min_rx`, `detect_mult` 1 to 255,
   `cleanup_timeout` >= 0, at least one interface enabled and every
   `allowed_prefixes` entry a valid CIDR. Omitted `session_defaults` now take
@@ -1082,8 +1080,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   group while its session stayed Up; it now counts as Up and the actuator
   receives it in dispatch order.
 
-- Commit each Micro-BFD group together with its member sessions (RFC 7130 Section 2,
-  H-24). Reload applies one Micro-BFD source:
+- Commit each Micro-BFD group together with its member sessions (RFC 7130 Section 2). Reload applies one Micro-BFD source:
   a failed member session rolls back the new groups and sessions of the pass
   before any committed group or session is released; no group of a failed
   pass reaches dispatch or the actuator. A member link listed in groups of two
@@ -1096,13 +1093,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Validate the RFC 5880 contract of every Micro-BFD member session on the
   daemon candidate and the direct Manager/API path: peer address, interval
   wire bounds, detect multiplier and non-empty LAG and member names (RFC 7130
-  Section 2.2, M-09). Unset group timers inherit `bfd.default_*`. Groups store
+  Section 2.2). Unset group timers inherit `bfd.default_*`. Groups store
   the timers, `ListMicroBFDGroups` returns them, and a changed timer on a
   running group is a configuration conflict. `AddMicroBFDGroup` returns
   `InvalidArgument` for an explicit zero interval or an empty member name.
 
 - Run the Micro-BFD actuator after Manager locks are released, in dispatch
-  order, with a 5-second context deadline per call (RFC 7130 Section 5, M-10).
+  order, with a 5-second context deadline per call (RFC 7130 Section 5).
   A blocked LAG backend no longer stalls group CRUD; a failure or deadline logs
   `micro-BFD actuator failed` with `deadline_exceeded`. A backend that ignores
   its context still delays later notifications.
@@ -1163,8 +1160,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   including direct FSM sends and retries.
 
 - AdminDown commits exclusively in the session owner loop and returns a
-  context-bounded commit receipt, including for pre-Run and full-queue requests
-  (H-09 prerequisite). `Run` has one owner for its
+  context-bounded commit receipt, including for pre-Run and full-queue requests. `Run` has one owner for its
   lifetime. Manager drain fans out to captured session identities outside its
   locks and joins errors; shutdown preserves those errors. Receipts precede TX
   and do not prove delivery. Shutdown drains against the negotiated BFD budget
@@ -1189,8 +1185,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   9000-byte inner payload limit, on RX and TX. Authenticated wire ownership
   is preserved; authenticated peer interoperability remains a separate gate.
 
-- Authentication sequence expiry uses monotonic last-valid-receive timing
-  (M-04). `AuthSeqKnown` clears at twice the Detection
+- Authentication sequence expiry uses monotonic last-valid-receive timing. `AuthSeqKnown` clears at twice the Detection
   Time in every session state, including before verification when RX wins
   over a ready timeout; `RcvAuthSeq` is preserved until successful reception.
   Invalid authentication does not postpone expiry.
@@ -1239,14 +1234,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on ports 9090 and 3000; remote access requires a tunnel or reverse proxy.
 - The remaining RFC 5882 Section 4.3 (Graceful Restart) citations for the
   GoBGP reaction in code, configuration examples and the RFC compliance
-  matrix now cite Section 10.2 (Interactions with BGP) (H-27).
+  matrix now cite Section 10.2 (Interactions with BGP).
 - RFC 9468 passive sessions reply from the local address and interface that
   received the triggering packet, each with its own RFC 5881 source port from
-  the daemon's shared allocator, for IPv4 and IPv6 (audit finding C-07). The
+  the daemon's shared allocator, for IPv4 and IPv6. The
   shared IPv4 wildcard sender is gone; an IPv6 link-local reply is scoped to
   the receiving interface.
 - `MarshalControlPacket` validates the authentication section before it
-  writes any byte (audit finding H-03). The A bit and the section must
+  writes any byte. The A bit and the section must
   agree; Auth Len must equal 24 for Keyed MD5, 28 for Keyed SHA1 and 3 plus
   the password length for Simple Password; digests must be 16 or 20 bytes,
   passwords 1 to 16 bytes; reserved and unknown auth types are rejected

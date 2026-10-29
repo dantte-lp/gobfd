@@ -1,5 +1,7 @@
 # Автоматизация CI и выпуска
 
+[English original](../../en/reference/automation.md).
+
 Выполнением workflow управляют команды Go. [.github/workflows/ci.yml](../../../.github/workflows/ci.yml), [security.yml](../../../.github/workflows/security.yml), [e2e.yml](../../../.github/workflows/e2e.yml) и [release.yml](../../../.github/workflows/release.yml) выбирают команды. Их реализуют [cictl](../../../test/cmd/cictl/main.go), [cirunner](../../../test/internal/cirunner/) и [toolbootstrap](../../../test/cmd/toolbootstrap/main.go).
 
 Это контракты исходников. Наличие команды не доказывает приёмку кандидата и не разрешает удалённое изменение.
@@ -33,13 +35,17 @@
 
 ```mermaid
 flowchart LR
-    identity["Preflight and notes"]:::mgt --> build["Build and complete draft"]:::srv
-    build --> verify["Independent verifier checkout"]:::mgt
-    verify --> aliases["Promote checked OCI aliases"]:::srv
-    aliases --> publish["Publish verified draft"]:::mgt
+  accTitle: Проверка и публикация выпуска
+  accDescr: Независимая проверка предшествует продвижению псевдонимов и завершающей публикации черновика.
+    identity["Предварительная проверка и примечания"]:::mgt --> build["Сборка и комплектование черновика"]:::srv
+    build --> verify["Отдельный checkout проверки"]:::mgt
+    verify --> aliases["Продвижение проверенных псевдонимов OCI"]:::srv
+    aliases --> publish["Публикация проверенного черновика"]:::mgt
     classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
     classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
 ```
+
+Последовательность разделяет сборку, независимую проверку доказательств, изменение псевдонимов и завершающую публикацию. Сохранять точного кандидата и останавливаться на первом неуспешном этапе.
 
 | Команда | Проверка или изменение |
 |:---|:---|

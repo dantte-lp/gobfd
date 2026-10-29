@@ -1,5 +1,7 @@
 # ADR-0007: Workload phases and terminal packet accounting
 
+[Russian translation](../../ru/adr/0007-workload-phase-accounting.md).
+
 | Field | Value |
 |:---|:---|
 | Status | Accepted policy; runtime qualification separate |
@@ -29,6 +31,8 @@ After owner Up and peer traffic readiness, publish one future native-monotonic e
 
 ```mermaid
 sequenceDiagram
+    accTitle: Workload measurement and terminal drain
+    accDescr: Both ready roles adopt one epoch, freeze measurement, join peer traffic and settle the owner ledger before the stopped snapshot.
     participant O as Owner
     participant P as Peer model
     O->>P: Common future epoch after both ready
@@ -106,6 +110,10 @@ Register metrics once per physical Echo creation and unregister after final rele
 Omissions retain original Read sequence, joining RX and return-TX choices. Keep journal bounds and independent read/return/drop counters. Valid means codec/tuple/TTL-checked, not RFC authentication/delivery. Sum current/retired returns against committed Echo delivery; peer Read cannot exceed lifetime owner TX. Echo kernel-RX latency is explicitly not_applicable. Old-deadline classification follows ADR-0012, without remote Up or guessed Control traffic.
 
 Sources: [Echo peer](../../../test/internal/bfdload/echo_peer_linux.go), [owner](../../../test/internal/bfdload/owner_echo_linux.go), [omission model](../../../test/internal/bfdload/echo_omission_linux.go). Native Echo qualification remains required.
+
+## Alternatives
+
+Independent duration timers remain available without a control directory, but lifetime counts then do not establish one common measurement window. Queue admission and elapsed duration cannot replace joined terminal accounting. Source-journal completeness alone cannot replace incarnation, clock and causal evidence.
 
 ## Consequences
 

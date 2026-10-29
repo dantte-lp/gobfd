@@ -1,5 +1,7 @@
 # ADR-0003: Применимость Micro-BFD, VXLAN BFD и Geneve BFD в Linux
 
+[Английский оригинал](../../en/adr/0003-linux-advanced-bfd-applicability.md).
+
 | Поле | Значение |
 |:---|:---|
 | Статус | Принято |

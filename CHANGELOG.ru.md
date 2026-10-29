@@ -355,8 +355,7 @@
   с timestamp следующего retry/recheck. Принятый reload
   заменяет allowlist пиров; scrape не изменяет routing decisions и не создаёт
   labels из API или unsolicited sessions.
-- Версионированные snapshot сессий и поток Watch с сигналом разрыва
-  (H-29, M-08). В `bfd.v1` добавлены `revision` в
+- Версионированные snapshot сессий и поток Watch с сигналом разрыва. В `bfd.v1` добавлены `revision` в
   `ListSessionsResponse`, `GetSessionResponse` и
   `WatchSessionEventsResponse`, а также типы событий `GAP` и
   `SYNC_COMPLETE`. `WatchSessionEvents` подписывается до снимка, закрывает
@@ -494,7 +493,7 @@
   измерения dispatch снижаются с 11 до 0 allocs/op без actuator и с 15 до 4
   с noop-actuator; deadline и отмена каждого вызова сохранены.
 
-- Готовность gRPC health выводится из компонентов (H-30).
+- Готовность gRPC health выводится из компонентов.
   Пустой service есть AND пяти sources reconciliation, runtime workers и
   интерфейсов listeners с привязкой к устройству. `bfd.v1.BfdService` следует за
   base, VXLAN и Geneve sessions и control listeners, включая unsolicited;
@@ -509,7 +508,7 @@
   Привязки проверяются по interface events и периодически раз в 2 с; ошибка
   inventory интерфейсов прерывает запуск, а во время работы сохраняет прежнее
   состояние.
-- Приёмные listeners принадлежат reconciliation generation (H-23). SIGHUP может
+- Приёмные listeners принадлежат reconciliation generation. SIGHUP может
   добавлять или re-key записи control, Echo
   и Micro-BFD, которым нужен новый local address, interface или session type:
   source открывает недостающие listeners до apply в Manager и не может сойтись
@@ -525,7 +524,7 @@
   перепривязка остаётся в `NOT_SERVING` и повторяется. Намеренно закрытый
   listener не считается потерей receiver. Startup по-прежнему прерывается при
   любой ошибке listener.
-- Backends VXLAN и Geneve принадлежат reconciliation generation (H-23). SIGHUP может
+- Backends VXLAN и Geneve принадлежат reconciliation generation. SIGHUP может
   добавлять, удалять или re-key overlay
   identities, включая новый local endpoint или per-peer VNI Geneve: новый
   endpoint открывает backend, identity на открытом endpoint расширяет набор
@@ -608,21 +607,21 @@
   согласованных форматов; клиент контейнерных интеграций исправляет отмену
   и deadline во время HTTP upgrade.
 - **Ломающее:** демпфирование flap-ов GoBGP никогда не задерживает BFD Down
-  (H-27, контракт демпфирования v1). Каждый значимый
+  (контракт демпфирования v1). Каждый значимый
   Down сразу отключает пир; в подавленном состоянии демпфирование удерживает
   только восстановление (Up), а Down отменяет удерживаемое восстановление.
   Валидация отклоняет `gobgp.dampening.reuse_threshold <= 0` и
   `max_suppress_time <= 0` (`ErrInvalidDampeningMaxSuppressTime`).
 - **Ломающее:** `GetSession` по адресу пира, которому соответствует
   несколько сессий, завершается с `FAILED_PRECONDITION` и перечисляет
-  локальные дискриминаторы вместо возврата первого совпадения (M-07).
+  локальные дискриминаторы вместо возврата первого совпадения.
 - Обработчик GoBGP восстанавливается после потерянных изменений состояния
   BFD: при разрыве потока он восстанавливает переходы
   Down и Up по версионированному снимку и последнему увиденному состоянию
   каждой сессии, поэтому пир больше не остаётся включённым над отказавшим
   путём или отключённым после восстановления.
 - **Ломающее:** обработчик GoBGP действует только по канонической
-  single-hop или multi-hop сессии BGP-соседа (H-31).
+  single-hop или multi-hop сессии BGP-соседа.
   Сессии Micro-BFD member link, VXLAN, Geneve и Echo к адресу соседа больше
   не отключают и не включают пир; IPv4-mapped адреса пиров приводятся к
   IPv4. При `gobgp.enabled` валидация конфигурации отклоняет две сессии к
@@ -682,7 +681,7 @@
   Перехватчики логирования и восстановления охватывают и потоковые вызовы;
   закрытие `WatchSessionEvents` клиентом логируется как `rpc canceled` на Info.
 - **Breaking:** приём RFC 9468 unsolicited ограничен и проверяется по
-  connected subnet (находки аудита H-17, H-18). Пакет создаёт сессию, только
+  connected subnet (находки аудита). Пакет создаёт сессию, только
   если он пришёл single-hop с TTL 255 (не на multi-hop listener), его source
   принадлежит подсетям локального адреса приёма, входит в
   `allowed_prefixes`, когда список задан, и не совпадает с локальным адресом;
@@ -691,7 +690,7 @@
   означавший отсутствие лимита); новые сессии допускаются не чаще 10 в
   секунду с burst 20.
 - **Breaking:** включённая политика RFC 9468 unsolicited проверяется при
-  загрузке (находка аудита H-19): интервалы `session_defaults` от 1 мкс до
+  загрузке: интервалы `session_defaults` от 1 мкс до
   2^32-1 мкс, `required_min_rx` ненулевой, `detect_mult` от 1 до 255,
   `cleanup_timeout` >= 0, хотя бы один интерфейс включён, каждый элемент
   `allowed_prefixes` — корректный CIDR. Пропущенные `session_defaults`
@@ -1122,8 +1121,7 @@
   новой группе при сессии в Up; теперь такой member считается Up и actuator
   получает его в порядке dispatch.
 
-- Группа Micro-BFD фиксируется вместе со своими member-сессиями (RFC 7130 Section 2,
-  H-24). Reload применяет один источник
+- Группа Micro-BFD фиксируется вместе со своими member-сессиями (RFC 7130 Section 2). Reload применяет один источник
   Micro-BFD: ошибка member-сессии откатывает новые группы и сессии прохода до
   освобождения любой зафиксированной группы или сессии; группа неудачного
   прохода не попадает ни в dispatch, ни в actuator. Member link, указанный в
@@ -1136,14 +1134,13 @@
 - Контракт RFC 5880 каждой member-сессии Micro-BFD проверяется на пути
   кандидата daemon и прямом пути Manager/API: адрес пира, wire-границы
   интервалов, detect multiplier и непустые имена LAG и member (RFC 7130
-  Section 2.2, M-09). Незаданные таймеры группы наследуют `bfd.default_*`.
+  Section 2.2). Незаданные таймеры группы наследуют `bfd.default_*`.
   Группы хранят таймеры, `ListMicroBFDGroups` возвращает их, изменение таймера
   работающей группы — конфликт конфигурации. `AddMicroBFDGroup` возвращает
   `InvalidArgument` для явного нулевого интервала или пустого имени member.
 
 - Actuator Micro-BFD вызывается после освобождения блокировок Manager, в
-  порядке dispatch, с context deadline 5 секунд на вызов (RFC 7130 Section 5,
-  M-10). Заблокированный backend LAG больше не останавливает CRUD групп; ошибка
+  порядке dispatch, с context deadline 5 секунд на вызов (RFC 7130 Section 5). Заблокированный backend LAG больше не останавливает CRUD групп; ошибка
   или deadline пишет `micro-BFD actuator failed` с `deadline_exceeded`.
   Backend, игнорирующий context, по-прежнему задерживает следующие уведомления.
 
@@ -1206,8 +1203,7 @@
   включая прямые FSM sends и повторы.
 
 - AdminDown коммитится только в session owner loop с ограниченным контекстом
-  commit receipt, включая pre-Run и заполненную очередь
-  (prerequisite H-09). `Run` имеет одного owner за
+  commit receipt, включая pre-Run и заполненную очередь. `Run` имеет одного owner за
   время жизни сессии. Manager drain выполняет fanout по конкретным сессиям вне
   locks и объединяет ошибки; shutdown сохраняет их. Receipt предшествует TX и
   не доказывает доставку. Shutdown выполняет drain по согласованному бюджету
@@ -1233,7 +1229,7 @@
   сохраняется; authenticated peer interoperability остаётся отдельной проверкой.
 
 - Истечение authentication sequence использует монотонное время последнего
-  корректного приёма (M-04). `AuthSeqKnown` сбрасывается
+  корректного приёма. `AuthSeqKnown` сбрасывается
   после двух Detection Time в любом состоянии, включая проверку перед
   аутентификацией, когда RX обрабатывается раньше готового timeout.
   `RcvAuthSeq` сохраняется до корректного приёма; ошибка аутентификации не
@@ -1284,14 +1280,14 @@
   портах 9090 и 3000; удалённый доступ требует tunnel или reverse proxy.
 - Оставшиеся ссылки на RFC 5882 Section 4.3 (Graceful Restart) для реакции
   GoBGP в коде, примерах конфигурации и матрице соответствия RFC заменены на
-  Section 10.2 (Interactions with BGP) (H-27).
+  Section 10.2 (Interactions with BGP).
 - Пассивные сессии RFC 9468 отвечают с локального адреса и интерфейса, на
   которые пришёл пакет, каждая со своим source port RFC 5881 из общего
-  аллокатора демона, для IPv4 и IPv6 (находка аудита C-07). Общий IPv4
+  аллокатора демона, для IPv4 и IPv6. Общий IPv4
   wildcard sender удалён; ответ с IPv6 link-local адреса привязан к
   интерфейсу приёма.
 - `MarshalControlPacket` проверяет секцию аутентификации до записи первого
-  байта (находка аудита H-03). Бит A и секция должны совпадать; Auth Len
+  байта. Бит A и секция должны совпадать; Auth Len
   равен 24 для Keyed MD5, 28 для Keyed SHA1 и 3 плюс длина пароля для
   Simple Password; дайджест — 16 или 20 байт, пароль — от 1 до 16 байт;
   зарезервированные и неизвестные типы отклоняются (RFC 5880, разделы

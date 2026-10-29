@@ -21,6 +21,8 @@ unfinished v1 runtime and wire qualification.
 
 ```mermaid
 flowchart LR
+  accTitle: GoBFD components and ownership
+  accDescr: The daemon exchanges BFD Control packets with the peer and exposes management and state observations to clients; routing clients own route changes.
   peer["BFD peer"]:::leaf
   daemon["gobfd"]:::srv
   cli["gobfdctl"]:::mgt
@@ -33,12 +35,15 @@ flowchart LR
   classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
 ```
 
+The daemon owns BFD sessions. Management and state observations connect the CLI
+and routing clients to that owner; routing clients retain route ownership.
+
 ## Build and inspect
 
 1. Select the pinned Podman Compose provider in [Development](docs/en/09-development.md).
 2. Build the four binaries in the project environment.
 
-```sh title="build-commands"
+```sh
 git clone --branch dev https://github.com/dantte-lp/gobfd.git
 cd gobfd
 make up
@@ -65,7 +70,7 @@ peer health or completed RFC qualification. See [Configuration](docs/en/03-confi
 
 <!-- BEGIN GOBFD PREVIEW CAPABILITIES -->
 | Profile | RFC | Maturity |
-| :--- | ---: | :--- |
+|:---|---:|:---|
 | unsolicited | 9468 | preview; unsafe |
 | echo | 9747 | preview; incomplete RFC qualification |
 | micro_bfd | 7130 | preview; incomplete L2 owner integration |

@@ -1,10 +1,12 @@
 # ADR-0006: Session-preserving reload policy
 
+[Russian translation](../../ru/adr/0006-session-preserving-reload-policy.md).
+
 | Field | Value |
 |:---|:---|
 | Status | Accepted |
 | Date | 2026-10-24 |
-| Qualification | Accepted policy; implqual-local; actual-wire qualification remains open |
+| Qualification | Accepted policy; local implementation qualification; actual-wire qualification remains open |
 
 ## Context
 
@@ -36,7 +38,7 @@ Padding policy is checked before equality shortcuts, including reversal to a con
 
 The padding target counts transport payload, excluding IP/UDP. Send length is `max(actual PDU, target)`, preserving auth. Padding is zero and outside the authentication domain. Authenticated minimum 26 and zero-target DF defaults remain unchanged. Enable/disable and dynamic DF stay outside the accepted reload profile.
 
-Sources: [owner transaction](../../../internal/bfd/session_update.go), [tests](../../../internal/bfd/session_update_test.go), [packet construction](../../../internal/bfd/session_packet.go), [timer transaction specification](../../superpowers/specs/2026-09-08-gobfd-timer-update-transactions-design.md).
+Sources: [owner transaction](../../../internal/bfd/session_update.go), [tests](../../../internal/bfd/session_update_test.go), [packet construction](../../../internal/bfd/session_packet.go), [timer transaction specification](../reference/timer-transactions.md).
 
 ### Authentication admission
 
@@ -73,6 +75,10 @@ Incomplete acquisition returns Pending/Failed before that source's Manager apply
 Receipts retain bounded interface/address-class presence flags, never resource identity/raw errors. A class change updates status at the same pending count; identical receipts deduplicate and convergence clears flags. Timer pending and permanent failures keep separate retry/accounting.
 
 Availability covers listeners and outer overlay endpoints as well as bound interfaces. Address loss preserves desired generation/claims, marks source pending and health not ready; recovery retries the same generation. A two-second check covers five sources without monitor events. Inventory errors fail the source and require explicit SIGHUP. Source: [coordinator](../../../cmd/gobfd/reconciliation.go).
+
+## Alternatives
+
+Delete/recreate changes the discriminator and protocol state, so it is not a fallback for an unsupported retained-identity update. Whole-source atomicity and seamless rollback are not provided by source-local admission; disruptive replacement requires its separate explicit intent.
 
 ## Consequences
 

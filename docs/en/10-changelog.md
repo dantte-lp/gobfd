@@ -1,5 +1,7 @@
 # Changelog and releases
 
+[Russian translation](../ru/10-changelog.md).
+
 [CHANGELOG.md](../../CHANGELOG.md) is the English release history; [CHANGELOG.ru.md](../../CHANGELOG.ru.md) is the Russian translation. The [dated translation corrections](reference/changelog-errata.md) supply four omitted historical v0.5.0 entries without changing published sections. Published entries and tags remain preserved. Branch roles and publication constraints are defined in [AGENTS.md](../../AGENTS.md).
 
 ## Maintain an entry
@@ -34,6 +36,8 @@ The v0.6 line preserves GoBGP v3.37.0 and its public contracts. Acceptance on `d
 7. Read back published assets and OCI identities. Deliver supported stable history and both changelogs to `master`; assess forward-port to `dev` separately.
 
 Existing `v0.1.0` through `v0.6.1` tags remain unchanged. The executable process lives in [.github/workflows/release.yml](../../.github/workflows/release.yml) and [Go-owned automation](reference/automation.md). A workflow definition is not evidence of a successful release. This guide does not authorize push, tag, draft, promotion or publication.
+
+Treat publication steps as state changes, not repeatable checks. After a failure, read back the exact tag, draft, assets and OCI aliases before selecting a recovery or retry. Preserve accepted tags and published history; the [automation contract](reference/automation.md#release-sequence) limits alias rollback and keeps postpublication verification separate.
 
 ## Release evidence
 

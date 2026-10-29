@@ -1,5 +1,7 @@
 # Security
 
+[Russian translation](../ru/15-security.md).
+
 GoBFD accepts untrusted UDP traffic, exposes a management API and unauthenticated metrics, and optionally controls routing/LAG membership. Packet authentication, management identity and data-plane ownership are separate boundaries.
 
 ## Management API
@@ -7,7 +9,7 @@ GoBFD accepts untrusted UDP traffic, exposes a management API and unauthenticate
 The default transport is `/run/gobfd/gobfd.sock` with mode `0660`. Unix principals use kernel-reported `SO_PEERCRED` UID. The packaged example selects `gobfd-admin`; daemon group access can expose configuration secrets. Grant operators only the admin group.
 
 | Transport | Read | Mutate | Principal |
-| :--- | :--- | :--- | :--- |
+|:---|:---|:---|:---|
 | Unix socket | Socket permission | Recognized peer credentials | Kernel UID |
 | Plaintext loopback TCP | Anonymous | Denied by default | None |
 | Unsafe direct plaintext loopback | Anonymous | Allowed; management health unready | Shared local owner |
@@ -25,6 +27,8 @@ Management mTLS requires server certificate, private key and client CA files. Fi
 
 `gobfdctl certificate renew` is an independent outbound CA client. It requires an HTTPS origin without credentials/path/query, explicit roots and an existing certificate/key. Response/chain bounds, returned identity validation and atomic certificate replacement are owned by [the renewal implementation](../../internal/stepca/client.go). It does not enroll identities, rotate keys, schedule renewal or change GoBFD authorization. The [disposable actual-provider profile](../../test/stepca/README.md) qualifies bounded renewal/negative cases, not production CA operations or all provider dependencies. See [ADR-0005](adr/0005-smallstep-management-certificates.md).
 
+Stop renewal on a validation or file-ownership error. An identical validated chain leaves the certificate unchanged, but another renewal can issue a different chain; repetition is not a general rollback. If `ErrCommitted` is reported, inspect the current certificate before recovery: replacement has occurred and the old file must not be assumed present. Preserve protected accepted credentials and use an independently authorized certificate/access recovery procedure; do not change trust roots or private keys as an implicit retry. Sources: [file commit](../../internal/stepca/files_linux.go), [CLI result handling](../../cmd/gobfdctl/commands/certificate.go).
+
 ## Configuration paths
 
 Local startup and reload use the caller-selected `-config PATH`. Absolute paths and relative `..` components are supported. The [loader](../../internal/config/config.go) opens `filepath.Dir(PATH)`, following directory symlinks, then resolves the basename through `os.Root`. Relative file symlinks that stay beneath the opened directory are supported, including projected-volume links; escaping and absolute file symlinks are rejected. The caller selects the root; no independent configuration-directory allowlist is imposed.
@@ -34,7 +38,7 @@ YAML parsing and configuration validation follow the file read and do not establ
 ## BFD packet boundary
 
 | Profile | Exposure | Required deployment decision |
-| :--- | :--- | :--- |
+|:---|:---|:---|
 | Single-hop Control | UDP 3784, TTL/Hop Limit 255 | Match peer/local/interface scope; enable shared-key auth where supported |
 | Multi-hop Control | UDP 4784; configured receive hop policy | Authenticate untrusted/routed paths |
 | Echo preview | UDP 3785; no auth setting | Keep disabled on untrusted segments |
@@ -69,7 +73,7 @@ Micro-BFD enforcement changes native member state. Disabled/dry-run modes do not
 
 The [risk register](reference/dependency-risk.md) and [Go-owned audit](../../scripts/vuln-audit.go) define exact allowed findings, owners, expiry and removal criteria. Runtime/tool-module raw reports and separate SBOMs remain separate evidence. A module import or historical exception does not prove current non-reachability or advisory state.
 
-```sh title="security-gates.sh"
+```sh
 make verify
 make vulncheck
 make lint-commit MSG='docs(security): define access boundaries'

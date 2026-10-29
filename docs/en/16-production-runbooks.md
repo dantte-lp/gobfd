@@ -1,5 +1,7 @@
 # Runbook: configuration reload (Linux systemd)
 
+[Russian translation](../ru/16-production-runbooks.md).
+
 This source-derived procedure replaces declarative configuration on one owned Linux host using the shipped `gobfd.service`. No production execution or elapsed-time receipt is recorded. Prerequisites: installed accepted binaries/unit, root shell, existing healthy service, protected candidate `/etc/gobfd/gobfd.candidate.yml` and independent access for recovery.
 
 ## 0. Rules without exceptions
@@ -14,7 +16,7 @@ This source-derived procedure replaces declarative configuration on one owned Li
 
 Run in one root shell; subsequent blocks reuse `backup_dir`.
 
-```sh title="reload-baseline.sh" showLineNumbers
+```sh
 backup_dir=$(mktemp -d /var/backups/gobfd.XXXXXXXX)
 chmod 0700 "$backup_dir"
 install -m 0600 /etc/gobfd/gobfd.yml "$backup_dir/gobfd.yml"
@@ -34,11 +36,13 @@ printf '%s\n' "$backup_dir"
 
 Continue only when backup comparison succeeds, service is active/running, expected sessions/consumers are healthy, socket permissions match policy, and the candidate belongs to this change. The daemon has no `-check` flag. Review full YAML/default/environment effects before apply; compare secrets only inside protected processes. Persist the displayed backup path in the restricted change record.
 
+A repeated pre-flight creates another backup directory and reassigns `backup_dir`; record the accepted original path before repeating it. Do not overwrite the original before/after evidence with another attempt. Repeating a restart interrupts sessions again and discards in-memory/API ownership; repeating reload does not restore earlier intent. After any failed apply, use the recorded backup and section 4, then repeat section 3. The [reload policy](adr/0006-session-preserving-reload-policy.md) defines supported reapplication and its limits.
+
 ## 2. Install and reload
 
 ### 2.1 Reloadable configuration
 
-```sh title="reload-apply.sh"
+```sh
 install -o root -g gobfd -m 0640 /etc/gobfd/gobfd.candidate.yml /etc/gobfd/gobfd.yml && \
   cmp /etc/gobfd/gobfd.candidate.yml /etc/gobfd/gobfd.yml && \
   systemctl reload gobfd
@@ -52,7 +56,7 @@ Continue only when the installed file matches, logs report converged reconciliat
 
 Use an admitted maintenance interval with expected session interruption. Complete section 1 first. When GoBGP integration is enabled, retain peer administrative states and the journal evidence of which peers GoBFD disabled. That ownership map is memory-only and is lost on restart. Do not restart during a failure without a documented peer recovery decision.
 
-```sh title="gobgp-restart-baseline.sh"
+```sh
 gobgp neighbor > "$backup_dir/gobgp-before.txt"
 journalctl -u gobfd --since '-1 hour' --no-pager > "$backup_dir/daemon-before.log"
 gobgp neighbor 192.0.2.2
@@ -60,7 +64,7 @@ gobgp neighbor 192.0.2.2
 
 The peer address is the example configuration's peer; substitute the admitted neighbor. An administrative Down state alone does not prove GoBFD ownership. Preserve independent operator intent before enabling any peer.
 
-```sh title="restart-apply.sh"
+```sh
 install -o root -g gobfd -m 0640 /etc/gobfd/gobfd.candidate.yml /etc/gobfd/gobfd.yml && \
   cmp /etc/gobfd/gobfd.candidate.yml /etc/gobfd/gobfd.yml && \
   systemctl restart gobfd
@@ -73,7 +77,7 @@ Continue only when the new process runs, reconciliation converges and each affec
 
 If an admitted peer remains administratively disabled after BFD returns Up, require proof that GoBFD disabled it and no later operator action requires it to remain disabled. Only then explicitly recover that peer:
 
-```sh title="gobgp-owned-peer-recovery.sh"
+```sh
 gobgp neighbor 192.0.2.2 enable
 gobgp neighbor 192.0.2.2
 gobgp global rib
@@ -83,7 +87,7 @@ Require Established, intended routes and the independent forwarding probe. Never
 
 ## 3. Post-check
 
-```sh title="reload-postcheck.sh"
+```sh
 gobfdctl --format json session list
 gobfdctl --format json capabilities
 systemctl show gobfd -p ActiveState -p SubState -p MainPID -p NRestarts
@@ -93,7 +97,7 @@ journalctl -u gobfd --since '-2 min' --no-pager
 Compare the protected before/after inventories, including peer/local/interface identity, discriminator, state, diagnostics and negotiated timers. Verify management writer/read-only policy and intended metrics reachability. Measure consumer-specific route/backend behavior and an independent forwarding/application probe; management access alone does not satisfy acceptance.
 
 | Gate | Required result | Evidence |
-| :--- | :--- | :--- |
+|:---|:---|:---|
 | Configuration | Accepted intended generation, no pending resources | Restricted journal excerpt |
 | Retained wire | Expected identity/discriminator and negotiated state | Before/after JSON |
 | Consumer | Intended route/backend action and recovery | Consumer readback |
@@ -112,7 +116,7 @@ It asserts route withdrawal within its 20-second test bound and restoration; it 
 
 Restore the backup in the same shell; substitute the recorded protected backup path if the shell was lost.
 
-```sh title="reload-rollback.sh"
+```sh
 test -s "$backup_dir/gobfd.yml" && \
   install -o root -g gobfd -m 0640 "$backup_dir/gobfd.yml" /etc/gobfd/gobfd.yml && \
   cmp "$backup_dir/gobfd.yml" /etc/gobfd/gobfd.yml && \
@@ -130,7 +134,7 @@ Rollback restores desired configuration, not lost session uptime, old discrimina
 This procedure is not executed against a production host. The following are source-defined failure checks, not invented incident observations.
 
 | Symptom | Cause | Check/fix |
-| :--- | :--- | :--- |
+|:---|:---|:---|
 | Reload command succeeds, settings stay old | Rejected candidate/startup-field change | Read rejection fields; restore or schedule restart |
 | Session absent after acceptance | Pending address/interface/listener resource | Read source-specific receipt; restore binding and require convergence |
 | CLI cannot mutate over TCP | Anonymous/read-only principal | Use permitted socket/mTLS identity |
@@ -139,7 +143,7 @@ This procedure is not executed against a production host. The following are sour
 
 ## 6. Command cheat-sheet
 
-```sh title="reload-cheat-sheet.sh"
+```sh
 # Read current session state.
 gobfdctl session list
 # Read preview maturity and local readiness.

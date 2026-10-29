@@ -1,5 +1,7 @@
 # ADR-0011: Inline BFD authentication payload ownership
 
+[Russian translation](../../ru/adr/0011-bfd-auth-inline-payload.md).
+
 | Field | Value |
 |:---|:---|
 | Status | Accepted |

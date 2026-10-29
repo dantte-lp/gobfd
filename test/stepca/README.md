@@ -26,7 +26,7 @@ The default test suite skips the external-provider fixture unless binary paths a
 3. Replace only that copy's go.mod/go.sum with the qualification manifests.
 4. Build inside the pinned compiler with writable caches separate from shared seeds and bounded CPU/memory/PIDs. Mount the private output directory at /output:
 
-```bash title="Full provider build"
+```sh
 GOTOOLCHAIN=local CGO_ENABLED=0 GOFLAGS=-p=1 go build \
   -mod=readonly -trimpath -buildvcs=false \
   -ldflags '-X main.Version=0.30.2+gobfd.qual.2 -X main.BuildTime=qualification' \
@@ -45,7 +45,7 @@ A provider pin alone is not current security evidence. Repeat build/scan/link va
 
 Build from the GoBFD checkout inside the pinned compiler environment:
 
-```bash title="Race-enabled daemon and fixture"
+```sh
 export CGO_ENABLED=1
 go build -race -buildvcs=false -o /output/gobfd ./cmd/gobfd
 go test -race -c -o /output/stepca.test ./cmd/gobfd
@@ -60,7 +60,7 @@ Run prebuilt executables in a new network-none container with loopback, NET_RAW,
 | GOBFD_TEST_DAEMON_BINARY | Race-enabled daemon executable |
 | GOBFD_TEST_STEP_CA_REPORT_DIR | Private writable evidence directory |
 
-```bash title="Actual renewal fixture"
+```sh
 /qualification/test2json -t /qualification/stepca.test \
   -test.v -test.timeout=90s \
   -test.run='^TestActualSmallstepRenewalManagementLifecycle$'

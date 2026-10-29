@@ -1,5 +1,7 @@
 # ADR-0001: Link-state monitoring via rtnetlink
 
+[Russian translation](../../ru/adr/0001-link-state-rtnetlink.md).
+
 | Field | Value |
 |:---|:---|
 | Status | Accepted |

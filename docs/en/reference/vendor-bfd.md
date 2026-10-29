@@ -1,5 +1,7 @@
 # Equipment peers and normative references
 
+[Russian translation](../../ru/reference/vendor-bfd.md).
+
 Configure the same BFD profile on both endpoints. A shared RFC number does
 not establish compatibility for a particular ASIC, NOS release, interface,
 address family or authentication mode. Record these parameters in the
@@ -24,7 +26,7 @@ them before comparing packet fields.
 
 For an asynchronous session in Up state, calculate each direction separately:
 
-```text title="asynchronous-timer-equations"
+```text
 TX_A = max(A.desired_min_tx, B.required_min_rx)
 DETECTION_A = B.detect_mult * max(A.required_min_rx, B.desired_min_tx)
 DETECTION_B = A.detect_mult * max(B.required_min_rx, A.desired_min_tx)
@@ -68,8 +70,14 @@ require the referenced platform-support check.
 
 ## Isolated qualification
 
+Admit one owned Linux/NOS test path with independent recovery access and a reviewed device rollback. Record required host and NOS privileges before changing either endpoint. Stop on an unexpected peer, route, authentication or forwarding result; restore the original path and verify the accepted session/client state before another attempt. Repetition is a new profile run; it must not reuse partial captures as acceptance evidence. The [operational runbook](../16-production-runbooks.md) defines the GoBFD recovery boundary.
+
+The diagram separates the tested Control path from the routing client's logical dependency.
+
 ```mermaid
 flowchart LR
+  accTitle: Isolated BFD qualification
+  accDescr: Control traverses the selected interface and VRF between Linux and one NOS profile; routing policy is a separate dependency.
   host["Linux host / GoBFD"]:::srv
   path["Selected interface and VRF path"]:::vrf
   nos["One NOS / platform profile"]:::leaf

@@ -1,10 +1,16 @@
 # Configuration
 
+[Russian translation](../ru/03-configuration.md).
+
 The daemon accepts only `-config PATH` and `-version`. With `-config`, configuration merges built-in defaults, YAML and supported environment variables, in that order. Without it, built-in defaults apply and environment overrides are ignored. Sources: [schema, defaults, validation and environment mapping](../../internal/config/config.go), [daemon loader](../../cmd/gobfd/handlers.go), [annotated configuration](../../configs/gobfd.example.yml).
+
+TX and RX denote transmit and receive intervals. A protocol data unit (PDU) is the declared BFD packet; the Don’t Fragment (DF) flag controls IPv4 fragmentation. Mutual TLS (mTLS) verifies both endpoints, using a certificate authority (CA) and subject alternative names (SANs); PEM is the certificate/key text encoding. A Unix user identifier (UID) comes from the kernel.
 
 ## Minimal declarative configuration
 
-```yaml title="gobfd.yml" showLineNumbers
+The following YAML is illustrative; it is not an applied deployment.
+
+```yaml
 grpc:
   socket:
     path: /run/gobfd/gobfd.sock
@@ -31,7 +37,7 @@ Replace addresses/interface names with owned endpoints. Use duration strings wit
 ## Management, metrics and logging
 
 | YAML key | Built-in default | Contract |
-| :--- | :--- | :--- |
+|:---|:---|:---|
 | `grpc.addr` | empty | No TCP listener; plaintext must be loopback; remote TCP requires mTLS |
 | `grpc.socket.path` | `/run/gobfd/gobfd.sock` | Absolute Unix path; empty disables socket |
 | `grpc.socket.mode` | `0660` | Octal permissions |
@@ -52,7 +58,7 @@ TLS needs all three files and a TCP address. Files are reread at every handshake
 ## Control sessions
 
 | Global key | Default | Contract |
-| :--- | :--- | :--- |
+|:---|:---|:---|
 | `bfd.default_desired_min_tx` | `1s` | Desired transmit interval |
 | `bfd.default_required_min_rx` | `1s` | Receive interval; explicit zero is preserved |
 | `bfd.default_detect_multiplier` | `3` | 1–255 |
@@ -61,7 +67,7 @@ TLS needs all three files and a TCP address. Files are reread at every handshake
 | `sessions` | `[]` | Declarative Control claims |
 
 | `sessions[]` key | Default | Contract |
-| :--- | :--- | :--- |
+|:---|:---|:---|
 | `peer` | required | Peer IP |
 | `local`, `interface` | empty | Local IP and single-hop device binding |
 | `type` | `single_hop` | `single_hop` or `multi_hop` |
@@ -72,16 +78,16 @@ TLS needs all three files and a TCP address. Files are reread at every handshake
 | `multihop_max_hops` | `1` | Multi-hop only, 1–254; receive TTL minimum `255 - value` |
 | `auth.type` | empty | Empty/`none`, `simple_password`, `keyed_md5`, `meticulous_keyed_md5`, `keyed_sha1`, `meticulous_keyed_sha1` |
 | `auth.key_id` | `0` | 0–255 |
-| `auth.secret` | empty | 1–16 bytes for password/MD5; 1–20 for SHA1 |
+| `auth.secret` | empty | 1–16 bytes for password/MD5; 1–20 bytes for SHA1 |
 
 Single-hop receives require TTL/Hop Limit 255. Multi-hop TTL admission is GoBFD policy; RFC 5883 does not mandate it. Padding requests DF and a payload-size floor: transmitted length is `max(actual PDU, target)`. An authenticated PDU may exceed the target and is never truncated. Source: [packet construction](../../internal/bfd/session_packet.go). References: [RFC 5881](https://www.rfc-editor.org/rfc/rfc5881.html), [RFC 5883 §6](https://www.rfc-editor.org/rfc/rfc5883.html#section-6), [RFC 7419](https://www.rfc-editor.org/rfc/rfc7419.html), [RFC 9764](https://www.rfc-editor.org/rfc/rfc9764.html).
 
 ## UDP buffers and sender QoS
 
-All `socket` fields are startup-owned. QoS applies to ordinary BFD senders; overlay outer sockets do not inherit it. Sources: [QoS validation](../../internal/config/socket_qos.go), [buffer validation](../../internal/config/socket_buffer.go).
+Quality of service (QoS) uses the differentiated services code point (DSCP) and explicit congestion notification (ECN) bits. All `socket` fields are startup-owned. QoS applies to ordinary BFD senders; overlay outer sockets do not inherit it. Sources: [QoS validation](../../internal/config/socket_qos.go), [buffer validation](../../internal/config/socket_buffer.go).
 
 | `socket` key | Default | Contract |
-| :--- | ---: | :--- |
+|:---|---:|:---|
 | `read_buffer_size`, `write_buffer_size` | `4194304` each | Receive/send buffer bytes; zero keeps OS default |
 | `ipv4_dscp` | `48` | Six-bit DSCP, 0–63, without ECN |
 | `ipv6_traffic_class` | `192` | Full octet, 0–255 |
@@ -99,7 +105,7 @@ All profiles default to disabled. Capability maturity, enablement and local read
 
 <!-- BEGIN GOBFD PREVIEW CAPABILITIES -->
 | Profile | RFC | Maturity |
-| :--- | ---: | :--- |
+|:---|---:|:---|
 | unsolicited | 9468 | preview; unsafe |
 | echo | 9747 | preview; incomplete RFC qualification |
 | micro_bfd | 7130 | preview; incomplete L2 owner integration |
@@ -110,7 +116,7 @@ All profiles default to disabled. Capability maturity, enablement and local read
 ### Unsolicited Control
 
 | `unsolicited` key | Default | Contract |
-| :--- | :--- | :--- |
+|:---|:---|:---|
 | `enabled` | `false` | Restart-only opt-in |
 | `max_sessions` | `0` | At least 1 when enabled |
 | `cleanup_timeout` | `0s` | Down-session removal delay; zero removes immediately |
@@ -131,8 +137,10 @@ Echo uses UDP 3785 and has no authentication setting. Control authentication doe
 
 ### Micro-BFD
 
+A link aggregation group (LAG) combines member links. The Open vSwitch Database (OVSDB) protocol controls the OVS backend.
+
 | `micro_bfd` key | Default | Values |
-| :--- | :--- | :--- |
+|:---|:---|:---|
 | `enabled` | `false` | Restart-only opt-in |
 | `groups` | `[]` | LAG groups |
 | `actuator.mode` | `disabled` | `disabled`, `dry-run`, `enforce` |
@@ -146,8 +154,10 @@ Each group contains `lag_interface`, `member_links`, `peer_addr`, `local_addr`, 
 
 ### VXLAN and Geneve
 
+A VXLAN network identifier (VNI) is a 24-bit overlay identifier.
+
 | Profile | Global fields | Peer fields |
-| :--- | :--- | :--- |
+|:---|:---|:---|
 | `vxlan` | `enabled`, `backend`, `management_vni`, `default_desired_min_tx`, `default_required_min_rx`, `default_detect_multiplier`, `peers` | `peer`, `local`, `peer_mac`, `local_mac`, `desired_min_tx`, `required_min_rx`, `detect_mult` |
 | `geneve` | `enabled`, `backend`, `default_vni`, `default_desired_min_tx`, `default_required_min_rx`, `default_detect_multiplier`, `peers` | `peer`, `local`, `vni`, `inner_peer`, `inner_local`, `peer_mac`, `local_mac`, `desired_min_tx`, `required_min_rx`, `detect_mult` |
 
@@ -156,7 +166,7 @@ Each group contains `lag_interface`, `member_links`, `peer_addr`, `local_addr`, 
 ## GoBGP integration
 
 | `gobgp` key | Default | Contract |
-| :--- | :--- | :--- |
+|:---|:---|:---|
 | `enabled` | `false` | Peer actuation |
 | `addr` | `127.0.0.1:50051` | API endpoint |
 | `strategy` | `disable-peer` | Only implemented strategy; `withdraw-routes` rejected |
@@ -174,7 +184,7 @@ The `dev` implementation requires GoBGP v4 API and rejects native BFD ownership 
 Prefix each suffix below with `GOBFD_`. Only these exact mappings exist; arbitrary underscore-to-dot conversion is absent.
 
 | Suffixes | Target |
-| :--- | :--- |
+|:---|:---|
 | `GRPC_ADDR` | `grpc.addr` |
 | `METRICS_ADDR`, `METRICS_PATH` | `metrics.addr`, `metrics.path` |
 | `LOG_LEVEL`, `LOG_FORMAT` | `log.level`, `log.format` |
@@ -192,7 +202,7 @@ Prefix each suffix below with `GOBFD_`. Only these exact mappings exist; arbitra
 ### Validation and listener identity
 
 | Input | Required condition |
-| :--- | :--- |
+|:---|:---|
 | `log.level`, `log.format` | Level is case-insensitive; format is lowercase `json`/`text`; explicit empty/whitespace values fail |
 | Socket scalars | Nonnegative integer buffers; priority 0–2147483647; mark 0–4294967295; strict boolean failure policy |
 | Multiplier and padding scalars | Reject fractions, booleans, overflow and conflicting case-folded field names before decoding |
@@ -211,7 +221,7 @@ VXLAN/Geneve currently require concrete IPv4 outer endpoints; Format A MACs are 
 SIGHUP reloads the same path and process environment. Complete validation precedes apply. Invalid candidates and startup-field changes retain the accepted generation. Runtime apply failures may leave pending resources; inspect reconciliation health and logs.
 
 | Reloadable | Restart required |
-| :--- | :--- |
+|:---|:---|
 | `log.level` | All `grpc`, `metrics`, `socket`, `gobgp`, `unsolicited`; `log.format` |
 | Control desired set, timers, multiplier, padding | Auth change on retained Control identity |
 | Echo enablement, defaults and peers | `micro_bfd.enabled` and actuator policy |
@@ -224,10 +234,14 @@ In-place packet-policy updates require a single compatible configuration owner. 
 
 Reconciliation spans base, Echo, Micro-BFD, VXLAN and Geneve without all-source atomicity. Valid disjoint changes may remain applied when another source fails. Missing local address/interface retains desired generation and claims, marks readiness unready and retries on resource recovery; a periodic two-second check supplements interface events. Permanent/inventory failures require explicit SIGHUP. An accepted generation with pending timers/resources is not converged. Source-local overlay acquisition preserves live/draining backend leases on failure. Inspect bounded per-source receipts and aggregate/named service health; do not promise seamless rollback or peer continuity.
 
-1. Preserve the accepted configuration and session/discriminator inventory.
-2. Install the protected candidate at the same path.
-3. Run `systemctl reload gobfd` for reloadable fields.
-4. Inspect `journalctl -u gobfd --since '-2 min'`, `gobfdctl session list` and peer state.
-5. Restore the accepted file and reload on divergence; schedule a maintenance restart for startup-owned changes.
+For a Linux systemd-managed instance, use an account authorized to replace the configuration and reload the unit, plus an authorized management principal. Establish a converged accepted generation, peer state and an independent recovery session before changing the one selected instance. Stop if its configuration path, ownership or initial health is uncertain.
+
+1. Preserve the accepted configuration and session/discriminator inventory. Verify that the recovery copy is readable and protected before replacing the active file.
+2. Install the protected candidate at the same path. Preserve file ownership and permissions; stop if the installed contents differ from the reviewed candidate.
+3. Run `systemctl reload gobfd` for reloadable fields. If the command fails, inspect the active state before retrying; command success confirms only signal delivery.
+4. Inspect `journalctl -u gobfd --since '-2 min'`, `gobfdctl session list`, reconciliation health and peer state. Require desired/applied convergence and the intended retained discriminators and timers; stop on failed or pending sources or unexpected peer/forwarding changes.
+5. Restore the accepted file and reload on divergence. Repeat the same health, session and peer checks against the recorded baseline. If convergence is not restored, use the independent recovery session and the operational runbook; schedule a maintenance restart for startup-owned changes.
+
+Repeated reload is a reconciliation request, not an atomic rollback or guaranteed no-op. Read the previous receipt before retrying; do not stack new candidates while a transaction or resource remains pending.
 
 This is a source-derived procedure, not a production execution receipt. See the [operational runbook](16-production-runbooks.md).

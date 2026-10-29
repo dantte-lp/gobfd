@@ -1,6 +1,10 @@
 # Monitoring
 
+[Russian translation](../ru/07-monitoring.md).
+
 The default endpoint is `http://127.0.0.1:9100/metrics`, without authentication. Bind beyond loopback only with an explicit network access policy. The metrics listener exposes no debug handlers. Sources: [configuration](../../internal/config/config.go), [collector](../../internal/metrics/collector.go).
+
+BFD means Bidirectional Forwarding Detection. RX and TX denote reception and transmission; a finite state machine (FSM) governs state transitions. A remote procedure call (RPC) performs an external API operation. Mutual TLS (mTLS) authenticates both management endpoints.
 
 ## Signal boundaries
 
@@ -8,6 +12,8 @@ The default endpoint is `http://127.0.0.1:9100/metrics`, without authentication.
 
 ```mermaid
 flowchart LR
+    accTitle: Observation boundaries
+    accDescr: Receive, parsing, admission and owner stages expose separate metrics; owner publication feeds Watch and GoBGP actuation.
   rx["UDP receive"]:::srv --> parser["Parse and demultiplex"]:::srv
   parser --> queue["Admission queue"]:::srv
   queue --> owner["Session owner"]:::srv
@@ -25,7 +31,7 @@ flowchart LR
 ## Metric reference
 
 | Metric | Type | Labels | Meaning |
-| :--- | :--- | :--- | :--- |
+|:---|:---|:---|:---|
 | `gobfd_bfd_sessions` | gauge | `peer_addr,local_addr,session_type` | Registered Control and Echo sessions |
 | `gobfd_bfd_packets_sent_total` | counter | `peer_addr,local_addr` | Successful Control/Echo sends |
 | `gobfd_bfd_packets_received_total` | counter | `peer_addr,local_addr` | Owner-validated Control/Echo receives |
@@ -43,9 +49,9 @@ flowchart LR
 | `gobfd_gobgp_endpoint_compatible` | gauge | none | 1 after compatibility preflight |
 | `gobfd_gobgp_dampening_penalty` | gauge | `peer_addr` | Decayed penalty at scrape |
 | `gobfd_gobgp_dampening_suppressed` | gauge | `peer_addr` | Recovery currently held |
-| `gobfd_gobgp_dampening_suppression_deadline_seconds` | gauge | `peer_addr` | Maximum suppression Unix deadline, otherwise 0 |
+| `gobfd_gobgp_dampening_suppression_deadline_seconds` | gauge | `peer_addr` | Maximum suppression deadline, Unix seconds; otherwise 0 |
 | `gobfd_gobgp_pending_action` | gauge | `peer_addr,action` | Unapplied `up`/`down` intent |
-| `gobfd_gobgp_pending_action_deadline_seconds` | gauge | `peer_addr,action` | Next retry/recheck Unix deadline, otherwise 0 |
+| `gobfd_gobgp_pending_action_deadline_seconds` | gauge | `peer_addr,action` | Next retry/recheck deadline, Unix seconds; otherwise 0 |
 
 Sources: [base metrics](../../internal/metrics/collector.go), [Control validation/counting](../../internal/bfd/session_packet.go), [accepted Echo returns](../../internal/bfd/echo.go), [timing](../../internal/metrics/receive_timing.go), [timers](../../internal/metrics/timer.go), [socket drops](../../internal/metrics/socket_drops.go), [GoBGP](../../internal/metrics/gobgp.go).
 
@@ -60,7 +66,7 @@ Notification attempts use `control_notification`, `unsolicited_notification` and
 ### Timing and socket loss
 
 | Observation | Fixed values | Interpretation |
-| :--- | :--- | :--- |
+|:---|:---|:---|
 | Receive timing outcome | `valid`, `unavailable`, `invalid`, `before_calibration`, `future`, `clock_step` | Histograms accept valid commits only |
 | Timer | `control_tx`, `control_detection`, `echo_tx`, `echo_detection` | Owner-specific observations |
 | Timer event | `dispatch`, `effect`, `no_effect`, `invalid_dispatch`, `invalid_effect` | Histograms include valid dispatch/effect |
@@ -77,7 +83,9 @@ Penalty/suppression are evaluated at scrape time without changing routes. Maximu
 
 ## Queries and alerts
 
-```promql title="bfd-observations.promql"
+These are illustrative PromQL expressions, not measured results:
+
+```promql
 sum(gobfd_bfd_sessions)
 increase(gobfd_bfd_state_transitions_total{from_state="Up",to_state="Down"}[1m])
 rate(gobfd_bfd_auth_failures_total[5m])
@@ -87,7 +95,7 @@ rate(gobfd_bfd_delivery_outcomes_total[5m])
 The first query measures registrations, not Up sessions. Shipped [alert rules](../../deployments/integrations/observability/configs/prometheus/alert-rules.yml) define:
 
 | Alert | Condition | Hold |
-| :--- | :--- | :--- |
+|:---|:---|---:|
 | `BFDNoActiveSessions` | Healthy exporter without positive registration series | `10s` |
 | `BFDExporterUnavailable` | Failed or absent `gobfd` scrape target | `10s` |
 | `BFDSessionDownTransition` | Up→Down increase over 1 minute | `0s` |
@@ -99,15 +107,17 @@ An exporter with no sessions differs from an unreachable exporter. `BFDNoActiveS
 
 ### Prometheus readback
 
-For the admitted observability lab, inspect the published local API before fault injection:
+Use read access to the published API of one admitted observability lab and record its intended GoBFD target, rules and accepted peer/forwarding state. The following unexecuted commands only read API state and may be repeated; they create no resources and need no rollback. Inspect the API before fault injection:
 
-```sh title="prometheus-readback.sh"
+```sh
 curl -fsS http://localhost:9090/api/v1/targets
 curl -fsS http://localhost:9090/api/v1/rules
 curl -fsS http://localhost:9090/api/v1/alerts
 ```
 
 Require the intended GoBFD target with health `up` and no scrape error, all expected alert rules loaded, a firing transition alert during the admitted fault and an inactive rule after recovery. An empty target/rule response or HTTP 200 alone is insufficient. The [Prometheus HTTP API](https://prometheus.io/docs/prometheus/latest/querying/api/) defines these responses; the [Go-owned observability gate](11-integrations.md#observability) supplies assertions and exact-owned lifecycle.
+
+Stop before fault injection on a failed request, missing target/rule or unhealthy baseline. Perform mutations only through that gate or the [operational drill](16-production-runbooks.md) with its target, privileges and recovery path. If recovery fails, stop the drill, restore its recorded accepted configuration and peer/forwarding state, then repeat the target, rule and alert readbacks before acceptance. A successful readback does not authorize cleanup of unrelated resources.
 
 ## Logging, health and traces
 

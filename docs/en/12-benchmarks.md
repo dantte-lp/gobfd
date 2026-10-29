@@ -1,5 +1,7 @@
 # Benchmarks
 
+[Russian translation](../ru/12-benchmarks.md).
+
 Micro-benchmarks measure one named operation. They do not establish packet throughput, supported session count, timer accuracy, loss or GC-pause immunity. [Runtime measurement](14-performance-analysis.md) defines the additional owner, UDP, clock and workload boundaries.
 
 ## Collect a snapshot
@@ -8,14 +10,14 @@ Micro-benchmarks measure one named operation. They do not establish packet throu
 2. Select the baseline revision. Choose unused snapshot identifiers and preserve previous raw samples. Require identical benchmark bodies, compiler, architecture, resource limits and environment for both revisions.
 3. Collect a fresh baseline:
 
-```bash title="Go benchmark snapshot"
+```sh
 make up
 make benchmark-save BENCH_VERSION=local-baseline
 ```
 
 4. Select the candidate revision in the same checkout, retaining the baseline files and equivalent development environment. Collect and compare:
 
-```bash title="Equivalent candidate comparison"
+```sh
 make benchmark-save BENCH_VERSION=local-candidate
 make benchmark-compare OLD=local-baseline NEW=local-candidate
 ```
@@ -34,6 +36,8 @@ make benchmark-compare OLD=local-baseline NEW=local-candidate
 | `test-report`, `report-all` | Race JUnit/HTML; optionally snapshot and comparison |
 
 Snapshot files are `benchmark-bfd.txt`, `benchmark-netio.txt`, combined `benchmark.txt` and `meta.json` with version/commit/date/Go/count. Make's collection/comparison pipelines use Bash errexit/pipefail; a failed Go, benchstat or tee command fails the target. A failed rerun can leave older metadata or HTML beside partial samples. A fresh identifier and successful complete run prevent accepting that mixture.
+
+Repeating `benchmark-save` with the same identifier overwrites its named sample files; comparison also replaces its fixed report paths. Stop on failed collection or mismatched inputs. Preserve partial and prior evidence outside those output paths, then repeat with unused identifiers under equivalent conditions. No runtime rollback follows from a benchmark; resource cleanup follows the [owned development lifecycle](09-development.md#prepare-a-checkout). Source: [collection and comparison targets](../../Makefile).
 
 ### Paired CI comparison
 
@@ -78,7 +82,7 @@ The following dated results are retained observations, not fresh execution durin
 At `972946c59bbe8d9bc36fbe51edb9f6c82f3bfc33`, linux/amd64, pinned compiler, 16-byte key, three runs of 200000 iterations:
 
 | Mode | Sign before → after B/op; allocs/op | Verify before → after B/op; allocs/op |
-|:---|:---|:---|
+|:---|---:|---:|
 | Simple Password | 16;1 → 16;1 | 0;0 → 0;0 |
 | Keyed/Meticulous MD5 | 48;3 → 32;2 | 16;1 → 0;0 |
 | Keyed/Meticulous SHA1 | 72;3 → 48;2 | 24;1 → 0;0 |
@@ -124,7 +128,7 @@ The local receipt `reports/collector-owner-20261022/` records 16 B/op and 2 allo
 
 Use the retained samples only for a historical diagnostic, excluding claims of equivalent compiler/benchmark bodies or current-candidate qualification:
 
-```bash
+```sh
 make benchmark-compare OLD=v0.4.0 NEW=local-candidate
 ```
 

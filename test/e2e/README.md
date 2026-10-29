@@ -10,7 +10,7 @@ The harness collects target-specific daemon, routing, RFC, overlay, Linux owners
 4. Run the selected full-cycle Make target.
 5. Retain named results, explicit skips, artifacts, exact source/image/binary identities and cleanup readback. Do not substitute diagnostics for assertions.
 
-```bash title="Core test environment"
+```sh
 make up
 make dev-project
 make e2e-core
@@ -92,7 +92,7 @@ Record every skip with its reason and effect on acceptance. A manifest-only pass
 
 Control UDP 3784/4784, Echo 3785, VXLAN 4789 and Geneve 6081 require protocol-appropriate bounded captures for wire claims. Prefer decoded assertions; packet counts alone cannot prove acceptance/rejection. Correlate captures with test outcomes and retain checksums.
 
-E2E timings are diagnostics. [Benchmark](../../docs/en/12-benchmarks.md) warning policy and [runtime qualification](../../docs/en/14-performance-analysis.md) remain separate.
+E2E timings are diagnostics. [Benchmark](../../docs/en/12-benchmarks.md) regression classification and [runtime qualification](../../docs/en/14-performance-analysis.md) remain separate. The [reporter](../internal/cirunner/benchmark_report.go) fails classified critical regressions after retaining reports; an E2E timing alone does not establish that benchmark verdict.
 
 No shared HTML renderer is implemented in [scripts/e2e-report](../../scripts/e2e-report/README.md). Existing JSON/log/Markdown artifacts remain canonical producer output.
 

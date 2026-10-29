@@ -1,6 +1,10 @@
 # RFC Compliance
 
+[Russian translation](../ru/08-rfc-compliance.md).
+
 This matrix describes source behavior on `dev`, not stable-release acceptance. An implemented function, a local fixture, an actual UDP/capture result and acceptance of the final candidate are separate evidence levels. [Interop](05-interop.md) and [performance](14-performance-analysis.md) retain qualification procedures and measurements; final-candidate qualification remains separate.
+
+BFD means Bidirectional Forwarding Detection; FSM means finite state machine. TX and RX denote transmission and reception. Generalized TTL Security Mechanism (GTSM) constrains received hop counts. PDU means protocol data unit, and MTU means maximum transmission unit. Seamless BFD (S-BFD), MPLS label-switched paths (LSPs), pseudowires (PWs) and Virtual Circuit Connectivity Verification (VCCV) have separate profiles.
 
 ## Compliance Matrix
 
@@ -116,21 +120,21 @@ The actuator receives ordered member changes outside Manager locks with a five-s
 
 ## RFC 8971 Implementation Notes
 
-VXLAN preview uses outer UDP/4789, an eight-byte VXLAN header with I flag, Management VNI and inner Ethernet/IPv4/UDP/3784/BFD. Inner destination MAC is `00:52:02:00:00:00`; originating local/remote source MACs and full endpoint/VNI/IP tuple must match the configured scope.
+VXLAN preview uses outer UDP/4789, an eight-byte VXLAN header with I flag, Management VXLAN network identifier (VNI) and inner Ethernet/IPv4/UDP/3784/BFD. Inner destination MAC is `00:52:02:00:00:00`; originating local/remote source MACs and full endpoint/VNI/IP tuple must match the configured scope.
 
-Only `userspace-udp` is implemented. One listener per local VTEP shares exact scopes and physical source-port ownership. Reserved kernel/OVS/OVN/Cilium/Calico/NSX backends fail closed. A socket owned by another dataplane is outside this profile. Sources: [VXLAN connection](../../internal/netio/vxlan_conn.go), [inner validation](../../internal/netio/overlay_inner.go), [backend admission](../../internal/netio/overlay_backend.go), [overlay ownership](../../cmd/gobfd/overlay_owner.go).
+Only `userspace-udp` is implemented. One listener per local VXLAN tunnel endpoint (VTEP) shares exact scopes and physical source-port ownership. Reserved kernel/OVS/OVN/Cilium/Calico/NSX backends fail closed. A socket owned by another dataplane is outside this profile. Sources: [VXLAN connection](../../internal/netio/vxlan_conn.go), [inner validation](../../internal/netio/overlay_inner.go), [backend admission](../../internal/netio/overlay_backend.go), [overlay ownership](../../cmd/gobfd/overlay_owner.go).
 
 ## RFC 9521 Implementation Notes
 
-Geneve preview uses outer UDP/6081, O=1, C=0, version 0, Protocol Type `0x6558`, VNI and explicit IPv4 Format A VAP IP/MAC identity. Inner Ethernet/IPv4/UDP/3784/BFD is validated before discriminator lookup. Missing/special-use VAP identity, IPv6 inner payloads, Format B and other protocol types fail closed.
+Geneve preview uses outer UDP/6081, O=1, C=0, version 0, Protocol Type `0x6558`, VNI and explicit IPv4 Format A Virtual Access Point (VAP) IP/MAC identity. Inner Ethernet/IPv4/UDP/3784/BFD is validated before discriminator lookup. Missing/special-use VAP identity, IPv6 inner payloads, Format B and other protocol types fail closed.
 
 Only `userspace-udp` is implemented; socket-sharing dataplane integration is absent. Send/receive cancellation must not close a healthy shared listener; Close unblocks I/O, payload borrows the receive buffer until the next read. Rates and congestion exposure require a target profile. Sources: [Geneve connection](../../internal/netio/geneve_conn.go), [inner validation](../../internal/netio/overlay_inner.go), [ADR-0003](adr/0003-linux-advanced-bfd-applicability.md).
 
 ## RFC 9764 Implementation Notes
 
-The target counts BFD transport-payload bytes, excluding IP/UDP headers. Zero disables padding; valid nonzero ranges are 24–9000 without auth and 26–9000 with auth. Rejecting authenticated 24/25 is approved product policy; a target below the actual authenticated PDU never truncates it. TX uses `max(actual PDU, target)`, zero fills padding and prepares IPv4 DF at sender construction.
+The target counts BFD transport-payload bytes, excluding IP/UDP headers. Zero disables padding; valid nonzero ranges are 24–9000 bytes without auth and 26–9000 bytes with auth. Rejecting authenticated targets of 24/25 bytes is approved product policy; a target below the actual authenticated PDU never truncates it. TX uses `max(actual PDU, target)`, zero fills padding and prepares IPv4 DF at sender construction.
 
-Hash verification covers exactly the declared BFD Length, including in-PDU extension bytes, and excludes transport padding. Padding contents are not validated on receive. Local independent vectors cover five authentication types with unpadded, 64-, 128- and 9000-byte datagrams. The direct receive pool accepts through 9000 and rejects Linux `MSG_TRUNC`; codec `MaxPacketSize=64` is not the datagram bound. Overlay buffers allow framing, not a larger inner BFD payload: VXLAN 9090, Geneve 9342 bytes.
+Hash verification covers exactly the declared BFD Length, including in-PDU extension bytes, and excludes transport padding. Padding contents are not validated on receive. Local independent vectors cover five authentication types with unpadded, 64-, 128- and 9000-byte datagrams. The direct receive pool accepts through 9000 bytes and rejects Linux `MSG_TRUNC`; codec `MaxPacketSize=64` is not the datagram bound. Overlay buffers allow framing, not a larger inner BFD payload: VXLAN 9090 bytes, Geneve 9342 bytes.
 
 [Critical BASE interop](05-interop.md) covers 128-byte padded GoBFD TX toward FRR Simple Password and BIRD Keyed SHA1, BFD Length, zero padding and DF. Reverse peer TX is ordinary authenticated PDU; it does not qualify padded peer-originated traffic or path MTU. Positive-to-positive reload and the dated padding slices follow [ADR-0006](adr/0006-session-preserving-reload-policy.md). Enable/disable/dynamic DF remains outside the accepted reload profile; unified exact-candidate gate remains required.
 

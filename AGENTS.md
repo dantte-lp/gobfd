@@ -5,6 +5,7 @@ partial RFC 5880/5881 boundaries.
 Four binaries: `gobfd` (daemon), `gobfdctl` (CLI), `gobfd-haproxy-agent` (HAProxy bridge), `gobfd-exabgp-bridge` (ExaBGP bridge).
 
 ## Commands
+
 ```sh
 make build                                         # сборка всех 4 бинарников с ldflags
 go test ./... -race -count=1                       # тесты с race detector
@@ -25,6 +26,7 @@ make int-k8s                                       # integration: Kubernetes Dae
 ```
 
 ## Architecture
+
 - `internal/bfd/` — FSM (RFC 5880 §6.8), session management, packet codec, auth
 - `internal/server/` — ConnectRPC server, interceptors
 - `internal/netio/` — raw socket abstraction (Linux-specific), UDP listeners 3784/4784
@@ -45,6 +47,7 @@ make int-k8s                                       # integration: Kubernetes Dae
 - `tools/` — isolated Go tool module; never add developer tools to the runtime `go.mod`
 
 ## Code style
+
 - Errors: always wrap with `%w` and context: `fmt.Errorf("send control packet to %s: %w", peer, err)`
 - Use `errors.Is`/`errors.As`, never string matching
 - Context: first param, never store in struct
@@ -60,6 +63,7 @@ make int-k8s                                       # integration: Kubernetes Dae
 - Go 1.27 best practices: use `testing/synctest` and `synctest.Sleep` for virtual-time timer tests, `runtime/trace.FlightRecorder` for debugging, `os.Root` for sandboxed I/O, a deployment-qualified `GOMEMLIMIT` with the default `GOGC` unless measurements justify an override, generic methods only when justified, range-over-func iterators, and `slices`/`maps`/`cmp` stdlib packages
 
 ## Go 1.27 project rules
+
 The baseline is `go 1.27` with `toolchain go1.27.3`. Keep every first-party
 compiler pin in Containerfiles, CI, release workflows, and test harnesses on
 that exact toolchain. Use the official
@@ -147,9 +151,10 @@ an upstream image name alone is not an exception.
 
 - The project issue tracker is the sole source of executable plans, priorities, dependencies,
   acceptance criteria, blockers and handoff/resume steps.
-- Do not create or maintain Markdown task/checklist plans. Files under
-  `docs/superpowers/plans/` are historical entrypoints only; roadmaps are dated
-  status projections, not task authority. Keep measured evidence separate.
+- Do not create or maintain Markdown task/checklist plans. Canonical technical
+  requirements live in `docs/en/reference/production-contract.md` and its Russian
+  counterpart; roadmaps are dated status projections, not task authority.
+  Keep measured evidence separate from executable work items.
 - Read and update the relevant issue before implementation. A skill's
   Markdown-plan workflow does not override this repository requirement.
 
@@ -185,10 +190,11 @@ an upstream image name alone is not an exception.
   the immutable tag.
 
 ## Git
+
 - Commit messages and pull request titles/descriptions use English.
 - Documentation is English first under `docs/en/`, with complete Russian
   counterparts under `docs/ru/`; conversation remains technical Russian.
-- Commits: NEVER add Co-Authored-By or any AI/Claude mentions in commit messages
+- Commits: preserve verified human identity; do not add assistant attribution
 - Module: `github.com/dantte-lp/gobfd` — owner dantte-lp, NOT wolfguard
 
 ## Documentation contract
@@ -213,6 +219,7 @@ an upstream image name alone is not an exception.
   current operational references and executable issue-tracker plans.
 
 ## Important: don't
+
 - NEVER modify generated files in `pkg/bfdpb/` — regenerate with `buf generate`
 - NEVER use `unsafe` package — this is a network daemon handling untrusted input
 - NEVER skip error checks on socket operations in `internal/netio/`

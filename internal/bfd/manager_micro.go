@@ -11,7 +11,7 @@ import (
 )
 
 // microBFDActuatorTimeout bounds one RFC 7130 Section 5 actuator call.
-// ponytail: fixed bound; make it configurable when a backend needs longer.
+// Fixed bound; make it configurable when a backend needs longer.
 const microBFDActuatorTimeout = 5 * time.Second
 
 // microMemberKey identifies a member link session: RFC 7130 Section 2 runs

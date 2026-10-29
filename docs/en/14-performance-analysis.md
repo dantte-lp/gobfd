@@ -1,11 +1,15 @@
 # Runtime performance and measurement
 
+[Russian translation](../ru/14-performance-analysis.md).
+
 Runtime qualification combines independent packet accounting, owner state, timer effects, resources and clock evidence. A source test, component benchmark or short fixture does not establish supported scale. [Benchmark procedures](12-benchmarks.md) cover component cost; this page defines runtime measurements and their limits.
 
 ## Measurement boundaries
 
 ```mermaid
 flowchart LR
+  accTitle: Runtime measurement boundaries
+  accDescr: Packet delivery ends at owner commit; timer dispatch ends at successful send or Down commit.
     peer["Independent peer"]:::srv --> socket["Kernel UDP receive"]:::srv
     socket --> decode["Decode and admission"]:::mgt
     decode --> queue["Buffered delivery"]:::mgt
@@ -93,6 +97,8 @@ Scalar flags reject repetition; only session repeats. The manifest count must eq
 
 prepare has a 30-second setup context. HOST_NAMESPACE is the freshly observed host network-namespace inode supplied by the owner. The current nonzero namespace must differ, contain only an already-Up loopback interface, and every manifest binding must name lo. Preparation is idempotent for existing exact host-length prefixes; it adds addresses through rtnetlink and never deletes existing addresses. A partial failure leaves the owning runner responsible for authorized disposal of the entire owned namespace. See [preparation](../../test/internal/bfdload/topology_linux.go) and [flag validation](../../test/cmd/bfdload/peers.go).
 
+A coordinated run is not resumable by restarting roles in the same control directory: complete phase publications refuse replacement. On cancellation or an incomplete terminal ledger, join the owned processes and preserve their partial JSON and diagnostics. Start a new admitted run with a fresh private control directory; do not merge counters across runs or remove shared namespaces. Namespace disposal remains the owning runner's separately authorized recovery action. Sources: [one-time publications](../../test/internal/bfdload/control_linux.go), [phase stop/join protocol](../../test/internal/bfdload/control_phase_linux.go), [workload phases](adr/0007-workload-phase-accounting.md).
+
 ## Workload profiles
 
 [profile_linux.go](../../test/internal/bfdload/profile_linux.go) defines the approved inputs:
@@ -111,7 +117,7 @@ Reference admission requires exact child 8 CPU/8 GiB limits, GOMAXPROCS 8 and no
 
 Run the Go-owned environment command inside the pinned container:
 
-```bash
+```sh
 go run ./test/cmd/bfdload environment
 ```
 
@@ -229,7 +235,7 @@ Before an authorized native run, apply the owned-runner clock procedure: chrony 
 
 Run inside the pinned environment after both processes join:
 
-```bash
+```sh
 go run ./test/cmd/bfdload assess OWNER_JSON PEER_JSON
 ```
 

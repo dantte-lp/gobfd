@@ -1,5 +1,7 @@
 # ADR-0004: Shared overlay backend vocabulary
 
+[Russian translation](../../ru/adr/0004-overlay-backend-vocabulary.md).
+
 | Field | Value |
 |:---|:---|
 | Status | Accepted |

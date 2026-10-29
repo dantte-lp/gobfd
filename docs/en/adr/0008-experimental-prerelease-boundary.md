@@ -1,5 +1,7 @@
 # ADR-0008: Experimental prerelease boundary
 
+[Russian translation](../../ru/adr/0008-experimental-prerelease-boundary.md).
+
 | Field | Value |
 |:---|:---|
 | Status | Proposed; no publication authorization |
@@ -15,7 +17,11 @@ Propose a separate explicit prerelease channel. Keep stable validation and OCI a
 
 Development remains on `dev` until candidate and checks are complete. The existing remote-delivery hold remains active. This Proposed record authorizes no tag, draft, asset or publication. Prerelease acceptance/delivery and stable qualification remain separate.
 
-Long qualification runs independently of interactive SSH on an owned VM in the authorized `um-gate/netlab2` contour. Provisioning belongs to an isolated `um-iac` Pulumi stack with reviewed preview. Admit actual guest resources, clocks, source and binary before workload execution; retain logs, terminal result and evidence. Final qualification names the exact post-fix source.
+Long qualification runs independently of interactive SSH on an owned VM in the separately authorized qualification environment. Provisioning belongs to an isolated Pulumi stack with reviewed preview. Admit actual guest resources, clocks, source and binary before workload execution; retain logs, terminal result and evidence. Final qualification names the exact post-fix source.
+
+## Alternatives
+
+The current stable-only workflow remains the accepted publication path for stable tags; prerelease syntax alone cannot extend it. Development on `dev` with delivery withheld remains applicable; this proposal does not lift the delivery hold or grant publication authorization.
 
 ## Consequences
 

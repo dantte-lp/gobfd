@@ -1,5 +1,7 @@
 # External audit reconciliation
 
+[Russian translation](../ru/gist-audit-reconciliation.md).
+
 ## Historical baseline
 
 This record describes the **2026-09-08** reconciliation. It does not describe

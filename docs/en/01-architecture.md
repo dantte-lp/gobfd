@@ -1,11 +1,17 @@
 # Architecture
 
-GoBFD separates BFD state machines, Linux UDP I/O, management authorization and routing actuators. A physical session belongs to the session Manager; configuration and API principals hold claims on that session. A claim does not own an independent protocol instance. Sources: [session identity](../../internal/bfd/session_identity.go), [Manager](../../internal/bfd/manager.go).
+[Russian translation](../ru/01-architecture.md).
+
+GoBFD separates Bidirectional Forwarding Detection (BFD) state machines, Linux UDP input/output (I/O), management authorization and routing actuators. A physical session belongs to the session Manager; configuration and API principals hold claims on that session. A claim does not own an independent protocol instance. Sources: [session identity](../../internal/bfd/session_identity.go), [Manager](../../internal/bfd/manager.go).
+
+A finite state machine (FSM) owns protocol transitions. Receive (RX) and transmit (TX) identify packet directions; time to live (TTL) is the IPv4 hop bound, and IPv6 uses Hop Limit. A protocol data unit (PDU) is the declared BFD packet. VXLAN network identifiers (VNIs) separate overlay scopes; link aggregation groups (LAGs) contain member links. Mutual TLS (mTLS) authenticates both management endpoints.
 
 ## System Overview
 
 ```mermaid
 flowchart LR
+    accTitle: Component ownership and message flow
+    accDescr: Configuration and management feed the Manager; session owners receive packets, transmit through leases and publish observations.
     cli["gobfdctl and bridges"]:::mgt --> rpc["Management API"]:::mgt
     cfg["Validated configuration"]:::mgt --> rec["Reconciliation coordinator"]:::srv
     rpc --> mgr["Session Manager"]:::srv
@@ -48,6 +54,8 @@ The FSM returns actions; the session executes them. Socket adapters depend on co
 
 ```mermaid
 flowchart TD
+    accTitle: Control receive pipeline
+    accDescr: A datagram passes transport checks, decoding, lookup, admission and owner validation before state commit and notification.
     socket["UDP datagram and ancillary metadata"]:::leaf --> transport["Length, truncation and transport checks"]:::leaf
     transport --> codec["Decode Control header and auth shape"]:::srv
     codec --> scope["Discriminator or initial-key lookup"]:::srv
@@ -109,6 +117,8 @@ Aggregate health is `NOT_SERVING` before first convergence, while desired differ
 
 ```mermaid
 sequenceDiagram
+    accTitle: Asynchronous Control startup
+    accDescr: Endpoint A sends Down, endpoint B replies Init and both endpoints progress to Up with learned discriminators.
     participant A as Endpoint A
     participant B as Endpoint B
     A->>B: Down, Your Discriminator=0
@@ -133,9 +143,9 @@ GoBGP and bridges act after state publication. A successful local observation, n
 
 Default `Manager.Close` may abandon queued state notifications. The workload Owner opts into draining registered physical-session changes to live subscribers before EOF; this performs no external actuation and does not guarantee lossless delivery to canceled or slow subscribers. See [shutdown policy](adr/0007-workload-phase-accounting.md#down-journal).
 
-1. Request `Manager.DrainAllSessions` on SIGTERM/SIGINT with one fresh ten-second budget.
-2. Await owner AdminDown/7 commit, the first successful permitted write and the negotiated notification window; retry failed writes on the normal TX timer.
-3. Close the Manager, join owners and dispatch, release sender leases, then shut down HTTP and receive resources.
+1. On SIGTERM/SIGINT, the daemon requests `Manager.DrainAllSessions` with one fresh ten-second budget.
+2. The drain waits for owner AdminDown/7 commit, the first successful permitted write and the negotiated notification window; failed writes retry on the normal TX timer.
+3. Shutdown closes the Manager, joins owners and dispatch, releases sender leases, then shuts down HTTP and receive resources.
 
 The notification window begins at the first successful write and covers the larger of local receive Detection Time and `localDetectMult * max(advertisedAdminDownTX, remoteMinRX)`. A default multiplier of three and the one-second non-Up floor produce a three-second window. Earlier cancellation or insufficient time returns `DrainIncompleteError`. Local write completion is not peer acknowledgement.
 
@@ -151,8 +161,8 @@ The [runtime manifest](../../go.mod) and [tools manifest](../../tools/go.mod) de
 
 ## UDP Port Map
 
-| Destination | Transport | Scope |
-|:---|:---|:---|
+| Destination port | Transport | Scope |
+|---:|:---|:---|
 | 3784 | Single-hop Control | IPv4/IPv6 numbered multiaccess profile |
 | 4784 | Multihop Control | Configured address pair and receive-hop policy |
 | 3785 | Unaffiliated Echo | Default-off preview |

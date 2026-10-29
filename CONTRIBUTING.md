@@ -12,7 +12,7 @@ Contributions follow [GOVERNANCE.md](GOVERNANCE.md), [CODE_OF_CONDUCT.md](CODE_O
 
 ## Validate
 
-```bash title="Routine validation"
+```sh
 make up
 make test
 make verify

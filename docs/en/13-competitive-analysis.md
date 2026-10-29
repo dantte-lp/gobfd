@@ -1,5 +1,7 @@
 # Comparing BFD implementations
 
+[Russian translation](../ru/13-competitive-analysis.md).
+
 A comparison identifies implementation, release, platform, enabled procedure and evidence. Protocol coverage, operational integration and performance require different checks. GoBFD's supported boundary is the [RFC matrix](08-rfc-compliance.md); vendor documentation is indexed separately in [vendor BFD reference](reference/vendor-bfd.md).
 
 ## Evidence classes

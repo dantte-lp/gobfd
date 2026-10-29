@@ -61,7 +61,7 @@ var (
 // but sets no rate; an active peer retransmits every second, so a refused
 // peer is admitted on a later packet.
 //
-// ponytail: fixed global rate; make it configurable or per interface if a
+// Fixed global rate; make it configurable or per interface if a
 // large IXP needs faster convergence after a restart.
 const (
 	unsolicitedAdmissionRate  = 10 // sessions per second

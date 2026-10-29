@@ -1,5 +1,7 @@
 # Release qualification status
 
+[Russian translation](../ru/roadmap.md).
+
 Snapshot: **2026-10-29**. This page records the technical acceptance boundary;
 it does not authorize publication. Use the documentation at the candidate's
 commit and the applicable release-line contract.

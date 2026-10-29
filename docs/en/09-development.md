@@ -1,5 +1,7 @@
 # Development
 
+[Russian translation](../ru/09-development.md).
+
 Development uses the next-line `dev` branch and the repository-pinned Podman toolchain. The executable contract is [AGENTS.md](../../AGENTS.md); commands are defined in [Makefile](../../Makefile). A successful source check does not qualify a daemon, network or release.
 
 ## Prepare a checkout
@@ -9,13 +11,15 @@ Development uses the next-line `dev` branch and the repository-pinned Podman too
 3. Give concurrent checkouts distinct `COMPOSE_PROJECT_NAME` values. The default is the sanitized directory basename; equal basenames collide.
 4. Start the development environment and inspect its project:
 
-```bash title="Development environment"
+```sh
 make up
 make dev-project
 make dev-ps
 ```
 
 `go.mod`, `tools/go.mod` and `deployments/docker/Containerfile.dev` pin Go 1.27.3. Build/test/lint commands execute in the dev container. `dev-ensure` validates its `/app` bind mount and can recreate a container whose checkout changed. `make up` can build images; it is not a read-only preflight.
+
+Require access to the selected Podman engine and exclusive ownership of the Compose project before startup. Stop if the project or `/app` mount identifies another checkout. Repeating `dev-ensure` can recreate that selected service; recover only the owned project and preserve working-tree changes and failure artifacts before any separately authorized cleanup. [Makefile](../../Makefile) defines this lifecycle.
 
 ## Daily change procedure
 
@@ -24,7 +28,7 @@ make dev-ps
 3. Change handwritten sources; regenerate public protobuf output instead of editing `pkg/bfdpb/`.
 4. Run the focused race test, then the routine gate:
 
-```bash title="Focused and routine checks"
+```sh
 make test-run RUN=TestFSMTransition PKG=./internal/bfd
 make lint-docs
 make verify
@@ -102,7 +106,7 @@ Replay the six overlay fuzz targets with race detection, two workers, a 20-secon
 
 Execute in the pinned SDK with the verified UPX prerequisite on PATH:
 
-```bash
+```sh
 go run ./test/cmd/cictl package-build
 go run ./test/cmd/cictl package-lifecycle
 ```

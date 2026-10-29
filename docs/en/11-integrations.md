@@ -1,9 +1,13 @@
 # Integrations
 
+[Russian translation](../ru/11-integrations.md).
+
 GoBFD publishes BFD state; a consumer applies routing or backend policy. The repository supplies GoBGP actuation, HAProxy agent-check, ExaBGP process output, observability and Kubernetes examples. Each requires independent failure/recovery and forwarding acceptance.
 
 ```mermaid
 flowchart LR
+  accTitle: BFD state consumers
+  accDescr: The daemon observes its BFD peer; routing, backend eligibility and observability remain separate consumers.
   peer["BFD peer"]:::brt --> daemon["GoBFD"]:::srv
   daemon -.-> bgp["GoBGP peer control"]:::brt
   daemon -.-> agent["HAProxy agent bridge"]:::srv
@@ -15,6 +19,12 @@ flowchart LR
   classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
   classDef brt fill:#fff3e0,stroke:#bf360c,color:#000
 ```
+
+## Admit an isolated run
+
+Use the [development prerequisites](09-development.md#prepare-a-checkout) and the selected runner's Podman or cluster access. Admit one disposable topology and record its names, subnet, ports and resource ownership before startup. Stop on overlap with existing resources, failed readiness, missing asserted withdrawal/recovery or failed cleanup; retain the run directory and terminal result. A repeated invocation is a new failure drill, not a rollback. Restore the injected fault and verify the consumer before separately authorized removal of owned resources.
+
+Retained Compose lifecycle cleanup can remove volumes and orphans; the Kubernetes down path deletes namespace `gobfd`. These paths are not a general ownership check. Inspect the exact [integration runner](../../test/internal/integrationrunner/runner.go) and [E2E admission rules](../../test/e2e/README.md) before running cleanup.
 
 ## BGP fast failover
 
@@ -35,7 +45,7 @@ The gate retains `reports/e2e/bgp-fast-failover/run.*/` and asserts exact route 
 `gobfd-haproxy-agent` selects one BFD session per configured backend and serves unauthenticated TCP agent responses. Only Up produces `up ready\n`; other/missing/ambiguous states produce `down\n`. Watch reconnection uses authoritative resnapshots. These responses describe BFD path eligibility, not application HTTP/TLS health.
 
 | Input | Contract |
-| :--- | :--- |
+|:---|:---|
 | Flags | `-config`, `-gobfd-addr`, `-version` |
 | Endpoint precedence | Built-in Unix socket → `GOBFD_ADDR` → flag → nonempty YAML `gobfd_addr` |
 | YAML globals | `gobfd_addr`, `listen_addr`, `backends` |
@@ -58,7 +68,7 @@ The Go-owned gate checks backend response and recovery and retains `reports/e2e/
 `gobfd-exabgp-bridge` writes only ExaBGP process commands to stdout and logs to stderr. A selected Up session emits `announce route PREFIX next-hop self`; absent, ambiguous, non-Up or disconnected observation withdraws. Repeated identical state does not duplicate a command; process restart reconciles initial route state.
 
 | Environment | Contract |
-| :--- | :--- |
+|:---|:---|
 | `GOBFD_ADDR` | Default `unix:///run/gobfd/gobfd.sock` |
 | `GOBFD_PEER` | Required peer address |
 | `ANYCAST_PREFIX` | Required valid IP prefix; normalized to network |
@@ -94,7 +104,7 @@ The [manifest set](../../deployments/integrations/kubernetes/manifests) runs one
 ## Qualification and vendor references
 
 | Evidence | Establishes | Does not establish |
-| :--- | :--- | :--- |
+|:---|:---|:---|
 | Unit/source checks | Contract behavior on tested paths | Native peer interoperability |
 | Owned testcontainers lifecycle | Asserted local failure/recovery | Production resources or continuous forwarding |
 | Packet capture | Captured wire fields/events | Exhaustive RFC coverage |

@@ -42,7 +42,7 @@ without bypass. Do not equate a ruleset setting with technical review.
 
 The branch rulesets require these exact, case-sensitive contexts:
 
-```text title="required-status-contexts"
+```text
 Build & test
 Lint (Go)
 Vulnerability audit
@@ -74,7 +74,7 @@ are the observed enforcement mechanism.
 
 ## Read-only API inspection
 
-```sh title="publication-control-inspection"
+```sh
 gh api repos/dantte-lp/gobfd/rulesets
 gh api repos/dantte-lp/gobfd/rulesets/13093259
 gh api repos/dantte-lp/gobfd/rulesets/21655254

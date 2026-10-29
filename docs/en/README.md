@@ -31,6 +31,8 @@ contract. Use pages from the deployed binary's commit: `dev`, `master` and
 | Compare implementations by supported profile | [13 Comparisons](13-competitive-analysis.md) |
 | Evaluate runtime and workload evidence | [14 Performance](14-performance-analysis.md) |
 | Check architectural constraints | [ADRs](adr/README.md) |
+| Check the product contract and timer ownership | [Production contract](reference/production-contract.md), [timer transactions](reference/timer-transactions.md) |
+| Write and review documentation | [Documentation standard](reference/documentation-standard.md) |
 | Inspect dependency risks | [References](reference/README.md) |
 | Check outstanding release acceptance | [Dated status](roadmap.md) |
 
