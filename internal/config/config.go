@@ -924,11 +924,13 @@ const envPrefix = "GOBFD_"
 // The explicit supported environment mapping is defined by envKeyMapper;
 // unknown or ambiguous GOBFD_ names are ignored.
 //
+// The caller selects the directory, including absolute paths, relative parent
+// components and directory symlinks. The final name is resolved through os.Root
+// beneath that opened directory; this does not impose a trusted base directory.
+//
 // Uses koanf/v2 with raw bytes + env providers and YAML parser.
 func Load(path string) (*Config, error) {
-	// os.Root provides sandboxed file access to prevent path traversal.
-	// Validate that the config file is within the expected directory
-	// before allowing koanf to read it.
+	// Open the directory selected by the caller, then resolve only the final name.
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
 	root, err := os.OpenRoot(dir)
@@ -937,7 +939,7 @@ func Load(path string) (*Config, error) {
 	}
 	defer root.Close()
 
-	// Validate the file is accessible within the root.
+	// File symlinks must be relative and remain beneath the opened directory.
 	f, err := root.Open(base)
 	if err != nil {
 		return nil, fmt.Errorf("open config file %s in root %s: %w", base, dir, err)

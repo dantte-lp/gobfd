@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1900,17 +1901,116 @@ grpc:
 }
 
 // =========================================================================
-// os.Root Config Sandboxing Tests
+// Caller-Selected Paths and Final-Name Resolution
 // =========================================================================
 
-func TestLoadRejectsPathTraversal(t *testing.T) {
+func TestLoadCallerSelectedPaths(t *testing.T) {
 	t.Parallel()
 
-	// Attempt to load a config with path traversal components.
-	// os.Root should prevent accessing files outside the config directory.
-	_, err := config.Load("../../../etc/passwd")
+	path := writeTemp(t, "metrics:\n  path: /caller-selected-config\n")
+	workingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentPath, err := filepath.Rel(workingDir, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.IsAbs(parentPath) || !strings.HasPrefix(parentPath, ".."+string(filepath.Separator)) {
+		t.Fatalf("fixture lacks relative parent component: %q", parentPath)
+	}
+	nested := filepath.Join(filepath.Dir(path), "nested")
+	if err := os.Mkdir(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(t.TempDir(), "selected-directory")
+	if err := os.Symlink(filepath.Dir(path), linkDir); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct{ name, path string }{
+		{"absolute", path},
+		{"relative parent", parentPath},
+		{"absolute parent", nested + string(filepath.Separator) + ".." + string(filepath.Separator) + filepath.Base(path)},
+		{"directory symlink", filepath.Join(linkDir, filepath.Base(path))},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			cfg, err := config.Load(test.path)
+			if err != nil {
+				t.Fatalf("Load(%q): %v", test.path, err)
+			}
+			if cfg.Metrics.Path != "/caller-selected-config" {
+				t.Fatalf("Metrics.Path = %q, want temporary file value", cfg.Metrics.Path)
+			}
+		})
+	}
+}
+
+func TestLoadFinalSymlinkConfinement(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	selected := filepath.Join(dir, "selected")
+	projection := filepath.Join(selected, "..version")
+	if err := os.MkdirAll(projection, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	inside := filepath.Join(selected, "target.yml")
+	outside := filepath.Join(dir, "outside.yml")
+	for _, path := range []string{inside, outside, filepath.Join(projection, "gobfd.yml")} {
+		if err := os.WriteFile(path, []byte("metrics:\n  path: /symlink-config\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Both targets are valid configurations when selected directly by the caller.
+	for _, path := range []string{inside, outside} {
+		cfg, err := config.Load(path)
+		if err != nil || cfg.Metrics.Path != "/symlink-config" {
+			t.Fatalf("direct temporary target %q: %v", path, err)
+		}
+	}
+	if err := os.Symlink("..version", filepath.Join(selected, "..data")); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, target string
+		wantError    bool
+	}{
+		{"inside-relative", "target.yml", false},
+		{"projected-relative", filepath.Join("..data", "gobfd.yml"), false},
+		{"outside-relative", filepath.Join("..", "outside.yml"), true},
+		{"outside-absolute", outside, true},
+		{"inside-absolute", inside, true},
+	} {
+		path := filepath.Join(selected, test.name+".yml")
+		if err := os.Symlink(test.target, path); err != nil {
+			t.Fatal(err)
+		}
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			cfg, err := config.Load(path)
+			if test.wantError {
+				if _, ok := errors.AsType[*os.PathError](err); !ok {
+					t.Fatalf("Load(%q) error = %v, want file-resolution PathError", path, err)
+				}
+				return
+			}
+			if err != nil || cfg.Metrics.Path != "/symlink-config" {
+				t.Fatalf("Load(%q) did not read the in-directory target: %v", path, err)
+			}
+		})
+	}
+}
+
+func TestLoadYAMLErrorAfterFileOpen(t *testing.T) {
+	t.Parallel()
+
+	_, err := config.Load(writeTemp(t, "metrics: [\n"))
 	if err == nil {
-		t.Fatal("Load() with path traversal should return error, got nil")
+		t.Fatal("invalid YAML accepted")
+	}
+	if _, ok := errors.AsType[*os.PathError](err); ok {
+		t.Fatalf("YAML error reported as file-resolution error: %v", err)
 	}
 }
 

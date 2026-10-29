@@ -19,6 +19,8 @@ The four application binaries are `gobfd`, `gobfdctl`, `gobfd-haproxy-agent` and
 4. Inspect `gobfd -version` and `gobfdctl version` before service activation.
 5. Compare live configuration with [the configuration contract](03-configuration.md); provide explicit peer/local/interface bindings and protect authentication material.
 
+Keep `-config PATH` under local operator control. Absolute and relative parent paths are supported; that path selects the directory opened by the loader. Use an absolute path in service definitions and protect the file and containing directories with filesystem permissions. The [configuration path boundary](15-security.md#configuration-paths) defines final-name symlink restrictions.
+
 No release download URL or mutable image tag substitutes for candidate verification.
 
 ## systemd

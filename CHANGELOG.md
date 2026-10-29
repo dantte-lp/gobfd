@@ -753,6 +753,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Correct the configuration path trust boundary: caller-selected absolute,
+  relative-parent and directory-symlink paths remain supported. Test final-name
+  symlink confinement separately from YAML errors; preserve loader behavior.
+
 - Fail benchmark comparisons on classified critical regressions after retaining
   reports and attempting summaries and warnings. Reject invalid raw inputs and
   propagate benchstat and writer errors; preserve six-run release consumers.

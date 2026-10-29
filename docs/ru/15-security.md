@@ -25,6 +25,12 @@ Management mTLS требует server certificate, private key, client CA. Фа�
 
 `gobfdctl certificate renew` — независимый outbound CA client. Требуются HTTPS origin без credentials/path/query, explicit roots, текущий certificate/key. Response/chain bounds, проверка возвращённой identity и atomic certificate replacement принадлежат [реализации](../../internal/stepca/client.go). Команда не выполняет enrollment, key rotation, scheduling и не меняет authorization GoBFD. [Disposable actual-provider profile](../../test/stepca/README.md) квалифицирует ограниченный renewal/negative cases, не production CA и все dependencies provider. См. [ADR-0005](adr/0005-smallstep-management-certificates.md).
 
+## Пути к конфигурации
+
+Локальный запуск и перечитывание используют выбранный вызывающей стороной `-config PATH`. Поддерживаются абсолютные пути и относительные компоненты `..`. [Загрузчик](../../internal/config/config.go) открывает `filepath.Dir(PATH)`, следуя символическим ссылкам каталогов, затем разрешает последнее имя через `os.Root`. Поддерживаются относительные файловые ссылки внутри открытого каталога, включая ссылки проецируемых томов; ссылки за его пределы и абсолютные файловые ссылки отклоняются. Корень выбирает вызывающая сторона; отдельного списка разрешённых каталогов конфигурации нет.
+
+Разбор YAML и проверка конфигурации выполняются после чтения файла и не устанавливают границу файлового доступа. Защитить выбранный файл и каталоги правами файловой системы. [Тесты с временными файлами](../../internal/config/config_test.go) разделяют поддерживаемые пути, ограничение последнего имени символической ссылки и ошибки YAML.
+
 ## Граница BFD packets
 
 | Профиль | Поверхность | Решение deployment |
