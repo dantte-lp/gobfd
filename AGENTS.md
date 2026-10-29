@@ -193,6 +193,13 @@ an upstream image name alone is not an exception.
 
 ## Documentation contract
 
+- The canonical [documentation standard](docs/en/reference/documentation-standard.md)
+  and its [Russian translation](docs/ru/reference/documentation-standard.md)
+  define prose, Markdown, diagrams, source attribution and public changelog/status rules.
+- Keep internal task identifiers, tracker-specific commands, session transcripts
+  and tool-specific prompts out of current user documentation and release notes.
+  Scan identifiers as well as tracker names; preserve original historical evidence
+  before preparing publishable derivatives.
 - State verified behavior declaratively; write procedures as imperative steps
   with prerequisites, expected results and rollback where a change needs one.
 - Keep plain Markdown, existing document paths and useful link anchors.

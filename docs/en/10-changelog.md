@@ -5,7 +5,7 @@
 ## Maintain an entry
 
 1. Identify the user-visible result: protocol procedure, configuration/default, API, CLI, metrics, security or compatibility.
-2. Add a concise entry to `Unreleased` in both changelogs. State resulting behavior and limitations.
+2. Add a concise entry to `Unreleased` in both changelogs. State resulting behavior and limitations; omit internal task IDs and tracker commands according to the [documentation standard](reference/documentation-standard.md#changelog-and-public-development-status).
 3. Use only nonempty Added, Changed, Deprecated, Removed, Fixed or Security groups.
 4. Verify that both entries preserve the same conditions, identifiers and acceptance scope.
 5. Keep internal refactoring and test-only work out of user release history unless they change a supported contract.

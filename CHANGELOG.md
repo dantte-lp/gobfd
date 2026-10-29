@@ -337,16 +337,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retains the `hard-fail` policy; it does not implement graceful restart.
   GoBGP preserves local/remote administrative intent across retries and
   gap resync, and checks current session identity and policy before disable.
-  Control and Echo Watch rows carry full sampled status
-  (`gobfd-qj0.8.2.1.3.8`, `gobfd-qj0.8.2.1.3.10`).
+  Control and Echo Watch rows carry full sampled status.
 
 - GoBGP per-configured-peer metrics for effective decayed flap penalty,
   recovery suppression and its maximum bound, and pending desired Up/Down
-  actions with their next retry/recheck timestamp (`gobfd-qj0.8.2.4.7`).
+  actions with their next retry/recheck timestamp.
   Accepted reloads replace the peer allowlist; scrapes do not change routing
   decisions or create labels from API or unsolicited sessions.
 - Versioned session snapshots and gap-aware Watch streams
-  (`gobfd-qj0.8.2.1.3.2`; H-29, M-08). `bfd.v1` adds `revision` to
+  (H-29, M-08). `bfd.v1` adds `revision` to
   `ListSessionsResponse`, `GetSessionResponse` and
   `WatchSessionEventsResponse`, and the event types `GAP` and
   `SYNC_COMPLETE`. `WatchSessionEvents` subscribes before its snapshot,
@@ -356,22 +355,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `remote_min_rx_interval`. `gobfdctl monitor` prints `Gap`, `SyncComplete`
   and `rev=`.
 - Revisioned `SESSION_DELETED` events when the last owner releases a wire
-  session through the API, reconciliation or unsolicited cleanup
-  (`gobfd-qj0.8.2.1.3.6`). Events carry the removed session's identity and
+  session through the API, reconciliation or unsolicited cleanup. Events carry the
+  removed session's identity and
   final state; releasing a shared claim emits no deletion. Snapshots omit
   removed sessions, and slow subscribers recover through `GAP`. The GoBGP
   handler forgets removed sessions and cancels their pending Down and Up
   actions, including when deletion is recovered from a gap snapshot.
 
 - mTLS for the management TCP listener (`grpc.tls.cert_file`, `key_file`,
-  `client_ca_file`; `gobfd-330.2`). Clients must present a certificate from
+  `client_ca_file`). Clients must present a certificate from
   the client CA; ALPN offers HTTP/2 and HTTP/1.1; the files are re-read on
   every handshake. The principal is the client certificate URI SAN (SPIFFE)
   or `dns:<name>`. `gobfdctl` gains `--tls-ca`, `--tls-cert` and `--tls-key`;
   the companions read `GOBFD_TLS_CA_FILE`, `GOBFD_TLS_CERT_FILE` and
   `GOBFD_TLS_KEY_FILE`. No default changes.
-- Optional management Unix socket (`grpc.socket.path`, `mode`, `group`;
-  `gobfd-330.1`). Requests over it carry the kernel-reported peer UID as
+- Optional management Unix socket (`grpc.socket.path`, `mode`, `group`). Requests over
+  it carry the kernel-reported peer UID as
   principal, logged as `principal=uid:<n>`. `gobfdctl --addr`,
   `gobfd-haproxy-agent` and `gobfd-exabgp-bridge` accept `unix:///path`
   endpoints as well as `http://` and `https://`. `grpc.addr` may be empty
@@ -481,7 +480,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Local dispatch samples fall from 11 to 0 allocs/op without an actuator and
   from 15 to 4 with a noop actuator; per-call deadline and cancellation remain.
 
-- gRPC health readiness derives from components (H-30, `gobfd-qj0.8.2.3.1`).
+- gRPC health readiness derives from components (H-30).
   The empty service is the AND of the five reconciliation sources, the runtime
   workers and the device-bound listener interfaces. `bfd.v1.BfdService`
   follows base, VXLAN and Geneve sessions and the control listeners, including
@@ -496,8 +495,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   another ifindex makes its services `NOT_SERVING`. Interface events and a 2 s
   periodic check re-evaluate the bindings; an interface inventory failure fails
   startup and leaves the previous state at runtime.
-- Receive listeners are owned per reconciliation generation (H-23,
-  `gobfd-qj0.8.2.2.6.4`). SIGHUP may add or re-key control, Echo and Micro-BFD
+- Receive listeners are owned per reconciliation generation (H-23). SIGHUP may add or
+  re-key control, Echo and Micro-BFD
   entries that need a new local address, interface or session type: the source
   opens its missing listeners before the Manager apply, so it cannot converge
   on senders alone. An absent interface leaves the source `pending` until the
@@ -509,8 +508,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ifindex is rebound in place on the next check, which needs `CAP_NET_RAW`; a
   failed rebind stays `NOT_SERVING` and is retried. A deliberately closed
   listener is not receiver loss. Startup still fails on any listener error.
-- VXLAN and Geneve backends are owned per reconciliation generation (H-23,
-  `gobfd-qj0.8.2.2.6.4`). SIGHUP may add, remove or re-key overlay identities,
+- VXLAN and Geneve backends are owned per reconciliation generation (H-23). SIGHUP may
+  add, remove or re-key overlay identities,
   including a new local endpoint or per-peer Geneve VNI: a new endpoint opens a
   backend, an identity added on an open endpoint widens that socket's identity
   set in place (`SetScopes`, one atomic load per packet), and a clean apply
@@ -538,10 +537,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Report Micro-BFD reconciliation as one `micro` source in generation receipt
   logs instead of `micro_group` and `micro_member`. The daemon logs
   `micro-BFD reconciliation had errors` or `micro-BFD reconciliation complete`
-  instead of the separate group and session messages (`gobfd-qj0.8.2.2.1`).
+  instead of the separate group and session messages.
 
 - Stable v1 permits the module-only `GO-2026-4736` exception for GoBGP v4.10.0
-  by maintainer decision of 2026-10-21 (`gobfd-qj0.8.4.1`) while GHSA/OSV list
+  by maintainer decision of 2026-10-21 while GHSA/OSV list
   a fixed version at or below the pin and the final candidate's govulncheck
   reports the advisory only at module level (no imported package or reachable
   symbol). The allowlist entry and the dependency inventory decision name owner
@@ -574,24 +573,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   initial demux stays deferred.
 
 - The BIRD interoperability peer moved from 3.3.2 to 3.4.0 with the
-  checksum-pinned upstream fix `7cf75587` for CVE-2026-112112
-  (`gobfd-qj0.8.6.6.2`). The recipe records source and fix hashes and OCI
+  checksum-pinned upstream fix `7cf75587` for CVE-2026-112112. The recipe records source
+  and fix hashes and OCI
   labels; a FlowSpec regression test checks that BIRD marks a nonzero IPv6
   destination offset invalid. BASE and BGP+BFD topologies use the same recipe.
 - Updated pinned upload/download-artifact Actions to v7.0.2/v8.0.2 for HTTP 429
   retries with `Retry-After`, GoReleaser Action to v7.3.0 for runner tool cache
-  reuse, and Scorecard Action to v2.5.0 for the Scorecard v5.6.0 engine refresh
-  (`gobfd-qj0.8.6.4.2`).
+  reuse, and Scorecard Action to v2.5.0 for the Scorecard v5.6.0 engine refresh.
 - Dependency inventory generation now uses an explicit `dev` observation epoch
-  and deferred release-line decisions (`gobfd-qj0.8.2.8.7.6`). It records actual
+  and deferred release-line decisions. It records actual
   exact-version license responses, rejects legacy observation reuse, and leaves
   uncollected external reviews and security unverified.
 - Updated `dev` module pins to Prometheus `client_golang` v1.25.0 and Moby
-  client v0.6.2 (`gobfd-qj0.8.6.2`). Metrics responses now include negotiated
+  client v0.6.2. Metrics responses now include negotiated
   `Vary` headers; the container integration client fixes cancellation and
   deadlines during HTTP upgrade.
 - **Breaking:** GoBGP flap dampening never holds a BFD Down
-  (`gobfd-qj0.8.2.4.1`, H-27, v1 dampening contract). Every qualifying Down
+  (H-27, v1 dampening contract). Every qualifying Down
   disables the peer at once; once suppressed, dampening holds only the
   recovery Up, and a Down cancels a held recovery. Validation rejects
   `gobgp.dampening.reuse_threshold <= 0` and `max_suppress_time <= 0`
@@ -599,40 +597,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `GetSession` by a peer address that matches more than one
   session fails with `FAILED_PRECONDITION` and lists the local
   discriminators, instead of returning the first match (M-07).
-- The GoBGP handler resyncs after lost BFD state changes
-  (`gobfd-qj0.8.2.4.1`): on a stream gap it rebuilds Down and Up edges from
+- The GoBGP handler resyncs after lost BFD state changes: on a stream gap it rebuilds
+  Down and Up edges from
   a revisioned snapshot and its last seen state per session, so a peer is
   no longer left enabled over a failed path or disabled after recovery.
 - **Breaking:** the GoBGP handler acts only on the canonical single-hop or
-  multi-hop session of a BGP neighbor (`gobfd-qj0.8.2.4.2`, H-31). Micro-BFD
+  multi-hop session of a BGP neighbor (H-31). Micro-BFD
   member links, VXLAN, Geneve and Echo sessions to the neighbor address no
   longer disable or enable the peer; IPv4-mapped peer addresses are
   unmapped. With `gobgp.enabled`, configuration validation rejects two
   sessions to the same peer address; with a second base session created at
   runtime, BFD Down does not disable the peer and sets `gobfd.gobgp` to
   `NOT_SERVING`, while BFD Up still re-enables a peer GoBFD disabled.
-- The GoBGP handler enables only peers it disabled itself
-  (`gobfd-qj0.8.2.4.1`). It reads a neighbor's admin state before
+- The GoBGP handler enables only peers it disabled itself. It reads a neighbor's admin state before
   `DisablePeer` and leaves operator-disabled peers alone on BFD Down and Up.
   The record is in memory: after a restart, peers GoBFD had disabled stay
   disabled until an operator enables them.
 - **Breaking:** the flight recorder dump `/debug/flightrecorder` is no
-  longer served on the unauthenticated metrics listener
-  (`gobfd-qj0.8.2.3.2`). With the new `grpc.flight_recorder: true` it is
+  longer served on the unauthenticated metrics listener. With the new
+  `grpc.flight_recorder: true` it is
   served on the management server to callers with a principal (Unix socket
   or an mTLS identity allowed by `grpc.mutating_identities`); anonymous
   loopback callers get `403`. The recorder still runs for the dump on
   shutdown.
-- API session claims belong to the caller's principal (`gobfd-330.4`,
-  GitHub #87): the Unix peer UID, the mTLS identity, or `local` for anonymous
+- API session claims belong to the caller's principal (GitHub #87): the Unix peer UID,
+  the mTLS identity, or `local` for anonymous
   loopback callers under `grpc.unsafe_loopback_mutations`. `DeleteSession`
   by another principal returns `PermissionDenied` and is logged; two
   principals that add the same session share it. New
   `grpc.mutating_identities` (requires `grpc.tls`) limits mutating RPCs to
   the listed mTLS identities; other mTLS clients can only read.
 - **Breaking:** the management API defaults to the Unix socket
-  `/run/gobfd/gobfd.sock` and opens no TCP listener (`gobfd-330.3`,
-  GitHub #87). Plaintext `grpc.addr` on a non-loopback or wildcard address
+  `/run/gobfd/gobfd.sock` and opens no TCP listener (GitHub #87). Plaintext `grpc.addr`
+  on a non-loopback or wildcard address
   fails startup; use loopback or `grpc.tls`. Anonymous loopback TCP clients
   can read but get `PermissionDenied` for `AddSession`, `DeleteSession`,
   `AddEchoSession`, `DeleteEchoSession`, `AddMicroBFDGroup` and
@@ -1055,7 +1052,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ubuntu-latest` (Ubuntu 24.04), Podman 4.9.3 links Debian imagebuilder 1.2.5,
   which rejects `ADD --checksum` in the interop Containerfiles; the
   checksum-pinned recipes stay unchanged. `toolbootstrap podman-runtime` logs
-  the runner image and Podman version (`gobfd-22v`).
+  the runner image and Podman version.
 
 - Hosted E2E on `ubuntu-26.04` reads and stops packet captures again. Ubuntu
   26.04 AppArmor 5.0.2 attaches its `tshark` profile to `/usr/bin/tshark`, and
@@ -1064,15 +1061,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   signals. The capture image now runs `tshark` and `dumpcap` from
   `/usr/local/bin`. The E2E jobs also allow the `pasta` profile to receive
   Podman signals, which rootless network teardown requires (LP: #2154379), and
-  print AppArmor denials after the run (`gobfd-dah`).
+  print AppArmor denials after the run.
 
-- Map Micro-BFD group errors to client status codes (`gobfd-qj0.8.2.2.1`):
+- Map Micro-BFD group errors to client status codes:
   `ErrMicroBFDGroupExists` returns `AlreadyExists`, `ErrMicroBFDGroupNotFound`
   returns `NotFound`, and a divergent group with the same LAG
   (`MicroBFDConfigConflictError`) returns `FailedPrecondition` instead of
   `Internal`.
 
-- Give Micro-BFD groups typed owner claims like sessions (`gobfd-qj0.8.2.2.1`).
+- Give Micro-BFD groups typed owner claims like sessions.
   Reload removes only the groups it owns and cannot take a member link of a
   surviving API group; an identical API and reload group is shared, and each
   source releases only its own claim. `DeleteMicroBFDGroup` of a group the
@@ -1085,8 +1082,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   group while its session stayed Up; it now counts as Up and the actuator
   receives it in dispatch order.
 
-- Commit each Micro-BFD group together with its member sessions (RFC 7130
-  Section 2, `gobfd-qj0.8.2.2.1`, H-24). Reload applies one Micro-BFD source:
+- Commit each Micro-BFD group together with its member sessions (RFC 7130 Section 2,
+  H-24). Reload applies one Micro-BFD source:
   a failed member session rolls back the new groups and sessions of the pass
   before any committed group or session is released; no group of a failed
   pass reaches dispatch or the actuator. A member link listed in groups of two
@@ -1113,13 +1110,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `make e2e-rfc` starts the RFC topology as Compose project
   `gobfd-interop-rfc` and passes it to the tests as `INTEROP_PROJECT_NAME`.
   Without `-p`, Compose named the project after the `interop-rfc` directory,
-  and the test helper rejected every container (`gobfd-dah`).
+  and the test helper rejected every container.
 
 - `make e2e-linux` runs the test binary in the immutable image ID of the
   running dev service container. The former `localhost/<project>_dev` name
   matched neither the Compose v2 image name nor the `docker.io/library` prefix
-  that the Docker API gives it, so Podman tried to pull from a registry
-  (`gobfd-dah`).
+  that the Docker API gives it, so Podman tried to pull from a registry.
 
 - Apply a config timer update immediately outside Up, including AdminDown,
   with its Poll confirming the receipt (RFC 5880 Section 6.8.3). A restore
@@ -1128,11 +1124,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reconciliation stayed incomplete. A receipt is Applied only when the effective
   tuple equals the confirmed one; an outside-Up Poll without Final fails its
   receipt without blocking later generations; entering Up through a Final keeps
-  the one-second TX floor until a recovery Poll (`gobfd-qj0.8.2.1.1.2`).
+  the one-second TX floor until a recovery Poll.
 
 - Reset `bfd.RemoteMinRxInterval` to 1 microsecond and `bfd.RemoteDemandMode`
   to 0, their RFC 5880 Section 6.8.1 initial values, after one Detection Time
-  without packets in every state (Section 6.8.18, `gobfd-qj0.8.2.1.1.2`). When
+  without packets in every state (Section 6.8.18). When
   the reset changes the TX interval or permission, the next packet is scheduled
   from the previous successful send. A peer that advertised zero or a large
   Required Min RX and went silent no longer holds periodic TX; an Active
@@ -1140,28 +1136,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Detection Time and can complete within the drain budget, while a Passive
   session stays silent. FRR
   10.7.1 cannot advertise zero RX and has no Demand; BIRD 3.4.0 has no Demand
-  and its zero RX support is unverified. Wire evidence is tracked in
-  `gobfd-qj0.8.2.1.1.2.3`.
+  and its zero RX support is unverified. Wire qualification remains separate.
 
 - Return `InvalidArgument` for malformed protobuf durations in generic, Echo
   and Micro-BFD requests, core-rejected client intervals and duplicate Micro-BFD
-  members (`gobfd-qj0.8.2.1.3.5`). Omitted generic/Micro intervals keep `1s`,
+  members. Omitted generic/Micro intervals keep `1s`,
   explicit generic RX zero remains valid, and Echo requires a positive interval.
   Internal Manager errors retain their classification; well-formed Micro-BFD
-  member timer validation and application remain under `gobfd-qj0.8.2.2.1` (M09).
+  member timer validation and application remain separate qualification work.
 
 - Reject positive configured Control TX/RX intervals below one microsecond with
-  `ErrInvalidWireInterval` before session creation or reconciliation
-  (`gobfd-qj0.8.2.1.1.3`). Explicit RX zero and fractional microseconds above
+  `ErrInvalidWireInterval` before session creation or reconciliation. Explicit RX zero
+  and fractional microseconds above
   the minimum retain their existing semantics.
 
 - Preserve the learned peer discriminator across valid Down/AdminDown and local
-  PathDown transitions (`gobfd-qj0.8.2.1.2.4`). Poll replies and failed-send Final
+  PathDown transitions. Poll replies and failed-send Final
   retries retain the correct `YourDiscriminator`, including in the passive role;
   the owner detection timer still clears it after one Detection Time of silence.
 
-- Clear `RemoteDiscr` after one Detection Time in every session state
-  (`gobfd-qj0.8.2.1.2.3`), independently of two-Detection-Time authentication
+- Clear `RemoteDiscr` after one Detection Time in every session state, independently of
+  two-Detection-Time authentication
   sequence expiry. Preserve the last observed remote administrative facts and
   causal version when only the wire discriminator changes. Passive sessions
   with an unknown discriminator retain pending Final replies without sending,
@@ -1169,7 +1164,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - AdminDown commits exclusively in the session owner loop and returns a
   context-bounded commit receipt, including for pre-Run and full-queue requests
-  (`gobfd-qj0.8.2.1.3.3`, H-09 prerequisite). `Run` has one owner for its
+  (H-09 prerequisite). `Run` has one owner for its
   lifetime. Manager drain fans out to captured session identities outside its
   locks and joins errors; shutdown preserves those errors. Receipts precede TX
   and do not prove delivery. Shutdown drains against the negotiated BFD budget
@@ -1177,50 +1172,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still requires its own evidence.
 
 - Verify Keyed MD5/SHA1 over the declared BFD `Length`, including PDU
-  extensions and excluding transport padding (`gobfd-qj0.8.2.1.5.2`).
+  extensions and excluding transport padding.
   Independent wire vectors cover all five authentication types. The approved
   v1 configuration policy rejects authenticated padding targets 24/25;
   target 26 retains larger PDUs. YAML defaults and overrides reject numeric
   wraparound, fractions and boolean conversion before decoding. Authenticated
   padded TX is qualified with FRR Simple Password and BIRD Keyed SHA1 at
-  128 bytes (`gobfd-qj0.8.2.1.5`), including zero padding and IPv4 DF.
+  128 bytes, including zero padding and IPv4 DF.
   Peer RX qualification uses ordinary authenticated PDUs; path MTU and
   public API padding remain separate.
 
 - Receive complete BFD transport payloads through 9000 bytes without changing
-  the 64-byte codec bound (`gobfd-qj0.8.2.1.5.1`). Linux rejects truncated UDP
+  the 64-byte codec bound. Linux rejects truncated UDP
   datagrams; listeners reject invalid read sizes and return borrowed buffers.
   Userspace VXLAN/Geneve include maximum supported framing around the same
   9000-byte inner payload limit, on RX and TX. Authenticated wire ownership
   is preserved; authenticated peer interoperability remains a separate gate.
 
 - Authentication sequence expiry uses monotonic last-valid-receive timing
-  (`gobfd-qj0.8.2.1.2.2`, M-04). `AuthSeqKnown` clears at twice the Detection
+  (M-04). `AuthSeqKnown` clears at twice the Detection
   Time in every session state, including before verification when RX wins
   over a ready timeout; `RcvAuthSeq` is preserved until successful reception.
   Invalid authentication does not postpone expiry.
 
 - Validate the configured log vocabulary before startup or SIGHUP applies
-  changes (`gobfd-8f3.9`): levels accept case-insensitive `debug`, `info`,
+  changes: levels accept case-insensitive `debug`, `info`,
   `warn`, `error`; formats require lowercase `json` or `text`. Explicit empty,
   whitespace and unknown values return bounded typed field errors. Invalid
   reloads preserve generations, health, log level, sessions and sender resources.
 
 - Wire `socket.read_buffer_size` / `socket.write_buffer_size` into control,
   Echo, Micro-BFD and unsolicited UDP paths, and duplex userspace VXLAN/Geneve
-  sockets (`gobfd-8f3.7`). Zero preserves OS defaults; invalid nonnegative integer values fail
+  sockets. Zero preserves OS defaults; invalid nonnegative integer values fail
   configuration validation with bounded field errors. Startup buffer policy
   also covers later-created senders and remains immutable across SIGHUP.
 
-- Correct the socket buffer reference (`gobfd-8f3`): `read_buffer_size` also
+- Correct the socket buffer reference: `read_buffer_size` also
   applies to the interface-bound IPv4 and IPv6 wildcard single-hop listeners
   opened for each enabled unsolicited interface. The reference previously said
   unsolicited reception reused the existing control listeners.
 
 - Configuration rejects conflicting interfaces for one control listener
   (parsed local address and single-hop/multi-hop type), or one enabled Echo
-  listener (parsed local address), regardless of declaration order
-  (`gobfd-8f3.8`). Typed errors identify only the bounded configuration field;
+  listener (parsed local address), regardless of declaration order. Typed errors
+  identify only the bounded configuration field;
   listener ownership is unchanged.
 - Configuration rejects detection multiplier overflow and fractional or boolean
   values before weak decoding for base, Echo, VXLAN, Geneve and Micro-BFD fields.
@@ -1240,7 +1235,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The production Compose stack shares the host network so Prometheus can
   scrape GoBFD's loopback metrics and Grafana can reach its Prometheus data
-  source (`gobfd-6de`). Prometheus and Grafana now bind only to host loopback
+  source. Prometheus and Grafana now bind only to host loopback
   on ports 9090 and 3000; remote access requires a tunnel or reverse proxy.
 - The remaining RFC 5882 Section 4.3 (Graceful Restart) citations for the
   GoBGP reaction in code, configuration examples and the RFC compliance
@@ -1345,7 +1340,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `deployments/systemd/gobfd-kernel-bond.conf` reopens only
   `bonding/slaves` and grants `CAP_DAC_OVERRIDE`, which the root-owned 0644
   sysfs file requires and which also lifts file read checks for the service;
-  its write qualification remains open (`gobfd-qj0.8.2.3.3.1`).
+  its write qualification remains open.
 
 - Updated the first-party Go toolchain from `go1.27.2` to `go1.27.3` in
   `go.mod`, `tools/go.mod`, CI and release workflows, Containerfiles and test

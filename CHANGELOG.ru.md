@@ -348,16 +348,15 @@
   политика `hard-fail`; graceful restart не реализован. GoBGP сохраняет
   локальную/удалённую административную причину при retry и gap resync,
   проверяет текущие identity и policy перед disable. Control Watch передаёт
-  полный измеренный статус; Echo использует тот же frozen contract
-  (`gobfd-qj0.8.2.1.3.8`, `gobfd-qj0.8.2.1.3.10`).
+  полный измеренный статус; Echo использует тот же frozen contract.
 
 - Per-configured-peer метрики GoBGP: flap penalty с decay на момент scrape,
   recovery suppression и его максимальная граница, ожидающие желаемые Up/Down
-  с timestamp следующего retry/recheck (`gobfd-qj0.8.2.4.7`). Принятый reload
+  с timestamp следующего retry/recheck. Принятый reload
   заменяет allowlist пиров; scrape не изменяет routing decisions и не создаёт
   labels из API или unsolicited sessions.
 - Версионированные snapshot сессий и поток Watch с сигналом разрыва
-  (`gobfd-qj0.8.2.1.3.2`; H-29, M-08). В `bfd.v1` добавлены `revision` в
+  (H-29, M-08). В `bfd.v1` добавлены `revision` в
   `ListSessionsResponse`, `GetSessionResponse` и
   `WatchSessionEventsResponse`, а также типы событий `GAP` и
   `SYNC_COMPLETE`. `WatchSessionEvents` подписывается до снимка, закрывает
@@ -367,23 +366,23 @@
   `remote_min_rx_interval`. `gobfdctl monitor` выводит `Gap`,
   `SyncComplete` и `rev=`.
 - Версионированные события `SESSION_DELETED` при освобождении последнего
-  владельца wire session через API, reconciliation или unsolicited cleanup
-  (`gobfd-qj0.8.2.1.3.6`). События содержат идентификаторы и последнее
+  владельца wire session через API, reconciliation или unsolicited cleanup. События
+  содержат идентификаторы и последнее
   состояние удалённой сессии; освобождение общей claim не создаёт событие
   удаления. Снимки не содержат удалённые сессии, отставшие подписчики
   восстанавливают состояние через `GAP`. Обработчик GoBGP забывает удалённые
   сессии и отменяет их ожидающие Down и Up, в том числе при восстановлении
   удаления из снимка после gap.
 
-- mTLS для TCP-listener управления (`grpc.tls.cert_file`, `key_file`,
-  `client_ca_file`; `gobfd-330.2`). Клиенты предъявляют сертификат от CA
+- mTLS для TCP-listener управления (`grpc.tls.cert_file`, `key_file`, `client_ca_file`).
+  Клиенты предъявляют сертификат от CA
   клиентов; ALPN предлагает HTTP/2 и HTTP/1.1; файлы читаются заново при
   каждом handshake. Принципал — URI SAN сертификата клиента (SPIFFE) или
   `dns:<name>`. В `gobfdctl` добавлены `--tls-ca`, `--tls-cert` и
   `--tls-key`; компаньоны читают `GOBFD_TLS_CA_FILE`, `GOBFD_TLS_CERT_FILE`
   и `GOBFD_TLS_KEY_FILE`. Значения по умолчанию не меняются.
-- Опциональный Unix-сокет управления (`grpc.socket.path`, `mode`, `group`;
-  `gobfd-330.1`). Запросы через него несут UID peer от ядра как принципал,
+- Опциональный Unix-сокет управления (`grpc.socket.path`, `mode`, `group`). Запросы
+  через него несут UID peer от ядра как принципал,
   в логах `principal=uid:<n>`. `gobfdctl --addr`, `gobfd-haproxy-agent` и
   `gobfd-exabgp-bridge` принимают endpoint `unix:///path`, а также `http://`
   и `https://`. `grpc.addr` может быть пустым, если задан сокет. Значения по
@@ -495,7 +494,7 @@
   измерения dispatch снижаются с 11 до 0 allocs/op без actuator и с 15 до 4
   с noop-actuator; deadline и отмена каждого вызова сохранены.
 
-- Готовность gRPC health выводится из компонентов (H-30, `gobfd-qj0.8.2.3.1`).
+- Готовность gRPC health выводится из компонентов (H-30).
   Пустой service есть AND пяти sources reconciliation, runtime workers и
   интерфейсов listeners с привязкой к устройству. `bfd.v1.BfdService` следует за
   base, VXLAN и Geneve sessions и control listeners, включая unsolicited;
@@ -510,8 +509,8 @@
   Привязки проверяются по interface events и периодически раз в 2 с; ошибка
   inventory интерфейсов прерывает запуск, а во время работы сохраняет прежнее
   состояние.
-- Приёмные listeners принадлежат reconciliation generation (H-23,
-  `gobfd-qj0.8.2.2.6.4`). SIGHUP может добавлять или re-key записи control, Echo
+- Приёмные listeners принадлежат reconciliation generation (H-23). SIGHUP может
+  добавлять или re-key записи control, Echo
   и Micro-BFD, которым нужен новый local address, interface или session type:
   source открывает недостающие listeners до apply в Manager и не может сойтись
   только на senders. Отсутствующий интерфейс оставляет source в `pending`, пока
@@ -526,8 +525,8 @@
   перепривязка остаётся в `NOT_SERVING` и повторяется. Намеренно закрытый
   listener не считается потерей receiver. Startup по-прежнему прерывается при
   любой ошибке listener.
-- Backends VXLAN и Geneve принадлежат reconciliation generation (H-23,
-  `gobfd-qj0.8.2.2.6.4`). SIGHUP может добавлять, удалять или re-key overlay
+- Backends VXLAN и Geneve принадлежат reconciliation generation (H-23). SIGHUP может
+  добавлять, удалять или re-key overlay
   identities, включая новый local endpoint или per-peer VNI Geneve: новый
   endpoint открывает backend, identity на открытом endpoint расширяет набор
   identities сокета на месте (`SetScopes`, одна атомарная загрузка на пакет), а
@@ -554,10 +553,10 @@
 - Reconciliation Micro-BFD отражается в логах receipt поколения одним
   источником `micro` вместо `micro_group` и `micro_member`. Daemon пишет
   `micro-BFD reconciliation had errors` или `micro-BFD reconciliation complete`
-  вместо отдельных сообщений группы и сессий (`gobfd-qj0.8.2.2.1`).
+  вместо отдельных сообщений группы и сессий.
 
 - Stable v1 допускает module-only исключение `GO-2026-4736` для GoBGP v4.10.0 по
-  решению мейнтейнера от 2026-10-21 (`gobfd-qj0.8.4.1`), пока GHSA/OSV указывают
+  решению мейнтейнера от 2026-10-21, пока GHSA/OSV указывают
   исправленную версию не выше закреплённой, а govulncheck финального candidate
   сообщает advisory только на уровне модуля (без импортированного пакета и
   достижимого символа). Запись allowlist и решение dependency inventory называют
@@ -592,24 +591,24 @@
   отложенным.
 
 - Пир совместимости BIRD обновлён с 3.3.2 до 3.4.0 с закреплённым по checksum
-  исправлением upstream `7cf75587` для CVE-2026-112112 (`gobfd-qj0.8.6.6.2`).
+  исправлением upstream `7cf75587` для CVE-2026-112112.
   Рецепт записывает хеши исходников и исправления и OCI labels; регрессионный
   тест FlowSpec проверяет, что BIRD помечает ненулевой IPv6 destination offset
   как invalid. Топологии BASE и BGP+BFD используют тот же рецепт.
 - Обновлены pins Actions upload/download-artifact до v7.0.2/v8.0.2 для повторных
   попыток при HTTP 429 с `Retry-After`, GoReleaser Action до v7.3.0 для
   переиспользования runner tool cache и Scorecard Action до v2.5.0 для обновления
-  движка Scorecard до v5.6.0 (`gobfd-qj0.8.6.4.2`).
+  движка Scorecard до v5.6.0.
 - Генерация dependency inventory использует явный observation epoch `dev` и
-  решения deferred для release line (`gobfd-qj0.8.2.8.7.6`). Записываются
+  решения deferred для release line. Записываются
   фактические license responses точных версий; старые observations не
   переносятся, несобранные внешние проверки и безопасность остаются unverified.
 - Модули `dev` обновлены до Prometheus `client_golang` v1.25.0 и Moby client
-  v0.6.2 (`gobfd-qj0.8.6.2`). Ответы метрик включают заголовки `Vary` для
+  v0.6.2. Ответы метрик включают заголовки `Vary` для
   согласованных форматов; клиент контейнерных интеграций исправляет отмену
   и deadline во время HTTP upgrade.
 - **Ломающее:** демпфирование flap-ов GoBGP никогда не задерживает BFD Down
-  (`gobfd-qj0.8.2.4.1`, H-27, контракт демпфирования v1). Каждый значимый
+  (H-27, контракт демпфирования v1). Каждый значимый
   Down сразу отключает пир; в подавленном состоянии демпфирование удерживает
   только восстановление (Up), а Down отменяет удерживаемое восстановление.
   Валидация отклоняет `gobgp.dampening.reuse_threshold <= 0` и
@@ -618,38 +617,38 @@
   несколько сессий, завершается с `FAILED_PRECONDITION` и перечисляет
   локальные дискриминаторы вместо возврата первого совпадения (M-07).
 - Обработчик GoBGP восстанавливается после потерянных изменений состояния
-  BFD (`gobfd-qj0.8.2.4.1`): при разрыве потока он восстанавливает переходы
+  BFD: при разрыве потока он восстанавливает переходы
   Down и Up по версионированному снимку и последнему увиденному состоянию
   каждой сессии, поэтому пир больше не остаётся включённым над отказавшим
   путём или отключённым после восстановления.
 - **Ломающее:** обработчик GoBGP действует только по канонической
-  single-hop или multi-hop сессии BGP-соседа (`gobfd-qj0.8.2.4.2`, H-31).
+  single-hop или multi-hop сессии BGP-соседа (H-31).
   Сессии Micro-BFD member link, VXLAN, Geneve и Echo к адресу соседа больше
   не отключают и не включают пир; IPv4-mapped адреса пиров приводятся к
   IPv4. При `gobgp.enabled` валидация конфигурации отклоняет две сессии к
   одному адресу пира; при второй базовой сессии, созданной во время работы,
   BFD Down не отключает пир и переводит `gobfd.gobgp` в `NOT_SERVING`, а BFD
   Up по-прежнему включает пир, отключённый GoBFD.
-- Обработчик GoBGP включает только пиры, которые отключил сам
-  (`gobfd-qj0.8.2.4.1`). Перед `DisablePeer` он читает admin state соседа и
+- Обработчик GoBGP включает только пиры, которые отключил сам. Перед `DisablePeer` он
+  читает admin state соседа и
   не трогает пиры, отключённые оператором, ни при BFD Down, ни при Up.
   Запись хранится в памяти: после перезапуска пиры, отключённые GoBFD,
   остаются отключёнными, пока их не включит оператор.
 - **Breaking:** дамп flight recorder `/debug/flightrecorder` больше не
-  обслуживается на listener метрик без аутентификации (`gobfd-qj0.8.2.3.2`).
+  обслуживается на listener метрик без аутентификации.
   С новым `grpc.flight_recorder: true` он доступен на сервере управления
   вызывающим с принципалом (Unix-сокет или mTLS-идентичность, разрешённая
   `grpc.mutating_identities`); анонимные клиенты на loopback получают `403`.
   Recorder продолжает работать для дампа при остановке.
-- Claims сессий API принадлежат принципалу вызвавшего (`gobfd-330.4`,
-  GitHub #87): UID peer Unix-сокета, mTLS-идентичность или `local` для
+- Claims сессий API принадлежат принципалу вызвавшего (GitHub #87): UID peer
+  Unix-сокета, mTLS-идентичность или `local` для
   анонимных клиентов на loopback в режиме `grpc.unsafe_loopback_mutations`.
   `DeleteSession` от другого принципала возвращает `PermissionDenied` и
   логируется; два принципала, добавившие одну сессию, разделяют её. Новый
   `grpc.mutating_identities` (требует `grpc.tls`) ограничивает изменяющие RPC
   перечисленными mTLS-идентичностями; остальные mTLS-клиенты только читают.
 - **Breaking:** API управления по умолчанию работает через Unix-сокет
-  `/run/gobfd/gobfd.sock` и не открывает TCP (`gobfd-330.3`, GitHub #87).
+  `/run/gobfd/gobfd.sock` и не открывает TCP (GitHub #87).
   Plaintext `grpc.addr` на non-loopback или wildcard адресе останавливает
   запуск; используйте loopback или `grpc.tls`. Анонимные клиенты на loopback
   TCP могут читать, но получают `PermissionDenied` для `AddSession`,
@@ -1092,7 +1091,7 @@
   `ubuntu-latest` (Ubuntu 24.04) Podman 4.9.3 собран с Debian imagebuilder
   1.2.5, который отклоняет `ADD --checksum` в interop Containerfile; рецепты с
   закреплёнными checksum не изменены. `toolbootstrap podman-runtime` пишет в
-  лог образ runner и версию Podman (`gobfd-22v`).
+  лог образ runner и версию Podman.
 
 - Hosted E2E на `ubuntu-26.04` снова читает и останавливает захват пакетов.
   AppArmor 5.0.2 в Ubuntu 26.04 привязывает профиль `tshark` к
@@ -1101,15 +1100,15 @@
   остановки контейнера. Образ захвата запускает `tshark` и `dumpcap` из
   `/usr/local/bin`. Jobs E2E также разрешают профилю `pasta` принимать сигналы
   Podman, без которых не завершается rootless network teardown
-  (LP: #2154379), и выводят отказы AppArmor после прогона (`gobfd-dah`).
+  (LP: #2154379), и выводят отказы AppArmor после прогона.
 
-- Ошибки групп Micro-BFD отображаются в клиентские коды (`gobfd-qj0.8.2.2.1`):
+- Ошибки групп Micro-BFD отображаются в клиентские коды:
   `ErrMicroBFDGroupExists` возвращает `AlreadyExists`, `ErrMicroBFDGroupNotFound`
   — `NotFound`, расходящаяся группа с тем же LAG
   (`MicroBFDConfigConflictError`) — `FailedPrecondition` вместо `Internal`.
 
-- Группы Micro-BFD получают типизированные claim владельцев, как сессии
-  (`gobfd-qj0.8.2.2.1`). Reload удаляет только свои группы и не может забрать
+- Группы Micro-BFD получают типизированные claim владельцев, как сессии. Reload удаляет
+  только свои группы и не может забрать
   member link сохраняющейся группы API; одинаковая группа API и reload
   разделяется, каждый источник освобождает только свой claim.
   `DeleteMicroBFDGroup` для группы, которой вызывающий не владеет, например
@@ -1123,8 +1122,8 @@
   новой группе при сессии в Up; теперь такой member считается Up и actuator
   получает его в порядке dispatch.
 
-- Группа Micro-BFD фиксируется вместе со своими member-сессиями (RFC 7130
-  Section 2, `gobfd-qj0.8.2.2.1`, H-24). Reload применяет один источник
+- Группа Micro-BFD фиксируется вместе со своими member-сессиями (RFC 7130 Section 2,
+  H-24). Reload применяет один источник
   Micro-BFD: ошибка member-сессии откатывает новые группы и сессии прохода до
   освобождения любой зафиксированной группы или сессии; группа неудачного
   прохода не попадает ни в dispatch, ни в actuator. Member link, указанный в
@@ -1151,13 +1150,12 @@
 - `make e2e-rfc` запускает RFC-топологию как Compose project
   `gobfd-interop-rfc` и передаёт его тестам в `INTEROP_PROJECT_NAME`. Без `-p`
   Compose называл project по каталогу `interop-rfc`, и тестовый helper
-  отклонял каждый контейнер (`gobfd-dah`).
+  отклонял каждый контейнер.
 
 - `make e2e-linux` запускает тестовый бинарник в образе работающего контейнера
   dev service по его неизменяемому ID. Прежнее имя `localhost/<project>_dev` не
   совпадало ни с именем образа Compose v2, ни с префиксом `docker.io/library`,
-  который даёт Docker API, поэтому Podman пытался скачать образ из registry
-  (`gobfd-dah`).
+  который даёт Docker API, поэтому Podman пытался скачать образ из registry.
 
 - Обновление таймеров из config вне Up, включая AdminDown, вступает в силу
   немедленно, receipt подтверждает его Poll (RFC 5880 Section 6.8.3).
@@ -1167,41 +1165,41 @@
   Receipt получает Applied, только если действующий кортеж совпадает с
   подтверждённым; Poll вне Up без Final завершает receipt ошибкой, не блокируя
   следующие поколения; вход в Up через Final сохраняет односекундный порог TX
-  до recovery Poll (`gobfd-qj0.8.2.1.1.2`).
+  до recovery Poll.
 
 - После одного Detection Time без пакетов в любом состоянии
   `bfd.RemoteMinRxInterval` возвращается к 1 микросекунде, `bfd.RemoteDemandMode`
-  — к 0, начальным значениям RFC 5880 Section 6.8.1 (Section 6.8.18,
-  `gobfd-qj0.8.2.1.1.2`). Если сброс меняет TX-интервал или разрешение
+  — к 0, начальным значениям RFC 5880 Section 6.8.1 (Section 6.8.18). Если сброс меняет
+  TX-интервал или разрешение
   передачи, следующий пакет планируется от предыдущей успешной отправки. Пир,
   объявивший нулевой или большой Required Min RX и замолчавший, больше не
   удерживает периодический TX; Active-drain в AdminDown после одного Detection
   Time без пакетов отправляет уведомление Section 6.8.16 и может завершиться в
   пределах бюджета drain,
   Passive-сессия молчит. FRR 10.7.1 не может объявить нулевой RX и не имеет
-  Demand; BIRD 3.4.0 не имеет Demand, поддержка нулевого RX не проверена. Wire
-  evidence ведётся в `gobfd-qj0.8.2.1.1.2.3`.
+  Demand; BIRD 3.4.0 не имеет Demand, поддержка нулевого RX не проверена.
+  Квалификация на линии остаётся отдельной проверкой.
 
 - Некорректные protobuf durations в generic, Echo и Micro-BFD запросах,
   клиентские интервалы, отклонённые ядром, и повторяющиеся Micro-BFD members
-  возвращают `InvalidArgument` (`gobfd-qj0.8.2.1.3.5`). Пропущенные generic/Micro
+  возвращают `InvalidArgument`. Пропущенные generic/Micro
   интервалы сохраняют `1s`, явный generic RX zero допустим, Echo требует
   положительный интервал. Классификация внутренних ошибок Manager сохранена;
   проверка и применение структурно корректных таймеров Micro-BFD members
-  остаются в `gobfd-qj0.8.2.2.1` (M09).
+  остаются отдельной работой по квалификации.
 
 - Положительные настроенные Control TX/RX интервалы меньше микросекунды
-  отклоняются с `ErrInvalidWireInterval` до создания сессии или reconciliation
-  (`gobfd-qj0.8.2.1.1.3`). Явный RX zero и дробные микросекунды выше минимума
+  отклоняются с `ErrInvalidWireInterval` до создания сессии или reconciliation. Явный RX
+  zero и дробные микросекунды выше минимума
   сохраняют прежнюю семантику.
 
 - Изученный peer discriminator сохраняется при корректных Down/AdminDown и
-  локальном PathDown (`gobfd-qj0.8.2.1.2.4`). Ответы Final на Poll и повторы после
+  локальном PathDown. Ответы Final на Poll и повторы после
   ошибки отправки сохраняют корректный `YourDiscriminator`, включая passive role;
   owner detection timer сбрасывает его после одного Detection Time без приёма.
 
 - `RemoteDiscr` сбрасывается после одного Detection Time в любом состоянии
-  сессии (`gobfd-qj0.8.2.1.2.3`) независимо от истечения authentication sequence
+  сессии независимо от истечения authentication sequence
   после двух Detection Time. Последние remote administrative facts и causal
   version сохраняются, когда меняется только wire discriminator. Passive-сессии
   с неизвестным discriminator сохраняют pending Final без передачи пакетов,
@@ -1209,7 +1207,7 @@
 
 - AdminDown коммитится только в session owner loop с ограниченным контекстом
   commit receipt, включая pre-Run и заполненную очередь
-  (`gobfd-qj0.8.2.1.3.3`, prerequisite H-09). `Run` имеет одного owner за
+  (prerequisite H-09). `Run` имеет одного owner за
   время жизни сессии. Manager drain выполняет fanout по конкретным сессиям вне
   locks и объединяет ошибки; shutdown сохраняет их. Receipt предшествует TX и
   не доказывает доставку. Shutdown выполняет drain по согласованному бюджету
@@ -1217,52 +1215,52 @@
   доставка пиру требует отдельного подтверждения.
 
 - Проверка Keyed MD5/SHA1 использует объявленный BFD `Length`, включая PDU
-  extensions и исключая transport padding (`gobfd-qj0.8.2.1.5.2`). Независимые
+  extensions и исключая transport padding. Независимые
   wire vectors покрывают пять типов аутентификации. Утверждённая политика
   конфигурации v1 отклоняет authenticated padding targets 24/25; target 26
   сохраняет более длинные PDU. YAML defaults и overrides отклоняют numeric
   wraparound, дроби и boolean conversion до декодирования. Authenticated
-  padded TX 128 байт квалифицирован с FRR Simple Password и BIRD Keyed SHA1
-  (`gobfd-qj0.8.2.1.5`): нулевой padding и IPv4 DF подтверждены. Проверка
+  padded TX 128 байт квалифицирован с FRR Simple Password и BIRD Keyed SHA1: нулевой
+  padding и IPv4 DF подтверждены. Проверка
   peer RX использует обычные authenticated PDU; path MTU и public API padding
   остаются отдельными задачами.
 
 - Приём сохраняет полный BFD transport payload до 9000 байт при неизменной
-  границе кодека 64 байта (`gobfd-qj0.8.2.1.5.1`). Linux отклоняет усечённые
+  границе кодека 64 байта. Linux отклоняет усечённые
   UDP datagrams; listeners проверяют read size и возвращают заимствованные
   буферы. Userspace VXLAN/Geneve учитывают максимальный поддерживаемый framing
   вокруг inner payload до 9000 байт на RX и TX. Владение authenticated wire
   сохраняется; authenticated peer interoperability остаётся отдельной проверкой.
 
 - Истечение authentication sequence использует монотонное время последнего
-  корректного приёма (`gobfd-qj0.8.2.1.2.2`, M-04). `AuthSeqKnown` сбрасывается
+  корректного приёма (M-04). `AuthSeqKnown` сбрасывается
   после двух Detection Time в любом состоянии, включая проверку перед
   аутентификацией, когда RX обрабатывается раньше готового timeout.
   `RcvAuthSeq` сохраняется до корректного приёма; ошибка аутентификации не
   откладывает expiry.
 
-- Словарь настроек логирования проверяется до применения запуска или SIGHUP
-  (`gobfd-8f3.9`): уровни `debug`, `info`, `warn`, `error` без учёта регистра;
+- Словарь настроек логирования проверяется до применения запуска или SIGHUP: уровни
+  `debug`, `info`, `warn`, `error` без учёта регистра;
   форматы — строчные `json` или `text`. Явные пустые строки, пробелы и
   неизвестные значения дают ограниченные типизированные ошибки полей.
   Некорректный reload сохраняет generation, health, log level, sessions и ресурсы отправителей.
 
 - `socket.read_buffer_size` / `socket.write_buffer_size` применяются к control,
   Echo, Micro-BFD и unsolicited UDP-путям, а также к двунаправленным userspace
-  VXLAN/Geneve-сокетам (`gobfd-8f3.7`). Ноль сохраняет настройки ОС;
+  VXLAN/Geneve-сокетам. Ноль сохраняет настройки ОС;
   некорректные неотрицательные целые отклоняются с ограниченными ошибками полей.
   Политика запуска действует и для создаваемых позже отправителей и остаётся
   неизменяемой при SIGHUP.
 
-- Исправлено описание буферов сокетов (`gobfd-8f3`): `read_buffer_size`
+- Исправлено описание буферов сокетов: `read_buffer_size`
   применяется и к привязанным к интерфейсу wildcard single-hop listeners IPv4
   и IPv6 для каждого enabled unsolicited interface. Прежнее описание указывало,
   что приём unsolicited BFD использует существующие control listeners.
 
 - Конфигурация отклоняет разные interface для одного control listener
   (parsed local address и single-hop/multi-hop type) или enabled Echo
-  listener (parsed local address) независимо от порядка записей
-  (`gobfd-8f3.8`). Типизированная ошибка содержит только ограниченный
+  listener (parsed local address) независимо от порядка записей. Типизированная ошибка
+  содержит только ограниченный
   идентификатор поля конфигурации; владение listeners не меняется.
 - Конфигурация отклоняет переполнение detection multiplier, дроби и boolean до
   weak decoding для base, Echo, VXLAN, Geneve и Micro-BFD.
@@ -1281,8 +1279,8 @@
   включая начальное значение `remote_min_rx_interval`.
 
 - Production Compose использует сеть хоста: Prometheus опрашивает loopback
-  metrics GoBFD, Grafana подключается к источнику данных Prometheus
-  (`gobfd-6de`). Prometheus и Grafana теперь слушают только host loopback на
+  metrics GoBFD, Grafana подключается к источнику данных Prometheus. Prometheus и
+  Grafana теперь слушают только host loopback на
   портах 9090 и 3000; удалённый доступ требует tunnel или reverse proxy.
 - Оставшиеся ссылки на RFC 5882 Section 4.3 (Graceful Restart) для реакции
   GoBGP в коде, примерах конфигурации и матрице соответствия RFC заменены на
@@ -1389,7 +1387,7 @@
   юнитом; opt-in drop-in `deployments/systemd/gobfd-kernel-bond.conf` открывает
   на запись только `bonding/slaves` и выдаёт `CAP_DAC_OVERRIDE`, которая нужна
   для файла sysfs `0644 root:root` и снимает для сервиса проверки чтения файлов;
-  квалификация записи остаётся открытой (`gobfd-qj0.8.2.3.3.1`).
+  квалификация записи остаётся открытой.
 
 - First-party Go toolchain обновлён с `go1.27.2` до `go1.27.3` в `go.mod`,
   `tools/go.mod`, CI- и release-workflow, Containerfile и тестовых harness.

@@ -8,7 +8,7 @@ Contributions follow [GOVERNANCE.md](GOVERNANCE.md), [CODE_OF_CONDUCT.md](CODE_O
 2. Start features from `dev` and target `dev`. Start maintenance fixes from their `release/vMAJOR.MINOR` line on `fix/vMAJOR.MINOR-*`; target that supported line.
 3. Configure the pinned Podman Compose provider and a unique checkout project using [Development](docs/en/09-development.md).
 4. Read affected callers, tests, configuration and public contracts before editing.
-5. Keep the change focused; include tests and complete English/Russian documentation for changed behavior.
+5. Keep the change focused; include tests and complete English/Russian documentation for changed behavior. Follow the [documentation standard](docs/en/reference/documentation-standard.md).
 
 ## Validate
 
