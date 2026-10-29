@@ -14,7 +14,7 @@ import (
 
 const (
 	cpuPercentScale = 100
-	cpuYieldQuantum = time.Millisecond
+	cpuYieldQuantum = 5 * time.Millisecond
 )
 
 // CPUPressureObservation reports generated thread CPU time, not a held host-load claim.

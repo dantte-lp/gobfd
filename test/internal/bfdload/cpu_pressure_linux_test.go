@@ -112,7 +112,7 @@ func TestCPUWindowMeasuredBudgetWithRunnableCompanion(t *testing.T) {
 	})
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	budget, checksum := 5*time.Millisecond, uint64(1)
+	budget, checksum := 20*time.Millisecond, uint64(1)
 	before, err := threadCPUTime()
 	if err != nil {
 		t.Fatal(err)

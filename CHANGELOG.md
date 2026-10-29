@@ -758,10 +758,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Down packets. Validate packet bodies and checked deadline arithmetic; preserve
   prior assessments and keep native acceptance separate.
 
-- Add measured thread-CPU yield checkpoints to the workload pressure helper
-  without reducing its CPU budget or changing admission and latency limits.
-  Treat the helper as a new pressure generation requiring matched native
-  calibration; a yield does not establish a timer-latency guarantee.
+- Use a 5 ms measured thread-CPU quantum for workload pressure checkpoints,
+  reducing voluntary handoffs while retaining the full CPU budget, admission
+  and latency limits. Treat the helper as a new generation requiring matched
+  native calibration; a yield does not establish a timer-latency guarantee.
 
 - Prove conditional Echo old-deadline extension from checked actual omission
   times and Detection Time, rather than an omission-count threshold. Retain

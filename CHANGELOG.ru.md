@@ -780,10 +780,10 @@
   арифметика deadline; прежние оценки сохраняются, native acceptance остаётся
   отдельной проверкой.
 
-- В workload pressure helper добавлены yield checkpoints по измеренному thread
-  CPU без уменьшения CPU budget и изменения admission и latency limits.
-  Новое поколение pressure требует сопоставимой native-калибровки;
-  yield не доказывает гарантию задержки таймеров.
+- В workload pressure helper используется квант 5 мс измеренного thread CPU
+  для уменьшения числа добровольных handoffs с сохранением полного CPU budget,
+  admission и latency limits. Новое поколение требует сопоставимой
+  native-калибровки; yield не доказывает гарантию задержки таймеров.
 
 - Условное продление старого Echo deadline доказывается checked фактическими
   временами пропусков и Detection Time вместо порога количества пропусков.
