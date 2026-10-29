@@ -107,6 +107,8 @@ Owner fixture достигает Up до timing, проверяет точные
 
 Пятисекундный deadline, cancellation и ordered dispatch сохраняются. Actuator path сохраняет четыре измеренных выделения. Samples не квалифицируют backend I/O и scale.
 
+[Принятая политика выделений actuator](adr/0003-linux-advanced-bfd-applicability.md#граница-выделений-actuator-micro-bfd--принята-2026-10-29) сохраняет нулевые выделения без actuator и ограничивает неизменённый сценарий `Background` с пустым actuator значениями 272 B/op и 4 allocs/op на закреплённом Go 1.27.3 linux/amd64. Для каждого финального кандидата выполнить три прогона минимум по 200000 итераций. Пустой callback не читает `Done`; реальные backend и другие родительские контексты требуют отдельных измерений. Удержанные контексты сохраняют семантику после отмены. Бюджет выделений не ограничивает задержку применения состояния.
+
 ### Owner collector — 2026-10-22
 
 Локальная запись `reports/collector-owner-20261022/` содержит 16 B/op и 2 allocs/op до кеша active peer/local packet-counter handles, затем 0 B/op и 0 allocs/op в трёх runs. Reference counts ограничивают кеш активными registrations; historical CounterVec series сохраняют прежний lifetime. Fixture исключает UDP/decode/auth и использует синтетическое время. Она не квалифицирует lifetime metric cardinality.

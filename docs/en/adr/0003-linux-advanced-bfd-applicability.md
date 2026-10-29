@@ -34,6 +34,16 @@ Each configured member/family has its own Control session on UDP/6784 and member
 
 Backend ownership models remain distinct. Restart reconciliation must account for manual changes. Teamd and additional switching stacks are future integrations. Source: [actuator selection](../../../internal/netio/lag_backend.go), [member wiring](../../../cmd/gobfd/micro_bfd.go), [OVSDB](../../../internal/netio/lag_ovsdb.go), [NetworkManager](../../../internal/netio/lag_networkmanager.go).
 
+### Micro-BFD actuator allocation boundary — accepted 2026-10-29
+
+Preserve the existing zero-allocation packet/FSM/timer budgets and zero-allocation Micro-BFD dispatch without an actuator, including enabled JSON logging. Keep a fresh `context.WithTimeout(parent, 5*time.Second)` and deferred cancellation for every actuator call. The earlier parent deadline and parent cancellation still apply; retained contexts keep their original `Deadline`, `Done`, `Err` and `Value` semantics. Do not pool or reset an exposed context to meet an allocation target.
+
+For the pinned Go 1.27.3 linux/amd64 qualification, the unchanged `Background` plus noop-actuator benchmark has a budget of at most 272 B/op and 4 allocs/op, checked over three runs of at least 200000 iterations each. The noop callback does not read `Done`; reading it, different parents and actual backend work can allocate more. This budget covers that fixture only. Measure backend allocations and enforcement latency separately; a component allocation result does not qualify ownership, wire behavior, scale or convergence.
+
+The single dispatcher calls the actuator outside Manager locks, after broadcasting the current notification. A slow call delays later notifications. Cancellation is cooperative: the five-second context does not forcibly interrupt arbitrary callback or filesystem work and is not an enforcement latency guarantee. Preview, default-disabled and explicit ownership boundaries remain.
+
+Qualification: policy accepted; each final candidate still requires its own measurements and existing runtime gates. Sources: [handoff](../../../internal/bfd/manager_micro.go), [allocation fixtures](../../../internal/bfd/manager_micro_bench_test.go), [retained-context guard](../../../internal/bfd/manager_micro_context_test.go), [Go context contract](https://pkg.go.dev/context), [benchmark boundaries](../12-benchmarks.md).
+
 ### NetworkManager trust boundary
 
 Connection setup and property replies obey caller cancellation. The connector uses `DialContext` before godbus authentication, Hello and Unix FD negotiation. Only transport failures try another address; authentication/Hello do not retry another peer. `godbus_no_tcp` rejects TCP/nonce-TCP before DNS.

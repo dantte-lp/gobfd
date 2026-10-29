@@ -34,6 +34,16 @@ Shared Linux sender требует fixed source port 49152–65535, включа
 
 Ownership models backends различаются. Restart reconciliation учитывает manual changes. Teamd и другие switching stacks остаются future integrations. Источники: [actuator selection](../../../internal/netio/lag_backend.go), [member wiring](../../../cmd/gobfd/micro_bfd.go), [OVSDB](../../../internal/netio/lag_ovsdb.go), [NetworkManager](../../../internal/netio/lag_networkmanager.go).
 
+### Граница выделений actuator Micro-BFD — принята 2026-10-29
+
+Сохранить существующие нулевые бюджеты выделений packet/FSM/timer и Micro-BFD dispatch без actuator, включая включённое JSON-журналирование. Каждый вызов actuator получает новый `context.WithTimeout(parent, 5*time.Second)` с отложенной отменой. Сохраняются более ранний deadline и отмена родителя; удержанный контекст сохраняет исходную семантику `Deadline`, `Done`, `Err` и `Value`. Не возвращать выданный контекст в pool и не сбрасывать его ради показателей выделений.
+
+Для квалификации на закреплённом Go 1.27.3 linux/amd64 неизменённый benchmark с `Background` и пустым actuator имеет бюджет не более 272 B/op и 4 allocs/op: три прогона минимум по 200000 итераций. Пустой callback не читает `Done`; его чтение, другой родитель и работа реального backend могут добавлять выделения. Бюджет относится только к этому сценарию. Измерять выделения backend и задержку применения состояния отдельно; компонентный результат не квалифицирует владение, wire behavior, масштаб или сходимость.
+
+Единственный dispatcher вызывает actuator без блокировок Manager, после рассылки текущего уведомления. Медленный вызов задерживает следующие уведомления. Отмена требует сотрудничества вызываемого кода: пятисекундный контекст не прерывает принудительно произвольный callback или файловую операцию и не гарантирует время применения состояния. Сохраняются preview, отключение по умолчанию и явные границы владения.
+
+Квалификация: политика принята; финальный кандидат требует собственных измерений и существующих runtime-проверок. Источники: [передача управления](../../../internal/bfd/manager_micro.go), [сценарии выделений](../../../internal/bfd/manager_micro_bench_test.go), [проверка удержанного контекста](../../../internal/bfd/manager_micro_context_test.go), [контракт Go context](https://pkg.go.dev/context), [границы benchmarks](../12-benchmarks.md).
+
 ### Граница доверия NetworkManager
 
 Connection setup и property replies подчиняются caller cancellation. Connector использует `DialContext` до godbus authentication, Hello и Unix FD negotiation. Другой address пробуется только при transport failure; authentication/Hello не повторяются на другом peer. `godbus_no_tcp` отклоняет TCP/nonce-TCP до DNS.

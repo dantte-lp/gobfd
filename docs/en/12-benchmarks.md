@@ -107,6 +107,8 @@ Before typed LogAttrs, no-actuator and noop-actuator samples report 11 and 15 al
 
 The five-second deadline, cancellation and ordered dispatch remain. The actuator path retains the measured four allocations. Neither sample qualifies backend I/O or scale.
 
+The [accepted actuator allocation policy](adr/0003-linux-advanced-bfd-applicability.md#micro-bfd-actuator-allocation-boundary--accepted-2026-10-29) preserves zero allocations without an actuator and caps the unchanged `Background` plus noop fixture at 272 B/op and 4 allocs/op on the pinned Go 1.27.3 linux/amd64 toolchain. Collect three runs of at least 200000 iterations for each final candidate. The noop callback does not read `Done`; actual backends and different parent contexts need separate measurements. Retained contexts must remain immutable after cancellation. An allocation budget does not bound enforcement latency.
+
 ### Owner collector — 2026-10-22
 
 The local receipt `reports/collector-owner-20261022/` records 16 B/op and 2 allocs/op before caching active peer/local packet-counter handles, followed by 0 B/op and 0 allocs/op in three runs. Reference counts bound cache lifetime to active registrations; historical CounterVec series retain their old lifetime. This fixture excludes UDP/decode/auth and uses synthetic timing. It does not qualify lifetime metric cardinality.
