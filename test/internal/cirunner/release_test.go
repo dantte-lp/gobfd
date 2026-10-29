@@ -286,6 +286,24 @@ RecvDecodeFSM-8,2e-7,1%,2.1e-7,1%,+5.00%,p=0.01 n=6
 	if structured.Version != "v0.6.2" || structured.GeneratedAt != "2026-09-03T09:34:56Z" {
 		t.Errorf("release comparison context = %#v", structured)
 	}
+	csv = strings.Replace(csv, "2.1e-7,1%,+5.00%", "2.4e-7,1%,+20.00%", 1)
+	if err := ReleaseBenchmarkComparison(t.Context(), ReleaseComparisonOptions{
+		Root: root, Version: "v0.6.2", Now: func() time.Time { return generatedAt }, Runner: runner,
+	}); err == nil {
+		t.Error("critical release comparison succeeded with nil warning and skipped summary")
+	}
+	for _, name := range []string{
+		"comparison-vs-baseline.txt", "comparison-vs-baseline.md",
+		"comparison-vs-baseline.html", "comparison-vs-baseline.json", "comparison-vs-baseline.csv",
+		"comparison-vs-baseline-notes.txt",
+	} {
+		// The existing fixture runner has no stderr notes; an empty notes artifact is valid here.
+		path := filepath.Join(root, "reports/benchmarks", name)
+		info, err := os.Stat(path)
+		if err != nil || (name != "comparison-vs-baseline-notes.txt" && info.Size() == 0) {
+			t.Errorf("critical release artifact %s missing or empty: %v", name, err)
+		}
+	}
 }
 
 func TestReleaseBenchmarkComparisonClearsStaleOutputsWithoutBaseline(t *testing.T) {

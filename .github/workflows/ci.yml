@@ -202,7 +202,7 @@ jobs:
       pull-requests: write
     env:
       BENCH_REGEX: >-
-        ^(BenchmarkControlPacket|BenchmarkFSMTransition|BenchmarkApplyJitter|BenchmarkPacketPool|BenchmarkRecvStateToEvent|BenchmarkFullRecvPath|BenchmarkFullRecvPathCodec|BenchmarkFullTxPath|BenchmarkRecvDecodeLookupEnqueue|BenchmarkRecvDecodeFSM|BenchmarkTxMarshalJitter|BenchmarkSessionRecvPacket|BenchmarkDetectionTimeCalc|BenchmarkCalcTxInterval|BenchmarkDetectionTimeCalcHot|BenchmarkCalcTxIntervalHot|BenchmarkSessionApplyJitter|BenchmarkBuildInnerPacket|BenchmarkStripInnerPacket|BenchmarkVXLANHeader|BenchmarkGeneveHeader)
+        ^(BenchmarkControlPacket|BenchmarkFSMTransition|BenchmarkApplyJitter|BenchmarkPacketPool|BenchmarkRecvStateToEvent|BenchmarkFullRecvPath|BenchmarkFullRecvPathCodec|BenchmarkFullTxPath|BenchmarkManager(Demux|Lookup)1000Sessions|BenchmarkRecvDecodeLookupEnqueue|BenchmarkRecvDecodeFSM|BenchmarkTxMarshalJitter|BenchmarkSessionRecvPacket|BenchmarkDetectionTimeCalc|BenchmarkCalcTxInterval|BenchmarkDetectionTimeCalcHot|BenchmarkCalcTxIntervalHot|BenchmarkSessionApplyJitter|BenchmarkBuildInnerPacket|BenchmarkStripInnerPacket|BenchmarkVXLANHeader|BenchmarkGeneveHeader)
     container:
       image: docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c
     steps:

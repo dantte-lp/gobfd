@@ -226,6 +226,7 @@ func TestBenchmarkReportWritesEscapedStructuredArtifactsAndSummary(t *testing.T)
 	csvOutput := `,old.txt,,new.txt,,,
 ,sec/op,CI,sec/op,CI,vs base,P
 RecvDecodeFSM-8,2e-7,1%,2.4e-7,1%,+20.00%,p=0.001 n=6
+TxMarshalJitter-8,2e-7,1%,2.4e-7,1%,+20.00%,p=0.001 n=6
 Other-8,2e-9,1%,2.3e-9,1%,+15.00%,p=0.002 n=6
 Tiny-8,5e-10,1%,6e-10,1%,+20.00%,p=0.003 n=6
 Boundary-8,2e-9,1%,2.2e-9,1%,+10.00%,p=0.004 n=6
@@ -268,8 +269,8 @@ geomean,0,,0,,?,
 	if got := len(runner.calls); got != 0 {
 		t.Fatalf("benchstat invocation count after rejected empty summary = %d, want 0", got)
 	}
-	if err := BenchmarkReport(context.Background(), options); err != nil {
-		t.Fatalf("BenchmarkReport() error = %v", err)
+	if err := BenchmarkReport(context.Background(), options); err == nil {
+		t.Error("critical BenchmarkReport succeeded after publishing its artifacts")
 	}
 	if got := len(runner.calls); got != 2 {
 		t.Fatalf("benchstat invocation count = %d, want 2", got)
@@ -312,8 +313,8 @@ geomean,0,,0,,?,
 	if structured.SchemaVersion != "gobfd.benchmark-comparison.v1" {
 		t.Errorf("schema version = %q, want v1", structured.SchemaVersion)
 	}
-	if len(structured.Rows) != 5 {
-		t.Fatalf("comparison row count = %d, want 5", len(structured.Rows))
+	if len(structured.Rows) != 6 {
+		t.Fatalf("comparison row count = %d, want 6", len(structured.Rows))
 	}
 	if got := []string{
 		structured.Rows[0].Classification,
@@ -321,11 +322,12 @@ geomean,0,,0,,?,
 		structured.Rows[2].Classification,
 		structured.Rows[3].Classification,
 		structured.Rows[4].Classification,
-	}; !reflect.DeepEqual(got, []string{"critical", "reported", "none", "reported", "none"}) {
+		structured.Rows[5].Classification,
+	}; !reflect.DeepEqual(got, []string{"critical", "critical", "reported", "none", "reported", "none"}) {
 		t.Errorf("regression classifications = %v", got)
 	}
-	if structured.Rows[3].Delta != "+10.00%" {
-		t.Errorf("exact boundary delta = %q, want +10.00%%", structured.Rows[3].Delta)
+	if structured.Rows[4].Delta != "+10.00%" {
+		t.Errorf("exact boundary delta = %q, want +10.00%%", structured.Rows[4].Delta)
 	}
 	if !reflect.DeepEqual(structured.Notes, []string{"G3: benchmark samples are sparse"}) {
 		t.Errorf("structured notes = %v", structured.Notes)
@@ -339,7 +341,8 @@ geomean,0,,0,,?,
 		t.Errorf("step summary lacks regression evidence: %q", stepSummary)
 	}
 	if !strings.Contains(warning.String(), "::warning::Critical benchmark regression detected (>=10%)") ||
-		!strings.Contains(warning.String(), "RecvDecodeFSM-8,+20.00%,p=0.001 n=6") {
+		!strings.Contains(warning.String(), "RecvDecodeFSM-8,+20.00%,p=0.001 n=6") ||
+		!strings.Contains(warning.String(), "TxMarshalJitter-8,+20.00%,p=0.001 n=6") {
 		t.Errorf("workflow warning lacks critical regression evidence: %q", warning.String())
 	}
 	for _, path := range []string{

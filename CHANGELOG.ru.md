@@ -774,6 +774,11 @@
 
 ### Исправлено
 
+- Сравнение benchmarks завершается ошибкой при классифицированной critical
+  regression после сохранения отчётов и попыток записи summary и warnings.
+  Невалидные raw inputs отклоняются; ошибки benchstat и writers передаются
+  вызывающему коду; release consumers сохраняют шесть runs.
+
 - Условное продление старого Control deadline доказывается выборочным
   восстановлением зафиксированных стабильных Up packets с сохранением recorded
   RX omissions и expired Down packets. Проверяются packet bodies и checked

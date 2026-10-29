@@ -753,6 +753,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fail benchmark comparisons on classified critical regressions after retaining
+  reports and attempting summaries and warnings. Reject invalid raw inputs and
+  propagate benchstat and writer errors; preserve six-run release consumers.
+
 - Prove conditional Control old-deadline extension by selectively restoring
   captured stable Up packets while retaining recorded RX omissions and expired
   Down packets. Validate packet bodies and checked deadline arithmetic; preserve
