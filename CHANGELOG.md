@@ -407,6 +407,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Require native phase controllers and strict report readers to share the producer source/module graph and pass a current-report compatibility preflight. Preserve incomplete-run evidence when decoding prevents the `stop-owner` publication.
+
 - Classify workload RemoteDown conditionally only when every possible prior peer expiry has a qualified old-deadline proof. Missing or ambiguous origins remain unresolved; this does not qualify native load or reconstruct missing historical evidence.
 
 - Poll the CPU-pressure thread clock once per four shared work chunks while
