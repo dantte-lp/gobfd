@@ -150,7 +150,7 @@ func StartOwner(ctx context.Context, cfg OwnerConfig, logger *slog.Logger) (*Own
 	owner := &Owner{
 		echo:   cfg.Echo,
 		socket: config.DefaultConfig().Socket,
-		manager: bfd.NewManager(logger, notifications, bfd.WithManagerMetrics(collector),
+		manager: bfd.NewManager(logger, notifications, bfd.WithShutdownNotificationDrain(), bfd.WithManagerMetrics(collector),
 			bfd.WithSessionInterfaceResolver(netio.ResolveSessionIfIndex)),
 		registry: registry, ports: netio.NewSourcePortAllocator(), logger: logger, cancel: cancel, done: make(chan struct{}),
 	}

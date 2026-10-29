@@ -7,6 +7,7 @@
 | Изменение генерации CPU pressure | 2026-10-29 |
 | Изменение учёта CPU в окне | 2026-10-29 |
 | Изменение опроса CPU clock | 2026-10-29 |
+| Изменение завершения журнала | 2026-10-29 |
 
 ## Контекст
 
@@ -71,6 +72,8 @@ AdminDown floor одна секунда при multiplier 3 требует ми�
 Manager/demux count, active gauges и retained metric series различаются. Lifetime event storage ограничено для 24-hour/five-second profile, omissions учитываются. Join churn выполняется до freeze; ledger охватывает все generations. Fixed-manifest reuse не квалифицирует arbitrary unique-label growth. Источники: [churn](../../../test/internal/bfdload/session_churn_linux.go), [inventory](../../../test/internal/bfdload/owner_churn_linux.go).
 
 ### Down journal
+
+Workload Owner включает `WithShutdownNotificationDrain` при создании Manager. Close запрещает новые изменения, отменяет producers и dispatcher, затем присоединяет workers вне подписок, сохраняя регистрацию физических identities. После этого доставляет queued changes с совпадающим SessionRef, закрывает и присоединяет подписчиков, освобождает ресурсы. Финальная доставка сохраняет исходный witness и не вызывает Micro-BFD actuator либо unsolicited cleanup. Pending raw loss сохраняет GAP; отменённый или медленный подписчик может остаться incomplete. Обычный Manager Close сохраняет abandonment; legacy channel не открывается повторно после dispatcher EOF. Произвольный sender callback по-прежнему не имеет универсальной границы shutdown. Источники: [shutdown](../../../internal/bfd/manager_shutdown.go), [Owner](../../../test/internal/bfdload/owner_linux.go).
 
 Один bounded subscriber работает через setup/measurement/shutdown. Cutoff denominator снимается с реального Up→Down source counter, увеличиваемого до notification timestamp/enqueue. Planned cutoff и actual sample completion сохраняются отдельно. Measurement freeze предшествует stop/drain/journal join и задаёт histogram deltas.
 

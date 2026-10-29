@@ -158,6 +158,8 @@ Peers возвращают весь datagram, включая padding, с TTL/Hop
 
 ## Доказательства Down
 
+Workload Manager с `WithShutdownNotificationDrain` доставляет queued notifications после producer join и до subscriber EOF. Проверки физической identity, GAP и равенства счётчиков журнала остаются обязательными. Завершение не вызывает actuator; обычный Manager сохраняет abandonment. См. [ADR-0007](adr/0007-workload-phase-accounting.md).
+
 Полный source journal требуется даже при отсутствии Down rows. Raw/subscriber queues резервируют min(65536,64+3N): 3064 entries при N=1000, saturation после 21824 producers. Каждый subscriber владеет своей queue. Sustained churn/reload growth могут вызвать overflow; legacy/unconfigured queues остаются 64. Проверки GAP/overflow обязательны.
 
 Один consumer работает от setup до остановка владельца сессии. После owners он присоединяется за пять секунд; gaps, omissions, missing counters и unsettled delivery нарушают completeness. Сохраняются:

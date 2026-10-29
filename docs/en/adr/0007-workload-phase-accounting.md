@@ -7,6 +7,7 @@
 | CPU-generation amendment | 2026-10-29 |
 | CPU-credit amendment | 2026-10-29 |
 | CPU-polling amendment | 2026-10-29 |
+| Shutdown-journal amendment | 2026-10-29 |
 
 ## Context
 
@@ -71,6 +72,8 @@ AdminDown's one-second advertised floor with multiplier 3 needs at least three s
 Keep one-to-one Manager/demux counts separate from active gauges and retained metric series. Bound lifetime event storage for the 24-hour/five-second profile and count omissions. Join churn before freeze; settle the lifetime ledger across generations. Fixed-manifest reuse does not qualify arbitrary unique-label growth. Sources: [churn](../../../test/internal/bfdload/session_churn_linux.go), [inventory](../../../test/internal/bfdload/owner_churn_linux.go).
 
 ### Down journal
+
+Workload Owner enables `WithShutdownNotificationDrain` at Manager construction. Close rejects new mutations, cancels producers and dispatcher, and joins non-subscriber workers while physical identities remain registered. It then delivers queued changes with matching SessionRef, closes and joins subscribers, and releases resources. Final delivery retains the original witness and performs no Micro-BFD actuation or unsolicited cleanup. Pending raw loss still produces GAP; canceled or slow subscribers can remain incomplete. Default Manager Close retains abandonment semantics, and the legacy channel is not reopened after dispatcher EOF. Arbitrary sender callbacks still have no universal shutdown bound. Sources: [shutdown](../../../internal/bfd/manager_shutdown.go), [Owner](../../../test/internal/bfdload/owner_linux.go).
 
 Start one bounded subscriber through setup, measurement and shutdown. Sample cutoff denominator from the actual collector Up→Down source counter, incremented before notification timestamp/enqueue. Retain planned cutoff and actual sample completion separately. Freeze measurement before stop/drain/journal join; use that snapshot for histogram deltas.
 

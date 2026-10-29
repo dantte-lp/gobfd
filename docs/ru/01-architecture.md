@@ -131,6 +131,8 @@ GoBGP и bridges действуют после state publication. Успешны
 
 ## Штатное завершение
 
+Обычный `Manager.Close` может оставить queued state notifications с исходом Abandoned. Workload Owner включает доставку изменений зарегистрированных физических сессий активным подписчикам до EOF. Она не вызывает внешние actuators и не гарантирует доставку отменённому или медленному подписчику. См. [политику завершения](adr/0007-workload-phase-accounting.md#down-journal).
+
 1. На SIGTERM/SIGINT вызовите `Manager.DrainAllSessions` с отдельным общим бюджетом десять секунд.
 2. Дождитесь owner commit AdminDown/7, первой успешной разрешённой записи и negotiated notification window; повторяйте неуспешную запись по обычному TX timer.
 3. Закройте Manager, выполните join owners и dispatch, освободите sender leases, затем завершите HTTP и receive resources.

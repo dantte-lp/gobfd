@@ -158,6 +158,8 @@ This exercises the Echo preview, not an adjacent forwarding plane, RFC return au
 
 ## Down evidence
 
+The workload Manager drains queued notifications after producer join and before subscriber EOF with `WithShutdownNotificationDrain`. Physical identity checks, GAP and journal count equality remain mandatory. This observational shutdown invokes no actuator and leaves default Manager abandonment unchanged; see [ADR-0007](adr/0007-workload-phase-accounting.md).
+
 A complete source journal is required even when there are no Down rows. Raw and subscriber queues reserve min(65536,64+3N): 3064 entries at N=1000, reaching saturation beyond 21824 producers. Each subscriber owns its queue. Sustained churn/reload growth can overflow; legacy/unconfigured queues remain 64. GAP and overflow checks stay mandatory.
 
 One consumer runs from setup through owner shutdown. After owners join, it joins within five seconds; gaps, omissions, missing counters or unsettled delivery fail completeness. Retain:

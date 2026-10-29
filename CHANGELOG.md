@@ -763,6 +763,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Retain committed Control/Echo notifications through workload shutdown with an
+  explicit Manager drain policy. Join producers before draining physical-session
+  changes and closing subscribers; preserve GAP, default abandonment and the
+  strict journal completeness checks. Final delivery invokes no actuator.
+
 - Reject CPU-pressure samples completed at or after the wall deadline before
   crediting the window budget. Preserve the last on-time credit so late CPU
   work cannot erase a missed window; native qualification remains separate.

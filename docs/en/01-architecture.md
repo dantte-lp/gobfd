@@ -131,6 +131,8 @@ GoBGP and bridges act after state publication. A successful local observation, n
 
 ## Graceful Shutdown
 
+Default `Manager.Close` may abandon queued state notifications. The workload Owner opts into draining registered physical-session changes to live subscribers before EOF; this performs no external actuation and does not guarantee lossless delivery to canceled or slow subscribers. See [shutdown policy](adr/0007-workload-phase-accounting.md#down-journal).
+
 1. Request `Manager.DrainAllSessions` on SIGTERM/SIGINT with one fresh ten-second budget.
 2. Await owner AdminDown/7 commit, the first successful permitted write and the negotiated notification window; retry failed writes on the normal TX timer.
 3. Close the Manager, join owners and dispatch, release sender leases, then shut down HTTP and receive resources.
