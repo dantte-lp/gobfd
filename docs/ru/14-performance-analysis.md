@@ -185,6 +185,12 @@ down_witnesses сохраняет setup/drain rows, даже если notificati
 
 Incarnation связывает slot, generation и полный endpoint с physical session. Инициализируйте до churn и отслеживайте соответствующие Deleted/Added; repeated active Added не увеличивает generation. Освобождайте session references при deletion/invalidation/end; historical rows сохраняют scalars. Source-count complete и incarnations_complete — независимые требования. См. [ADR-0012](adr/0012-owner-down-transition-witness.md).
 
+### Независимые истечения таймеров peer
+
+Каждый Control peer сохраняет до 256 фактических `detection_expiry_events`: lifetime ID истечения, прежнее состояние, прежние discriminators, время принятого получения, фактический deadline и время проверки обработчика. `first_down_write` фиксирует только первую успешную запись Down после истечения в Init/Up и до любого нового принятого входа. Номер `scheduled` соответствует lifetime-последовательности решений TX; время решения отличается от интервала записи в сокет. Omissions и неуспешные/отменённые записи оставляют свидетельство unknown. Последующие записи его не заменяют.
+
+Offsets проецируются после завершения workers; `phase_known=false` обозначает отсчёт от запуска группы генератора. `timing_known` отличает отсутствие монотонных timestamps от измеренного нуля. Переполнение учитывается в `detection_expiry_events_omitted` и запрещает completion, включая отмену. Успешная запись не устанавливает доставку, owner incarnation или преднамеренную потерю. RemoteDown остаётся unresolved. См. [ADR-0012](adr/0012-owner-down-transition-witness.md#независимое-свидетельство-истечения-таймера-peer) и [producer](../../test/internal/bfdload/peer_expiry_linux.go).
+
 ### Фактические omissions и классификация
 
 Peer blackhole_windows фиксируют реальные TX/RX omission decisions отдельно от schedule. При нулевых counts timestamps не являются observation. RX decision может предшествовать validation; время не равно socket arrival или commit. Сопоставляйте только общий phase, а не независимые worker epochs.

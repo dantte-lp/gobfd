@@ -6,6 +6,7 @@
 | Date | 2026-10-26 |
 | Echo proof amendment | 2026-10-29 |
 | Selective Control proof amendment | 2026-10-29 |
+| Independent peer expiry amendment | 2026-10-29 |
 
 ## Context
 
@@ -55,6 +56,18 @@ Positive attribution assumes selected packets would reach owner acceptance and c
 The 2026-10-29 amendment replaces the earlier multiplier-count and nominal-cadence policy. Preserve assessments made under that policy. Reassessment uses a separate output bound to both original producer SHA and new assessor SHA; a changed reader does not establish native acceptance.
 
 Source: [classifier](../../../test/internal/bfdload/down_classification_linux.go), [regressions](../../../test/internal/bfdload/down_classification_linux_test.go).
+
+### Independent peer expiry evidence
+
+Retain every actual reference-peer detection expiry in `detection_expiry_events`, including expiries while already Down. The ID is the lifetime `detection_expirations` ordinal. Copy the previous state, local and old remote discriminators, last accepted receive and actual deadline before `expire` clears the remote identity. The expiry timestamp is the actual timer-handler check; a delayed handler does not move the deadline. This observes [RFC 5880 §6.8.4](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.4) without changing the peer FSM.
+
+Only Init/Up→Down starts a pending first-Down-write witness. Every accepted input and subsequent actual expiry clears it, even if the accepted input leaves the state Down. Random/blackhole omissions and failed/canceled sends cannot supply a successful write. Retain the first successful socket write's scalar Control body, lifetime `scheduled` ordinal, decision timestamp and separate timestamps around `SendPacket`. The write bracket is not delivery or owner acceptance. Later writes cannot overwrite it; no per-packet journal is added.
+
+After worker join, project retained monotonic timestamps against the final adopted phase. This includes negative setup offsets. Without a common phase, offsets use the generator group epoch and `phase_known=false`. `timing_known` requires monotonic readings and ordered receive, deadline and expiry. Write timing independently validates `decision ≤ start ≤ end`; it does not validate expiry-to-write causal ordering. Unknown expiry timing does not erase a known write bracket. Missing/stripped/reversed timestamps stay unknown. Bound the journal to 256 expiries per peer; overflow increments `detection_expiry_events_omitted`, returns an error and prevents completion even if cancellation follows. The bound is a cardinality limit, not an RSS measurement.
+
+The journal supplies source evidence only. RemoteDown and RemoteAdminDown remain unresolved: joining owner incarnation, peer expiry, actual omissions and the delivered Down still requires an independent causal proof. Earlier reports without these rows cannot acquire them through reassessment.
+
+Sources: [peer expiry journal](../../../test/internal/bfdload/peer_expiry_linux.go), [worker](../../../test/internal/bfdload/peer_worker_linux.go), [critical regressions](../../../test/internal/bfdload/peer_expiry_linux_test.go).
 
 ### Echo owner witness
 

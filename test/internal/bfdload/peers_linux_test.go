@@ -240,6 +240,16 @@ func TestPeersBlackholeCausesDownAndRecovery(t *testing.T) {
 			tx != peer.BlackholeOmitted || rx != peer.ReceiveBlackholeOmitted {
 			t.Fatalf("actual UDP blackhole journal lost directional omissions: %+v", peer)
 		}
+		if uint64(len(peer.DetectionExpiryEvents)) != peer.DetectionExpirations || peer.DetectionExpiryEventsOmitted != 0 {
+			t.Fatal("actual UDP peer expiry journal lost events")
+		}
+		for index, expiry := range peer.DetectionExpiryEvents {
+			if expiry.ID != uint64(index+1) || !expiry.TimingKnown || expiry.PhaseKnown ||
+				expiry.LocalDiscriminator != uint32(peer.ID) || expiry.RemoteDiscriminator == 0 ||
+				expiry.DetectionDueNS > expiry.ExpiredNS || expiry.DetectionDueNS <= expiry.LastReceiveNS {
+				t.Fatalf("actual UDP expiry lost old identity or timing: %+v", expiry)
+			}
+		}
 	}
 	target, err := owner.Snapshot(t.Context())
 	if err != nil {

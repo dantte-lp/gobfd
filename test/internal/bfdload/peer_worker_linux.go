@@ -56,6 +56,7 @@ type peerRuntime struct {
 	duration         time.Duration
 	echo             bool
 	echoReadSequence uint64
+	pendingExpiry    int
 }
 
 func bindPeer(
@@ -255,6 +256,7 @@ func (p *peerRuntime) accept(input peerInput, now time.Time) (bool, bool) {
 		return false, false
 	}
 	p.observed.Accepted++
+	p.pendingExpiry = 0
 	p.observeState(previousState)
 	return true, final
 }
@@ -271,11 +273,14 @@ func (p *peerRuntime) onTransmit(ctx context.Context, started time.Time, timers 
 }
 
 func (p *peerRuntime) onDetection(ctx context.Context, started time.Time, timers *peerTimers) error {
-	now, previousState := time.Now(), p.state.state
+	now, previous := time.Now(), p.state
 	if p.state.expire(now) {
 		p.observed.DetectionExpirations++
-		p.observeState(previousState)
-		if previousState != p.state.state {
+		p.observeState(previous.state)
+		if err := p.recordExpiry(previous, now); err != nil {
+			return err
+		}
+		if previous.state != p.state.state {
 			if err := p.send(ctx, now, started, false); err != nil {
 				return err
 			}
@@ -312,6 +317,10 @@ func (p *peerRuntime) send(ctx context.Context, now, started time.Time, final bo
 		return fmt.Errorf("encode peer control packet: %w", err)
 	}
 	p.observed.WriteAttempts++
+	var writeStarted time.Time
+	if p.pendingExpiry != 0 {
+		writeStarted = time.Now()
+	}
 	if err := p.sender.SendPacket(ctx, wire[:n], p.observed.Endpoint.Local.Addr()); err != nil {
 		if ctx.Err() != nil {
 			p.observed.WriteCanceled++
@@ -321,6 +330,9 @@ func (p *peerRuntime) send(ctx context.Context, now, started time.Time, final bo
 		return fmt.Errorf("transmit peer control packet: %w", err)
 	}
 	p.observed.Written++
+	if p.pendingExpiry != 0 {
+		p.recordExpiryWrite(packet, now, writeStarted, time.Now())
+	}
 	return nil
 }
 

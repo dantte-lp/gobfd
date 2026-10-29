@@ -185,6 +185,12 @@ down_witnesses retains setup/drain rows even when notification arrives after cut
 
 An incarnation binds slot, generation and full endpoint to a physical session. Seed before churn and follow matching Deleted/Added notifications; repeated active Added does not advance generation. Release session references on deletion/invalidation/end; historical rows retain scalars. Source-count complete and incarnations_complete are independent prerequisites. See [ADR-0012](adr/0012-owner-down-transition-witness.md).
 
+### Independent peer expiries
+
+Each Control peer retains up to 256 actual `detection_expiry_events`: lifetime expiry ID, previous state, old discriminators, accepted-receive time, actual deadline and handler-check time. `first_down_write` records only the first successful Down write after Init/Up expiry and before any new accepted input. Its `scheduled` ordinal is the lifetime TX decision number; decision time differs from the bracket around the socket write. Omissions and failed/canceled writes leave it unknown. Later writes do not replace it.
+
+Offsets are projected after worker join; `phase_known=false` denotes the generator group epoch. `timing_known` distinguishes missing monotonic timestamps from measured zero. Overflow counts `detection_expiry_events_omitted` and rejects completion, including cancellation. A successful write does not establish delivery, owner incarnation or intentional loss. RemoteDown remains unresolved. See [ADR-0012](adr/0012-owner-down-transition-witness.md#independent-peer-expiry-evidence) and [producer](../../test/internal/bfdload/peer_expiry_linux.go).
+
 ### Actual omissions and classification
 
 Peer blackhole_windows record actual TX/RX omission decisions separately from the schedule. Zero counts mean timestamps have no observation. RX decisions can precede validation; timing is not socket arrival or commit. Correlate only a common phase, never independent worker epochs.
