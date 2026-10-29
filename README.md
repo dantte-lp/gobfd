@@ -58,6 +58,21 @@ management requires the transport and principal policy in
 Source contracts: [defaults](internal/config/config.go),
 [daemon startup](cmd/gobfd/main.go), [build targets](Makefile).
 
+## Preview profiles
+
+All profiles default to disabled. Capability readiness does not establish
+peer health or completed RFC qualification. See [Configuration](docs/en/03-configuration.md#preview-profiles).
+
+<!-- BEGIN GOBFD PREVIEW CAPABILITIES -->
+| Profile | RFC | Maturity |
+| :--- | ---: | :--- |
+| unsolicited | 9468 | preview; unsafe |
+| echo | 9747 | preview; incomplete RFC qualification |
+| micro_bfd | 7130 | preview; incomplete L2 owner integration |
+| vxlan | 8971 | preview; unsafe/incomplete owner integration |
+| geneve | 9521 | preview; unsafe/incomplete IPv4 Format A |
+<!-- END GOBFD PREVIEW CAPABILITIES -->
+
 ## Documentation
 
 | Task | Reference |
