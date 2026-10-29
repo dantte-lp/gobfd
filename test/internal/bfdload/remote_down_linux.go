@@ -28,7 +28,7 @@ func classifyRemoteDown(
 			return downUnresolved, "another peer expiry can originate the indistinguishable received Down"
 		}
 	}
-	if !knownFirstExpiryWrite(first, peer.Scheduled, peers.Profile) {
+	if !knownFirstExpiryWrite(first, peer.Scheduled, peers.Profile) || !validFirstWritePrefix(first.FirstDownWrite, peer) {
 		return downUnresolved, "first peer expiry has no matching successful Down write"
 	}
 	writeUpper, valid := addNS(first.FirstDownWrite.StartedNS, peers.Phase.BracketNS)
@@ -36,6 +36,23 @@ func classifyRemoteDown(
 		return downUnresolved, "first Down write and owner validated receive are not strictly ordered"
 	}
 	return classifyFirstExpiryOmissions(peers, peer, first)
+}
+
+func validFirstWritePrefix(write PeerExpiryWrite, peer PeerSessionObservation) bool {
+	for _, window := range peer.BlackholeWindows {
+		for _, segment := range window.Segments {
+			if segment.Direction != "tx" {
+				continue
+			}
+			for index, offset := range segment.OffsetsNS {
+				// Lifetime ordinals include setup; earlier phase ordinals are a strict lower bound.
+				if offset < write.DecisionNS && segment.Sequences[index] >= write.Scheduled {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }
 
 func noObservedPeerLoss(peer PeerSessionObservation) bool {

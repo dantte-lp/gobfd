@@ -230,3 +230,35 @@ func TestControlTXOnlyProfileRejectsContradictoryRXHistory(t *testing.T) {
 		t.Fatalf("local timeout accepted RX evidence disabled by its profile: %+v", got)
 	}
 }
+
+func TestRemoteDownRejectsWriteOrdinalBeforeEarlierTXDecisions(t *testing.T) {
+	t.Parallel()
+	for _, scheduled := range []uint64{11, 12, 13} {
+		owner, peers := remoteDownFixture(t)
+		peers.Peers[0].DetectionExpiryEvents[0].FirstDownWrite.Scheduled = scheduled
+		if got := ClassifyDowns(owner, peers); got.Passing || got.Intentional != 0 || got.Unresolved != 1 {
+			t.Fatalf("write ordinal %d contradicts earlier TX omission prefix: %+v", scheduled, got)
+		}
+	}
+}
+
+func TestRemoteDownWriteOrdinalCanEqualLaterPhaseOmission(t *testing.T) {
+	t.Parallel()
+	owner, peers := remoteDownFixture(t)
+	p := &peers.Peers[0]
+	// A phase decision and a lifetime write use different origins when setup sent packets.
+	p.BlackholeWindows[0].Segments[0].Sequences = []uint64{8, 9, 10}
+	p.Scheduled, p.WriteAttempts, p.Written, p.BlackholeOmitted = 18, 12, 12, 6
+	p.BlackholeWindows = append(p.BlackholeWindows, PeerBlackholeWindow{
+		StartNS: 800000000, FirstTXNS: 820000000, LastTXNS: 980000000, TXOmitted: 3,
+		Segments: []PeerOmissionSegment{{
+			Direction: "tx", FirstNS: 820000000, LastNS: 980000000, Count: 3, Valid: true,
+			MyDiscriminator: 1, YourDiscriminator: 42, State: bfd.StateUp,
+			DesiredMinTXUS: 100000, RequiredMinRXUS: 100000, DetectMult: 3,
+			OffsetsNS: []int64{820000000, 900000000, 980000000}, Sequences: []uint64{14, 15, 16},
+		}},
+	})
+	if got := ClassifyDowns(owner, peers); !got.Passing || got.Intentional != 1 {
+		t.Fatalf("a later phase ordinal was equated to an earlier lifetime write: %+v", got)
+	}
+}

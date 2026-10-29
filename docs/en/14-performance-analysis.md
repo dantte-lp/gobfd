@@ -119,6 +119,12 @@ CaptureEnvironment observes its own process: smaps_rollup RSS, threads, FDs, pro
 
 Cgroup observations cover the visible hierarchy. cpu.stat bandwidth counts exclude inherited throttling; cpu.stat.local has separate optional validity. Missing/malformed values stay unavailable; max differs from numeric zero. Follow the [cgroup v2 contract](https://docs.kernel.org/admin-guide/cgroup-v2.html). Namespace visibility and generator isolation need separate evidence.
 
+### CPU diagnostic attribution
+
+Decode retained traces with the pinned Go toolchain before starting another workload. Go 1.27 uses `go tool trace -d=parsed` for decoded events; see the [pinned decoder source](https://github.com/golang/go/blob/go1.27.3/src/cmd/trace/main.go). Pair worker ClockGettime entries and syscall exits by GoID and transition stack; separate `Syscall→Running`, `Syscall→Runnable`, resumption, worker Gosched and companion yields. A syscall entry alone does not prove loss of the Go P. Entry-to-resumption duration includes runtime and scheduling; it is not isolated kernel execution time.
+
+Keep source generations and trace-off/trace-on observations separate. A companion fixture with no observed P-loss is a negative attribution control, not proof that P-loss cannot occur under native load. Missing or unmatched events leave the cause unknown. Retain raw trace and decoder identity; scheduler waits, CPU profiles and wall brackets answer different questions. Existing duty, missed-window and native admission gates remain unchanged. See [Go runtime tracing](https://github.com/golang/go/blob/go1.27.3/src/runtime/HACKING.md#execution-tracer).
+
 ### Pressure and churn
 
 | Driver | Bounded behavior | Receipt boundary |
@@ -191,7 +197,7 @@ Each Control peer retains up to 256 actual `detection_expiry_events`: lifetime e
 
 Offsets are projected after worker join; `phase_known=false` denotes the generator group epoch. `timing_known` distinguishes missing monotonic timestamps from measured zero. Overflow counts `detection_expiry_events_omitted` and rejects completion, including cancellation. A successful write does not establish delivery, owner incarnation or intentional loss. RemoteDown can qualify only through the first-expiry ancestry proof; ambiguous later epochs remain unresolved. See [ADR-0012](adr/0012-owner-down-transition-witness.md#independent-peer-expiry-evidence) and [producer](../../test/internal/bfdload/peer_expiry_linux.go).
 
-A qualified Control RX omission retains `receive_qualified`: actual codec/tuple/TTL checks and protocol acceptance on a peer-state copy, with actual state/counters unchanged. First-expiry RemoteDown classification requires a complete expiry journal, matching owner incarnation and expired-Down body, strictly ordered write/receive brackets and exclusion of every later expiry before owner receive. Restore only qualified matching stable Up RX inputs and prove checked `max(p)+D>d+Bpeer` before the first old due. This concerns first peer deadline ancestry; the owner commit may follow the blackhole end. Later ambiguous origins and legacy reports without these witnesses remain unresolved. See [ADR-0012](adr/0012-owner-down-transition-witness.md#first-expiry-remotedown-ancestry).
+A qualified Control RX omission retains `receive_qualified`: actual codec/tuple/TTL checks and protocol acceptance on a peer-state copy, with actual state/counters unchanged. First-expiry RemoteDown classification rejects a lifetime write ordinal below or equal to a strictly earlier TX omission sequence; later phase ordinal equality remains valid after setup. It requires a complete expiry journal, matching owner incarnation and expired-Down body, strictly ordered write/receive brackets and exclusion of every later expiry before owner receive. Restore only qualified matching stable Up RX inputs and prove checked `max(p)+D>d+Bpeer` before the first old due. This concerns first peer deadline ancestry; the owner commit may follow the blackhole end. Later ambiguous origins and legacy reports without these witnesses remain unresolved. See [ADR-0012](adr/0012-owner-down-transition-witness.md#first-expiry-remotedown-ancestry).
 
 ### Actual omissions and classification
 
