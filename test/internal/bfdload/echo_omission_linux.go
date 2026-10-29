@@ -115,19 +115,19 @@ func conditionalEchoOmissionCoverage(
 		previous, count = input.received, count+1
 		last = input.offset
 	}
-	return classifyEchoDeadlineExtension(last, count, witness.Timing.DetectionNS, dueUpper)
+	return classifyDeadlineExtension(last, count, witness.Timing.DetectionNS, dueUpper)
 }
 
-func classifyEchoDeadlineExtension(last int64, count uint64, detection, dueUpper int64) (string, string) {
+func classifyDeadlineExtension(last int64, count uint64, detection, dueUpper int64) (string, string) {
 	if count == 0 {
-		return downUnresolved, "actual Echo omission inputs before the old deadline are unavailable"
+		return downUnresolved, "actual omission inputs before the old deadline are unavailable"
 	}
 	replacementDue, valid := addNS(last, detection)
 	if !valid {
-		return downUnresolved, "Echo replacement deadline projection overflow"
+		return downUnresolved, "replacement deadline projection overflow"
 	}
 	if replacementDue <= dueUpper {
-		return downUnresolved, "actual Echo omission inputs do not extend the old deadline"
+		return downUnresolved, "actual omission inputs do not extend the old deadline"
 	}
-	return downIntentional, "Echo old deadline is intentional only under the stated return-delivery assumptions"
+	return downIntentional, "old deadline is intentional only under the stated delivery and reset assumptions"
 }

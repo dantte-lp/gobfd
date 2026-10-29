@@ -753,6 +753,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Prove conditional Control old-deadline extension by selectively restoring
+  captured stable Up packets while retaining recorded RX omissions and expired
+  Down packets. Validate packet bodies and checked deadline arithmetic; preserve
+  prior assessments and keep native acceptance separate.
+
 - Add measured thread-CPU yield checkpoints to the workload pressure helper
   without reducing its CPU budget or changing admission and latency limits.
   Treat the helper as a new pressure generation requiring matched native

@@ -78,7 +78,7 @@ Completeness requires final source count equals before+after observations and `b
 
 Engineering uses 5000 sessions, 300 ms, 30 minutes, random loss and CPU pressure, with one-second blackholes every 10 minutes. Full measured windows begin at minutes 10 and 20. Reference retains one-second windows every 30 minutes over 24 hours. A first blackhole at the 30-minute cutoff cannot qualify engineering failure/recovery. Record profile differences; older engineering 30-minute-period runs do not qualify the corrected workload.
 
-The positive actual-UDP Control fixture uses multiplier 1 and 75–90% planned jitter for dispatch headroom. Named profiles retain multiplier 3; actual omission gaps above negotiated interval remain unresolved, including fractional overruns.
+The positive actual-UDP Control fixture uses multiplier 1 and 75–90% planned jitter for dispatch headroom. Named profiles retain multiplier 3. The selective old-deadline proof in [ADR-0012](0012-owner-down-transition-witness.md) uses actual captured Up times and checked deadline extension, without a nominal-cadence tolerance. The earlier cadence policy rejected gaps above the negotiated interval, including fractional overruns; preserve its assessments separately from reassessments under the amended model.
 
 `bfdload assess OWNER_JSON PEER_JSON` joins one canonical stopped reference/engineering run. Require complete profile/admission/ledger/causal evidence before numeric thresholds. Use producer calibration bounds and exact integer CDF ranks at 25/50 ms effect-histogram boundaries. Keep RX, dispatch, successful-effect, no-effect and invalid denominators distinct; exact cross-counter settlement needs stopped observations.
 

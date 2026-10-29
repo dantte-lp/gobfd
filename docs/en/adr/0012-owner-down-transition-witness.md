@@ -5,6 +5,7 @@
 | Status | Accepted |
 | Date | 2026-10-26 |
 | Echo proof amendment | 2026-10-29 |
+| Selective Control proof amendment | 2026-10-29 |
 
 ## Context
 
@@ -41,11 +42,17 @@ Bind reports to actual boot ID, private control-directory device/inode, native s
 
 Require settled source counts, scalar incarnation history, complete omission accounting and consistent TX schedule/write results/RX dispositions. Each direction's omission sequence increases across segments/windows and stays within actual Scheduled/Read totals; interwindow gaps are allowed. Invalid arithmetic/accounting leaves Down unresolved.
 
-An intentional verdict requires timeout cause, prior remote Up, old actual deadline, commit wholly inside measurement/fault window and matching valid Up packets. At least the negotiated multiplier consecutive actual TX decisions must cover receive→deadline: first within one negotiated interval, every subsequent gap no longer than that interval and final interval covering due. Old D must agree with wire inputs and fixed workload RX.
+An intentional verdict requires timeout cause, prior remote Up, old actual deadline, commit wholly inside measurement/fault window and matching valid Up packets. Restore only captured would-be Up packets at owner delivery; keep every other recorded disposition, including RX omissions and withheld expired Down packets, unchanged. This selective intervention does not replay the peer generator with a different transmit decision or remove the entire physical fault.
+
+Restored Up packets require codec validity, expected peer and owner discriminators, diagnostic None, clear Poll/Final flags and unchanged workload DesiredMinTX, RequiredMinRX and DetectMult. Old D must agree with these wire inputs and fixed workload RX. Validate every potentially in-range TX body and expected identity before accepting a proof. A withheld Down is supported only with expected peer discriminator, zero YourDiscriminator, ControlTimeExpired diagnostic, Final clear, DesiredMinTX equal to `max(workload_interval,1s)`, Poll set exactly when `workload_interval<1s`, and unchanged RequiredMinRX/DetectMult. It remains withheld; its time interval does not constrain restored-Up coverage, including when it straddles old due. Reject unsupported bodies, states, identities and Up after Down.
+
+For a nonempty selected Up set, each actual offset p must satisfy `p>r+owner_bracket` and `p+peer_bracket<d`, where r is the last validated receive and d the old actual deadline. Require checked `max(p)+D>d+owner_bracket`. Under the explicit assumption that owner acceptance and detection Reset complete before old due, reset time s follows p and `s+D>=max(p)+D>d+owner_bracket`. The replacement deadline is strictly later than every bracket-consistent old due. Count and nominal packet cadence do not replace this proof; no gap tolerance or guessed schedule is introduced. Complete actual decision accounting remains mandatory.
 
 Reused discriminator, unknown phase/identity, boundary overlap, absent progress and peer-originated Down remain unresolved. One omission/window overlap is insufficient. Additional known terminal loss, counter reset or absent measurement commit progress prevents positive attribution; aggregate loss counters cannot supply exact fault times.
 
-Positive attribution assumes unchanged transport would deliver the omitted packets before due and no independent hidden fault coincides. Serialize those assumptions. Passing applies only to that conditional model; any false/unresolved eligible Down prevents it. Total uncertainty stays unknown and reference_qualified remains false. The fixture-only TX-only blackhole exercises the predicate separately; named profiles reject that selector.
+Positive attribution assumes selected packets would reach owner acceptance and complete detection Reset before old due, with no independent hidden fault. Serialize the selective intervention and those assumptions. The conclusion concerns that old deadline, not absence of later Down or of Down by a delayed actual commit. Passing applies only to that conditional model; any false/unresolved eligible Down prevents it. Total uncertainty stays unknown and reference_qualified remains false. The fixture-only TX-only blackhole exercises the predicate separately; named profiles reject that selector.
+
+The 2026-10-29 amendment replaces the earlier multiplier-count and nominal-cadence policy. Preserve assessments made under that policy. Reassessment uses a separate output bound to both original producer SHA and new assessor SHA; a changed reader does not establish native acceptance.
 
 Source: [classifier](../../../test/internal/bfdload/down_classification_linux.go), [regressions](../../../test/internal/bfdload/down_classification_linux_test.go).
 
@@ -61,13 +68,13 @@ Sources: [Echo owner](../../../internal/bfd/echo.go), [Echo observations](../../
 
 ### Echo old-deadline classification
 
-Keep Control predicate unchanged. For Echo require checked `D=interval*detect_multiplier`, actual old deadline d, last accepted return r, matching incarnation/version and diagnostic EchoFailed. Remote Control state/discriminator remain unknown.
+For Echo require checked `D=interval*detect_multiplier`, actual old deadline d, last accepted return r, matching incarnation/version and diagnostic EchoFailed. Remote Control state/discriminator remain unknown.
 
 Merge RX/return-TX omissions by actual received_sequences, not independent decision counters. Require unique increasing read indices across windows and nondecreasing input times. Every selected input must match owner wire generation; selected read indices must be consecutive and nonempty. Each input time p satisfies `p>r+owner_bracket` and `p+peer_bracket<d`. The whole commit bracket follows d and stays in the same blackhole window. Retain all journal bounds; sorting bounded references does not reorder reports.
 
 Require checked `max(p)+D>d+owner_bracket` for every positive verdict. A counterfactual owner Reset at time s follows its selected input, so `s+D>=max(p)+D>d+owner_bracket`: the replacement deadline is strictly after every bracket-consistent old due. DetectMultiplier already enters D; the number of omitted inputs is not a substitute for this interval proof. ValidatedAt precedes Reset, so do not assume `d=r+D`.
 
-The explicit assumption is that selected withheld inputs would return, be accepted and reset detection before that old deadline. Arrival at a socket alone does not establish this assumption. The result concerns that deadline, not absence of every later counterfactual timeout. Unlike Control, actual Echo inputs do not require a guessed continuous TX schedule.
+The explicit assumption is that selected withheld inputs would return, be accepted and reset detection before that old deadline. Arrival at a socket alone does not establish this assumption. The result concerns that deadline, not absence of every later counterfactual timeout. Both modes use actual inputs rather than a guessed continuous TX schedule; their packet validation and omission identities remain distinct.
 
 Missing/replayed read indices, boundary intersection, absent strict extension, arithmetic overflow, mismatched wire inputs or independent observed losses remain unresolved and make Echo assessment incomplete. Validate every selected input before accepting the proof. Peer kernel drops/invalid drop samples block qualification; unphased lifetime counters cannot be assigned to an unrelated window. The software returner qualifies neither forwarding plane nor RFC 9747 authentication.
 

@@ -774,6 +774,12 @@
 
 ### Исправлено
 
+- Условное продление старого Control deadline доказывается выборочным
+  восстановлением зафиксированных стабильных Up packets с сохранением recorded
+  RX omissions и expired Down packets. Проверяются packet bodies и checked
+  арифметика deadline; прежние оценки сохраняются, native acceptance остаётся
+  отдельной проверкой.
+
 - В workload pressure helper добавлены yield checkpoints по измеренному thread
   CPU без уменьшения CPU budget и изменения admission и latency limits.
   Новое поколение pressure требует сопоставимой native-калибровки;

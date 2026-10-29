@@ -78,7 +78,7 @@ Completeness требует final source count = before+after observations и `b
 
 Engineering: 5000 sessions, 300 мс, 30 минут, random loss/CPU pressure и one-second blackhole каждые 10 минут. Полные measured windows начинаются на минутах 10/20. Reference сохраняет one-second windows каждые 30 минут за 24 часа. Первый blackhole на 30-minute cutoff не квалифицирует engineering failure/recovery. Profile differences фиксируются; старые engineering runs с периодом 30 минут не подтверждают новый workload.
 
-Positive actual-UDP Control fixture использует multiplier 1 и planned jitter 75–90% для dispatch headroom. Named profiles сохраняют multiplier 3; actual omission gaps выше interval остаются unresolved, включая fractional overruns.
+Positive actual-UDP Control fixture использует multiplier 1 и planned jitter 75–90% для dispatch headroom. Named profiles сохраняют multiplier 3. Выборочное доказательство old-deadline в [ADR-0012](0012-owner-down-transition-witness.md) использует actual captured Up times и checked продление deadline без допуска на nominal cadence. Прежняя политика отклоняла gaps выше negotiated interval, включая fractional overruns; её оценки сохраняются отдельно от повторных оценок по изменённой модели.
 
 `bfdload assess OWNER_JSON PEER_JSON` объединяет один canonical stopped reference/engineering run. Полнота profile/admission/ledger/causal evidence проверяется до thresholds. Используются producer calibration bounds и exact integer CDF ranks на effect-histogram boundaries 25/50 мс. RX, dispatch, successful-effect, no-effect и invalid denominators различаются; exact settlement требует stopped observations.
 

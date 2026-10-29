@@ -5,6 +5,7 @@
 | Status | Accepted |
 | Date | 2026-10-26 |
 | Изменение Echo proof | 2026-10-29 |
+| Изменение выборочного Control proof | 2026-10-29 |
 
 ## Контекст
 
@@ -41,11 +42,17 @@ Reports связываются с actual boot ID, private control-directory devi
 
 Требуются settled source counts, scalar incarnation history, complete omissions и consistent TX schedule/write results/RX dispositions. Directional omission sequence возрастает между segments/windows и ограничена actual Scheduled/Read totals; interwindow gaps допустимы. Invalid arithmetic/accounting оставляет Down unresolved.
 
-Intentional verdict требует timeout cause, prior remote Up, old actual deadline, commit целиком внутри measurement/fault window и matching valid Up packets. Минимум negotiated multiplier consecutive actual TX decisions покрывают receive→deadline: первая в течение interval, каждый gap не больше interval, final interval покрывает due. Old D совпадает с wire inputs и fixed workload RX.
+Intentional verdict требует timeout cause, prior remote Up, old actual deadline, commit целиком внутри measurement/fault window и matching valid Up packets. Восстанавливаются только зафиксированные would-be Up packets в точке доставки владельцу; остальные recorded dispositions, включая RX omissions и удержанные expired Down packets, сохраняются. Такое выборочное вмешательство не воспроизводит peer generator с изменённым transmit decision и не устраняет весь физический отказ.
+
+Восстанавливаемые Up packets требуют codec validity, ожидаемых peer/owner discriminators, diagnostic None, сброшенных Poll/Final и неизменных workload DesiredMinTX, RequiredMinRX и DetectMult. Old D совпадает с этими wire inputs и fixed workload RX. До положительного вывода проверяются body и expected identity каждого TX packet, потенциально попадающего в интервал. Удержанный Down поддерживается только с ожидаемым peer discriminator, нулевым YourDiscriminator, diagnostic ControlTimeExpired, сброшенным Final, DesiredMinTX равным `max(workload_interval,1s)`, Poll установленным только при `workload_interval<1s` и неизменными RequiredMinRX/DetectMult. Он остаётся удержанным; его временной интервал не ограничивает доказательство по восстановленным Up, включая пересечение old due. Неподдерживаемые bodies, states, identities и Up после Down запрещают положительный вывод.
+
+Для непустого набора выбранных Up каждый actual offset p удовлетворяет `p>r+owner_bracket` и `p+peer_bracket<d`, где r — последний validated receive, d — old actual deadline. Требуется checked `max(p)+D>d+owner_bracket`. При явном допущении завершения owner acceptance и detection Reset до old due время сброса s следует после p, поэтому `s+D>=max(p)+D>d+owner_bracket`. Новый deadline строго позже любого old due, допустимого bracket. Количество и номинальная частота пакетов не заменяют доказательство; допуск на gap и предполагаемое расписание не вводятся. Полный учёт actual decisions обязателен.
 
 Reused discriminator, unknown phase/identity, boundary overlap, отсутствие progress и peer-originated Down остаются unresolved. Одна omission/window overlap недостаточна. Дополнительная known terminal loss, counter reset либо отсутствие commit progress запрещают positive attribution; aggregate loss counters не задают exact fault time.
 
-Positive attribution предполагает доставку omitted packets неизменным transport до due и отсутствие independent hidden fault. Эти assumptions сериализуются. Passing относится только к conditional model; false/unresolved eligible Down запрещает pass. Total uncertainty unknown, reference_qualified false. Fixture-only TX-only blackhole проверяет predicate отдельно; named profiles запрещают selector.
+Positive attribution предполагает доставку выбранных пакетов до owner acceptance и завершение detection Reset до old due при отсутствии independent hidden fault. Выборочное вмешательство и эти допущения сериализуются. Вывод относится к старому deadline, а не отсутствию последующих Down или Down к моменту задержанного actual commit. Passing относится только к conditional model; false/unresolved eligible Down запрещает pass. Total uncertainty unknown, reference_qualified false. Fixture-only TX-only blackhole проверяет predicate отдельно; named profiles запрещают selector.
+
+Поправка от 2026-10-29 заменяет прежнюю политику multiplier-count и nominal cadence. Оценки по прежней политике сохраняются. Повторная оценка записывается отдельно с original producer SHA и new assessor SHA; изменение проверяющего кода не доказывает native acceptance.
 
 Источники: [classifier](../../../test/internal/bfdload/down_classification_linux.go), [regressions](../../../test/internal/bfdload/down_classification_linux_test.go).
 
@@ -61,13 +68,13 @@ Local consolidation instruction от 2026-10-28 отдельно разреша�
 
 ### Echo old-deadline classification
 
-Control predicate сохраняется. Echo требует checked `D=interval*detect_multiplier`, actual old deadline d, last accepted return r, matching incarnation/version и diagnostic EchoFailed. Remote Control state/discriminator unknown.
+Echo требует checked `D=interval*detect_multiplier`, actual old deadline d, last accepted return r, matching incarnation/version и diagnostic EchoFailed. Remote Control state/discriminator unknown.
 
 RX/return-TX omissions объединяются по actual received_sequences, а не отдельным decision counters. Read indices уникальны/возрастают между windows, input times не убывают. Каждый выбранный вход должен совпадать с owner wire generation; выбранные read indices последовательны и непусты. Каждый p удовлетворяет `p>r+owner_bracket` и `p+peer_bracket<d`. Полный commit bracket следует после d внутри того же window. Journal bounds прежние; сортировка bounded references не меняет reports.
 
 Каждый положительный вывод требует checked `max(p)+D>d+owner_bracket`. Counterfactual owner Reset во время s следует после выбранного входа, поэтому `s+D>=max(p)+D>d+owner_bracket`: новый deadline строго позже любого old due, допустимого bracket. DetectMultiplier уже входит в D; количество пропущенных входов не заменяет интервальное доказательство. ValidatedAt предшествует Reset, поэтому равенство `d=r+D` не предполагается.
 
-Явное assumption: выбранные withheld inputs вернулись бы, были приняты владельцем и сбросили detection до old deadline. Одного прибытия в socket для этого недостаточно. Вывод относится к этому deadline, а не отсутствию всех later counterfactual timeouts. Actual Echo inputs не требуют вымышленного непрерывного TX schedule.
+Явное assumption: выбранные withheld inputs вернулись бы, были приняты владельцем и сбросили detection до old deadline. Одного прибытия в socket для этого недостаточно. Вывод относится к этому deadline, а не отсутствию всех later counterfactual timeouts. Оба режима используют actual inputs вместо предполагаемого непрерывного TX schedule; packet validation и omission identities различаются.
 
 Missing/replayed read indices, boundary intersection, отсутствие строгого продления, arithmetic overflow, mismatch wire inputs и independent observed losses остаются unresolved и делают Echo assessment incomplete. Проверяйте каждый выбранный вход до принятия доказательства. Peer kernel drops/invalid samples блокируют qualification; unphased lifetime counters не относятся к произвольному window. Software returner не квалифицирует forwarding plane либо RFC 9747 authentication.
 

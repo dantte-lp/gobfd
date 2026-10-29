@@ -55,7 +55,8 @@ func ClassifyDowns(owner OwnerWorkloadObservation, peers PeerObservation) DownCl
 		TimingUncertaintyError: "total clock/transport uncertainty is not established by the conditional omission model",
 		Assumptions: []string{
 			"the recorded boot, time namespace and native epoch denote one unchanged monotonic clock domain",
-			"omitted valid expected-source Up packets would traverse the unchanged transport and reach the owner before due",
+			"selected stable matching Up omissions would be delivered to the owner " +
+				"and complete detection Reset before the old due",
 			"no independent hidden transport or owner fault coincides with the observed omission sequence",
 		},
 	}
@@ -64,6 +65,12 @@ func ClassifyDowns(owner OwnerWorkloadObservation, peers PeerObservation) DownCl
 			"by the owner and complete its detection timer reset before the witnessed old deadline"
 		result.Assumptions = append(result.Assumptions,
 			"Echo causality concerns that old deadline, not absence of every later counterfactual timeout")
+	} else {
+		result.Assumptions = append(result.Assumptions,
+			"only selected captured Up packets are restored at owner delivery; all other recorded dispositions stay unchanged",
+			"RX blackholes and withheld expired peer Down stay in place; "+
+				"this is not physical generator replay or removal of the whole fault",
+			"Control causality concerns only that old deadline, not absence of later Down or timeout")
 	}
 	if owner.Phase != nil {
 		phase := *owner.Phase
