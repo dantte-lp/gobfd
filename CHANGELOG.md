@@ -403,6 +403,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Separate Micro-BFD allocation qualification: retain zero-allocation dispatch
+  without an actuator and a scoped Background/noop budget of 272 B/op and
+  4 allocs/op. Preserve fresh per-call timeout/cancellation; qualify actual
+  backend allocations and enforcement latency separately.
+
 - Rebuild the English technical manual and Russian translation from current
   code, with declarative contracts, operational procedures, Mermaid diagrams,
   RFC sections and scoped Cisco/Arista/Juniper/Huawei references.
