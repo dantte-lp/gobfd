@@ -1,59 +1,61 @@
 # Риски зависимостей и исключения
 
-Выбранные версии заданы в [go.mod](../../../go.mod), [tools/go.mod](../../../tools/go.mod) и отдельном [Smallstep profile](../../../test/stepca/README.md). Каноническая runtime/tools реализация исключений — [vuln-audit.go](../../../scripts/vuln-audit.go). Реестр фиксирует правила исходного кода; текущая advisory database и final выбранный граф требуют свежего scan.
+Выбранные версии определяются [go.mod](../../../go.mod), [tools/go.mod](../../../tools/go.mod) и отдельным [профилем Smallstep](../../../test/stepca/README.md). Каноническая реализация исключений runtime и инструментов — [vuln-audit.go](../../../scripts/vuln-audit.go). Реестр фиксирует политику исходников; текущие базы advisory и окончательный выбранный граф требуют нового сканирования.
 
-## Владение graphs
+<a id="владение-graphs"></a>
 
-| Graph | Назначение | Граница приёмки |
+## Владение графами зависимостей
+
+| Граф | Назначение | Граница приёмки |
 |:---|:---|:---|
-| Runtime | Daemon, CLI, bridges и test helpers | Runtime package/symbol reachability |
-| Tools | Изолированные development/scanning/generation tools | Отдельный selected tool graph |
-| Smallstep qualification | Полный внешний test provider | Независимые build/scan/link/записи выполнения |
+| Runtime | Демон, CLI, мосты и тестовые вспомогательные программы | Достижимость пакетов и символов runtime |
+| Инструменты | Изолированные инструменты разработки, сканирования и генерации | Отдельный выбранный граф инструментов |
+| Квалификация Smallstep | Полный внешний тестовый поставщик CA | Независимые отчёты сборки, сканирования, связывания и выполнения |
 
-Inventory success не определяет security. Module finding, imported affected package и reachable symbol — разные результаты.
+Успешная инвентаризация не доказывает безопасность. Находка на уровне модуля, импорт затронутого пакета и достижимый символ — разные результаты.
 
 ## Управляемые исключения
 
-| Advisory | Точный module | Owner / expiry | Допустимая область |
+| Advisory | Точный модуль | Владелец и срок | Разрешённая область |
 |:---|:---|:---|:---|
-| GO-2026-4736 | github.com/osrg/gobgp/v4 | @dantte-lp; 2026-12-31 | Module-only, точное совпадение scanner/package |
-| GO-2026-5932 | golang.org/x/crypto | maintainers; 2026-12-31 | Module-only inventory; без affected openpgp import |
+| GO-2026-4736 | github.com/osrg/gobgp/v4 | @dantte-lp; 2026-12-31 | Находки только на уровне модуля, точное совпадение сканера и пакета |
+| GO-2026-5932 | golang.org/x/crypto | maintainers; 2026-12-31 | Только инвентаризация модуля; нет импорта затронутого openpgp |
 
-Reachable findings, affected imported packages, module mismatch, unknown scanner, additional advisory, expiry и exception без corresponding finding завершают audit ошибкой. Не расширяйте exception ради зелёного scan.
+Достижимые находки, импорт затронутых пакетов, несовпадение модуля, неизвестный сканер, дополнительный advisory, истёкший срок и исключение без соответствующей находки приводят к отказу контролируемого аудита. Расширение исключения ради успешного сканирования запрещено.
 
 ### GoBGP
 
-Dev pin — github.com/osrg/gobgp/v4 v4.10.0; рукописная integration импортирует API package. Recorded exception относится к GO-2026-4736/CVE-2026-30405/GHSA-4p9m-8gc4-rw2h и upstream server path. Source rationale фиксирует patched v4.4.0 и отсутствие fixed-v4 data в Go database; это не live query базы.
+В dev закреплён github.com/osrg/gobgp/v4 v4.10.0; написанная вручную интеграция импортирует его пакет API. Зафиксированное исключение касается GO-2026-4736/CVE-2026-30405/GHSA-4p9m-8gc4-rw2h и серверного пути upstream. Обоснование в исходниках указывает исправленную v4.4.0 и отсутствие данных об исправленной v4 в базе Go; это обоснование не является текущим запросом к базе.
 
-Stable-v1 acceptance требует fixed version в GHSA/OSV не выше pin и module-only scope в final-candidate govulncheck. Держите GoBGP на loopback/trusted management network. Удалите exception после исчезновения matching inventory finding.
+Приёмка stable-v1 требует указания исправления не выше закреплённой версии в GHSA/OSV и сохранения области только на уровне модуля в govulncheck окончательного кандидата. Оставить GoBGP на loopback или в доверенных сетях управления. Удалить исключение, когда сканер перестанет выдавать соответствующую инвентаризационную находку.
 
-Линия v0.6 сохраняет GoBGP v3.37.0 и отдельно принятый support boundary до 2026-12-31. Проверьте delivery на поддерживаемой ветке отдельно. Dev acceptance не переносится на эту линию. RPC service contracts v3/v4 отличаются; используйте соответствующий daemon.
+Линия v0.6 сохраняет GoBGP v3.37.0 и отдельно принятую границу поддержки до 2026-12-31. Отдельно проверить поставку в этой поддерживаемой ветке. Приёмка dev не переносится на эту линию. Контракты RPC-сервисов v3/v4 различаются; использовать соответствующий демон.
 
 ### OpenPGP
 
-Selected indirect crypto module — v0.58.0. Exception допускает только exact-module inventory findings GO-2026-5932. Подтвердите отсутствие golang.org/x/crypto/openpgp в final build graph. Любой affected import или reachable symbol отменяет disposition.
+Выбранная косвенная зависимость crypto — v0.58.0. Исключение допускает только инвентаризационные находки GO-2026-5932 для точного модуля. Подтвердить отсутствие golang.org/x/crypto/openpgp в окончательном графе сборки. Любой затронутый импорт или достижимый символ отменяет это решение.
 
 ## Другие сохранённые зависимости
 
-| Dependency | Использование | Требуемая проверка |
+| Зависимость | Использование в продукте | Требуемая проверка |
 |:---|:---|:---|
-| reeflective/console v0.5.0 | Интерактивный shell gobfdctl | CLI/race compatibility; fresh upstream review до upgrade |
-| go.yaml.in/yaml/v3 v3.0.5 | Собственный YAML | Совместимость decoding/output |
-| gopkg.in/yaml.v3 v3.0.1 | Transitive legacy graph | Точная go mod why chain; без новых собственный imports |
-| golang.org/x/net v0.62.0 | Transport и выбранные графы | Свежий security scan и IPv4 transport regression |
+| reeflective/console v0.5.0 | Интерактивная оболочка gobfdctl | Совместимость CLI и race-проверки; новая проверка upstream перед обновлением |
+| go.yaml.in/yaml/v3 v3.0.5 | YAML собственного кода | Сохранить совместимость декодирования и вывода |
+| gopkg.in/yaml.v3 v3.0.1 | Транзитивный устаревший граф | Повторно проверить точную цепочку go mod why; не добавлять импорты в собственный код |
+| golang.org/x/net v0.62.0 | Транспорт и выбранные графы | Новое сканирование безопасности и регрессионные проверки транспорта IPv4 |
 
-Console остаётся build dependency CLI, даже если noninteractive command не запускает REPL. Integration point — [shell.go](../../../cmd/gobfdctl/commands/shell.go); реестр не устанавливает staffing/maintenance upstream.
+Console — зависимость сборки CLI даже тогда, когда неинтерактивные команды не запускают REPL. Точка интеграции — [shell.go](../../../cmd/gobfdctl/commands/shell.go); реестр не подтверждает состав команды upstream или состояние сопровождения.
 
-YAML migration фиксирует историческое решение module path. Текущие archival/release status из него не следуют. Удаляйте transitive path только при допустимости final graph; не добавляйте другую реализацию заранее.
+Миграция YAML фиксирует историческое решение о пути upstream. Из неё не выводится текущий статус архива или выпуска. Удалять транзитивный путь только тогда, когда это позволяет окончательный граф; заблаговременное включение другой реализации в исходники запрещено.
 
-Сохранённое обновление x/net устраняет [GO-2026-6860](https://vuln.go.dev/ID/GO-2026-6860) и [GO-2026-6866](https://vuln.go.dev/ID/GO-2026-6866), без allowlist entry. Отдельный Smallstep profile также выбирает v0.62.0. Pin не доказывает неизменности текущей scanner data.
+Сохранённое обновление x/net устраняет [GO-2026-6860](https://vuln.go.dev/ID/GO-2026-6860) и [GO-2026-6866](https://vuln.go.dev/ID/GO-2026-6866) без записи в списке исключений. Отдельный профиль Smallstep также выбирает v0.62.0. Закреплённая версия не доказывает неизменность текущих данных сканера.
 
 ## Проверка кандидата
 
-1. Сохраните точные runtime/tools/provider идентификаторы графов.
-2. Выполните make dependency-inventory-check и controlled make vulncheck в закреплённой среде.
-3. Проверьте raw scanner results, reachability и точные exception matches.
-4. Выполните затронутые transport/CLI/API regressions и provider qualification.
-5. Сохраните scanner version/data time, SHA исходников, findings и disposition. Отделите поддерживаемой линии и приёмка выпуска.
+1. Записать точные идентификаторы графов runtime, инструментов и поставщика CA.
+2. Выполнить make dependency-inventory-check и контролируемый make vulncheck в закреплённой среде.
+3. Проверить исходные результаты сканера, достижимость и точные совпадения исключений.
+4. Выполнить затронутые регрессионные проверки транспорта, CLI и API, а также квалификацию поставщика CA, где применимо.
+5. Сохранить версию сканера, время данных, SHA исходников, находки и решения по ним. Отделить приёмку поддерживаемой линии и выпуска.
 
-[Разработка](../09-development.md), [automation](automation.md), [security policy](../../../SECURITY.md), [supply-chain inventory](../../supply-chain/dependency-inventory.json).
+[Разработка](../09-development.md), [автоматизация](automation.md), [политика безопасности](../../../SECURITY.md), [инвентаризация цепочки поставки](../../supply-chain/dependency-inventory.json).

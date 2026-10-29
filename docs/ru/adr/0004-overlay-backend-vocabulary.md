@@ -1,34 +1,36 @@
-# ADR-0004: Общий словарь overlay backends
+<a id="adr-0004-общий-словарь-overlay-backends"></a>
+
+# ADR-0004: Общий словарь реализаций оверлея
 
 | Поле | Значение |
 |:---|:---|
-| Status | Accepted |
-| Date | 2026-08-28 |
+| Статус | Принято |
+| Дата | 2026-08-28 |
 
 ## Контекст
 
-Startup validation и network-I/O construction должны одинаково принимать spellings и normalization backend. Зависимость configuration от Linux I/O либо socket-кода от configuration loaders нарушает границы пакетов.
+Проверка запуска и создание сетевого ввода-вывода должны одинаково принимать написания и нормализацию имён реализаций. Зависимость конфигурации от ввода-вывода Linux либо сокетов от загрузчиков конфигурации нарушает границы пакетов.
 
 ## Решение
 
-[`internal/overlay`](../../../internal/overlay/backend.go) владеет backend type, семью spellings, parser и implementation status. Он импортирует только standard library. Configuration и network I/O используют его, сохраняя compatibility aliases и package-specific sentinel errors.
+[`internal/overlay`](../../../internal/overlay/backend.go) владеет типом реализации, семью написаниями, разбором и статусом реализации. Он импортирует только стандартную библиотеку. Конфигурация и сетевой ввод-вывод используют его, сохраняя свои псевдонимы совместимости и сигнальные ошибки пакетов.
 
-| Input | Результат |
+| Вход | Результат |
 |:---|:---|
-| Surrounding whitespace | Удаляется |
+| Пробельные символы по краям | Удаляются |
 | Пустое значение | `userspace-udp` |
-| Другая капитализация | Отказ; names case-sensitive |
-| `userspace-udp` | Распознан и реализован |
-| `kernel`, `ovs`, `ovn`, `cilium`, `calico`, `nsx` | Распознаны, не поддерживаются; fail closed |
-| Другое имя | Invalid |
+| Другая капитализация | Отказ; имена чувствительны к регистру |
+| `userspace-udp` | Распознано и реализовано |
+| `kernel`, `ovs`, `ovn`, `cilium`, `calico`, `nsx` | Распознаны, не поддерживаются; запрос отклоняется |
+| Другое имя | Недопустимо |
 
 ## Последствия
 
-YAML/environment field names, defaults, values и public configuration types сохраняются. Startup validation и backend construction используют один parser. Invalid, unsupported и invalid-input errors сохраняют package context. Добавление spelling либо implementation status имеет одного owner; recognition не создаёт dataplane backend и не меняет protobuf.
+Имена полей YAML и переменных среды, значения по умолчанию, значения и публичные типы конфигурации сохраняются. Проверка запуска и создание реализации используют один разбор. Ошибки недопустимого, неподдерживаемого и некорректного входа сохраняют контекст пакета. Добавление написания либо статуса реализации имеет одного владельца; распознавание не создаёт реализацию плоскости пересылки и не меняет protobuf.
 
 ## Источники
 
-- [Общий parser](../../../internal/overlay/backend.go).
-- [Constructor admission](../../../internal/netio/overlay_backend.go).
-- [Configuration validation](../../../internal/config/config.go).
-- [Linux applicability](0003-linux-advanced-bfd-applicability.md).
+- [Общий разбор](../../../internal/overlay/backend.go).
+- [Допуск конструктора](../../../internal/netio/overlay_backend.go).
+- [Проверка конфигурации](../../../internal/config/config.go).
+- [Применимость в Linux](0003-linux-advanced-bfd-applicability.md).

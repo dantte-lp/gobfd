@@ -1,35 +1,37 @@
-# ADR-0002: Нативный OVSDB-клиент для OVS LAG backend
+<a id="adr-0002-нативный-ovsdb-клиент-для-ovs-lag-backend"></a>
+
+# ADR-0002: Нативный клиент OVSDB для реализации OVS LAG
 
 | Поле | Значение |
 |:---|:---|
-| Status | Accepted |
-| Date | 2026-05-01 |
+| Статус | Принято |
+| Дата | 2026-05-01 |
 
 ## Контекст
 
-Micro-BFD enforcement меняет набор members bonded port. Вызов configuration CLI добавляет daemon зависимости от процессов, PATH и parsing output. [RFC 7047](https://www.rfc-editor.org/rfc/rfc7047.html) задаёт OVSDB management protocol.
+Применение Micro-BFD меняет набор участников агрегированного порта. Запуск CLI конфигурации добавляет демону зависимости от процессов, PATH и разбора вывода. [RFC 7047](https://www.rfc-editor.org/rfc/rfc7047.html) задаёт протокол управления OVSDB.
 
 ## Решение
 
-Для configured OVS enforcement выбирается native `OVSDBLAGBackend`. `OVSLAGBackend` сохраняется как явно создаваемый CLI fallback/diagnostic type; daemon configuration его не выбирает. Owner policy остаётся явной до доказательства ownership со стороны actual manager.
+Выбирать нативный `OVSDBLAGBackend` для настроенного применения OVS. Сохранить `OVSLAGBackend` как явно создаваемый резервный или диагностический тип CLI; конфигурация демона его не выбирает. Сохранить явную политику владельца до доказательства владения фактическим управляющим компонентом.
 
-Ядро использует `BondLAGClient` с context-bounded `RemoveBondInterface` и `AddBondInterface`. [Production adapter](../../../internal/netio/lag_ovsdb.go) владеет external client; [runtime manifest](../../../go.mod) задаёт pin.
+Ядро использует `BondLAGClient` с ограниченными контекстом `RemoveBondInterface` и `AddBondInterface`. [Производственный адаптер](../../../internal/netio/lag_ovsdb.go) владеет внешним клиентом; [манифест рабочей среды](../../../go.mod) задаёт его закрепление.
 
-| Операция | Database intent | Проверка |
+| Операция | Намерение в базе данных | Проверка |
 |:---|:---|:---|
-| Найти bond | Найти `Port` по имени | Existing unambiguous target |
-| Member Down | Удалить Interface UUID из `Port.interfaces` | Transaction и affected rows |
-| Member Up | Найти/создать `Interface`, добавить UUID | UUID shape и все operation results |
+| Найти bond | Найти `Port` по запрошенному имени | Требовать существующую однозначную цель |
+| Участник Down | Удалить UUID Interface из `Port.interfaces` | Проверить транзакцию и затронутые строки |
+| Участник Up | Найти/создать именованный `Interface`, добавить его UUID | Проверить форму UUID и результаты всех операций |
 
 ## Последствия
 
-Default endpoint: `unix:/var/run/openvswitch/db.sock`; переопределение — `micro_bfd.actuator.ovsdb_endpoint`. Проверьте interface names до обеих операций. Backend construction использует общие LAG policy и input validation.
+Конечная точка по умолчанию — `unix:/var/run/openvswitch/db.sock`; переопределение — `micro_bfd.actuator.ovsdb_endpoint`. Проверить имена интерфейсов до обеих операций. Создание реализации повторно использует политику LAG и проверку входа.
 
-NetworkManager-owned profiles используют отдельный D-Bus backend. OVSDB access не подтверждает право менять externally managed bond. Dependency review, vulnerability checks, local transaction tests и actual OVS owner/member-wire qualification остаются отдельными release requirements.
+Профили, принадлежащие NetworkManager, используют отдельную реализацию D-Bus. Доступ OVSDB сам по себе не подтверждает право менять bond под внешним управлением. Проверка зависимостей, проверка уязвимостей, локальные тесты транзакций и квалификация реального владельца OVS и обмена участника остаются отдельными требованиями выпуска.
 
 ## Источники
 
-- [Выбор backend](../../../internal/netio/lag_backend.go).
-- [Native adapter и transaction validation](../../../internal/netio/lag_ovsdb.go).
-- [OVSDB tests](../../../internal/netio/lag_ovsdb_test.go).
-- [Linux applicability](0003-linux-advanced-bfd-applicability.md).
+- [Выбор реализации](../../../internal/netio/lag_backend.go).
+- [Нативный адаптер и проверка транзакции](../../../internal/netio/lag_ovsdb.go).
+- [Тесты OVSDB](../../../internal/netio/lag_ovsdb_test.go).
+- [Применимость в Linux](0003-linux-advanced-bfd-applicability.md).

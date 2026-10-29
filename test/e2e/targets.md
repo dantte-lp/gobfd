@@ -22,12 +22,14 @@ The five aggregate launchers build bin/e2ectl in a socket-free pinned compiler a
 |:---|:---|:---|:---|
 | e2e-routing | Compose base/BGP suites, 172.20/21 networks | Joined suite artifacts and merged PCAP; exact owner snapshots | Omits race and some independent profiles |
 | e2e-rfc | Legacy Compose, 172.22 network | Test JSON/log and best-effort capture/down | Fixed names, uncapped builds, no race |
-| e2e-overlay | Isolated prebuilt race test, network none, 2 CPU/2 GiB | JSON/log, synthetic CSV; exact runtime removal | External capture needed for wire claim |
+| e2e-overlay | Isolated prebuilt race test, network none, 2 CPU/2 GiB | JSON/log, synthetic CSV; best-effort runtime removal | Capture lifecycle and external cleanup readback required |
 | e2e-linux | Prebuilt race daemon/tests, isolated netns, 2 CPU/2 GiB/512 PIDs | Link/LAG/pending-lifecycle receipts | Fake sysfs/owner-policy checks do not qualify host integration |
 | e2e-vendor | Shared manifest/policy and image evidence | profiles/images/skip JSON; no NOS topology | Five retained-unavailable NOS profiles never execute |
 | interop-clab | Independently owned FRR-only Containerlab dual stack | Typed state, captured frames, private exact-ID receipts | Native lifecycle/compiler-engine acceptance open |
 
 Routing cleanup uses interopproject.Controller locks, fixed-name/label validation and exact resource snapshots. Its merge container has unique non-Compose ownership. Containerlab retains foreign-collision checks and historic cleanup receipts; cached NOS images do not enter execution discovery.
+
+Overlay cleanup [attempts `podman rm -f`](../internal/e2erunner/runner.go) for the run-named runtime before returning. Failure is logged without failing the target; removal has no post-state readback. Confirm exact run ownership and removal externally before claiming cleanup. The launcher provides no capture startup/readiness/join hook; see [overlay wire qualification](../../docs/en/09-development.md#overlay-wire-qualification).
 
 ## Integration examples
 

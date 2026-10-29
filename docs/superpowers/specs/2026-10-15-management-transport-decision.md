@@ -119,7 +119,7 @@ inferences from source code):
 
 ## Phasing
 
-| Phase | Content | Breaking | Bead |
+| Phase | Content | Breaking | Issue |
 |---|---|---|---|
 | 1a | Unix socket listener (`grpc.socket.*`), `SO_PEERCRED` principal in the request context, `unix://` dialing in `gobfdctl` and both companions; tests over a real Unix listener (principal reaches the handler, grpc-go `unix://` wire test, stale-socket handling) | no | `gobfd-330.1` |
 | 1b | mTLS TCP listener with ALPN `h2`/`http/1.1`, reloadable certificates, TLS options in all clients | no | `gobfd-330.2` |

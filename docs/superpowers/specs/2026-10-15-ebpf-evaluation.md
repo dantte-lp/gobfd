@@ -1,7 +1,7 @@
 # cilium/ebpf evaluation
 
 Date: 2026-10-15. Status: decided — not integrated in v1; post-v1 backlog
-bead `gobfd-376` (P4) gated on the latency baseline. Scope: whether
+issue `gobfd-376` (P4) gated on the latency baseline. Scope: whether
 [cilium/ebpf](https://github.com/cilium/ebpf) (ebpf-go) should be used in
 GoBFD, where, and when.
 

@@ -110,7 +110,7 @@ Every Add, including a retry, requires preview enablement and local RX readiness
 
 ## RFC 7130 Implementation Notes
 
-One member/family session uses UDP/6784 and member-device binding. `MicroBFDGroup` counts only Up members; aggregate becomes Up at `upCount≥MinActiveLinks`. A shared existing session seeds initial group state. Group/source claims are reconciled with their member sessions; threshold changes publish aggregate transitions.
+One member/family session uses UDP/6784 and member-device binding. `MicroBFDGroup` counts only Up members; aggregate becomes Up at `upCount≥MinActiveLinks`. A shared existing session seeds initial group state. Group/source claims are reconciled with their member sessions; crossing the configured threshold as the number of Up members changes publishes aggregate transitions.
 
 The actuator receives ordered member changes outside Manager locks with a five-second deadline. Modes are `disabled`, `dry-run`, `enforce`; enforcement requires explicit backend and owner policy. Kernel-bond sysfs, native OVSDB and NetworkManager D-Bus paths exist; the OVS CLI fallback is not daemon-selected. Dedicated multicast MAC/member-wire and real-owner qualification remain separate. Sources: [group](../../internal/bfd/micro.go), [daemon wiring](../../cmd/gobfd/micro_bfd.go), [actuator](../../internal/netio/lag_backend.go), [ADR-0003](adr/0003-linux-advanced-bfd-applicability.md).
 

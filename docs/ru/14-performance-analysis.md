@@ -1,269 +1,279 @@
 # Производительность runtime и измерения
 
-Квалификация runtime объединяет независимый учёт пакетов, состояние owner, timer effects, ресурсы и доказательства часов. Source-тест, компонентный бенчмарк и короткая fixture не определяют поддерживаемый масштаб. [Бенчмарки](12-benchmarks.md) задают стоимость компонента; эта страница определяет runtime measurement и ограничения.
+Квалификация runtime объединяет независимый учёт пакетов, состояние владельца, эффекты таймеров, ресурсы и доказательства часов. Тест исходников, компонентный бенчмарк или короткий стенд не доказывают поддерживаемый масштаб. [Процедуры бенчмарков](12-benchmarks.md) охватывают стоимость компонентов; эта страница определяет измерения runtime и их ограничения.
 
 ## Границы измерений
 
 ```mermaid
 flowchart LR
-    peer["Независимый сосед"]:::srv --> socket["Kernel UDP receive"]:::srv
-    socket --> decode["Decode и admission"]:::mgt
+    peer["Independent peer"]:::srv --> socket["Kernel UDP receive"]:::srv
+    socket --> decode["Decode and admission"]:::mgt
     decode --> queue["Buffered delivery"]:::mgt
     queue --> commit["Owner commit"]:::srv
     timer["Scheduled timer"]:::mgt --> dispatch["Owner dispatch"]:::mgt
-    dispatch --> effect["Successful send или Down commit"]:::srv
+    dispatch --> effect["Successful send or Down commit"]:::srv
     classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
     classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
 ```
 
 | Измерение | Начало → конец | Ограничение |
 |:---|:---|:---|
-| Control RX commit | Converted kernel software RX → фиксация пакета владельцем сессии | Только valid clock conversions |
-| Timer dispatch | Scheduled timer firing → обработка владельцем сессии | Задержка планирования owner |
-| TX effect | Scheduled firing → успешный возврат SendPacket | Без гарантии wire/peer arrival |
-| Detection effect | Scheduled firing → публикация timeout-caused Down | До logs, notification и actuator |
-| Peer send | Фактический UDP write | Не owner receipt |
-| Enqueue benchmark | Decode/lookup → попытка запись в буферизованную очередь | Не обработка владельцем сессии |
+| Фиксация Control RX | Преобразованная программная отметка RX ядра → фиксация владельцем | Только валидные преобразования часов |
+| Диспетчеризация таймера | Назначенное срабатывание таймера → обработка владельцем | Задержка планирования владельца |
+| Эффект TX | Назначенное срабатывание → успешный возврат SendPacket | Без гарантии передачи на линию или прихода к соседу |
+| Эффект обнаружения | Назначенное срабатывание → публикация Down из-за тайм-аута | До журналов, уведомления или исполнительного механизма |
+| Отправка соседа | Фактическая запись UDP | Не приём владельцем |
+| Бенчмарк постановки в очередь | Декодирование и поиск → попытка постановки в буферизованную очередь | Не обработка владельцем |
 
-Реализация: [receiver](../../internal/netio/receiver.go), [timer observations](../../internal/bfd/timer_observation.go), [workload owner](../../test/internal/bfdload/owner_linux.go), [assessment](../../test/internal/bfdload/assessment_linux.go).
+Реализации: [приёмник](../../internal/netio/receiver.go), [наблюдения таймеров](../../internal/bfd/timer_observation.go), [владелец нагрузки](../../test/internal/bfdload/owner_linux.go), [оценка](../../test/internal/bfdload/assessment_linux.go).
 
 ## Телеметрия приёма
 
-Linux base listeners запрашивают SO_TIMESTAMPNS_NEW и SO_RXQ_OVFL. ENOPROTOOPT делает optional telemetry unavailable; другие ошибки options останавливают создание listener. TTL и packet-info остаются обязательными. Ancillary буфер 128 bytes содержит timestamp, drop count, TTL/Hop Limit и destination/interface. MSG_CTRUNC возвращает ErrAncillaryTruncated до demux.
+Базовые сокеты прослушивания Linux запрашивают SO_TIMESTAMPNS_NEW и SO_RXQ_OVFL. ENOPROTOOPT помечает необязательную телеметрию недоступной; другие ошибки опций останавливают создание сокета. Метаданные TTL и packet-info остаются обязательными. Вспомогательный буфер 128 байт вмещает отметку времени, счётчик потерь, TTL/Hop Limit и данные адреса назначения и интерфейса. MSG_CTRUNC даёт ErrAncillaryTruncated до демультиплексирования.
 
-KernelRXUnixNano содержит software CLOCK_REALTIME reading; ноль означает absent/invalid. Native-endian time64 decode требует normalized nanoseconds и положительный int64 result. Это не hardware timestamp. Внешний формат определяет [kernel timestamp ABI](https://www.kernel.org/doc/html/latest/networking/timestamping.html).
+KernelRXUnixNano хранит программное показание CLOCK_REALTIME; ноль означает отсутствие или невалидность. Декодирование time64 в порядке байтов хоста требует нормализованных наносекунд и положительного результата int64. Это не аппаратная отметка. Внешний формат определяется [ABI отметок времени ядра](https://www.kernel.org/doc/html/latest/networking/timestamping.html).
 
-Каждый listener калибрует paired realtime/monotonic readings. Отсутствие monotonic data, numeric overflow, sample до calibration или из будущего остаются invalid/unusable. Расхождение elapsed realtime/monotonic свыше 1 мс отзывает calibration listener, включая queued packets. Перезапуск receiver на том же listener не снимает отзыв; пересоздание listener снимает.
+Каждый сокет прослушивания калибрует парные показания реальных и монотонных часов. Отсутствующие монотонные данные, числовое переполнение, образцы до калибровки или в будущем остаются невалидными или непригодными. Расхождение истёкшего времени реальных и монотонных часов выше 1 мс отзывает калибровку этого сокета, включая пакеты уже в очереди. Перезапуск приёмника на том же сокете не снимает отзыв; пересоздание сокета снимает.
 
-Допуск 1 мс — validity policy, не accuracy guarantee. Промежуточный clock step с возвратом до observation может остаться незамеченным. Валидность часов не меняет packet acceptance и monotonic detection deadlines.
+Допуск 1 мс — политика валидности, а не гарантия точности. Промежуточный скачок часов с возвратом до наблюдения может остаться незамеченным парными проверками. Валидность часов не меняет допуск пакетов или монотонные сроки обнаружения.
 
-Завершённые Control owner packets увеличивают outcomes valid, unavailable, invalid, before_calibration, future или clock_step. Только valid входят в gobfd_bfd_control_rx_commit_seconds. Validation refusal, enqueue/refusal, abandonment и panic имеют отдельные delivery denominators. Метрики не имеют peer labels. Legacy/overlay без kernel timing дают unavailable.
+Завершённые пакеты владельца Control увеличивают исходы измерения valid, unavailable, invalid, before_calibration, future или clock_step. Только valid входит в gobfd_bfd_control_rx_commit_seconds. Отказ проверки, постановка в очередь и её отказ, отбрасывание и panic имеют отдельные знаменатели доставки. Метрики не содержат меток соседей. Устаревшие входы и overlay без отметки ядра сообщают unavailable.
 
 ### Потери сокета
 
-SO_RXQ_OVFL — cumulative uint32 snapshot в момент помещения datagram в очередь, а не delta пакета. Отсутствие cmsg не доказывает нулевых потерь. Освободите старую очередь и получите свежие post-load markers; повторите marker для проверки идемпотентности агрегации.
+SO_RXQ_OVFL — накопленный снимок uint32, прикреплённый при постановке датаграммы в очередь. Это не разность для отдельного пакета. Отсутствие cmsg не доказывает нулевые потери. Освободить старые записи очереди и наблюдать новые маркеры после нагрузки; повторить маркер для проверки идемпотентного суммирования.
 
-Каждый base listener сохраняет synchronized high-water mark между receiver restarts. Новые daemon sockets начинаются с нуля; existing/custom sockets требуют известного baseline. Forward modular distance меньше 2^31 двигает mark; равный sample добавляет ноль, stale/half-range — ambiguous без изменения mark. Несколько незамеченных wraps и reset, похожий на progress, не обнаруживаются.
+Каждый базовый сокет хранит синхронизированную верхнюю отметку между перезапусками приёмника. Новые сокеты демона начинаются с нуля; существующим или пользовательским нужна известная исходная точка. Прямое модульное расстояние менее 2^31 продвигает отметку; равные образцы добавляют ноль, устаревшие и на половине диапазона неоднозначны и сохраняют её. Несколько ненаблюдаемых оборотов или сброс, имитирующий продвижение, обнаружить нельзя.
 
-Drops учитываются до size/TTL/BFD rejection. Независимые полные ancillary metadata сохраняются при payload truncation; malformed, duplicate и truncated drop cmsgs невалидны. Read error, closure и timeout не являются consumed-datagram samples. Overlay listeners исключены. Два kinds и пять outcomes дают десять sample counters и два increment counters без peer labels; удаление/reset series не поддерживается.
+Наблюдение потерь предшествует отказам размера, TTL и BFD. Полные независимые вспомогательные метаданные сохраняются при усечении полезной нагрузки; некорректные, повторяющиеся или усечённые cmsg потерь невалидны. Ошибка чтения, закрытие и тайм-аут не являются образцами потреблённой датаграммы. Сокеты overlay вне этой границы. Два вида и пять исходов дают десять счётчиков образцов и два счётчика прироста без меток соседей; удаление или сброс этих рядов не поддерживаются.
 
-См. [socket-drop tests](../../internal/netio/socket_drops_test.go) и [real UDP tests](../../internal/netio/socket_drops_linux_test.go). Счётчики не определяют полные wire loss.
+См. [тесты потерь сокета](../../internal/netio/socket_drops_test.go) и [тесты фактического UDP](../../internal/netio/socket_drops_linux_test.go). Эти счётчики не доказывают полный учёт потерь на линии.
 
 ## Наблюдения таймеров
 
-Control/Echo owners сохраняют фактический timer-channel timestamp и сбрасывают собственные detection timers. Dispatch/effect используют monotonic arithmetic отдельно от converted kernel realtime.
+Владельцы Control/Echo сохраняют фактическую отметку канала таймера и сбрасывают собственные таймеры обнаружения. Диспетчеризация и эффект используют монотонную арифметику отдельно от преобразованного реального времени ядра.
 
-Четыре timer kinds дают 20 event-counter series и восемь valid-stage histograms. Invalid zero/future timestamps остаются outcomes. no_effect объединяет suppression, send failure и idle detection; это не loss counter. Panic/in-flight handler может оставить dispatch без terminal effect. Untimed actions исключены.
+Четыре вида таймеров дают 20 рядов счётчиков событий и восемь гистограмм валидных стадий. Невалидные нулевые и будущие отметки остаются исходами. no_effect объединяет подавление, отказ отправки и неактивное обнаружение; это не счётчик потерь. Panic или незавершённый обработчик могут оставить диспетчеризацию без конечного эффекта. Действия без отметок не входят в наблюдения.
 
-Не считайте timer arithmetic и reset-contract test приёмкой scheduling, false-Down или масштаба.
+Арифметика таймеров и тест контракта сброса не доказывают приёмку планирования, ложного Down или масштаба.
 
 ## Справочник команд нагрузки
 
-Linux-only [bfdload](../../test/cmd/bfdload/main.go) предоставляет следующие формы. Выполняйте или собирайте инструмент в закреплённой среде; owner/peers/prepare создают sockets или адреса namespace и требуют допущенной одноразовой среды.
+[Точка входа bfdload только для Linux](../../test/cmd/bfdload/main.go) предоставляет следующие формы. Запускать или собирать в закреплённой среде; команды owner/peer/prepare создают сокеты или адреса пространства имён и требуют допущенной одноразовой среды выполнения.
 
 | Форма | Результат |
 |:---|:---|
-| bfdload environment | JSON-наблюдения текущего процесса |
-| bfdload prepare HOST_NAMESPACE PROFILE [flags] | Добавление отсутствующих local/peer addresses в проверенный частный loopback namespace |
-| bfdload owner PROFILE [flags] | Запуск production-core owners и owner JSON |
-| bfdload peers PROFILE [flags] | Независимый трафик соседей и peer JSON |
-| bfdload assess OWNER_JSON PEER_JSON | Чтение сведённых отчётов и условная оценка |
+| bfdload environment | Наблюдения текущего процесса в JSON |
+| bfdload prepare HOST_NAMESPACE PROFILE [flags] | Добавить отсутствующие локальные адреса и адреса соседей в проверенное закрытое loopback-пространство имён |
+| bfdload owner PROFILE [flags] | Запустить владельцев ядра production-кода и выдать JSON владельца |
+| bfdload peers PROFILE [flags] | Запустить независимый трафик соседей и выдать JSON соседа |
+| bfdload assess OWNER_JSON PEER_JSON | Прочитать объединённые отчёты и выдать условную оценку |
 
-PROFILE принимает fixture, reference или engineering. Передайте обоим процессам полный явный список endpoints; именованные профили не создают его по числу сессий.
+PROFILE принимает fixture, reference или engineering. Передать обеим ролям полный явный манифест адресов; именованные профили не создают его из числа сессий.
 
-Owner listeners и senders запрашивают стандартные socket buffers демона, включая senders после churn: по 4 MiB для приёма и передачи. Ядро может ограничить запрос; фиксируйте фактическую ёмкость сокетов и drop counters на runner. Успешная установка buffer не доказывает приём без потерь. Источники: [owner sockets](../../test/internal/bfdload/owner_linux.go), [daemon defaults](../../internal/config/config.go).
+Сокеты приёма и отправители владельца запрашивают буферы демона по умолчанию, включая пересозданных отправителей: 4 MiB на приём и передачу. Ядро может ограничить запросы; записать эффективную ёмкость сокетов и счётчики потерь на runner. Успешный запрос буфера не доказывает приём без потерь. Источники: [сокеты владельца](../../test/internal/bfdload/owner_linux.go), [значения демона по умолчанию](../../internal/config/config.go).
 
-| Флаг | Назначение и default |
+| Флаг | Смысл и значение по умолчанию |
 |:---|:---|
-| --session=LOCAL_ADDRPORT,PEER_ADDRPORT | Повторяется на сессию; IPv6 AddrPort использует квадратные скобки |
-| --interface=NAME | Общий интерфейс bindings; обязателен для именованных профилей |
-| --source-port-base=49152 | Первый стабильный peer source port; все N ports должны поместиться до 65535 |
-| --control-dir=ABSOLUTE_PATH | Частный общий каталог синхронизации фаз; без него независимые таймеры |
-| --echo | Режим Echo owner/return; default false |
-| --sessions / --interval / --duration | Точные параметры выбранного профиля |
-| --detect-multiplier | Ненулевой множитель протокола; default 3 |
-| --cpu-load-percent | Запрашиваемая нагрузка owner; фактическое потребление измеряется отдельно |
-| --gc-pressure / --scheduler-pressure / --session-churn | Отключённые по умолчанию варианты нагрузки/жизненного цикла |
-| --tx-only-blackhole | Отключённый по умолчанию selector направления только для fixture |
-| --loss-permille | Вероятность случайного намеренного пропуска по каждому направлению |
-| --blackhole-every / --blackhole-for | Период/длительность; ноль отключает оба |
-| --seed | Начальное значение генератора потерь; default 1 |
+| --session=LOCAL_ADDRPORT,PEER_ADDRPORT | Повторить для каждой сессии; AddrPort IPv6 использует скобки |
+| --interface=NAME | Интерфейс всех привязок; обязателен для именованных профилей |
+| --source-port-base=49152 | Первый стабильный исходный порт соседа; все N портов должны помещаться до 65535 |
+| --control-dir=ABSOLUTE_PATH | Закрытый общий каталог управления фазами; без него таймеры независимы |
+| --echo | Выбрать режим владельца и возврата Echo; по умолчанию false |
+| --sessions / --interval / --duration | Точные размеры выбранного профиля |
+| --detect-multiplier | Ненулевой множитель на линии; по умолчанию 3 |
+| --cpu-load-percent | Запрошенная доля CPU владельца; фактическое потребление измеряется отдельно |
+| --gc-pressure / --scheduler-pressure / --session-churn | Варианты нагрузки и жизненного цикла, по умолчанию выключены |
+| --tx-only-blackhole | Выбор направления только для стенда, по умолчанию выключен |
+| --loss-permille | Частота намеренных случайных пропусков по направлениям |
+| --blackhole-every / --blackhole-for | Период и длительность; ноль выключает оба |
+| --seed | Начальное состояние генератора воспроизводимых потерь; по умолчанию 1 |
 
-Scalar flags запрещают повтор; повторяется только session. Размер списка должен совпадать с sessions; peer receive endpoints уникальны и отличны от соответствующего owner endpoint; диапазон source ports должен помещаться. Именованные профили требуют обеих address families и обоих endpoints на Control 3784 или Echo 3785. Fixture допускает ограниченные альтернативные порты.
+Скалярные флаги не допускают повторов; повторяется только session. Число записей манифеста должно равняться sessions, принимающие адреса соседей должны быть уникальными и отличаться от адресов своих владельцев, стабильный диапазон исходных портов должен помещаться. Именованные профили требуют обоих семейств адресов и обоих принимающих адресов на порту Control 3784 или Echo 3785. Стенд допускает ограниченные альтернативные порты.
 
-prepare имеет setup context 30 секунд. HOST_NAMESPACE — свежий фактический inode host network namespace, переданный владельцем. Текущий ненулевой namespace должен отличаться, содержать только уже поднятый loopback; каждый binding обязан указывать lo. Подготовка идемпотентна для существующих точных host-length prefixes, добавляет адреса через rtnetlink и не удаляет существующие. При частичной ошибке owning runner отвечает за разрешённое удаление всего собственного namespace. См. [подготовку](../../test/internal/bfdload/topology_linux.go) и [проверку флагов](../../test/cmd/bfdload/peers.go).
+prepare имеет контекст настройки 30 секунд. HOST_NAMESPACE — свеженаблюдаемый inode сетевого пространства имён хоста, переданный владельцем. Текущее ненулевое пространство должно отличаться, содержать только уже поднятый loopback-интерфейс, а каждая привязка манифеста должна указывать lo. Подготовка идемпотентна для существующих точных префиксов длины хостового адреса; она добавляет адреса через rtnetlink и никогда не удаляет существующие. При частичном отказе владеющий runner отвечает за разрешённую утилизацию всего принадлежащего ему пространства имён. См. [подготовку](../../test/internal/bfdload/topology_linux.go) и [проверку флагов](../../test/cmd/bfdload/peers.go).
 
 ## Профили нагрузки
 
-[profile_linux.go](../../test/internal/bfdload/profile_linux.go) определяет утверждённые inputs:
+[profile_linux.go](../../test/internal/bfdload/profile_linux.go) задаёт одобренные входы:
 
-| Профиль | Сессии и интервал | Длительность | Fault/pressure input |
+| Профиль | Сессии и интервал | Длительность | Отказы и нагрузка ресурсов |
 |:---|:---|:---|:---|
-| reference | 1000 mixed IPv4/IPv6, 100 мс | 24 часа после setup | Потери 1-per-mille, CPU request 80%, blackhole 1 с каждые 30 мин |
-| engineering | 5000, 300 мс | 30 минут | Те же loss/CPU; blackhole 1 с каждые 10 мин |
-| fixture | Явные уменьшенные test inputs | Выбранная ограниченная длительность | Без квалификации |
+| reference | 1000, смешанные IPv4/IPv6, 100 мс | 24 часа после настройки | Потери 1 на тысячу, запрос CPU 80%, blackhole 1 с каждые 30 мин |
+| engineering | 5000, 300 мс | 30 минут | Те же потери и CPU; blackhole 1 с каждые 10 мин |
+| fixture | Явные уменьшенные тестовые параметры | Выбранная ограниченная длительность | Не квалифицирован |
 
-Engineering содержит полные blackholes на минутах 10 и 20; события на cutoff входят в drain. GC/scheduler/churn variants по умолчанию отключены и требуют отдельной реальной активности. Named profiles отклоняют reduced dimensions и TX-only blackholes.
+Инженерный профиль имеет полные blackhole на минутах 10 и 20; активность на отсечке относится к завершению обмена. Варианты GC, планировщика и пересоздания по умолчанию выключены и требуют отдельной фактической активности. Именованные профили отклоняют уменьшенные размеры и blackhole только TX.
 
-Reference admission требует точных child limits 8 CPU/8 GiB, GOMAXPROCS 8 и отсутствия более строгих visible ancestors. Hidden hierarchy roots отклоняются. Conservative PID headroom — sessions+64 на каждом visible ancestor: 1064 для reference и 5064 для engineering. Это исторический бюджет pinned owner, а не резерв ресурсов или измеренное число threads.
+Эталонный допуск требует точных дочерних ограничений 8 CPU/8 GiB, GOMAXPROCS 8 и отсутствия более строгих видимых предков. Скрытые корни иерархии отклоняются. Консервативный запас PID — sessions+64 у каждого видимого предка: 1064 для эталонного и 5064 для инженерного профиля. Это сохраняет исторический бюджет закреплённых владельцев, но не резервирует ресурсы и не измеряет требуемое число потоков.
 
 ## Наблюдение ресурсов
 
-Выполните Go environment command в закреплённом контейнере:
+Запустить команду окружения под управлением Go внутри закреплённого контейнера:
 
 ```bash
 go run ./test/cmd/bfdload environment
 ```
 
-CaptureEnvironment наблюдает собственный процесс: smaps_rollup RSS, threads, FDs, process context switches, affinity наблюдающего thread, GOMAXPROCS, GC settings и копии cumulative runtime histograms. Бесконечные histogram bounds представлены strings. Samples последовательны и неатомарны; FD count включает observer descriptors, overhead требует calibration.
+CaptureEnvironment наблюдает собственный процесс: smaps_rollup RSS, потоки, FD, переключения контекста процесса, affinity наблюдающего потока, GOMAXPROCS, настройки GC и копии накопленных гистограмм runtime. Бесконечные границы гистограмм представлены строками. Образцы последовательны и неатомарны; счёт FD включает дескрипторы наблюдателя, а накладные расходы требуют калибровки.
 
-Cgroup observations охватывают visible hierarchy. cpu.stat bandwidth counts исключают inherited throttling; cpu.stat.local имеет отдельную optional validity. Missing/malformed остаётся unavailable; max отличается от numeric zero. Следуйте [cgroup v2 contract](https://docs.kernel.org/admin-guide/cgroup-v2.html). Namespace visibility и generator isolation требуют отдельных доказательств.
+Наблюдения cgroup охватывают видимую иерархию. Счётчики полосы cpu.stat не включают унаследованное throttling; cpu.stat.local имеет отдельную необязательную валидность. Отсутствующие и некорректные значения остаются недоступными; max отличается от числового нуля. Следовать [контракту cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html). Видимость пространств имён и изоляция генератора требуют отдельных доказательств.
 
 ### Атрибуция CPU-диагностики
 
-До нового запуска нагрузки декодируйте сохранённые traces закреплённым Go toolchain. В Go 1.27 декодированные события выводятся через `go tool trace -d=parsed`; см. [закреплённый исходник декодера](https://github.com/golang/go/blob/go1.27.3/src/cmd/trace/main.go). Сопоставляйте входы ClockGettime worker и выходы syscall по GoID и transition stack; разделяйте `Syscall→Running`, `Syscall→Runnable`, возобновление, Gosched worker и yields вспомогательной горутины. Один вход в syscall не доказывает потерю Go P. Время от входа до возобновления включает runtime и планирование; оно не равно изолированному времени исполнения в ядре.
+До новой нагрузки декодировать сохранённые трассы закреплённым инструментарием Go. Go 1.27 использует `go tool trace -d=parsed` для декодированных событий; см. [исходник закреплённого декодера](https://github.com/golang/go/blob/go1.27.3/src/cmd/trace/main.go). Сопоставлять входы ClockGettime рабочих и выходы системных вызовов по GoID и стеку перехода; разделять `Syscall→Running`, `Syscall→Runnable`, возобновление, Gosched рабочего и уступки вспомогательного стенда. Один вход системного вызова не доказывает потерю Go P. Длительность от входа до возобновления включает runtime и планирование; это не изолированное время исполнения ядра.
 
-Разделяйте поколения исходного кода и наблюдения trace-off/trace-on. Fixture с runnable companion без наблюдаемой потери P служит отрицательным контролем атрибуции и не доказывает невозможность потери P под native-нагрузкой. Отсутствующие или несопоставленные события оставляют причину unknown. Сохраняйте raw trace и идентичность декодера; ожидание планировщика, CPU profile и wall bracket отвечают на разные вопросы. Действующие duty, missed-window и native admission gates не меняются. См. [трассировку Go runtime](https://github.com/golang/go/blob/go1.27.3/src/runtime/HACKING.md#execution-tracer).
+Разделять поколения исходников и наблюдения с трассировкой и без неё. Вспомогательный стенд без наблюдаемой потери P — отрицательный контроль атрибуции, а не доказательство невозможности потери P под нативной нагрузкой. Отсутствующие или несопоставленные события оставляют причину неизвестной. Сохранить исходную трассу и идентификатор декодера; ожидания планировщика, профили CPU и интервалы реального времени отвечают на разные вопросы. Существующие условия доли CPU, пропущенных окон и нативного допуска не меняются. См. [трассировку Go runtime](https://github.com/golang/go/blob/go1.27.3/src/runtime/HACKING.md#execution-tracer).
 
-### Pressure и churn
+<a id="pressure-и-churn"></a>
 
-| Driver | Ограниченное поведение | Граница receipt |
+### Нагрузка ресурсов и пересоздание
+
+| Источник нагрузки | Ограниченное поведение | Граница отчёта |
 |:---|:---|:---|
-| CPU | Один pinned helper на GOMAXPROCS, максимум восемь; duty windows 100 мс | Requested duty, actual thread CPU, worker wall time, lateness/missed windows |
-| GC | Максимум 4 MiB/100 мс, objects 64 KiB, retained references 16 MiB | Bytes/objects/batches, skipped/truncated work, references и lateness |
-| Scheduler | Четыре helpers на GOMAXPROCS, максимум 32; до 64 rounds по 1024 iterations с Gosched за 100 мс | Фактический rounds/yields, joined workers, skipped/incomplete windows, checksum |
-| Churn | Одна admitted fixed-manifest session; начало 250 мс, период 5 с, gap 200 мс | Реальные release/create/Up, ports, generations и phase times |
+| CPU | Один закреплённый помощник на GOMAXPROCS, максимум восемь; окна доли CPU 100 мс | Запрошенная доля, фактический CPU потока, реальное время рабочего, опоздания и пропущенные окна |
+| GC | Максимум 4 MiB/100 мс, объекты 64 KiB, сохранённые ссылки 16 MiB | Байты, объекты, серии выделений, пропущенная и обрезанная работа, ссылки и опоздание |
+| Планировщик | Четыре помощника на GOMAXPROCS, максимум 32; до 64 раундов по 1024 итерации и Gosched за 100 мс | Фактические раунды и уступки, присоединённые рабочие, пропущенные и неполные окна, контрольная сумма |
+| Пересоздание | Одна допущенная сессия фиксированного манифеста за раз; первая через 250 мс, период 5 с, разрыв 200 мс | Фактические освобождение, создание и Up, исходные порты, поколения и времена фаз |
 
-CPU duty включает polling/runtime overhead; elapsed time не доказывает consumed CPU. GC workers не вызывают принудительный GC и не меняют settings; released_objects считает занятые ring entries, освобождённые при exit, а не GC reclamation. Yield counts не доказывают OS context switches и queue depth. Workers join до фиксации измерений и drain.
+Доля CPU включает опрос и накладные расходы runtime; истёкшее время не доказывает потреблённый CPU. Рабочие GC не вызывают принудительную сборку и не меняют настройки, а released_objects считает занятые записи кольца, освобождённые при выходе, а не возврат памяти GC. Число уступок не доказывает переключения контекста ОС или глубину очереди. Рабочие присоединяются до заморозки измерения и завершения обмена.
 
-CPU засчитывается в окно только по sample thread clock, завершённому строго до wall deadline; граница проверяется после вызова clock. Позднее чтение сохраняет последний своевременный credit, поэтому последующая CPU-работа не скрывает missed window; lifetime CPUTimeNS остаётся отдельной суммой. При неизвестном времени завершения консервативный результат может быть miss. Cancellation и wall time проверяются перед каждым общим chunk; thread-CPU clock опрашивается раз в четыре chunk. Неполный batch не добавляет credit; более редкие samples могут отложить решение о yield без ограничения wall latency. См. [учёт CPU](adr/0007-workload-phase-accounting.md).
+Окно CPU получает зачёт только по образцу часов потока, завершённому строго до срока реального времени, проверенного после вызова часов. Позднее чтение сохраняет последний своевременный зачёт, поэтому более поздняя работа CPU не стирает пропуск окна; CPUTimeNS за время жизни остаётся отдельной суммой. Это может консервативно сообщить пропуск при неизвестном времени завершения. Отмена и реальное время проверяются перед каждым общим фрагментом; часы CPU потока опрашиваются каждые четыре фрагмента. Незавершённая серия фрагментов работы не добавляет зачёт; более редкие образцы могут отложить решение об уступке без предела задержки реального времени. См. [учёт CPU](adr/0007-workload-phase-accounting.md).
 
-Для пропущенных CPU-окон сохраняются не более 16 диагностических образцов на worker и счётчик несохранённых образцов. Запись содержит worker, окно и исходный бюджет; принятое CPU-время отделено от последнего наблюдаемого неубывающего CPU-образца. Существующие wall-проверки сохраняются как смещения с признаками known и обозначением ветви выхода. Дополнительных чтений часов нет. Отклонённый поздний образец не увеличивает зачёт CPU. Последняя wall-проверка не доказывает время возврата или причину scheduler/GC. Порядок join не является временным порядком; причина несохранённого образца остаётся неизвестной. Собрать строгий reader новой схемы и указать SHA поколения нагрузки; стоимость диагностики требует новой квалификации. См. [CPU accounting](adr/0007-workload-phase-accounting.md).
+Пропущенные окна CPU сохраняют до 16 диагностических образцов на рабочего и число пропущенных образцов. Каждый образец указывает рабочего, окно и исходный бюджет, отделяет принятый CPU от последнего наблюдаемого неубывающего образца и записывает существующие смещения проверок реального времени с признаками known и ветвью выхода. Чтения часов не добавляются. Отклонённый поздний образец никогда не увеличивает принятый зачёт. Последняя проверка реального времени не доказывает время возврата или причину в планировщике/GC. Порядок присоединения не является временным порядком; причина пропущенного образца остаётся неизвестной. Пересобрать строгую программу чтения отчёта для новой схемы и обозначить поколение нагрузки SHA исходников; стоимость диагностики требует новой квалификации. См. [учёт CPU](adr/0007-workload-phase-accounting.md).
 
-CPU helpers вызывают Gosched примерно через 5 мс измеренного thread CPU, пока в их окне 100 мс остаётся работа. Полный CPU budget 80 мс допускает не более 15 добровольных checkpoints. Полный CPU budget и закреплённый поток сохраняются; ожидание после yield не считается потреблением CPU. Checkpoints не гарантируют wall latency. Обозначайте поколение pressure через source SHA и применяйте его одинаково к обеим сторонам A/B; результаты прежнего поколения храните отдельно. Восемь workers, измеренная duty не ниже 80% и нулевое число missed windows остаются обязательными. Требуется новая native-калибровка. См. [CPU pressure](../../test/internal/bfdload/cpu_pressure_linux.go) и [ADR-0007](adr/0007-workload-phase-accounting.md).
+Помощники CPU вызывают Gosched примерно после 5 мс измеренного CPU потока, пока в их окне 100 мс остаётся работа. Полный бюджет 80 мс CPU допускает максимум 15 добровольных контрольных точек. Полный бюджет CPU и закреплённый поток сохраняются; ожидание после уступки не является потреблением CPU. Контрольные точки не гарантируют задержку реального времени. Обозначить поколение нагрузки SHA исходников и применить его одинаково к обеим сторонам A/B; результаты ранних поколений хранить отдельно. Восемь рабочих, измеренная доля минимум 80% и ноль пропущенных окон остаются обязательными. Требуется новая нативная калибровка. См. [нагрузку CPU](../../test/internal/bfdload/cpu_pressure_linux.go) и [ADR-0007](adr/0007-workload-phase-accounting.md).
 
-Churn требует минимум шесть секунд и пропускает cycle при остатке менее пяти секунд. AdminDown multiplier 3 требует минимум три секунды notification drain; recovery ждёт максимум пять секунд и не дольше measurement. Mixed-family process fixture использует 11 секунд. Отсутствие фактического recovery завершает enabled variant ошибкой. Release start/completion ограничивают registry removal; completion не является точным временем удаления.
+Пересоздание требует длительности минимум шесть секунд и пропускает цикл, если осталось менее пяти секунд. AdminDown с множителем 3 требует минимум трёх секунд доставки уведомлений при завершении; восстановление ожидается максимум пять секунд и не выходит за измерение. Процессный стенд с обоими семействами использует 11 секунд. Отсутствие фактического восстановления означает отказ включённого варианта. Начало и завершение освобождения ограничивают момент удаления из реестра; завершение не является точной отметкой удаления.
 
-Current/retired generations имеют отдельные RX counts; terminal accounting относится ко всему lifetime. Active registrations отличаются от retained collector label sets. Fixed-manifest variant не квалифицирует произвольный рост unique-peer metrics.
+Текущие и завершённые поколения сохраняют отдельные счётчики RX; конечный учёт охватывает всё время жизни. Активные регистрации отличаются от сохранённых наборов меток коллектора. Вариант с фиксированным манифестом не квалифицирует произвольный рост метрик уникальных соседей.
 
-## Owner, соседи и фазы
+<a id="owner-соседи-и-фазы"></a>
 
-StartOwner запускает production listeners, receiver, manager, owned senders и real collector. Snapshot содержит endpoints/ports, session state, delivery counters и resources. Shutdown joins собственные workers и возвращает socket errors. Изолированные alternate-port tests не квалифицируют RFC ports и полный daemon.
+## Владелец, соседи и фазы
 
-RunPeers использует независимую unauthenticated asynchronous Control model. Отдельные seeded PCG streams обслуживают directions и protocol jitter. Random omissions, blackholes, UDP writes, cancellation и unprocessed input учитываются отдельно. Typed flags и повторяемые session bindings отклоняют duplicate scalar flags, malformed endpoints и reduced named profiles до открытия sockets. Signals отменяют, join и выдают partial JSON.
+StartOwner запускает production-сокеты прослушивания, приёмник, manager, управляемых отправителей и фактический коллектор. Снимок сохраняет адреса и исходные порты, состояние сессий, счётчики доставки и ресурсы. Завершение присоединяет принадлежащие ему рабочие и сообщает ошибки сокетов. Изолированные тесты альтернативных портов не квалифицируют порты RFC или полный демон.
 
-Без control-dir totals включают setup/shutdown и независимые duration timers. Controlled roles выполняют bind/readiness, принимают future common monotonic epoch, замораживают measurement_final, останавливают/присоединяют peers, сводят terminal packets и закрывают owners. Частные bounded control files запрещают replacement и проверяют общий time namespace. Отсутствие terminal receipts даёт ошибку по bounded deadline.
+RunPeers использует независимую неаутентифицированную асинхронную модель Control. Отдельные PCG-потоки с seed охватывают каждое направление и джиттер протокола. Случайные пропуски, blackhole, записи UDP, отмена и необработанный ввод остаются раздельными. Типизированные флаги и повторяемые привязки сессий отклоняют повторяющиеся скалярные флаги, некорректные адреса и уменьшенные именованные профили до открытия сокетов. Сигналы отменяют, присоединяют и выдают частичный JSON.
 
-Не делите lifetime totals на requested duration для window throughput. [ADR-0007](adr/0007-workload-phase-accounting.md) определяет phases и ledger.
+Без control-dir суммы включают настройку и завершение под независимыми таймерами длительности. Управляемые роли привязывают сокеты, достигают готовности, принимают будущую общую монотонную эпоху, замораживают measurement_final, останавливают и присоединяют соседей, сводят конечные исходы пакетов, затем закрывают владельцев. Закрытые ограниченные файлы управления запрещают замену и проверяют общее пространство имён времени. Отсутствие конечных отчётов приводит к отказу по ограниченному сроку.
+
+Не делить суммы за время жизни на запрошенную длительность для получения пропускной способности окна. Фазы и учёт определяются [ADR-0007](adr/0007-workload-phase-accounting.md).
 
 ### Режим Echo
 
-Постоянный selector --echo использует настоящие Manager Echo sessions, production receiver и source-port leases. Оба named endpoints используют UDP 3785; prepared plan сохраняет один owner address на family. Physical session регистрируется один раз и снимается после owner join.
+Постоянный селектор --echo использует фактические сессии Manager Echo, production-приёмник и аренды исходных портов. Оба именованных адреса используют UDP 3785; в подготовленном плане остаётся один адрес владельца на семейство. Каждая физическая сессия регистрируется один раз и снимает регистрацию после присоединения владельца.
 
-Peers возвращают весь datagram, включая padding, с TTL/Hop Limit 254. Проверяются codec, tuple, inbound TTL и отсутствие auth. Они не генерируют periodic Control и не синтезируют remote Control Up. Readiness требует фактического return write. Независимые received_sequences связывают accepted RX и return omissions.
+Соседи возвращают полную датаграмму, включая дополнение, с TTL/Hop Limit 254. Проверяются кодек, кортеж, входной TTL и отсутствие аутентификации входа. Они не передают периодический Control и не синтезируют удалённый Control Up. Готовность требует фактической записи возврата. Независимые received_sequences связывают принятый RX и пропуски возврата.
 
-Это проверка Echo preview, а не adjacent forwarding plane, RFC return authentication или полного RFC 9747. Текущий typed assessment обрабатывает Echo отдельно; Control RX latency не заменяет Echo measurement.
+Это проверяет Echo preview, но не соседнюю плоскость передачи, аутентификацию возвратов RFC или полный RFC 9747. Текущая типизированная оценка отдельно обрабатывает Echo; образец задержки Control RX не подменяет измерение Echo.
 
 ## Доказательства Down
 
-Workload Manager с `WithShutdownNotificationDrain` доставляет queued notifications после producer join и до subscriber EOF. Проверки физической identity, GAP и равенства счётчиков журнала остаются обязательными. Завершение не вызывает actuator; обычный Manager сохраняет abandonment. См. [ADR-0007](adr/0007-workload-phase-accounting.md).
+Manager нагрузки доставляет уведомления из очереди после присоединения производителей и до EOF подписчика с `WithShutdownNotificationDrain`. Проверки физической идентичности, GAP и равенства счётчиков журнала остаются обязательными. Такое наблюдательное завершение не вызывает исполнительный механизм и не меняет отбрасывание Manager по умолчанию; см. [ADR-0007](adr/0007-workload-phase-accounting.md).
 
-Полный source journal требуется даже при отсутствии Down rows. Raw/subscriber queues резервируют min(65536,64+3N): 3064 entries при N=1000, saturation после 21824 producers. Каждый subscriber владеет своей queue. Sustained churn/reload growth могут вызвать overflow; legacy/unconfigured queues остаются 64. Проверки GAP/overflow обязательны.
+Полный журнал источника обязателен даже при отсутствии строк Down. Исходная очередь и очереди подписчиков резервируют min(65536,64+3N): 3064 записи при N=1000, насыщение за 21824 производителями. Каждому подписчику принадлежит своя очередь. Непрерывное пересоздание или рост при перечитывании могут вызвать переполнение; устаревшие и ненастроенные очереди сохраняют 64. Проверки GAP и переполнения обязательны.
 
-Один consumer работает от setup до остановка владельца сессии. После owners он присоединяется за пять секунд; gaps, omissions, missing counters и unsettled delivery нарушают completeness. Сохраняются:
+Один потребитель работает от настройки до завершения владельца. После присоединения владельцев он присоединяется за пять секунд; разрывы, пропуски, отсутствующие счётчики или несведённая доставка нарушают полноту. Сохранять:
 
-| Поле | Значение |
+| Поле | Смысл |
 |:---|:---|
-| cutoff_at_utc | Плановое окончание measurement |
-| source_sampled_at_utc | Фактическое завершение cutoff counter read |
-| source_transitions | Lifetime Up→Down count в этом read |
-| final_source_transitions | Count после остановка владельца сессии |
-| observed_before_cutoff / observed_after_cutoff | Доставленные notification-time totals, включая setup/drain |
-| down_events | Notification rows только в [start,end) |
+| cutoff_at_utc | Плановый конец измерения |
+| source_sampled_at_utc | Фактическое завершение чтения счётчика отсечки |
+| source_transitions | Число Up→Down за время жизни при этом чтении |
+| final_source_transitions | Счётчик после завершения владельца |
+| observed_before_cutoff / observed_after_cutoff | Суммы доставок по времени уведомлений, включая настройку и завершение обмена |
+| down_events | Строки уведомлений только в [start,end) |
 
-Требуются observed_before_cutoff ≤ source_transitions ≤ final_source_transitions и final_source_transitions = observed_before_cutoff + observed_after_cutoff. Samples неатомарны в cutoff. Не вычитайте ненаблюдавшийся startup baseline.
+Требовать observed_before_cutoff ≤ source_transitions ≤ final_source_transitions и final_source_transitions = observed_before_cutoff + observed_after_cutoff. Образцы неатомарны на отсечке. Не вычитать ненаблюдаемую стартовую исходную точку.
 
-### Owner witnesses и идентичность
+<a id="owner-witnesses-и-идентичность"></a>
 
-StateChange.TransitionTiming содержит last validated receive, actual dispatched detection deadline, Detection Time и local commit bracket. ObservationVersion должен совпадать. Echo ValidatedAt означает preview-owner acceptance; прямой вызов handler не создаёт detection deadline и remote state.
+### Свидетельства владельца и идентичность
 
-down_witnesses сохраняет setup/drain rows, даже если notification поступает после cutoff. Known flags отличают measured zero от unavailable timing. Missing monotonic, несовпадение версии и reversed brackets остаются unknown. Вычисляйте offsets до UTC serialization; virtual synctest не доказывает происхождение времени в нативной среде.
+StateChange.TransitionTiming содержит последний проверенный приём, фактический переданный в обработку срок обнаружения, Detection Time и локальный интервал фиксации. ObservationVersion должен совпадать. Для Echo ValidatedAt означает принятие владельцем preview; прямые вызовы обработчика не могут выдумывать сроки обнаружения или удалённое состояние.
 
-Incarnation связывает slot, generation и полный endpoint с physical session. Инициализируйте до churn и отслеживайте соответствующие Deleted/Added; repeated active Added не увеличивает generation. Освобождайте session references при deletion/invalidation/end; historical rows сохраняют scalars. Source-count complete и incarnations_complete — независимые требования. См. [ADR-0012](adr/0012-owner-down-transition-witness.md).
+down_witnesses сохраняет строки настройки и завершения обмена, даже если уведомление приходит после отсечки. Признаки known отличают измеренный ноль от недоступного времени. Отсутствующие монотонные показания, несовпадающие версии и обратные интервалы остаются неизвестными. Вычислять смещения до сериализации UTC; виртуальные значения synctest не доказывают нативный результат.
 
-### Независимые истечения таймеров peer
+Воплощение связывает слот, поколение и полный адрес с физической сессией. Инициализировать до пересоздания и отслеживать совпадающие уведомления Deleted/Added; повтор активного Added не продвигает поколение. Освобождать ссылки сессии при удалении, признании невалидной и завершении; исторические строки сохраняют скаляры. Полнота исходного счётчика и incarnations_complete — независимые предпосылки. См. [ADR-0012](adr/0012-owner-down-transition-witness.md).
 
-Каждый Control peer сохраняет до 256 фактических `detection_expiry_events`: lifetime ID истечения, прежнее состояние, прежние discriminators, время принятого получения, фактический deadline и время проверки обработчика. `first_down_write` фиксирует только первую успешную запись Down после истечения в Init/Up и до любого нового принятого входа. Номер `scheduled` соответствует lifetime-последовательности решений TX; время решения отличается от интервала записи в сокет. Omissions и неуспешные/отменённые записи оставляют свидетельство unknown. Последующие записи его не заменяют.
+<a id="независимые-истечения-таймеров-peer"></a>
 
-Offsets проецируются после завершения workers; `phase_known=false` обозначает отсчёт от запуска группы генератора. `timing_known` отличает отсутствие монотонных timestamps от измеренного нуля. Переполнение учитывается в `detection_expiry_events_omitted` и запрещает completion, включая отмену. Успешная запись не устанавливает доставку, owner incarnation или преднамеренную потерю. RemoteDown допускает только доказательство происхождения от первого expiry; неоднозначные последующие epochs остаются unresolved. См. [ADR-0012](adr/0012-owner-down-transition-witness.md#независимое-свидетельство-истечения-таймера-peer) и [producer](../../test/internal/bfdload/peer_expiry_linux.go).
+### Независимые истечения таймеров соседа
 
-Квалифицированный Control RX omission сохраняет `receive_qualified`: фактические проверки codec/tuple/TTL и протокольного принятия на копии состояния peer без изменения фактических state/counters. Классификация RemoteDown по первому expiry отклоняет lifetime-номер записи, меньший либо равный sequence строго предшествующего TX omission; совпадение номера с последующим фазовым решением допустимо после setup. Требуются полный журнал истечений, совпадающих owner incarnation и expired-Down body, строгого порядка write/receive brackets и исключения любого последующего expiry до получения владельцем. Восстанавливаются только qualified matching stable Up RX inputs с checked `max(p)+D>d+Bpeer` до первого старого due. Вывод относится к происхождению от первого peer deadline; owner commit может следовать после конца blackhole. Неоднозначные последующие источники и прежние отчёты без этих свидетельств остаются unresolved. См. [ADR-0012](adr/0012-owner-down-transition-witness.md#происхождение-remotedown-от-первого-истечения).
+Каждый сосед Control сохраняет до 256 фактических `detection_expiry_events`: идентификатор истечения за время жизни, прежнее состояние, старые discriminator, время принятого приёма, фактический срок и время проверки обработчика. `first_down_write` записывает только первую успешную запись Down после истечения в Init/Up и до любого нового принятого ввода. Его порядковый номер `scheduled` — номер решения TX за время жизни; время решения отличается от интервала вокруг записи в сокет. Пропуски, неуспешные и отменённые записи оставляют его неизвестным. Поздние записи его не заменяют.
 
-### Фактические omissions и классификация
+Смещения проецируются после присоединения рабочих; `phase_known=false` означает эпоху группы генератора. `timing_known` отличает отсутствие монотонных отметок от измеренного нуля. Переполнение считает `detection_expiry_events_omitted` и запрещает полноту, включая отмену. Успешная запись не доказывает доставку, воплощение владельца или намеренную потерю. RemoteDown может быть квалифицирован только доказательством происхождения от первого истечения; неоднозначные поздние эпохи остаются неразрешёнными. См. [ADR-0012](adr/0012-owner-down-transition-witness.md#independent-peer-expiry-evidence) и [производитель](../../test/internal/bfdload/peer_expiry_linux.go).
 
-Peer blackhole_windows фиксируют реальные TX/RX omission decisions отдельно от schedule. При нулевых counts timestamps не являются observation. RX decision может предшествовать validation; время не равно socket arrival или commit. Сопоставляйте только общий phase, а не независимые worker epochs.
+Квалифицированный пропуск RX Control сохраняет `receive_qualified`: фактические проверки кодека, кортежа и TTL и допуск протокола на копии состояния соседа без изменения фактических состояния и счётчиков. Классификация RemoteDown от первого истечения отклоняет порядковый номер записи за время жизни, меньший или равный последовательности строго более раннего пропуска TX; позднее равенство порядкового номера фазы остаётся допустимым после настройки. Требуются полный журнал истечений, совпадающие воплощение владельца и тело Down после истечения, строго упорядоченные интервалы записи и приёма и исключение каждого последующего истечения до приёма владельцем. Восстанавливать только квалифицированные совпадающие стабильные входы Up RX и доказать с проверяемой арифметикой `max(p)+D>d+Bpeer` до первого старого срока. Это касается происхождения первого срока соседа; фиксация владельцем может быть после конца blackhole. Более позднее неоднозначное происхождение и старые отчёты без этих свидетельств остаются неразрешёнными. См. [ADR-0012](adr/0012-owner-down-transition-witness.md#first-expiry-remotedown-ancestry).
 
-Лимиты на peer — 256 windows, 16 segments и 128 combined offset/sequence pairs на window. Для 1000 peers абсолютные пределы — 4096000 segments и 32768000 pairs; 47 reference periods дают 752000 и 6016000. Это cardinality limits, не measured RSS. Overflow учитывается и запрещает completion. Повторные markers не удваивают loss.
+<a id="фактические-omissions-и-классификация"></a>
 
-ClassifyDowns присваивает каждому подходящему свидетельству intentional, false или unresolved; полностью внешние интервалы фиксации учитываются отдельно. Для локального Control timeout требуются точные incarnation/tuple, прежний validated remote discriminator, directional Detection Time, actual due и known conversion brackets. Выборочно восстанавливаются только зафиксированные matching Up packets с неизменными intervals/multiplier, diagnostic None и сброшенными Poll/Final. Каждый выбранный offset p удовлетворяет `p>r+owner_bracket` и `p+peer_bracket<d`; непустой набор должен доказать checked `max(p)+D>d+owner_bracket`. До положительного вывода проверяется body каждого потенциально подходящего TX packet. RX omissions и строго проверенные expired Down packets остаются удержанными; их время не ограничивает доказательство по восстановленным Up. Неподдерживаемые bodies, Up после Down и неполный учёт actual decisions оставляют вывод unresolved. [ADR-0012](adr/0012-owner-down-transition-witness.md) задаёт полную грамматику пакетов и вмешательство. Одного schedule overlap, количества пакетов или nominal cadence недостаточно.
+### Фактические пропуски и классификация
 
-Положительный intentional result предполагает принятие выбранных пакетов владельцем и завершение detection Reset до old due при отсутствии одновременного скрытого независимого отказа. Вывод относится к старому deadline; он не воспроизводит generator, не устраняет весь отказ и не исключает последующие Down. Отсутствующие actual decisions, повторные свидетельства, journal overflow и run/clock mismatch запрещают passing. Прежние оценки сохраняются; повторные записываются отдельно с original producer и new assessor SHA. Controller сохраняет down-classification.json рядом с owner/peer reports и binary/resource/записями очистки. Изменение проверяющего кода не квалифицирует native run.
+blackhole_windows соседа записывает фактические решения пропуска TX/RX отдельно от расписания. Нулевые счётчики означают отсутствие наблюдения для отметок времени. Решения RX могут предшествовать проверке; время решения не является приходом в сокет или фиксацией. Сопоставлять только общую фазу, а не независимые эпохи рабочих.
 
-Для Echo проверяются локальное D=interval×DetectMult, фактический старый deadline d, последний принятый возврат r, совпадение incarnation/version и diagnostic EchoFailed. Пропуски RX и return-TX объединяются по received_sequences: уникальные возрастающие read indices, неубывающие времена и непустой последовательный набор с совпадающей wire generation. Каждый выбранный вход p удовлетворяет `p>r+owner_bracket` и `p+peer_bracket<d`; весь интервал фиксации следует после d внутри того же blackhole window. Строго более поздний новый deadline требует checked `max(p)+D>d+owner_bracket`. DetectMult входит в D; одного количества входов для доказательства продления недостаточно. Отсутствующие/повторные входы, пересечение границ, overflow, отсутствие продления и независимые потери остаются unresolved. Вывод относится только к старому deadline при явном допущении принятия владельцем и Reset до due; отсутствие последующих timeouts и аутентификацию RFC Echo он не доказывает. См. [модель пропусков Echo](../../test/internal/bfdload/echo_omission_linux.go).
+Пределы на соседа: 256 окон, 16 сегментов и 128 объединённых пар смещение/последовательность на окно. Для 1000 соседей абсолютные пределы — 4096000 сегментов и 32768000 пар; 47 периодов внутри эталонного окна ограничивают их до 752000 и 6016000. Это пределы числа элементов, а не измеренный RSS. Переполнение считается и запрещает полноту. Повторные маркеры не дублируют потерю.
 
-Default-off tx-only-blackhole разрешён только fixture. Quiet fixture: шесть секунд, blackout 1.2 с после трёх секунд, без loss/pressure/churn. Отдельная bidirectional fixture длится 13 секунд, blackhole после девяти, CPU/GC/scheduler/churn и loss 25-per-mille; требует реальных random omissions. Ни одна не является named workload acceptance.
+ClassifyDowns назначает каждому допустимому свидетельству источника intentional, false или unresolved; интервалы фиксации целиком снаружи учитываются отдельно. Атрибуция локального тайм-аута Control требует точных воплощения и кортежа, старого проверенного удалённого discriminator, направленного Detection Time, фактического срока и известных интервалов преобразования. Избирательно восстанавливать только захваченные совпадающие пакеты Up с неизменными интервалами и множителем, диагностикой None и сброшенными Poll/Final. Каждое выбранное смещение p удовлетворяет `p>r+owner_bracket` и `p+peer_bracket<d`; непустой набор должен доказать с проверяемой арифметикой `max(p)+D>d+owner_bracket`. До успеха проверить каждое потенциально попадающее в диапазон тело TX. Сохранять пропуски RX и узко проверенные пакеты Down после истечения исключёнными; их время не ограничивает доказательство восстановленных Up. Неподдерживаемые тела, Up после Down и нарушенный фактический учёт решений остаются неразрешёнными. [ADR-0012](adr/0012-owner-down-transition-witness.md) определяет полную грамматику пакета и вмешательство. Одного пересечения расписаний, числа пакетов или номинального ритма недостаточно.
+
+Положительный результат intentional предполагает, что выбранные пакеты были бы приняты и завершили бы Reset обнаружения до старого срока, без совпадающего скрытого независимого отказа. Вывод касается этого старого срока; он не воспроизводит генератор, не снимает весь отказ и не исключает более поздний Down. Отсутствие фактических решений, повторные свидетельства, переполнение журнала и несовпадение запуска или часов не позволяют успех. Сохранить прежние оценки; повторные записывать отдельно с исходным SHA производителя и новым SHA оценщика. Контроллер сохраняет down-classification.json рядом с отчётами владельца и соседа, идентификатором бинарника и отчётами ресурсов и очистки. Изменение программы чтения вне горячего пути не квалифицирует нативный запуск.
+
+Атрибуция Echo вместо этого проверяет локальный D=interval×DetectMult, старый фактический срок d, последний принятый возврат r, совпадающие воплощение и версию и диагностику EchoFailed. Пропуски RX и возврата TX связываются через received_sequences: уникальные возрастающие индексы чтения, неубывающие времена и непустой последовательный набор, совпадающий с поколением владельца на линии. Каждый выбранный вход p должен удовлетворять `p>r+owner_bracket` и `p+peer_bracket<d`; полный интервал фиксации следует за d внутри того же окна blackhole. Требовать с проверяемой арифметикой `max(p)+D>d+owner_bracket` для строго более позднего заменяющего срока. DetectMult входит в D; одно число входов не доказывает продление. Отсутствующие или повторно воспроизведённые входы, пересечение границ, переполнение, отсутствие продления или независимая потеря остаются неразрешёнными. Это классифицирует только старый срок при явном предположении принятия владельцем и Reset до срока; не доказывает отсутствие более поздних тайм-аутов и не аутентифицирует возвраты RFC Echo. См. [модель пропусков Echo](../../test/internal/bfdload/echo_omission_linux.go).
+
+tx-only-blackhole по умолчанию выключен и доступен только стенду. Его спокойный стенд длится шесть секунд, с blackout 1.2 секунды после трёх секунд, без потерь, нагрузки ресурсов или пересоздания. Отдельный двунаправленный стенд 13 секунд создаёт blackhole после девяти секунд, использует CPU/GC/планировщик/пересоздание и потери 25 на тысячу, требует фактических случайных пропусков. Ни один не является приёмкой именованной нагрузки.
 
 ## Валидность часов
 
-Calibration сохраняет three-read monotonic bracket и nominal clock resolutions. Conditional conversion bound — span_ns + realtime_resolution_ns + monotonic_resolution_ns. Модель предполагает постоянный realtime-minus-monotonic offset и один fixed read-error interval на clock шириной не более nominal resolution. Само разрешение не доказывает модель или physical accuracy.
+Калибровка сохраняет монотонный интервал трёх чтений и номинальные разрешения часов. Условная граница преобразования — span_ns + realtime_resolution_ns + monotonic_resolution_ns. Она предполагает постоянное смещение реальных и монотонных часов и один фиксированный интервал ошибки чтения для каждых часов, не шире номинального разрешения. Одно номинальное разрешение не доказывает эту модель или физическую точность.
 
-Для outer monotonic B,A, anchor M,R и commit/kernel C,K измеренная latency — C−M−(K−R). Fixed offsets сокращаются; bracket и одна within-clock error difference на clock дают conditional bound. Independent fixtures проверяют skew и противоположные endpoints интервалов. Отдельный consistency tolerance 1 мс не равен этому bound.
+Для внешних монотонных B,A, опоры M,R и фиксации/ядра C,K измеренная задержка — C−M−(K−R). Постоянные смещения сокращаются; интервал плюс одна разность ошибок внутри каждых часов дают условную границу. Независимые стенды проверяют сдвиг и противоположные концы интервалов. Отдельный допуск согласованности 1 мс не является этой границей.
 
-ClockEpochGuard ставит realtime timerfd CANCEL_ON_SET до calibration и проверяет после last sample. no_cancellation_observed не доказывает отсутствия step: kernel publication/notification могут расходиться во времени. Срок witness ограничен семью днями. Нет per-packet syscall/guard goroutine.
+ClockEpochGuard активирует realtime timerfd CANCEL_ON_SET до калибровки и проверяет после последнего образца. no_cancellation_observed не доказывает отсутствие скачка часов: публикация и уведомление ядра могут состязаться. Семидневный горизонт ограничивает время жизни. Не добавляются системный вызов на пакет или goroutine защиты.
 
-WithClockEpoch требует process-local monotonic provenance от calibration до остановка владельца сессии. JSON replay не восстанавливает её. Неизвестно/invalid/uncovered input очищает bounds и stale qualification. Даже с conditional bound total timing_uncertainty_ns остаётся null, reference_qualified — false.
+WithClockEpoch требует локального для процесса монотонного происхождения, охватывающего калибровку и завершение владельца. Повтор JSON не восстанавливает его. Неизвестный, невалидный или непокрытый ввод очищает границы и устаревшую квалификацию. Даже при условной границе полная timing_uncertainty_ns остаётся null, а reference_qualified — false.
 
-Перед разрешённым запуск в нативной среде выполните процедуру часов собственного runner: chrony через Unix socket, makestep 1.0 3, bounded waitsync 60 0.01 0 1, затем makestep 1.0 0 до anchor. Сохраните PID/InvocationID/restarts, selected source/leap, boot/time namespace, kernel/Go/clocksource/config identities; сравните после run. Предполагается отсутствие suspend, migration, restart, manual set и leap step. Chrony correction/skew не равно RX conversion bound. Это процедура собственного runner, а не assessor option и не разрешение менять shared host.
+До разрешённого нативного запуска применить процедуру часов управляемого runner: chrony через его Unix-сокет, makestep 1.0 3, ограниченный waitsync 60 0.01 0 1, затем makestep 1.0 0 до опоры. Сохранить PID/InvocationID/перезапуски, выбранный источник и состояние leap, boot и пространство имён времени, идентификаторы ядра, Go, clocksource и конфигурации и сравнить после. Предполагается отсутствие suspend, миграции, перезапуска, ручной установки времени и скачка leap. Коррекция и skew Chrony не являются границей преобразования RX. Это процедура управляемого runner, а не опция оценщика или разрешение менять общий хост.
 
 ## Оценка сведённых отчётов
 
-После join обоих процессов выполните в закреплённой среде:
+Выполнить в закреплённой среде после присоединения обоих процессов:
 
 ```bash
 go run ./test/cmd/bfdload assess OWNER_JSON PEER_JSON
 ```
 
-Inputs — regular JSON files максимум 512 MiB каждый. Duplicate/unknown members, invalid Unicode, trailing documents и некорректная схема отклоняются. Numeric nanosecond durations поддерживаются.
+Входы — обычные файлы JSON, каждый ограничен 512 MiB. Повторяющиеся или неизвестные поля, некорректный Unicode, последующие документы и некорректная схема приводят к отказу. Числовые наносекундные длительности поддерживаются.
 
-Assessor проверяет profile/admission, одинаковую native phase, peer coverage полного окно измерения владельца сессии, итоговый учёт пакетов, causal Down, resources и фактические requested pressure/churn. Setup/drain UTC ranges не обязаны начинаться одновременно. Один pass не завершает variant matrix.
+Оценщик проверяет профиль и допуск, совпадение нативной фазы, покрытие соседом полного окна владельца, конечный учёт, причинные доказательства Down, ресурсы и фактическую запрошенную нагрузку и пересоздание. Диапазоны UTC настройки и завершения обмена не обязаны начинаться одинаково. Один успех не выполняет матрицу вариантов.
 
-| Численная проверка | Порог или условие |
+| Числовая проверка | Порог или условие |
 |:---|:---|
-| TX/detection effect CDF | На 25/50 мс точные ranks ceil(0.99N)/ceil(0.999N) |
-| Threads | Измеренный максимум ≤48 |
-| FDs | Измеренный максимум ≤2N+256 |
-| Goroutines | Измеренный максимум ≤3N+256 |
-| RSS | Измеренный максимум ≤512 MiB |
-| Reference RSS growth | First/final six-hour means: рост строго ниже 5% |
-| Engineering six-hour comparison | Не применимо к 30 минутам |
+| CDF эффектов TX/обнаружения | На 25/50 мс достигнуты точные ранги ceil(0.99N)/ceil(0.999N) |
+| Потоки | Наблюдаемый пик ≤48 |
+| FD | Наблюдаемый пик ≤2N+256 |
+| Goroutine | Наблюдаемый пик ≤3N+256 |
+| RSS | Наблюдаемый пик ≤512 MiB |
+| Рост RSS эталонного профиля | Средние первых и последних шести часов: рост строго менее 5% |
+| Шестичасовое сравнение инженерного профиля | Неприменимо к длительности 30 минут |
 
-Dispatch/no-effect denominators отдельные; percentile interpolation отсутствует. Control kernel-RX latency имеет собственные distribution/bound, а не TX threshold. Echo выбирает echo_tx/echo_detection; RX-commit distribution явно not_applicable. Stopped Echo returns равны current+retired RX; peer input не превышает lifetime owner TX. Exact cross-counter settlement использует stopped snapshots.
+Знаменатели диспетчеризации и отсутствия эффекта остаются раздельными; интерполяции процентилей нет. Задержка Control kernel-RX имеет собственные распределение и границу, а не порог TX. Echo выбирает echo_tx/echo_detection; распределение RX-commit явно not_applicable. Остановленные возвраты Echo должны равняться текущему и завершённому RX; вход соседа не может превышать TX владельца за время жизни. Точное сведение счётчиков использует остановленные снимки.
 
-pass возвращает ноль; fail/incomplete выдают structured output и ненулевой exit. Pass — численная приёмка в declared conditional native software-модель часов. Guest identity, operator discipline, происхождение исходников, variant coverage и приёмка выпуска остаются отдельными.
+pass завершается с нулём; fail/incomplete выдают структурированный результат и ненулевой код. Успех означает числовую приёмку при объявленной условной модели нативных программных часов. Идентичность гостевой системы, дисциплина оператора, происхождение исходников, покрытие вариантов и приёмка выпуска остаются отдельными.
 
 ## Сохранённые наблюдения и незавершённая приёмка
 
-| Наблюдение | Запись | Граница |
+| Наблюдение | Отчёт | Граница |
 |:---|:---|:---|
-| Mixed IPv4/IPv6 process fixture | reports/udp-resume-20261024; 47.98 с, 79 writes/79 commits, четыре removals | Production-core fixture, не reference/full-daemon acceptance |
-| Corrected process fixture | b2e68ad2a13824a05a9b92528fe55c9a8d4fd6d1; 47.67 с, 79/79, непустой снимок измерений | reference_qualified=false; total clock uncertainty unknown |
-| Owner collector allocation | reports/collector-owner-20261022; 16 B/op/2 allocs → 0/0 | Synthetic, без UDP/decode/auth |
-| Numeric-zone sender recovery | baseline 706991db9433b13cec47e0bb8ea2549b01e948d9; reports/sender-rebind-20261025 | Combined send/receive 3→51; corrected fixture 3 до и после двух recreations |
+| Процессный стенд со смешанными IPv4/IPv6 | reports/udp-resume-20261024; 47.98 с, 79 записей/79 фиксаций, четыре удаления | Стенд ядра production-кода, не эталонная или полная приёмка демона |
+| Исправленный процессный стенд | b2e68ad2a13824a05a9b92528fe55c9a8d4fd6d1; 47.67 с, 79/79, непустой снимок измерения | reference_qualified=false; полная неопределённость часов неизвестна |
+| Выделения коллектора владельца | reports/collector-owner-20261022; 16 B/op/2 allocs → 0/0 | Синтетика, без UDP/декодирования/аутентификации |
+| Восстановление отправителя с числовой зоной | Исходная точка 706991db9433b13cec47e0bb8ea2549b01e948d9; reports/sender-rebind-20261025 | Совместная стоимость отправки и приёма 3→51; исправленный стенд 3 до и после двух пересозданий |
 
-Sender recovery сохраняет source port 49152 и новый ifindex; это не zero-allocation SendPacket benchmark. Исправленная запись — green03-artifacts/sender-rebind-IPv6LinkLocal.json в указанном report root; red08-test.txt сохраняет отказ.
+Восстановление отправителя сохраняет исходный порт 49152 и новый ifindex; это не бенчмарк SendPacket без выделений памяти. Исправленный отчёт — green03-artifacts/sender-rebind-IPv6LinkLocal.json под указанным корнем отчёта; red08-test.txt сохраняет отказ.
 
-Текущие Control/Echo owners выполняются в goroutines без постоянного закрепления OS thread за сессией. Старый pinned baseline не укладывается в 48 threads при 1000 owners. Требуются matched native A/B, thread/RSS distributions, timer p99.9, false-Down и final 24-hour/wire gates. Интеграция исходников не заменяет измерений.
+Текущие владельцы Control/Echo работают в goroutine без постоянного закрепления за отдельным потоком ОС на сессию. Старый закреплённый исходный вариант не может выполнить предел 48 потоков при 1000 владельцев. Сопоставимые нативные A/B, распределения потоков и RSS, p99.9 таймеров, ложный Down и окончательные проверки 24 часов и линии остаются обязательными. Интеграция исходников их не предоставляет.
 
-Не выводите RSS/session, startup time и GC pauses из construction B/op. Daemon не задаёт project-wide GOMAXPROCS. Сохраните default GOGC; квалифицируйте GOMEMLIMIT измерениями deployment. CPU quota не резервирует execution time. Поля network.dscp нет; проверяйте host QoS отдельно.
+Не выводить RSS на сессию, время запуска или паузы GC из B/op конструирования. У демона нет общего переопределения GOMAXPROCS для проекта. Сохранить GOGC по умолчанию; квалифицировать GOMEMLIMIT измерениями развёртывания. Квота CPU не резервирует время исполнения. Поля конфигурации network.dscp нет; отдельно квалифицировать QoS хоста.
 
-[Метод сравнения](13-competitive-analysis.md), [мониторинг](07-monitoring.md), [RFC coverage](08-rfc-compliance.md).
+[Метод сравнения](13-competitive-analysis.md), [мониторинг](07-monitoring.md), [покрытие RFC](08-rfc-compliance.md).

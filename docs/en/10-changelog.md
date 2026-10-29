@@ -1,6 +1,6 @@
 # Changelog and releases
 
-[CHANGELOG.md](../../CHANGELOG.md) is the English release history; [CHANGELOG.ru.md](../../CHANGELOG.ru.md) is its complete Russian counterpart. Published entries and tags remain preserved. Branch roles and publication constraints are defined in [AGENTS.md](../../AGENTS.md).
+[CHANGELOG.md](../../CHANGELOG.md) is the English release history; [CHANGELOG.ru.md](../../CHANGELOG.ru.md) is the Russian translation. The [dated translation corrections](reference/changelog-errata.md) supply four omitted historical v0.5.0 entries without changing published sections. Published entries and tags remain preserved. Branch roles and publication constraints are defined in [AGENTS.md](../../AGENTS.md).
 
 ## Maintain an entry
 

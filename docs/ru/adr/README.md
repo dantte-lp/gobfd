@@ -1,28 +1,28 @@
 # Архитектурные решения
 
-ADR фиксируют архитектурную политику и последствия. Принятие ADR не подтверждает реализацию, runtime qualification либо stable delivery.
+ADR фиксируют архитектурную политику и её последствия. Принятие ADR не подтверждает реализацию, квалификацию в рабочем окружении или выпуск стабильной версии.
 
 ## Контракт записи
 
-Сохраняйте ID, filename и дату принятия. Установите Date при переходе в Accepted; оставьте superseded record и ссылку на замену. Используйте Status, Date, контекст, решение, последствия и источники. Добавьте qualification field, когда policy acceptance и runtime acceptance различаются.
+Сохраняйте ID, имя файла и дату принятия. Установите Date при переходе в Accepted; сохраните заменённую запись и ссылку на новое решение. Используйте Status, Date, контекст, решение, последствия и источники. Добавьте поле квалификации, когда принятие политики и приёмка в рабочем окружении различаются.
 
-Справочная часть содержит факты в настоящем времени со ссылками на исходники. Процедуры используют повелительное наклонение. Измерения оформляйте датированными receipts с их input; прежний receipt не подтверждает более поздний candidate.
+Справочная часть содержит факты в настоящем времени со ссылками на исходники. Процедуры используют повелительное наклонение. Оформляйте измерения датированными протоколами с точными входными данными; прежний протокол не подтверждает более позднего кандидата.
 
 ## Указатель
 
-| ID | Решение | Status |
+| ID | Решение | Статус |
 |:---|:---|:---|
-| [0001](0001-link-state-rtnetlink.md) | Мониторинг link/address через rtnetlink | Accepted |
-| [0002](0002-ovs-backend-ovsdb.md) | Native OVSDB LAG backend | Accepted |
-| [0003](0003-linux-advanced-bfd-applicability.md) | Linux ownership и applicability advanced modes | Accepted |
-| [0004](0004-overlay-backend-vocabulary.md) | Общий словарь overlay backends | Accepted |
-| [0005](0005-smallstep-management-certificates.md) | Внешнее Smallstep certificate renewal | Accepted |
-| [0006](0006-session-preserving-reload-policy.md) | Reload с сохранением сессии | Принятая policy; qualification отдельно |
-| [0007](0007-workload-phase-accounting.md) | Фазы workload и terminal accounting | Принятая policy; qualification отдельно |
-| [0008](0008-experimental-prerelease-boundary.md) | Experimental prerelease channel | Proposed; публикация не разрешена |
-| [0009](0009-echo-principal-claims.md) | Principal claims общего Echo wire | Принятая policy; local qualification отдельно |
-| [0010](0010-bfd-auth-value-ownership.md) | Value auth metadata с borrowed payload | Superseded by ADR-0011 |
-| [0011](0011-bfd-auth-inline-payload.md) | Inline authentication payload | Принятая policy; source/runtime qualification отдельно |
-| [0012](0012-owner-down-transition-witness.md) | Owner-monotonic Down evidence | Принятая policy; classification/release qualification отдельно |
+| [0001](0001-link-state-rtnetlink.md) | Мониторинг состояния link/address через rtnetlink | Принято |
+| [0002](0002-ovs-backend-ovsdb.md) | Нативный OVSDB для управления LAG | Принято |
+| [0003](0003-linux-advanced-bfd-applicability.md) | Владение ресурсами и применимость расширенных режимов Linux | Принято |
+| [0004](0004-overlay-backend-vocabulary.md) | Общий словарь реализаций overlay | Принято |
+| [0005](0005-smallstep-management-certificates.md) | Внешнее обновление сертификатов Smallstep | Принято |
+| [0006](0006-session-preserving-reload-policy.md) | Reload с сохранением сессии | Политика принята; квалификация отдельно |
+| [0007](0007-workload-phase-accounting.md) | Фазы нагрузки и учёт конечных исходов | Политика принята; квалификация отдельно |
+| [0008](0008-experimental-prerelease-boundary.md) | Экспериментальный канал предварительных выпусков | Предложено; публикация не разрешена |
+| [0009](0009-echo-principal-claims.md) | Claims субъектов доступа к общей Echo-сессии | Политика принята; локальная квалификация отдельно |
+| [0010](0010-bfd-auth-value-ownership.md) | Метаданные аутентификации по значению и заимствованный payload | Заменено ADR-0011 |
+| [0011](0011-bfd-auth-inline-payload.md) | Payload аутентификации внутри значения | Политика принята; квалификация исходников и исполнения отдельно |
+| [0012](0012-owner-down-transition-witness.md) | Монотонные свидетельства Down от владельца сессии | Политика принята; классификация и квалификация релиза отдельно |
 
-Границы реализации и peers заданы в [архитектуре](../01-architecture.md), [RFC coverage](../08-rfc-compliance.md), [vendor references](../reference/vendor-bfd.md).
+Границы реализации и совместимости с пирами заданы в [архитектуре](../01-architecture.md), [матрице RFC](../08-rfc-compliance.md) и [документах производителей](../reference/vendor-bfd.md).

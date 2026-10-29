@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Correct operator references and Russian manual prose against current source.
+  [Dated translation corrections](docs/en/reference/changelog-errata.md)
+  supply four omitted historical v0.5.0 entries without changing published sections.
+
 - Retain bounded per-worker CPU-window failure evidence, separating accepted credit from late observed samples without relaxing CPU qualification.
 
 - Add explicit `--echo` selection to the `bfdload` owner/peers workload with real Echo owners,
@@ -585,8 +589,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated `dev` module pins to Prometheus `client_golang` v1.25.0 and Moby
   client v0.6.2 (`gobfd-qj0.8.6.2`). Metrics responses now include negotiated
   `Vary` headers; the container integration client fixes cancellation and
-  deadlines during HTTP upgrade. The dbus update remains pending its
-  2026-10-20 eligibility date.
+  deadlines during HTTP upgrade.
 - **Breaking:** GoBGP flap dampening never holds a BFD Down
   (`gobfd-qj0.8.2.4.1`, H-27, v1 dampening contract). Every qualifying Down
   disables the peer at once; once suppressed, dampening holds only the
@@ -643,18 +646,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `EXPOSE 50051`. The Kubernetes example uses the socket with an exec
   readiness probe. Migration: bind TCP to loopback or add mTLS, move mutating
   clients to the socket and add operators to `gobfd-admin`.
-- **Breaking:** listeners without authentication default to loopback
-  (GitHub #87). `grpc.addr` defaults to `127.0.0.1:50052` and
-  `metrics.addr` to `127.0.0.1:9100`, also in `configs/gobfd.example.yml`,
-  which packages install as `/etc/gobfd/gobfd.yml`. Port 50051 is the gobgpd
-  default and the default `gobgp.addr`, so GoBFD and GoBGP now start side by
-  side with defaults, and the API default matches the default of
-  `gobfd-haproxy-agent` and `gobfd-exabgp-bridge`; `gobfdctl --addr` defaults
-  to `127.0.0.1:50052`. `gobfd-haproxy-agent` binds agent-check listeners to
-  `127.0.0.1` unless the new `listen_addr` key names another address.
-  Startup logs a warning for an API or metrics listener reachable beyond
-  loopback. API authentication and the Unix-socket default of the v1 design
-  follow in `gobfd-330`.
+- **Breaking:** metrics default to `127.0.0.1:9100`, including in
+  `configs/gobfd.example.yml`, which packages install as
+  `/etc/gobfd/gobfd.yml` (GitHub #87). `gobfd-haproxy-agent` binds
+  agent-check listeners to `127.0.0.1` unless `listen_addr` selects another
+  address. Management defaults to `unix:///run/gobfd/gobfd.sock`;
+  TCP requires explicit configuration and the applicable authentication policy.
 - **Breaking for Go consumers of `pkg/bfdpb`:** ConnectRPC moved to
   connect-go v2.0.0 and grpchealth v2.0.0. `bfdv1connect` is regenerated
   with `protoc-gen-connect-go` v2.0.0: clients take a `*connect.Client`
@@ -907,7 +904,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Collect PR benchmark comparisons as ten alternating base/head pairs with
   100 ms timing targets. Reject incomplete or malformed sample groups and
   aliased output paths; retain one base worktree and cancellation-safe cleanup.
-  Standalone six-run diagnostics and the warning-only report policy remain.
+  Standalone six-run diagnostics remain separate. The report command fails
+  on classified critical regressions after writing reports and warnings.
 
 - List unallowed vulnerability findings before exiting on allowlist validation
   failures. Preserve exit code 2 for expired or stale exceptions, exit code 1
@@ -1174,8 +1172,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`gobfd-qj0.8.2.1.3.3`, H-09 prerequisite). `Run` has one owner for its
   lifetime. Manager drain fans out to captured session identities outside its
   locks and joins errors; shutdown preserves those errors. Receipts precede TX
-  and do not prove delivery. H-12 retries, negotiated drain and bounded I/O
-  remain open; the fixed two-second notification window is unchanged.
+  and do not prove delivery. Shutdown drains against the negotiated BFD budget
+  within a 10-second deadline, with bounded owning-sender I/O; peer delivery
+  still requires its own evidence.
 
 - Verify Keyed MD5/SHA1 over the declared BFD `Length`, including PDU
   extensions and excluding transport padding (`gobfd-qj0.8.2.1.5.2`).
@@ -1261,9 +1260,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The GoBGP handler keeps the newest unapplied DisablePeer or EnablePeer
   action for each peer. Transient GoBGP failures are retried with backoff
   from 1 s to 30 s without a new BFD event; InvalidArgument, Unimplemented,
-  PermissionDenied, Unauthenticated and a closed client are not retried. A
-  Down held by flap dampening is applied once suppression lifts (RFC 5882
-  Section 3.1). A pending Down is dropped when the session goes AdminDown
+  PermissionDenied, Unauthenticated and a closed client are not retried.
+  Qualifying Down is never held by dampening; suppression holds only
+  recovery Up (RFC 5882 Section 3.1). A pending Down is dropped when the
+  session goes AdminDown
   (RFC 5882 Section 4.2); a pending Up is kept on AdminDown. Removing the
   session cancels both pending directions. Handler
   comments no longer attribute the BGP reaction to RFC 5882 Section 4.3.

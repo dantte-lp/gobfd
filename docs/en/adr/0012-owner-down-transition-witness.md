@@ -14,7 +14,7 @@ Directional Detection Time and the actual owner transition are required to asses
 
 ## Decision
 
-Capture an optional value witness only for an actual Up→Down transition. Under the existing observation mutex, retain last validated owner receive time, old negotiated D and the actual dispatched detection deadline before timer interruption can apply pending RX changes. Preserve interruption order, then take two monotonic timestamps around `commitObservation`. Bind the witness to its returned ObservationVersion.
+Capture an optional value witness only for an actual Up→Down transition. The Control owner copies its owner-confined last validated receive time, old negotiated D and actual dispatched detection deadline before timer interruption can apply pending RX changes. Preserve interruption order, then take two monotonic timestamps around `commitObservation`, which locks `Session.mu` for the observation commit. Bind the witness to the returned ObservationVersion and store it under a separate `Session.mu` lock. Input capture and timer interruption do not hold that mutex. Echo uses its separate observation mutex as specified below.
 
 Publication copies a witness only for that exact version. Missing, stripped, inconsistent or mismatched evidence stays unknown. The bracket covers local observation commit; logging, delivery and actuator delays occur afterward. ValidatedAt means owner processing after validation, not kernel arrival or packet-processing completion.
 
@@ -25,7 +25,7 @@ Publication copies a witness only for that exact version. Missing, stripped, inc
 | Source journal | Preserve all delivered witnesses through setup/drain | Existing down_events/cutoff keep notification-time meaning |
 | Remote discriminator | Copy old scalar before timeout clears it; expose ValidatedRemoteDiscriminator | Zero means unknown; protocol reset order unchanged |
 
-Sources: [Control commit](../../../internal/bfd/session_observation.go), [timer handler](../../../internal/bfd/session_loop.go), [witness projection](../../../test/internal/bfdload/down_witness_linux.go), [RFC 5880 §6.8.4](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.4).
+Sources: [Control witness capture](../../../internal/bfd/transition_timing.go), [Control commit](../../../internal/bfd/session_observation.go), [timer handler](../../../internal/bfd/session_loop.go), [witness projection](../../../test/internal/bfdload/down_witness_linux.go), [RFC 5880 §6.8.4](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.4).
 
 ### Incarnation identity
 

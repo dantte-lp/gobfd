@@ -49,8 +49,8 @@ flowchart LR
 | `release-upx` | Exact archive size/hash, complete tar-entry validation, bound executable version; rooted PATH publication |
 | `release-test-report` | Race tests and existing JUnit/JSON/HTML paths |
 | `release-benchmarks`, `release-benchmark-metadata` | Six BFD/netio samples; commit, version, UTC, Go and count |
-| `release-benchmark-comparison` | Fresh text/HTML/Markdown/CSV/notes/structured comparison |
-| `release-reports-archive` | Rooted evidence copy and bounded reports archive |
+| `release-benchmark-comparison` | Fresh text/HTML/Markdown/CSV/notes/structured comparison when baseline.txt exists; otherwise clear stale outputs and skip comparison |
+| `release-reports-archive` | Rooted evidence copy and reports archive; no aggregate producer size or entry bound |
 | `release-artifacts` | Independent source/commit validation and exact expected asset receipts |
 | `release-assets-upload` | Upload receipt-bound primary assets without clobber |
 | `release-oci-evidence` | Both versioned indexes, amd64/arm64, SPDX and linked SLSA v1 attestations |
@@ -62,6 +62,8 @@ flowchart LR
 GoReleaser creates a draft with primary upload disabled. Native package finalization replaces RPM lifecycle programs and refreshes checksums/manifests. The asset matrix requires two Linux archives, four DEB/RPM packages, two archive-matched CycloneDX SBOMs and checksums; reports, OCI digest and supplemental checksum receipts complete the 12 remote names.
 
 The verifier uses a separate checkout at the exact workflow SHA without persistent credentials. It binds original workspace paths to opened roots and preflight receipts. Strict JSON rejects invalid UTF-8, duplicate/noncanonical contract fields and unsafe paths. Downloads reject missing/extra/linked/empty/oversized files. Archive parsing rejects extra gzip members, trailing data, unsafe/duplicate entries, links and special files.
+
+The [producer](../../../test/internal/cirunner/release.go) clears comparison outputs before checking `testdata/benchmarks/baseline.txt` and packages reports without an aggregate output bound. The downstream verifier limits the [compressed asset](../../../test/internal/cirunner/release_download.go) to 64 MiB and the [reports archive](../../../test/internal/cirunner/release_asset_content.go) to 256 MiB expanded and 4096 entries. These verifier limits do not bound archive creation.
 
 OCI evidence is queried by immutable index digest. Both primary and Debian product digests must match and contain exactly linux/amd64 and linux/arm64 with linked attestations. Git/Docker do not receive GitHub tokens. Alias rollback verifies restored identities; terminal publication has no subsequent fallible release step. Postpublication readback and stable-branch closeout remain separate maintainer obligations.
 

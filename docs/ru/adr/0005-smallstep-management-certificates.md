@@ -1,58 +1,62 @@
-# ADR-0005: Внешняя Smallstep CA для renewal сертификатов управления
+# ADR-0005: Внешняя Smallstep CA для продления сертификатов управления
+
+<a id="adr-0005-внешняя-smallstep-ca-для-renewal-сертификатов-управления"></a>
 
 | Поле | Значение |
 |:---|:---|
-| Status | Accepted |
-| Date | 2026-10-23 |
+| Статус | Принято |
+| Дата | 2026-10-23 |
 
 ## Контекст
 
-Daemon читает PEM credentials на новом TLS handshake; clients — при создании transport. Existing-credential renewal сохраняет identity и key ownership. Certificate issuance не даёт Unix-UID authority либо GoBFD mutation permission.
+Демон загружает учётные данные PEM при каждом новом рукопожатии TLS; клиенты — при создании транспорта. Продление существующих учётных данных должно сохранять идентичность и владение ключом. Выдача сертификата не даёт полномочий Unix UID или права изменений в GoBFD.
 
 ## Решение
 
-Используется external step-ca со standard-library-only adapter `internal/stepca`. CLI обновляет явно заданную existing identity и заменяет только public certificate. Он не обращается к GoBFD RPC endpoint и не меняет/печатает private key.
+Использовать внешнюю step-ca с адаптером `internal/stepca`, который зависит только от стандартной библиотеки. CLI продлевает одну явно заданную существующую идентичность и заменяет только её открытый сертификат. Он не обращается к RPC GoBFD, не меняет и не выводит закрытый ключ.
 
 ```bash
 gobfdctl certificate renew --ca-url https://ca.example.net --ca-root /etc/gobfd/ca.pem --cert /etc/gobfd/client.pem --key /etc/gobfd/client-key.pem
 ```
 
-Это параметризованный пример, а не настроенная CA. [Renewal model](https://smallstep.com/docs/step-ca/renewal/) аутентифицирует current certificate через mTLS. Restricted EKU требует clientAuth; server identity также сохраняет serverAuth. Renewal не добавляет отсутствующее purpose.
+Это пример с параметрами, а не настроенная CA. [Модель продления](https://smallstep.com/docs/step-ca/renewal/) аутентифицирует текущий сертификат через mTLS. Ограниченный EKU должен разрешать clientAuth; серверная идентичность должна также сохранять serverAuth. Продление не может добавить отсутствующее назначение.
 
 ### Граница доверия
 
-| Граница | Обязательное поведение | Source |
+| Граница | Требуемое поведение | Источник |
 |:---|:---|:---|
-| CA transport | Явные HTTPS origin/roots; без system-root, proxy, redirect, insecure TLS и bearer fallback | [client.go](../../../internal/stepca/client.go) |
-| Limits | Cancellation, HTTP bound десять секунд, bounded headers/body/chain, certificate-only PEM | [client.go](../../../internal/stepca/client.go) |
-| JSON | Отказ duplicate names и malformed UTF-8 на новой JSON v2 boundary | [certificate.go](../../../internal/stepca/certificate.go) |
-| Leaf identity | Usable non-CA leaf, прежние key/subject/exact SAN/key usage/EKU; changed chain продлевает expiry | [certificate.go](../../../internal/stepca/certificate.go) |
-| Chain | Проверка каждого EKU; unrestricted leaf поддерживает server/client; redundant fields совпадают | [certificate.go](../../../internal/stepca/certificate.go) |
-| Files | Rooted no-follow regular inputs, protected key, trusted directory/owners, lock и rechecks | [files_linux.go](../../../internal/stepca/files_linux.go) |
-| Commit | Same-directory atomic certificate replace, прежние mode/UID/GID, контроль close/cleanup errors | [files_linux.go](../../../internal/stepca/files_linux.go) |
+| Транспорт CA | Явные HTTPS origin и корни; нет подстановки системных корней, прокси, перенаправления, небезопасного TLS или bearer | [client.go](../../../internal/stepca/client.go) |
+| Ограничения | Отмена, предел HTTP десять секунд, ограниченные заголовки, тело и цепочка, строгий PEM только с сертификатами | [client.go](../../../internal/stepca/client.go) |
+| JSON | Отклонять повторяющиеся имена и некорректный UTF-8 на новой границе JSON v2 | [certificate.go](../../../internal/stepca/certificate.go) |
+| Идентичность конечного сертификата | Действующий конечный сертификат, не CA, с теми же ключом, subject, точным SAN, key usage и EKU; изменённая цепочка продлевает срок | [certificate.go](../../../internal/stepca/certificate.go) |
+| Цепочка | Проверять каждый объявленный EKU; сертификаты без ограничения должны поддерживать сервер и клиент; избыточные поля согласованы | [certificate.go](../../../internal/stepca/certificate.go) |
+| Файлы | Обычные входные файлы в ограниченном корне без перехода по ссылкам, защищённый ключ, доверенные каталог и владельцы, кооперативная блокировка, повторные проверки | [files_linux.go](../../../internal/stepca/files_linux.go) |
+| Фиксация | Атомарная замена сертификата в том же каталоге; сохранение прав и UID/GID; проверка ошибок закрытия и очистки | [files_linux.go](../../../internal/stepca/files_linux.go) |
 
-Directory/inputs принадлежат root либо calling UID, включая root invocation. Linked inputs отклоняются. Bootstrap key разбирается один раз и перепроверяется перед commit. Identity/hash checks не дают compare-and-swap против privileged non-cooperative writer. Response TLS options не меняют daemon policy. TLS URI/DNS и Unix UID owner namespaces различаются.
+Каталог и входные файлы принадлежат root или вызывающему UID, в том числе при запуске от root. Входные файлы-ссылки отклоняются. Начальный ключ разбирается один раз и повторно проверяется перед фиксацией. Проверки идентичности и хеша не являются compare-and-swap относительно привилегированных процессов записи, не соблюдающих блокировку. Настройки TLS ответа не меняют политику демона. Пространства имён владельцев TLS URI/DNS и Unix UID остаются раздельными.
 
 ## Последствия
 
-Четыре binaries, YAML/protobuf и existing PEM tooling сохраняют совместимость. Identical validated chain означает unchanged; pre-commit failure сохраняет прежний certificate. Post-rename error сообщает committed state с uncertain durability, а не rollback.
+Четыре бинарника, YAML/protobuf и существующие инструменты PEM сохраняют совместимость. Идентичная проверенная цепочка остаётся без изменений; отказ до фиксации сохраняет старый сертификат. Ошибки после rename сообщают о зафиксированном состоянии с неопределённой долговечностью, а не об откате.
 
-Existing TLS connections сохраняют negotiated identity. Новый daemon handshake читает replacement; client требует transport recreation/restart. Passive CA revocation запрещает renewal, но не отзывает existing GoBFD connection. CRL/OCSP checks на новых handshakes не добавляются.
+Существующие соединения TLS сохраняют согласованную идентичность. Новое рукопожатие демона читает заменённый сертификат; клиентам требуется пересоздание транспорта или перезапуск. Пассивный отзыв CA блокирует продление, но не отзывает существующее соединение GoBFD. GoBFD не добавляет проверки CRL/OCSP при новых рукопожатиях.
 
-Initial enrollment, ACME/provisioners, automatic discovery/root download, unattended scheduling, reconnect и trust-root rollover остаются отдельными. Live CA не обнаруживается и не меняется автоматически. Renewal, principal provenance и unattended lifecycle требуют отдельной qualification.
+Первичная регистрация, ACME/provisioners, автоматическое обнаружение и загрузка корней, автономное расписание, переподключение и смена корней доверия остаются отдельными задачами. Действующая CA не обнаруживается и не изменяется. Продление, происхождение субъекта и автономный жизненный цикл требуют отдельной квалификации.
 
-### Датированная provider qualification
+<a id="датированная-provider-qualification"></a>
 
-| Дата | Input и результат | Граница |
+### Датированная квалификация поставщика CA
+
+| Дата | Вход и результат | Ограничение |
 |:---|:---|:---|
-| 2026-10-25 | [Isolated profile](../../../test/stepca/README.md), full upstream command, dependency-only overlay, disposable network-none CA и race-enabled daemon | Provider renewal slice; не production CA |
-| 2026-10-28 | Profile `0.30.2+gobfd.qual.2`; пять renewal tests; 152 linked dependencies совпадают со scan; оба child exit zero | Security refresh зависимостей; без upstream source/plugin changes |
+| 2026-10-25 | [Изолированный профиль](../../../test/stepca/README.md), полная команда upstream, наложение только зависимостей, одноразовая CA с network-none и демон с race-проверкой | Ограниченная часть продления у поставщика; не production CA |
+| 2026-10-28 | Профиль `0.30.2+gobfd.qual.2`; пять тестов продления; 152 связанные зависимости совпадают со сканированием; оба дочерних процесса завершены с нулевым кодом | Обновление безопасности зависимостей; без изменения исходников upstream или плагинов |
 
-Profile сохраняет SPKI/private-key hash и увеличивает serial/expiry для server/operator/monitor renewals. Disabled renewal, passive revocation, expired identity и server-only EKU дают отказ без изменения файлов. Provider scan содержит ноль reachable/affected imported-package findings и три test-only module advisory dispositions из profile. Это историческая local qualification; runtime/tools manifests и final security gates отдельны.
+Профиль сохраняет хеш SPKI и закрытого ключа, увеличивает серийный номер и срок для продлений сервера, оператора и наблюдателя. Запрет продления, пассивный отзыв, истёкшая идентичность и EKU только для сервера приводят к отказу без изменения файлов. Сканирование поставщика не показывает достижимых находок или находок в импортированных затронутых пакетах; в профиле сохранены решения по трём advisory модулей, используемых только в тестах. Это историческая локальная квалификация; манифесты runtime и инструментов и окончательные проверки безопасности остаются отдельными.
 
 ## Источники
 
 - [CLI](../../../cmd/gobfdctl/commands/certificate.go).
-- [Adapter](../../../internal/stepca), [file/security regressions](../../../internal/stepca/files_linux_test.go).
-- [Actual-provider harness и evidence contract](../../../test/stepca/README.md).
-- [Management security](../15-security.md).
+- [Адаптер](../../../internal/stepca), [регрессионные проверки файлов и безопасности](../../../internal/stepca/files_linux_test.go).
+- [Стенд с фактическим поставщиком CA и контракт доказательств](../../../test/stepca/README.md).
+- [Безопасность управления](../15-security.md).

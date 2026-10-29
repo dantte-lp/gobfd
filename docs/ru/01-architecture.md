@@ -1,23 +1,23 @@
 # Архитектура
 
-GoBFD разделяет автоматы BFD, Linux UDP I/O, авторизацию управления и действия маршрутизации. Физической сессией владеет Manager; конфигурация и API-принципалы держат claims на эту сессию. Claim не создаёт отдельный экземпляр протокола. Источники: [идентичность сессии](../../internal/bfd/session_identity.go), [Manager](../../internal/bfd/manager.go).
+GoBFD разделяет автоматы BFD, ввод-вывод UDP в Linux, авторизацию управления и действия маршрутизации. Физической сессией владеет Manager; конфигурация и субъекты API держат заявки на владение этой сессией (claims). Заявка не создаёт отдельный экземпляр протокола. Источники: [идентичность сессии](../../internal/bfd/session_identity.go), [Manager](../../internal/bfd/manager.go).
 
 ## Общее устройство
 
 ```mermaid
 flowchart LR
-    cli["gobfdctl и bridges"]:::mgt --> rpc["API управления"]:::mgt
-    cfg["Проверенная конфигурация"]:::mgt --> rec["Координатор reconciliation"]:::srv
+    cli["gobfdctl и мосты"]:::mgt --> rpc["API управления"]:::mgt
+    cfg["Проверенная конфигурация"]:::mgt --> rec["Координатор сверки"]:::srv
     rpc --> mgr["Manager сессий"]:::srv
     rec --> mgr
-    peer["BFD peer"]:::brt --> rx["Listener и receiver"]:::leaf
+    peer["Сосед BFD"]:::brt --> rx["Слушающий сокет и приёмник"]:::leaf
     rx --> mgr
-    mgr --> owner["Owner сессии: FSM и таймеры"]:::srv
-    owner --> tx["Sender lease"]:::leaf
+    mgr --> owner["Владелец сессии: FSM и таймеры"]:::srv
+    owner --> tx["Аренда отправителя"]:::leaf
     tx --> peer
-    owner --> events["Observation и dispatch"]:::srv
+    owner --> events["Наблюдение и рассылка"]:::srv
     events --> rpc
-    events -.-> act["GoBGP и внешние actuators"]:::brt
+    events -.-> act["GoBGP и внешние исполнители"]:::brt
     owner -.-> met["Коллекторы Prometheus"]:::mgt
     classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
     classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
@@ -25,150 +25,154 @@ flowchart LR
     classDef brt fill:#fff3e0,stroke:#bf360c,color:#000
 ```
 
-Схема задаёт границы компонентов и направление сообщений. Она не подтверждает совместную судьбу контролируемого пути и dataplane маршрутизации либо overlay. [RFC 5882](../rfc/rfc5882.txt) задаёт взаимодействие клиентов; [ADR-0003](adr/0003-linux-advanced-bfd-applicability.md) ограничивает владение ресурсами Linux.
+Схема задаёт границы компонентов и направление сообщений. Она не подтверждает общность отказов контролируемого пути и плоскости пересылки маршрутизации либо оверлея. [RFC 5882](../rfc/rfc5882.txt) задаёт взаимодействие клиентов; [ADR-0003](adr/0003-linux-advanced-bfd-applicability.md) ограничивает владение ресурсами Linux.
 
 ## Зависимости пакетов
 
 | Пакет | Ответственность | Граница |
 |:---|:---|:---|
-| [`internal/bfd`](../../internal/bfd) | Codec, аутентификация, FSM, owners, claims, delivery ledger | Не владеет сокетами Linux |
-| [`internal/netio`](../../internal/netio) | UDP, ancillary metadata, overlay, монитор интерфейсов, LAG backends | Адаптирует I/O к интерфейсам ядра |
-| [`internal/config`](../../internal/config) | Декодирование и проверка YAML, environment и defaults | Формирует полный candidate |
-| [`internal/server`](../../internal/server) | Преобразование API, авторизация, Watch, capabilities | Principal задаётся транспортом |
-| [`internal/overlay`](../../internal/overlay) | Общий словарь backends | Leaf-пакет стандартной библиотеки |
-| [`internal/gobgp`](../../internal/gobgp) | Политика действий BFD→BGP | Внешнее действие ограничено deadline |
-| [`cmd/gobfd`](../../cmd/gobfd) | Startup, resource owners, reload, readiness, shutdown | Собирает runtime |
+| [`internal/bfd`](../../internal/bfd) | Кодек, аутентификация, FSM, владельцы, заявки, учёт доставки | Не владеет сокетами Linux |
+| [`internal/netio`](../../internal/netio) | UDP, служебные метаданные, оверлей, монитор интерфейсов, реализации LAG | Адаптирует ввод-вывод к интерфейсам ядра BFD |
+| [`internal/config`](../../internal/config) | Декодирование и проверка YAML, среды и значений по умолчанию | Формирует полный кандидат конфигурации |
+| [`internal/server`](../../internal/server) | Преобразование API, авторизация, Watch, каталог возможностей | Субъект доступа задаётся транспортом |
+| [`internal/overlay`](../../internal/overlay) | Общий словарь реализаций оверлея | Листовой пакет, зависящий только от стандартной библиотеки |
+| [`internal/gobgp`](../../internal/gobgp) | Политика действий BFD→BGP | Внешнее действие ограничено предельным сроком |
+| [`cmd/gobfd`](../../cmd/gobfd) | Запуск, владельцы ресурсов, перечитывание, готовность, завершение | Собирает среду исполнения |
 | [`api/bfd/v1`](../../api/bfd/v1) | Публичная protobuf-схема | Генерируемые клиенты находятся в `pkg/bfdpb` |
 
 ### Правила зависимостей
 
-FSM возвращает действия; сессия исполняет их. Socket adapters зависят от интерфейсов ядра. Конфигурация и сетевой I/O используют словарь overlay из leaf-пакета. Генерируемый protobuf-код не редактируется вручную. Источники: [FSM](../../internal/bfd/fsm.go), [интерфейс receiver](../../internal/netio/receiver.go), [ADR-0004](adr/0004-overlay-backend-vocabulary.md).
+FSM возвращает действия; сессия исполняет их. Адаптеры сокетов зависят от интерфейсов ядра BFD. Конфигурация и сетевой ввод-вывод используют словарь оверлея из листового пакета. Генерируемый protobuf-код не редактируется вручную. Источники: [FSM](../../internal/bfd/fsm.go), [интерфейс приёмника](../../internal/netio/receiver.go), [ADR-0004](adr/0004-overlay-backend-vocabulary.md).
 
 ## Приём пакета
 
 ```mermaid
 flowchart TD
-    socket["UDP-датаграмма и ancillary metadata"]:::leaf --> transport["Проверки длины, truncation и транспорта"]:::leaf
-    transport --> codec["Декодирование Control и формы auth"]:::srv
-    codec --> scope["Поиск discriminator либо initial key"]:::srv
-    scope --> gate["Проверка scope, интерфейса и TTL"]:::srv
-    gate --> queue["Ограниченная очередь owner"]:::srv
-    queue --> validate["Проверка аутентификации и протокола"]:::srv
-    validate --> commit["FSM, таймеры и commit observation"]:::srv
-    commit --> notify["Метрики и notification"]:::mgt
+    socket["UDP-датаграмма и служебные метаданные"]:::leaf --> transport["Проверки длины, усечения и транспорта"]:::leaf
+    transport --> codec["Декодирование Control и структуры аутентификации"]:::srv
+    codec --> scope["Поиск по дискриминатору либо начальному ключу"]:::srv
+    scope --> gate["Проверка точной области, интерфейса и TTL"]:::srv
+    gate --> queue["Ограниченная очередь владельца"]:::srv
+    queue --> validate["Проверка аутентификации и протокола владельцем"]:::srv
+    validate --> commit["FSM, таймеры и согласованная фиксация наблюдения"]:::srv
+    commit --> notify["Метрики и уведомления"]:::mgt
     classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
     classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
     classDef leaf fill:#e3f2fd,stroke:#1976d2,color:#000
 ```
 
-[Receiver](../../internal/netio/receiver.go) возвращает pooled-буфер после demux. Для аутентифицированного входа сохраняется собственная копия полного wire payload до проверки owner. Metadata и до 20 байт authentication payload принадлежат значению пакета; требование сохранять wire остаётся. Срок жизни задаёт [ADR-0011](adr/0011-bfd-auth-inline-payload.md).
+[Приёмник](../../internal/netio/receiver.go) возвращает буфер в пул после демультиплексирования. Для аутентифицированного входа сохраняется собственная копия полной полезной нагрузки с линии до проверки владельцем сессии. Метаданные и до 20 байт полезной нагрузки аутентификации принадлежат значению пакета; требование сохранять исходные байты с линии остаётся. Срок жизни задаёт [ADR-0011](adr/0011-bfd-auth-inline-payload.md).
 
-`Queued` подтверждает только admission. Полная или закрытая очередь и остановленная сессия возвращают типизированные результаты. Общий барьер admission/stop запрещает enqueue после terminal drain; shutdown учитывает abandoned entries. [Delivery accounting](../../internal/bfd/delivery.go) разделяет знаменатели стадий; их сумма не равна числу пакетов.
+`Queued` подтверждает только допуск в очередь. Полная или закрытая очередь и остановленная сессия возвращают типизированные результаты. Общий барьер допуска и остановки запрещает добавление в очередь после окончательного опустошения; завершение учитывает оставленные записи. [Учёт доставки](../../internal/bfd/delivery.go) разделяет знаменатели стадий; их сумма не равна числу пакетов.
 
 ## Передача пакета
 
-Owner формирует или обновляет cached Control packet, подписывает его при включённой аутентификации, применяет transport-padding target и передаёт через `PacketSender`. Sender lease фиксирует source port и срок владения ресурсом. Padding находится за объявленным BFD Length и областью аутентификации; передача не обрезает аутентифицированный PDU. Источники: [формирование пакета](../../internal/bfd/session_packet.go), [send loop](../../internal/bfd/session_loop.go), [UDP sender](../../internal/netio/sender.go).
+Владелец сессии формирует или обновляет кешированный пакет Control, подписывает его при включённой аутентификации, применяет целевой размер транспортного дополнения и передаёт через `PacketSender`. Аренда отправителя фиксирует исходный порт и срок владения ресурсом. Дополнение находится за объявленным BFD Length и областью аутентификации; передача не обрезает аутентифицированный PDU. Источники: [формирование пакета](../../internal/bfd/session_packet.go), [цикл передачи](../../internal/bfd/session_loop.go), [отправитель UDP](../../internal/netio/sender.go).
 
 ## Демультиплексирование
 
-Ненулевой Your Discriminator выбирает candidate-сессию. Нулевой использует начальный ключ адресов с учётом транспорта. До передачи в очередь проверяются transport class, ingress interface, exact overlay scope и TTL. Известный discriminator не позволяет single-hop пакету попасть в multihop-сессию. Overlay identity включает outer endpoints, VNI и поддерживаемый inner IP/MAC tuple. Источники: [приём Manager](../../internal/bfd/manager_session.go), [overlay-проверки](../../internal/netio/overlay_inner.go), [тесты identity](../../internal/bfd/overlay_identity_test.go).
+Ненулевой Your Discriminator выбирает сессию-кандидата. Нулевой использует начальный ключ адресов с учётом транспорта. До передачи в очередь проверяются класс транспорта, входной интерфейс, точная область оверлея и TTL. Известный дискриминатор не позволяет односкачковому пакету попасть в многоскачковую сессию. Идентичность оверлея включает внешние конечные точки, VNI и поддерживаемый кортеж внутренних IP/MAC. Источники: [приём Manager](../../internal/bfd/manager_session.go), [проверки оверлея](../../internal/netio/overlay_inner.go), [тесты идентичности](../../internal/bfd/overlay_identity_test.go).
 
-Single-hop реализует numbered multiaccess с одним явным либо вычисленным receive interface. Начальный point-to-point demux с произвольным source address остаётся вне квалифицированного профиля. IPv6 link-local zone выбирает интерфейс, но не входит в initial demux key. См. [границы RFC](08-rfc-compliance.md#rfc-5881-implementation-notes).
+Односкачковый режим реализует нумерованную сеть множественного доступа с одним явным либо вычисленным интерфейсом приёма. Начальное демультиплексирование соединения точка-точка с произвольным исходным адресом остаётся вне квалифицированного профиля. Зона IPv6 link-local выбирает интерфейс, но не входит в начальный ключ демультиплексирования. См. [границы RFC](08-rfc-compliance.md#rfc-5881-implementation-notes).
 
 ## Идентичность сессии и владение
 
 | Объект | Идентичность либо политика | Срок жизни |
 |:---|:---|:---|
-| `SessionKey` | Тип, family, нормализованные peer/local, интерфейс, network scope, transport scope | Один физический Control wire |
-| `SessionOwner` | Типизированный source и source-local owner ID | Один claim |
-| Effective parameters | Role, timer tuple, TTL, padding, auth type, immutable key fingerprint | Совпадают для общих claims |
-| `SenderLease` | Принятый sender и idempotent release | До drain и join owner |
-| Echo key | Структурированные peer/local и точный интерфейс | Один общий Echo wire |
+| `SessionKey` | Тип, семейство адресов, нормализованные адреса соседа и локальный адрес, интерфейс, сетевая и транспортная области | Один физический обмен Control |
+| `SessionOwner` | Типизированный источник и локальный для источника ID владельца | Одна заявка |
+| Действующие параметры | Роль, кортеж таймеров, TTL, дополнение, тип аутентификации, неизменяемый отпечаток ключа | Должны совпадать для общих заявок |
+| `SenderLease` | Принятый отправитель и идемпотентное освобождение | До опустошения и ожидания завершения владельца |
+| Ключ Echo | Структурированные адреса соседа и локальный адрес, точный интерфейс | Один общий обмен Echo |
 
-IPv4-mapped адреса преобразуются в IPv4. Compatibility API, authenticated API principal, configuration и unsolicited claims различаются. Совпадающий claim разделяет существующие сессию и discriminator; release удаляет только claim своего owner. Неизвестная семантика key store отклоняется. Источники: [identity и параметры](../../internal/bfd/session_identity.go), [auth store](../../internal/bfd/auth.go), [Echo ownership](../../internal/bfd/manager_echo.go).
+IPv4-mapped адреса преобразуются в IPv4. Различаются заявки API совместимости, аутентифицированного субъекта API, конфигурации и незапрошенных сессий. Совпадающая заявка использует существующие сессию и дискриминатор; освобождение удаляет только заявку своего владельца. Неизвестная семантика хранилища ключей отклоняется. Источники: [идентичность и параметры](../../internal/bfd/session_identity.go), [хранилище аутентификации](../../internal/bfd/auth.go), [владение Echo](../../internal/bfd/manager_echo.go).
 
-Порядок locks: lifecycle, ownership, registry. Manager mutation locks не удерживаются во время peer notification drain и release callbacks. Retiring exact key зарезервирован до owner join, освобождения lease/discriminator и cleanup метрик, включая ошибки. Конфликтующий Add возвращает `AlreadyExists`; повторите после завершения Delete. См. [replacement lifecycle](../../internal/bfd/manager_replace.go), [ADR-0006](adr/0006-session-preserving-reload-policy.md).
+Порядок блокировок: жизненный цикл, владение, реестр. Блокировки изменения Manager не удерживаются во время завершающего уведомления соседа и вызовов освобождения ресурсов. Точный ключ удаляемой сессии зарезервирован до ожидания завершения владельца, освобождения аренды и дискриминатора, очистки метрик, включая обработку ошибок. Конфликтующий Add возвращает `AlreadyExists`; повторить после завершения Delete. См. [жизненный цикл замены](../../internal/bfd/manager_replace.go), [ADR-0006](adr/0006-session-preserving-reload-policy.md).
 
-### Reconciliation и владение приёмом
+<a id="reconciliation-и-владение-приёмом"></a>
 
-Startup и SIGHUP используют один сериализованный координатор. До публикации desired generation candidate проходит retained startup-runtime contract и полную проверку сессий. Authentication admission сравнивает retained accepted intent и live registry. Отказ сохраняет принятую конфигурацию, generation и log level.
+### Сверка и владение приёмом
 
-Receipt содержит пять sources: base, Echo, Micro-BFD, VXLAN и Geneve. Каждый source готовит desired claims и receive resources до освобождения stale claims. Failed либо resource-pending подготовка сохраняет прежние claims; timer negotiation имеет отдельный pending class. Applied generation меняется после convergence всех sources. Частичный apply не откатывает уже принятые изменения другого source.
+Запуск и SIGHUP используют один сериализованный координатор. До публикации желаемой генерации кандидат проходит сохранённый контракт начальной среды исполнения и полную проверку сессий. Допуск аутентификации сравнивает сохранённое принятое намерение и действующий реестр. Отказ сохраняет принятую конфигурацию, генерацию и уровень журналирования.
 
-Listener owner разделяет сокеты между source claims и physical-session claims. API Add получает RX и TX совместно. Удаление configuration не прекращает Echo RX при surviving API claim. Overlay backend разделяется по tunnel kind и outer local address; physical sender держит exact-scope ref до завершения drain. Scope preflight предшествует backend open и `SetScopes`; несовпадающие live scopes с одним wire требуют явного удаления и повторного создания.
+Квитанция содержит пять источников: базовый, Echo, Micro-BFD, VXLAN и Geneve. Каждый источник готовит желаемые заявки и ресурсы приёма до освобождения устаревших заявок. Ошибка подготовки либо ожидание ресурса сохраняют прежние заявки; согласование таймеров имеет отдельный класс ожидания. Применённая генерация меняется после сходимости всех источников. Частичное применение не откатывает уже принятые изменения другого источника.
 
-Источники: [координатор](../../cmd/gobfd/reconciliation.go), [listener owner](../../cmd/gobfd/listeners.go), [overlay owner](../../cmd/gobfd/overlay_owner.go), [reload admission](../../internal/bfd/manager_auth_reload.go).
+Владелец слушающих сокетов разделяет сокеты между заявками источников и физических сессий. API Add получает RX и TX совместно. Удаление конфигурации не прекращает приём Echo при сохранившейся заявке API. Реализация оверлея разделяется по типу туннеля и внешнему локальному адресу; физический отправитель держит ссылку на точную область до завершения опустошения. Предварительная проверка области предшествует открытию реализации и `SetScopes`; несовпадающие действующие области одного обмена требуют явного удаления и повторного создания.
 
-### Восстановление и readiness
+Источники: [координатор](../../cmd/gobfd/reconciliation.go), [владелец слушающих сокетов](../../cmd/gobfd/listeners.go), [владелец оверлея](../../cmd/gobfd/overlay_owner.go), [допуск перечитывания](../../internal/bfd/manager_auth_reload.go).
 
-Linux link/address notifications и resync запускают ограниченные generation-scoped retries. Только типизированная недоступность интерфейса/адреса переводит source в resource pending; другие ошибки остаются failed. Общая проверка доступности с периодом две секунды охватывает пять sources. Ошибка inventory требует нового явного SIGHUP. Не-Linux monitor не обеспечивает автоматическое восстановление.
+<a id="восстановление-и-readiness"></a>
 
-Aggregate health имеет `NOT_SERVING` до первой convergence, при различии desired/applied и потере обязательного runtime/listener state. Named BFD/Echo/Micro-BFD health описывает свой source. Неожиданная потеря receiver либо dispatch останавливает daemon с ошибкой. `READY=1` означает готовность процесса/listeners и не подтверждает convergence конфигурации. Источники: [interface events](../../cmd/gobfd/interface_events.go), [readiness](../../cmd/gobfd/readiness.go), [ADR-0001](adr/0001-link-state-rtnetlink.md).
+### Восстановление и готовность
+
+Уведомления Linux об интерфейсах и адресах, а также повторная синхронизация запускают ограниченные повторы в рамках генерации. Только типизированная недоступность интерфейса или адреса переводит источник в ожидание ресурса; другие ошибки остаются отказами. Общая проверка доступности с периодом две секунды охватывает пять источников. Ошибка инвентаризации требует нового явного SIGHUP. Монитор вне Linux не обеспечивает автоматическое восстановление.
+
+Общая проверка работоспособности возвращает `NOT_SERVING` до первой сходимости, при различии желаемой и применённой генераций и потере обязательного состояния среды исполнения или слушающих сокетов. Именованные проверки BFD/Echo/Micro-BFD описывают свой источник. Неожиданная потеря приёмника либо рассылки останавливает демон с ошибкой. `READY=1` означает готовность процесса и слушающих сокетов и не подтверждает сходимость конфигурации. Источники: [события интерфейсов](../../cmd/gobfd/interface_events.go), [готовность](../../cmd/gobfd/readiness.go), [ADR-0001](adr/0001-link-state-rtnetlink.md).
 
 ## Трёхстороннее установление сессии
 
 ```mermaid
 sequenceDiagram
-    participant A as Endpoint A
-    participant B as Endpoint B
+    participant A as Узел A
+    participant B as Узел B
     A->>B: Down, Your Discriminator=0
     B->>A: Init, Your Discriminator=A
     A->>B: Up, Your Discriminator=B
     B->>A: Up
 ```
 
-Это один допустимый порядок asynchronous startup. Одновременные Down/Init обрабатываются тем же FSM [RFC 5880 §6.8.6](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.6). Локальный Up не подтверждает convergence маршрутизации.
+Это один допустимый порядок асинхронного запуска. Одновременные Down/Init обрабатываются тем же FSM [RFC 5880 §6.8.6](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.6). Локальный Up не подтверждает сходимость маршрутизации.
 
 ## Модель goroutines
 
-Один выигравший `Run` владеет обработкой пакетов, таймерами и administrative commands каждой Control-сессии. Один owner обслуживает Echo wire. Receivers запускаются для каждого listener; Manager dispatch раздаёт notifications. Текущие Control/Echo owners не удерживают постоянный OS-thread pin. Native A/B, thread bounds и scale acceptance остаются отдельными. Источники: [Control loop](../../internal/bfd/session_loop.go), [Echo loop](../../internal/bfd/echo.go), [ADR-0008](adr/0008-experimental-prerelease-boundary.md).
+Один вызов `Run`, получивший владение, обрабатывает пакеты, таймеры и административные команды каждой сессии Control. Один владелец обслуживает обмен Echo. Приёмники запускаются для каждого слушающего сокета; рассылка Manager передаёт уведомления. Текущие владельцы Control/Echo не закрепляются постоянно за потоком ОС. Нативное сравнение A/B, пределы числа потоков и приёмка масштаба остаются отдельными проверками. Источники: [цикл Control](../../internal/bfd/session_loop.go), [цикл Echo](../../internal/bfd/echo.go), [ADR-0008](adr/0008-experimental-prerelease-boundary.md).
 
-Observation согласованно фиксирует local state/diagnostic, known remote facts, C-bits, cause и version. Изменение только diagnostic увеличивает observation version без state-transition count. Manager versions задают semantic changes и physical identity; dispatch revision отдельно упорядочивает delivery. Они не являются atomic telemetry watermark. Counters, timers и configuration API snapshot снимаются выборочно. См. [observation model](../../internal/bfd/session_observation.go), [публичную схему](../../api/bfd/v1/bfd.proto).
+Наблюдение согласованно фиксирует локальное состояние и диагностику, известные факты удалённой стороны, C-биты, причину и версию. Изменение только диагностики увеличивает версию наблюдения без увеличения счётчика переходов состояния. Версии Manager отражают семантические изменения и физическую идентичность; ревизия рассылки отдельно упорядочивает доставку. Они не являются атомарной границей полноты телеметрии. Счётчики, таймеры и снимок конфигурации API снимаются выборочно. См. [модель наблюдения](../../internal/bfd/session_observation.go), [публичную схему](../../api/bfd/v1/bfd.proto).
 
-Raw notification и subscription queues получают размер `min(65536, 64 + 3*N)` при создании и не растут на reload. GAP означает потерю исходных событий и требует resynchronization потребителя; он не считается доставленным original. Счётчики стадий сохраняются после удаления сессии. [ADR-0007](adr/0007-workload-phase-accounting.md) задаёт sizing и completeness.
+Очереди исходных уведомлений и подписок получают размер `min(65536, 64 + 3*N)` при создании и не растут при перечитывании. GAP означает потерю исходных событий и требует повторной синхронизации потребителя; он не считается доставленным исходным событием. Счётчики стадий сохраняются после удаления сессии. [ADR-0007](adr/0007-workload-phase-accounting.md) задаёт размеры и полноту.
 
-GoBGP и bridges действуют после state publication. Успешные local observation, notification delivery и external action — разные измерения. Политика BGP disable/enable и deadlines находятся в [handler](../../internal/gobgp/handler.go); generic route withdrawal не реализован.
+GoBGP и мосты действуют после публикации состояния. Успешная фиксация локального наблюдения, доставка уведомления и внешнее действие — разные измерения. Политика отключения и включения BGP и предельные сроки находятся в [обработчике](../../internal/gobgp/handler.go); универсальный отзыв маршрутов не реализован.
 
 ## Штатное завершение
 
-Обычный `Manager.Close` может оставить queued state notifications с исходом Abandoned. Workload Owner включает доставку изменений зарегистрированных физических сессий активным подписчикам до EOF. Она не вызывает внешние actuators и не гарантирует доставку отменённому или медленному подписчику. См. [политику завершения](adr/0007-workload-phase-accounting.md#down-journal).
+Обычный `Manager.Close` может оставить уведомления состояния в очереди с исходом Abandoned. Владелец нагрузки Owner включает доставку изменений зарегистрированных физических сессий активным подписчикам до EOF. Она не вызывает внешние исполнители и не гарантирует доставку отменённому или медленному подписчику. См. [политику завершения](adr/0007-workload-phase-accounting.md#down-journal).
 
-1. На SIGTERM/SIGINT вызовите `Manager.DrainAllSessions` с отдельным общим бюджетом десять секунд.
-2. Дождитесь owner commit AdminDown/7, первой успешной разрешённой записи и negotiated notification window; повторяйте неуспешную запись по обычному TX timer.
-3. Закройте Manager, выполните join owners и dispatch, освободите sender leases, затем завершите HTTP и receive resources.
+1. На SIGTERM/SIGINT вызвать `Manager.DrainAllSessions` с отдельным общим бюджетом десять секунд.
+2. Дождаться фиксации владельцем AdminDown/7, первой успешной разрешённой записи и согласованного окна уведомления; повторять неуспешную запись по обычному таймеру TX.
+3. Закрыть Manager, дождаться завершения владельцев и рассылки, освободить аренды отправителей, затем завершить HTTP и ресурсы приёма.
 
-Notification window начинается с первой успешной записи и покрывает максимум local receive Detection Time и `localDetectMult * max(advertisedAdminDownTX, remoteMinRX)`. При multiplier три и non-Up floor одна секунда окно равно трём секундам. Ранняя отмена либо недостаточный бюджет возвращает `DrainIncompleteError`. Успешная локальная запись не означает подтверждение peer.
+Окно уведомления начинается с первой успешной записи и покрывает максимум локального Detection Time приёма и `localDetectMult * max(advertisedAdminDownTX, remoteMinRX)`. При множителе три и минимальном интервале вне Up в одну секунду окно равно трём секундам. Ранняя отмена либо недостаточный бюджет возвращает `DrainIncompleteError`. Успешная локальная запись не означает подтверждение соседа.
 
-Final Control-claim release использует тот же drain вне Manager locks. Sole unsolicited failure cleanup отменяет сессию без административного обмена; Echo и group-only Micro-BFD removal не владеют Control AdminDown exchange. Общий overlay lease не прерывает backend других сессий. Произвольный внешний sender callback не имеет универсальной границы shutdown. Источники: [drain](../../internal/bfd/session_drain.go), [Manager lifecycle](../../internal/bfd/manager.go), [RFC 5882 §8](https://www.rfc-editor.org/rfc/rfc5882.html#section-8).
+Освобождение последней заявки Control использует то же опустошение вне блокировок Manager. Очистка единственной незапрошенной сессии после отказа отменяет сессию без административного обмена; удаление Echo и только группы Micro-BFD не владеет обменом Control AdminDown. Общая аренда оверлея не прерывает реализацию других сессий. Произвольный внешний вызов отправителя не имеет универсального ограничения времени завершения. Источники: [опустошение](../../internal/bfd/session_drain.go), [жизненный цикл Manager](../../internal/bfd/manager.go), [RFC 5882 §8](https://www.rfc-editor.org/rfc/rfc5882.html#section-8).
 
 ## Структура проекта
 
-Протокольная логика размещается в `internal/bfd`, Linux resources — в `internal/netio`, runtime composition — в `cmd/gobfd`, публичные contracts — в `api/bfd/v1`, executable qualification — в `test`. [ADR index](adr/README.md) хранит принятые решения.
+Размещать протокольную логику в `internal/bfd`, ресурсы Linux — в `internal/netio`, сборку среды исполнения — в `cmd/gobfd`, публичные контракты — в `api/bfd/v1`, исполняемые проверки квалификации — в `test`. [Указатель ADR](adr/README.md) хранит принятые решения.
 
 ## Технологический состав
 
-[Runtime manifest](../../go.mod) и [tools manifest](../../tools/go.mod) задают зависимости. [Repository contract](../../AGENTS.md) определяет compiler/container policies. Manifest pin задаёт исходный input и не подтверждает совместимость либо deployment.
+[Манифест рабочей среды](../../go.mod) и [манифест инструментов](../../tools/go.mod) задают зависимости. [Контракт репозитория](../../AGENTS.md) определяет политики компилятора и контейнеров. Закрепление в манифесте задаёт исходный входной артефакт и не подтверждает совместимость либо развёртывание.
 
 ## UDP-порты
 
-| Destination | Transport | Scope |
+| Назначение | Транспорт | Область |
 |:---|:---|:---|
-| 3784 | Single-hop Control | IPv4/IPv6 numbered multiaccess |
-| 4784 | Multihop Control | Настроенная пара адресов и receive-hop policy |
-| 3785 | Unaffiliated Echo | Default-off preview |
-| 6784 | Micro-BFD | Default-off per-member preview |
-| 4789 | VXLAN outer UDP | `userspace-udp` preview |
-| 6081 | Geneve outer UDP | `userspace-udp` IPv4 Format A preview |
+| 3784 | Односкачковый Control | Нумерованная сеть множественного доступа IPv4/IPv6 |
+| 4784 | Многоскачковый Control | Настроенная пара адресов и политика числа скачков при приёме |
+| 3785 | Несвязанный Echo | Предварительная реализация, отключённая по умолчанию |
+| 6784 | Micro-BFD | Предварительная реализация по участникам, отключённая по умолчанию |
+| 4789 | Внешний UDP VXLAN | Предварительная реализация `userspace-udp` |
+| 6081 | Внешний UDP Geneve | Предварительная реализация `userspace-udp`, IPv4 Format A |
 
-Обычный UDP sender требует фиксированный source port 49152–65535; для Echo это product policy. Источник: [sender constructor](../../internal/netio/sender.go).
+Обычный отправитель UDP требует фиксированный исходный порт 49152–65535; для Echo это политика продукта. Источник: [конструктор отправителя](../../internal/netio/sender.go).
 
 ## TCP/HTTP-порты
 
-Management endpoints и metrics bind addresses задаются конфигурацией и не являются константами BFD. Default management использует Unix socket; TCP выключен до явной настройки. Plaintext TCP ограничен loopback; non-loopback TCP требует mTLS. См. [defaults и validation](../../internal/config/config.go), [конфигурацию](03-configuration.md), [безопасность](15-security.md).
+Конечные точки управления и адреса привязки метрик задаются конфигурацией и не являются константами BFD. Управление по умолчанию использует сокет Unix; TCP выключен до явной настройки. Незашифрованный TCP ограничен loopback; TCP вне loopback требует mTLS. См. [значения по умолчанию и проверку](../../internal/config/config.go), [конфигурацию](03-configuration.md), [безопасность](15-security.md).
 
 ## Связанные документы
 
-- [Протокол](02-protocol.md) — wire fields, переходы и таймеры.
+- [Протокол](02-protocol.md) — поля пакета на линии, переходы и таймеры.
 - [Границы RFC](08-rfc-compliance.md) — реализация и квалификация.
-- [Vendor BFD references](reference/vendor-bfd.md) — официальная документация peers.
-- [Анализ производительности](14-performance-analysis.md) — измерения и workload limits.
+- [Справочник BFD производителей](reference/vendor-bfd.md) — официальная документация соседей.
+- [Анализ производительности](14-performance-analysis.md) — измерения и ограничения нагрузки.

@@ -17,15 +17,15 @@ Zero allocations in a named body do not imply zero runtime allocations, GC immun
 
 ## Русский
 
-[Процедуры бенчмарков](docs/ru/12-benchmarks.md) задают сбор, статистическую интерпретацию и границы именованных операций. [Измерения runtime](docs/ru/14-performance-analysis.md) задают отдельные доказательства UDP, owner commit, timers, clocks и нагрузки.
+[Процедуры бенчмарков](docs/ru/12-benchmarks.md) задают сбор, статистическую интерпретацию и границы именованных операций. [Измерения исполнения](docs/ru/14-performance-analysis.md) задают отдельные доказательства для UDP, фиксации состояния владельцем сессии, таймеров, часов и нагрузки.
 
 | Сохранённый источник | Область | Ограничение |
 |:---|:---|:---|
-| [v0.4.0 samples](testdata/benchmarks/v0.4.0/benchmark.txt) и [metadata](testdata/benchmarks/v0.4.0/meta.json) | Go 1.26.0, шесть component runs, 2026-02-24 | История; не квалификация Go 1.27.3 |
-| Локальные reports/collector-owner-20261022 | Real-collector owner: 16 B/op, 2 allocs/op → 0 B/op, 0 allocs/op | Synthetic timing; без UDP/decode/auth |
-| [Матрица выделений 2026-10-26](docs/ru/12-benchmarks.md#сохранённые-измерения-выделений) | Наблюдения auth, owner и dispatch | Только точное тело; без scale/latency verdict |
-| [C-модели](bench/c/) | Собственные replicas операций | Не upstream FRR/BIRD daemons и не рейтинг языков |
+| [Измерения v0.4.0](testdata/benchmarks/v0.4.0/benchmark.txt) и [метаданные](testdata/benchmarks/v0.4.0/meta.json) | Go 1.26.0, шесть запусков отдельных компонентов, 2026-02-24 | История; не квалификация Go 1.27.3 |
+| Локальные reports/collector-owner-20261022 | Владелец с реальным коллектором: 16 B/op, 2 allocs/op → 0 B/op, 0 allocs/op | Синтетическое измерение времени; без UDP, декодирования и аутентификации |
+| [Матрица выделений 2026-10-26](docs/ru/12-benchmarks.md#сохранённые-измерения-выделений) | Наблюдения аутентификации, владельца и диспетчеризации | Только указанное тело операции; без выводов о масштабе и задержке |
+| [C-модели](bench/c/) | Собственные модели операций | Не демоны upstream FRR/BIRD и не рейтинг языков |
 
-Выполните `make benchmark`, `make benchmark-all` или `make benchmark-save` после `make up`. Используйте `make profile` отдельно. Make/release snapshots содержат шесть runs; CI собирает десять чередующихся base/head-пар по 100 мс. `cictl benchmark-report` завершается ошибкой при классифицированных critical regressions от 10% после публикации отчётов; critical time/op floor — 100 ns/op с любой стороны.
+Выполните `make benchmark`, `make benchmark-all` или `make benchmark-save` после `make up`. Используйте `make profile` отдельно. Снимки Make/release содержат шесть запусков; CI собирает десять чередующихся пар base/head по 100 мс. `cictl benchmark-report` завершается ошибкой при классифицированных критических регрессиях от 10% после публикации отчётов; нижний порог времени критической операции — 100 ns/op хотя бы с одной стороны.
 
-Ноль выделений в одном теле не означает нулевых runtime allocations, отсутствия пауз GC и поддерживаемой скорости пакетов. Production overlay TX использует caller-owned BuildInnerPacketInto; compatibility wrapper выделяет память. [ADR-0011](docs/ru/adr/0011-bfd-auth-inline-payload.md) определяет владение auth packet/wire.
+Ноль выделений в одном теле не означает нулевых выделений во время исполнения, отсутствия пауз GC или поддерживаемой скорости пакетов. Рабочий путь передачи overlay использует `BuildInnerPacketInto` с буфером вызывающей стороны; обёртка совместимости выделяет память. [ADR-0011](docs/ru/adr/0011-bfd-auth-inline-payload.md) определяет владение пакетом аутентификации и его сетевым представлением.

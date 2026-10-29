@@ -2,86 +2,89 @@
 
 | Поле | Значение |
 |:---|:---|
-| Status | Accepted |
-| Date | 2026-05-01 |
+| Статус | Принято |
+| Дата | 2026-05-01 |
 
 ## Контекст
 
-Advanced modes используют Linux resources, которыми владеют bonding, OVS, OVN, NetworkManager либо overlay dataplane. Protocol detection не разрешает второму controller менять эти ресурсы.
+Расширенные режимы используют ресурсы Linux, которыми владеют bonding, OVS, OVN, NetworkManager либо плоскость пересылки оверлея. Обнаружение протоколом не разрешает второму контроллеру менять эти ресурсы.
 
 ## Решение
 
-GoBFD — userspace BFD engine с явно выбранными enforcement adapters. Каждый mode имеет собственную ownership boundary.
+GoBFD — механизм BFD в пользовательском пространстве с явно выбранными адаптерами применения состояния. Каждый режим имеет собственную границу владения.
 
-| Mode | Реализованный profile | Deployment boundary |
+| Режим | Реализованный профиль | Граница развёртывания |
 |:---|:---|:---|
-| Micro-BFD | Member sessions, aggregate state, API/CLI preview, guarded actuators | Dedicated member-wire/MAC и actual-owner qualification обязательны |
-| VXLAN BFD | Exact IPv4 `userspace-udp` | Lab/isolated endpoint с UDP/4789 |
-| Geneve BFD | Exact IPv4 Format A `userspace-udp` | Lab/isolated VAP endpoint с UDP/6081 |
+| Micro-BFD | Сессии участников, общее состояние, предварительные API/CLI, защищённые исполнители | Отдельная квалификация обмена по каждому участнику, специального multicast-MAC и фактического владельца обязательна |
+| VXLAN BFD | Точный IPv4 `userspace-udp` | Лабораторная/изолированная конечная точка, владеющая UDP/4789 |
+| Geneve BFD | Точный IPv4 Format A `userspace-udp` | Лабораторная/изолированная конечная точка VAP, владеющая UDP/6081 |
 
-Shared Linux sender требует fixed source port 49152–65535, включая Echo как product policy. TTL/Hop Limit и interface indices используют native Linux ancillary byte order; destination IP — network order. Intended linux/amd64 и linux/arm64 требуют native kernel evidence отдельно от source correction и cross-compilation. Источники: [sender](../../../internal/netio/sender.go), [raw sockets](../../../internal/netio/rawsock.go).
+Общий отправитель Linux требует фиксированный исходный порт 49152–65535, включая Echo как политику продукта. TTL/Hop Limit и индексы интерфейсов используют порядок байтов хоста в служебных данных Linux; IP назначения — сетевой порядок. Целевые linux/amd64 и linux/arm64 требуют доказательств нативного ядра отдельно от исправления исходников и перекрёстной компиляции. Источники: [отправитель](../../../internal/netio/sender.go), [низкоуровневые сокеты](../../../internal/netio/rawsock.go).
 
 ### Micro-BFD в Linux
 
-Каждый configured member/family имеет Control session UDP/6784 и member-device binding. `MicroBFDGroup` считает Up-member threshold. Режимы actuator: disabled, dry-run, enforce; каждый вызов выполняется вне Manager locks с context пять секунд.
+Каждый настроенный участник и семейство адресов имеют сессию Control UDP/6784 и привязку к устройству участника. `MicroBFDGroup` считает порог участников Up. Режимы исполнителя: disabled, dry-run, enforce; каждый вызов выполняется вне блокировок Manager с контекстом пять секунд.
 
-| Backend | Mutation | Required authority |
+| Реализация | Изменение | Необходимые полномочия |
 |:---|:---|:---|
-| Kernel bond | Запись `-member`/`+member` в bonding sysfs | Явная policy `allow-external` |
-| OVS | Native OVSDB mutation `Port.interfaces` | Явная OVS owner policy |
-| NetworkManager | Deactivate/reactivate bond port profiles по D-Bus | Явная policy `networkmanager-dbus` |
-| OVS CLI fallback | Явно создаваемый diagnostic/fallback adapter | Не выбирается daemon configuration |
+| Bond ядра | Запись `-member`/`+member` в bonding sysfs | Явная политика `allow-external` |
+| OVS | Нативное изменение OVSDB `Port.interfaces` | Явная политика владельца OVS |
+| NetworkManager | Деактивация/повторная активация профилей портов bond по D-Bus | Явная политика `networkmanager-dbus` |
+| Резервный OVS CLI | Явно создаваемый диагностический/резервный адаптер | Не выбирается конфигурацией демона |
 
-Ownership models backends различаются. Restart reconciliation учитывает manual changes. Teamd и другие switching stacks остаются future integrations. Источники: [actuator selection](../../../internal/netio/lag_backend.go), [member wiring](../../../cmd/gobfd/micro_bfd.go), [OVSDB](../../../internal/netio/lag_ovsdb.go), [NetworkManager](../../../internal/netio/lag_networkmanager.go).
+Модели владения реализаций различаются. Сверка после перезапуска должна учитывать ручные изменения. Teamd и другие стеки коммутации остаются будущими интеграциями. Источники: [выбор исполнителя](../../../internal/netio/lag_backend.go), [подключение участников](../../../cmd/gobfd/micro_bfd.go), [OVSDB](../../../internal/netio/lag_ovsdb.go), [NetworkManager](../../../internal/netio/lag_networkmanager.go).
 
-### Граница выделений actuator Micro-BFD — принята 2026-10-29
+<a id="граница-выделений-actuator-micro-bfd--принята-2026-10-29"></a>
+<a id="micro-bfd-actuator-allocation-boundary--accepted-2026-10-29"></a>
 
-Сохранить существующие нулевые бюджеты выделений packet/FSM/timer и Micro-BFD dispatch без actuator, включая включённое JSON-журналирование. Каждый вызов actuator получает новый `context.WithTimeout(parent, 5*time.Second)` с отложенной отменой. Сохраняются более ранний deadline и отмена родителя; удержанный контекст сохраняет исходную семантику `Deadline`, `Done`, `Err` и `Value`. Не возвращать выданный контекст в pool и не сбрасывать его ради показателей выделений.
+### Граница выделений исполнителя Micro-BFD — принята 2026-10-29
 
-Для квалификации на закреплённом Go 1.27.3 linux/amd64 неизменённый benchmark с `Background` и пустым actuator имеет бюджет не более 272 B/op и 4 allocs/op: три прогона минимум по 200000 итераций. Пустой callback не читает `Done`; его чтение, другой родитель и работа реального backend могут добавлять выделения. Бюджет относится только к этому сценарию. Измерять выделения backend и задержку применения состояния отдельно; компонентный результат не квалифицирует владение, wire behavior, масштаб или сходимость.
+Сохранить существующие нулевые бюджеты выделений пакетов/FSM/таймеров и рассылки Micro-BFD без исполнителя, включая включённое JSON-журналирование. Каждый вызов исполнителя получает новый `context.WithTimeout(parent, 5*time.Second)` с отложенной отменой. Сохраняются более ранний предельный срок и отмена родителя; удержанный контекст сохраняет исходную семантику `Deadline`, `Done`, `Err` и `Value`. Не возвращать выданный контекст в пул и не сбрасывать его ради показателей выделений.
 
-Единственный dispatcher вызывает actuator без блокировок Manager, после рассылки текущего уведомления. Медленный вызов задерживает следующие уведомления. Отмена требует сотрудничества вызываемого кода: пятисекундный контекст не прерывает принудительно произвольный callback или файловую операцию и не гарантирует время применения состояния. Сохраняются preview, отключение по умолчанию и явные границы владения.
+Для квалификации на закреплённом Go 1.27.3 linux/amd64 неизменённый микротест с `Background` и пустым исполнителем имеет бюджет не более 272 B/op и 4 allocs/op: три прогона минимум по 200000 итераций. Пустой обратный вызов не читает `Done`; его чтение, другой родитель и работа реального адаптера могут добавлять выделения. Бюджет относится только к этому сценарию. Измерять выделения адаптера и задержку применения состояния отдельно; компонентный результат не квалифицирует владение, поведение на линии, масштаб или сходимость.
 
-Квалификация: политика принята; финальный кандидат требует собственных измерений и существующих runtime-проверок. Источники: [передача управления](../../../internal/bfd/manager_micro.go), [сценарии выделений](../../../internal/bfd/manager_micro_bench_test.go), [проверка удержанного контекста](../../../internal/bfd/manager_micro_context_test.go), [контракт Go context](https://pkg.go.dev/context), [границы benchmarks](../12-benchmarks.md).
+Единственный диспетчер вызывает исполнитель без блокировок Manager, после рассылки текущего уведомления. Медленный вызов задерживает следующие уведомления. Отмена требует сотрудничества вызываемого кода: пятисекундный контекст не прерывает принудительно произвольный обратный вызов или файловую операцию и не гарантирует время применения состояния. Сохраняются статус preview, отключение по умолчанию и явные границы владения.
+
+Квалификация: политика принята; финальный кандидат требует собственных измерений и существующих проверок среды исполнения. Источники: [передача управления](../../../internal/bfd/manager_micro.go), [сценарии выделений](../../../internal/bfd/manager_micro_bench_test.go), [проверка удержанного контекста](../../../internal/bfd/manager_micro_context_test.go), [контракт Go context](https://pkg.go.dev/context), [границы микротестов](../12-benchmarks.md).
 
 ### Граница доверия NetworkManager
 
-Connection setup и property replies подчиняются caller cancellation. Connector использует `DialContext` до godbus authentication, Hello и Unix FD negotiation. Другой address пробуется только при transport failure; authentication/Hello не повторяются на другом peer. `godbus_no_tcp` отклоняет TCP/nonce-TCP до DNS.
+Установление соединения и ответы свойств подчиняются отмене вызывающей стороны. Соединитель использует `DialContext` до аутентификации godbus, Hello и согласования дескрипторов Unix. Другой адрес пробуется только при отказе транспорта; аутентификация/Hello не повторяются на другом соседе. `godbus_no_tcp` отклоняет TCP/nonce-TCP до DNS.
 
-Nonce input должен быть trusted local regular file ровно 16 байт. Bounded reads и nonblocking open отклоняют malformed files/pipes; filesystem calls на stalled mount остаются неограниченными.
+Вход nonce должен быть доверенным локальным обычным файлом ровно 16 байт. Ограниченное чтение и неблокирующее открытие отклоняют некорректные файлы и каналы; вызовы файловой системы на зависшем монтировании остаются неограниченными.
 
-Active/cached profile paths — hints. Повторно загрузите settings до deactivate, active no-op либо cached activate. Принимайте только requested bond port; отклоняйте malformed/conflicting aliases и deleted/reprofiled cached connections. Проверяйте optional interface binding против resolved device. UUID controllers разрешаются через `GetConnectionByUuid` с требованием requested bond interface и сохранением deprecated bond-setting fallback. Unbound controller требует actual active-profile binding на этом bond device.
+Пути активных и кешированных профилей — подсказки. Повторно загрузить настройки до деактивации, отсутствия действия для активного профиля либо активации кешированного. Принимать только запрошенный порт bond; отклонять некорректные или конфликтующие псевдонимы и удалённые либо перепрофилированные кешированные соединения. Проверять необязательную привязку интерфейса по найденному устройству. Контроллеры UUID разрешаются через `GetConnectionByUuid` с требованием запрошенного интерфейса bond и сохранением устаревшего резервного параметра bond. Непривязанный контроллер требует фактической привязки активного профиля к этому устройству bond.
 
-Все используемые RPC replies требуют exact type/arity. Property replies сохраняют Variant envelope; UUID lookup требует один nonroot object path; available-profile list не допускает root, но может быть пустым; inactive sentinel допустим; deactivate требует empty reply. Typed remote/context errors сохраняются; malformed values возвращают `ErrNetworkManagerSettingsInvalid`.
+Все используемые ответы RPC требуют точного типа и числа значений. Ответы свойств сохраняют оболочку Variant; поиск UUID требует один некорневой путь объекта; список доступных профилей не допускает корень, но может быть пустым; неактивное сигнальное значение допустимо; деактивация требует пустой ответ. Типизированные удалённые и контекстные ошибки сохраняются; некорректные значения возвращают `ErrNetworkManagerSettingsInvalid`.
 
-Checks и mutations — отдельные вызовы. Concurrent administrator edits требуют координации; invalid reply detection не отменяет уже выполненную remote mutation. Local private-bus fixtures не квалифицируют actual ownership либо member-wire enforcement. Reply-shape и real-owner qualification отдельны. Источники: [D-Bus adapter](../../../internal/netio/lag_networkmanager.go), [tests](../../../internal/netio/lag_networkmanager_test.go).
+Проверки и изменения — отдельные вызовы. Одновременные изменения администраторов требуют координации; обнаружение недопустимого ответа не отменяет уже выполненное удалённое изменение. Локальные тестовые среды с частной шиной не квалифицируют фактическое владение либо применение состояния на линии участника. Квалификация структуры ответа и реального владельца разделена. Источники: [адаптер D-Bus](../../../internal/netio/lag_networkmanager.go), [тесты](../../../internal/netio/lag_networkmanager_test.go).
 
 ### VXLAN и Geneve в Linux
 
 | Свойство | VXLAN | Geneve |
 |:---|:---|:---|
-| Outer UDP destination | 4789 | 6081 |
-| Envelope | VXLAN I flag, Management VNI | Version 0, O=1, C=0, Protocol `0x6558` |
-| Inner profile | Ethernet/IPv4/UDP/BFD, exact endpoint/MAC scope | Ethernet/IPv4 Format A, explicit exact VAP IP/MAC |
-| Ownership | Local socket принадлежит GoBFD | Local socket принадлежит GoBFD |
-| Unsupported owners | Kernel/OVS/OVN/Cilium/Calico/NSX names fail closed | Те же reserved names fail closed |
+| Внешний порт назначения UDP | 4789 | 6081 |
+| Оболочка | Флаг VXLAN I, Management VNI | Версия 0, O=1, C=0, Protocol `0x6558` |
+| Внутренний профиль | Ethernet/IPv4/UDP/BFD, точная область конечных точек/MAC | Ethernet/IPv4 Format A, явные точные VAP IP/MAC |
+| Владение | Локальный сокет принадлежит GoBFD | Локальный сокет принадлежит GoBFD |
+| Неподдерживаемые владельцы | Имена Kernel/OVS/OVN/Cilium/Calico/NSX отклоняются | Те же зарезервированные имена отклоняются |
 
-Kernel/vendor overlay с тем же local address/port/namespace находится вне userspace profile. Missing/special-use Geneve VAP identity, IPv6 inner payload и Format B отклоняются. RFC 9521 traffic требует controlled/provisioned rates; congestion может создавать false failures. Источники: [backend admission](../../../internal/netio/overlay_backend.go), [inner framing](../../../internal/netio/overlay_inner.go), [RFC 8971](../../rfc/rfc8971.txt), [RFC 9521](../../rfc/rfc9521.txt).
+Оверлей ядра или производителя с теми же локальными адресом, портом и пространством имён находится вне профиля пользовательского пространства. Отсутствующая идентичность Geneve VAP или идентичность специального назначения, внутренняя полезная нагрузка IPv6 и Format B отклоняются. [RFC 9521 §1](https://www.rfc-editor.org/rfc/rfc9521.html#section-1) требует использовать BFD для Geneve в Traffic-Managed Controlled Environment (TMCE), если для трафика BFD не обеспечен реальный контроль перегрузки. В TMCE оператор задаёт допустимую интенсивность передачи BFD, чтобы избежать перегрузки и ложного обнаружения отказов. Источники: [допуск реализации](../../../internal/netio/overlay_backend.go), [внутреннее обрамление](../../../internal/netio/overlay_inner.go), [RFC 8971](../../rfc/rfc8971.txt), [RFC 9521](../../rfc/rfc9521.txt).
 
 ## Последствия
 
 | Сценарий | Применимость | Обязательное условие |
 |:---|:---|:---|
-| Linux router/NFV LACP uplink | Candidate Micro-BFD profile | Явное kernel/OVS/NM ownership и qualified actuator |
-| Bare-metal Kubernetes | Условная | Host namespace и явная host-interface authority |
-| EVPN/VXLAN validation | Lab endpoint | Изолированные Management VNI/socket |
-| OVN/NSX/Geneve gateway | Lab endpoint | Явная IPv4 VAP identity и isolated socket |
-| Generic application host | Ограниченная | External routing/device BFD — отдельная integration |
+| Маршрутизатор Linux/NFV с восходящим LACP | Кандидат профиля Micro-BFD | Явное владение kernel/OVS/NM и квалифицированный исполнитель |
+| Kubernetes на физических серверах | Условная | Пространство имён хоста и явные полномочия на интерфейсы хоста |
+| Проверка EVPN/VXLAN | Лабораторная конечная точка | Изолированное владение Management VNI/сокетом |
+| Шлюз OVN/NSX/Geneve | Лабораторная конечная точка | Явная идентичность IPv4 VAP и изолированный сокет |
+| Обычный прикладной хост | Ограниченная | Внешний BFD маршрутизации или устройства — отдельная интеграция |
 
-Ни один mode не является универсальным Linux dataplane controller. Local implementation, vendor documentation и socket ownership не заменяют actual path/owner qualification. Проверьте выбранный [vendor profile](../reference/vendor-bfd.md).
+Ни один режим не является универсальным контроллером плоскости пересылки Linux. Локальная реализация, документация производителя и владение сокетом не заменяют квалификацию фактических пути и владельца. Проверить выбранный [профиль производителя](../reference/vendor-bfd.md).
 
 ## Источники
 
 - [RFC 7130](../../rfc/rfc7130.txt), [RFC 8971](../../rfc/rfc8971.txt), [RFC 9521](../../rfc/rfc9521.txt).
 - [NetworkManager D-Bus API](https://networkmanager.dev/docs/api/latest/spec.html).
-- [RFC coverage](../08-rfc-compliance.md).
+- [Покрытие RFC](../08-rfc-compliance.md).

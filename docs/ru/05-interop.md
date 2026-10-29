@@ -1,27 +1,27 @@
 # Проверка совместимости
 
-Доказательство совместимости содержит точную revision GoBFD, артефакт соседа, сценарий и capture. Определения тестов являются контрактами исходного кода; исторический pass не квалифицирует изменённого кандидата. [RFC coverage](08-rfc-compliance.md) определяет реализованные и неполные процедуры; [справочник vendor](reference/vendor-bfd.md) — внешнюю конфигурационную семантику.
+Доказательство совместимости содержит точную ревизию GoBFD, артефакт соседа, сценарий и захват пакетов. Определения тестов являются контрактами исходного кода; исторический успех не квалифицирует изменённого кандидата. [Покрытие RFC](08-rfc-compliance.md) определяет реализованные и неполные процедуры; [справочник производителей](reference/vendor-bfd.md) — внешнюю конфигурационную семантику.
 
 ## Выбор проверки
 
 | Проверка | Команда | Граница |
 |:---|:---|:---|
-| Базовые peers | make interop | Race-enabled testcontainers: FRR, BIRD3, Holo, Thoro/bfd и crafted profiles |
-| Связь с BGP | make interop-bgp | Race-enabled testcontainers: GoBGP с FRR/BIRD3/ExaBGP |
-| Сценарии RFC | make interop-rfc | Race-enabled testcontainers: 7419, action path 9384, 9468 и Echo preview |
-| Routing aggregate | make e2e-routing | Отдельные retained Compose suites; не все testcontainers profiles |
-| RFC aggregate | make e2e-rfc | Legacy Compose/no-race runner; отдельно от interop-rfc |
-| Containerlab | make interop-clab | Owned FRR-only dual-stack topology; приёмка в нативной среде отдельно |
-| Vendor manifests | make e2e-vendor | Metadata/policy evidence; без выполнения vendor NOS |
+| Базовые соседи | make interop | testcontainers с детектором гонок: FRR, BIRD3, Holo, Thoro/bfd и управляемые тестовые профили |
+| Связь с BGP | make interop-bgp | testcontainers с детектором гонок: GoBGP с FRR/BIRD3/ExaBGP |
+| Сценарии RFC | make interop-rfc | testcontainers с детектором гонок: 7419, цепочка действий 9384, 9468 и предварительная реализация Echo |
+| Совокупная проверка маршрутизации | make e2e-routing | Отдельные сохранённые наборы Compose; не все профили testcontainers |
+| Совокупная проверка RFC | make e2e-rfc | Устаревший исполнитель Compose без детектора гонок; отдельно от interop-rfc |
+| Containerlab | make interop-clab | Топология только с FRR, учётом владения и двумя стеками; приёмка в нативной среде отдельно |
+| Манифесты производителей | make e2e-vendor | Свидетельства метаданных и политики; без выполнения NOS производителей |
 
-Первые три команды — алиасы явных -testcontainers targets. [Makefile](../../Makefile) задаёт suite filters, environment и artifact directories. [Реестр E2E](../../test/e2e/targets.md) определяет различия выполнения и очистки.
+Первые три команды — алиасы явных целей -testcontainers. [Makefile](../../Makefile) задаёт фильтры наборов, среду и каталоги артефактов. [Реестр E2E](../../test/e2e/targets.md) определяет различия выполнения и очистки.
 
 ## Подготовка и выполнение
 
-1. Подготовьте [среду разработки](09-development.md), закреплённый провайдер Compose и нужный Podman API.
-2. Прочитайте выбранную topology и правила выполнения. Проверьте имена проектов, фиксированные имена, subnets, limits и ownership до создания ресурсов.
-3. Выберите новый evidence location и сохраните полный commit исходников.
-4. Выполните нужный проверку полного цикла:
+1. Подготовить [среду разработки](09-development.md), закреплённый провайдер Compose и нужный Podman API.
+2. Прочитать выбранную топологию и правила выполнения. Проверить имена проектов, фиксированные имена, подсети, ограничения и владение до создания ресурсов.
+3. Выбрать новое место хранения доказательств и сохранить полный commit исходников.
+4. Выполнить нужную проверку полного цикла:
 
 ```bash title="Независимые interop gates"
 make interop-testcontainers
@@ -29,10 +29,10 @@ make interop-bgp-testcontainers
 make interop-rfc-testcontainers
 ```
 
-5. Проверьте named results, skips, проверки полей пакетов и записи очистки. Сохраните исходные JSON и журналы, PCAP и SHA-256 sidecars.
-6. Повторите затронутые profiles после изменений рабочего кода. Прежний запись для точного SHA не квалифицирует новую thread/transport/timer revision.
+5. Проверить именованные результаты, пропуски, проверки полей пакетов и записи очистки. Сохранить исходные JSON и журналы, PCAP и сопутствующие файлы SHA-256.
+6. Повторить затронутые профили после изменений рабочего кода. Прежняя запись для точного SHA не квалифицирует новую ревизию потоков, транспорта или таймеров.
 
-Base artifacts находятся в reports/e2e/interop-testcontainers; BGP/RFC используют соответствующие -bgp-/-rfc- names. GOBFD_REQUIRE_PODMAN=1 превращает отсутствие обязательного Podman в отказ вместо silent skip. Full-cycle owners сохраняют diagnostics до exact-owned cleanup.
+Базовые артефакты находятся в reports/e2e/interop-testcontainers; BGP/RFC используют соответствующие имена -bgp-/-rfc-. GOBFD_REQUIRE_PODMAN=1 превращает отсутствие обязательного Podman в отказ вместо молчаливого пропуска. Владельцы полного цикла сохраняют диагностику до очистки только принадлежащих им ресурсов.
 
 ## Базовая топология
 
@@ -42,79 +42,87 @@ flowchart LR
     gobfd -->|"BFD"| bird["BIRD3"]:::srv
     gobfd -->|"BFD"| holo["Holo"]:::srv
     gobfd -->|"BFD"| thoro["Thoro/bfd"]:::srv
-    capture["Capture в общем namespace"]:::mgt -.-> gobfd
+    capture["Захват в общем пространстве имён"]:::mgt -.-> gobfd
     classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
     classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
 ```
 
-Peer recipes находятся в [test/interop](../../test/interop/). Закреплённые исходники используют FRR 10.7.1, BIRD 3.4.0 с сохранённым fix, immutable Holo 0.9.0 и pinned Thoro source build. Получайте реальные идентификаторы сборки и образов из recipes и каждого run; названия версий недостаточно.
+Рецепты сборки соседей находятся в [test/interop](../../test/interop/). Закреплённые исходники используют FRR 10.7.1, BIRD 3.4.0 с сохранённым исправлением, неизменяемый Holo 0.9.0 и закреплённую сборку Thoro из исходников. Получать реальные идентификаторы сборки и образов из рецептов и каждого прогона; названия версий недостаточно.
 
-Base subnet — 172.20.0.0/24. Assertions проверяют handshake, AdminDown, negotiated timers, failure/recovery и captured Control fields. Authentication, padding и crafted procedures имеют отдельные profiles. Независимый Go peer использует repository codec; это не независимая реализация codec.
+Базовая подсеть — 172.20.0.0/24. Проверки охватывают установление сессии, AdminDown, согласованные таймеры, отказ и восстановление, захваченные поля Control. Аутентификация, дополнение и управляемые тестовые процедуры имеют отдельные профили. Независимый сосед Go использует кодек репозитория; это не независимая реализация кодека.
 
-### Crafted peer
+<a id="crafted-peer"></a>
 
-TestCraftedPeerTestcontainers запускает GoBFD, tshark в общем namespace и Go peer 172.20.0.40. Peer использует TTL 255, source port 49152, без auth, SIGUSR1 для смены phase.
+### Управляемый тестовый сосед
 
-| Фаза | Input | Требуемое evidence |
+TestCraftedPeerTestcontainers запускает GoBFD, tshark в общем пространстве имён и соседа Go 172.20.0.40. Сосед использует TTL 255, исходный порт 49152, не использует аутентификацию и переключает фазу по SIGUSR1.
+
+| Фаза | Вход | Требуемое доказательство |
 |:---|:---|:---|
-| rx0/poll | Required RX zero и successive Polls | Один Final на Poll; без periodic TX минимум десять negotiated intervals |
-| silent | Остановка peer TX | Down diag 1 и expiry timing; первый Down с Your Discriminator zero; минимум три slow-rate intervals |
-| recover | Новый handshake | Up с intervals 300 мс |
-| demand | D=1/Poll; reload 500 мс | Final, periodic suppression, local Poll/peer Final, converged receipt |
-| demand-clear | D=0/Poll | Final, periodic TX, двенадцать intervals и mean/jitter checks |
-| final-loss/poll/final-restore | Потеря Finals, crossing Poll, восстановление | Повтор active tuple 400 мс; candidate 800 мс после прежнего Final/exchange spacing; P/F не одновременно |
+| rx0/poll | Нулевой Required RX и последовательные Poll | Один Final на Poll; без периодической передачи минимум десять согласованных интервалов |
+| silent | Остановка передачи соседа | Down с диагностикой 1 и время истечения срока; первый Down с нулевым Your Discriminator; минимум три интервала медленной передачи |
+| recover | Новое установление сессии | Up с интервалами 300 мс |
+| demand | D=1/Poll; перечитывание 500 мс | Final, подавление периодической передачи, локальный Poll/Final соседа, квитанция сходимости |
+| demand-clear | D=0/Poll | Final, периодическая передача, двенадцать интервалов и проверки среднего/разброса |
+| final-loss/poll/final-restore | Потеря Final, пересекающийся Poll, восстановление | Повтор активного кортежа 400 мс; кандидат 800 мс после прежнего Final и интервала между обменами; P/F не одновременно |
 
-Silent bound — от DT−1 мс до DT+max(2 мс,DT/50) от last peer frame. Первый GoBFD Down имеет дополнительный допуск 50 мс. Multiplier 1 использует jitter 75–90% с mean 0.825T; остальные проверенные multipliers — 75–100% с mean 0.875T. Возобновлённая phase 500 мс проверяет mean в трёх standard errors.
+Граница фазы молчания — от DT−1 мс до DT+max(2 мс,DT/50) от последнего кадра соседа. Первый Down GoBFD имеет дополнительный допуск 50 мс. Множитель 1 использует случайный разброс 75–90% со средним 0.825T; остальные проверенные множители — 75–100% со средним 0.875T. Возобновлённая фаза 500 мс проверяет среднее в пределах трёх стандартных ошибок.
 
-Authenticated Async FRR/BIRD3 меняет multiplier 1→5→3 без local Poll. Remote Demand использует 5→3 с отдельными Poll/Final/receipt/quiet interval на изменение. Capture сохраняет port/length, auth type/key/sequence, discriminators и timers. Local receive Detection Time использует peer multiplier; peer Async и local Demand bounds подписаны отдельно. Crafted peer не имеет detection timer.
+Аутентифицированный асинхронный FRR/BIRD3 меняет множитель 1→5→3 без локального Poll. Удалённый Demand использует 5→3 с отдельными Poll/Final/квитанцией/интервалом молчания на изменение. Захват сохраняет порт и длину, тип аутентификации, ключ и номер последовательности, дискриминаторы и таймеры. Локальный Detection Time приёма использует множитель соседа; границы асинхронного режима соседа и локального Demand подписаны отдельно. Управляемый тестовый сосед не имеет таймера обнаружения.
 
-### Padding и multihop
+<a id="padding-и-multihop"></a>
 
-Prepared padding проверяет authenticated 128→192→128 sizes, auth+padding rejection, enable/disable и combined-candidate rejection. Default keyed SHA1 и TestFourPeerMeticulousTopologyTestcontainers восстанавливают собственный immutable startup baseline. Capture проверяет DF, UDP payload, declared PDU length, zero padding, MAC domain и replay state между phases. SIGUSR2 проверяет текущий crafted Poll без сброса Demand.
+### Дополнение и многоскачковый режим
 
-TestCraftedMultihopTTLTestcontainers использует peer-multihop: UDP 4784, meticulous SHA1, local RX 3 с, TX 300 мс. Async/Demand меняют max-hops 1→5→1, затем отклоняют auth+hop-policy input. Последовательные probes по 200 мс повторяют accepted wire, дают fresh below-floor Poll и его повтор at-floor; один accepted RX и одна намеренная auth replay failure сохраняют счётчики переходов. Это локальная policy 255−N, не routed/cloud acceptance.
+Подготовленное дополнение проверяет аутентифицированные размеры 128→192→128, отказ изменения аутентификации вместе с дополнением, включение и отключение, отказ объединённого кандидата. Профиль Keyed SHA1 по умолчанию и TestFourPeerMeticulousTopologyTestcontainers восстанавливают собственное неизменяемое начальное состояние. Захват проверяет DF, полезную нагрузку UDP, объявленную длину PDU, нулевое дополнение, область MAC и состояние защиты от повторов между фазами. SIGUSR2 проверяет текущий управляемый Poll без сброса Demand.
 
-Final capture ограничивает decoded matching rows после display filtering. Capture read limit может скрыть последующие frames. Обязательные initial Down diag 0 и detection-expiry assertions нельзя silently skip. Pinned BIRD Linux high-port helper не обеспечивает RFC 5881 source range; retained padding capture содержит 938 packets с port 43990. Это указанное отклонение peer, а не GoBFD coverage.
+TestCraftedMultihopTTLTestcontainers использует peer-multihop: UDP 4784, Meticulous SHA1, локальный RX 3 с, TX 300 мс. Асинхронный режим и Demand меняют max-hops 1→5→1, затем отклоняют вход с изменениями аутентификации и политики числа скачков. Последовательные пробы по 200 мс повторяют принятые байты с линии, дают новый Poll ниже порога и его повтор на пороге; один принятый RX и одна намеренная ошибка защиты аутентификации от повтора сохраняют счётчики переходов. Это локальная политика 255−N, а не приёмка маршрутизируемой или облачной среды.
 
-### Сохранённые wire receipts
+Финальный захват ограничивает число декодированных совпадающих строк после фильтра отображения. Ограничение чтения захвата может скрыть последующие кадры. Обязательные проверки начального Down с диагностикой 0 и истечения срока обнаружения нельзя молча пропускать. Закреплённый помощник BIRD для высоких портов Linux не обеспечивает исходный диапазон RFC 5881; сохранённый захват дополнения содержит 938 пакетов с портом 43990. Это указанное отклонение соседа, а не покрытие GoBFD.
 
-| Область | Точный source / receipt | Измеренный результат | Ограничение |
+<a id="сохранённые-wire-receipts"></a>
+
+### Сохранённые квитанции обмена на линии
+
+| Область | Точные исходники / квитанция | Измеренный результат | Ограничение |
 |:---|:---|:---|:---|
-| Detect multiplier | d9e67064e51012c0d25a1a22dc9bd469600d8469; reports/detect-wire-20261024 | Обе topologies pass | Padding/TTL/final gate отдельно |
-| Padding | b97729458a696aee21023ba147af51417ed9ff7b; reports/padding-wire-20261024 | Три записи выполнения, 675 проверенных файлов контрольных сумм | Baseline skips и final disposition отдельно |
-| TTL | 491b2214994f07e017eb93ab67a29a95378c619e; reports/ttl-wire-20261024 | 162.94 с crafted, 81.98 с multihop; семь windows; 863 хешей исходников, 212 sidecars | Unified final/stable gate отдельно |
-| Default FourPeer | e4e79a8eee8e7c38bfc78321bdc5e9030909c214; reports/final-wire-20261024 | 429.47 с; десять scenarios; expiry gap 0.901 с; один BIRD RFC skip | Повтор четырёх final profiles после thread/scale changes |
+| Множитель обнаружения | d9e67064e51012c0d25a1a22dc9bd469600d8469; reports/detect-wire-20261024 | Обе топологии прошли | Дополнение/TTL/финальная проверка отдельно |
+| Дополнение | b97729458a696aee21023ba147af51417ed9ff7b; reports/padding-wire-20261024 | Три записи выполнения, 675 проверенных файлов контрольных сумм | Начальные пропуски и финальное решение отдельно |
+| TTL | 491b2214994f07e017eb93ab67a29a95378c619e; reports/ttl-wire-20261024 | 162.94 с управляемого сценария, 81.98 с многоскачкового; семь окон; 863 хеша исходников, 212 сопутствующих файлов | Общая финальная/стабильная проверка отдельно |
+| FourPeer по умолчанию | e4e79a8eee8e7c38bfc78321bdc5e9030909c214; reports/final-wire-20261024 | 429.47 с; десять сценариев; разрыв истечения срока 0.901 с; один пропуск RFC BIRD | Повтор четырёх финальных профилей после изменений потоков/масштаба |
 
-FourPeer receipt сохраняет шесть идентификаторы образов, 867 matching хешей исходников, 310 sidecars и четырнадцать dual-service SERVING probes. Runner 512 MiB фиксирует ноль max/OOM events и swap; отсутствие точных образов проверяется. Это dated observations, а не текущий run или полная квалификация выпуска.
+Квитанция FourPeer сохраняет шесть идентификаторов образов, 867 совпадающих хешей исходников, 310 сопутствующих файлов и четырнадцать проб SERVING двух служб. Исполнитель с 512 MiB фиксирует ноль событий max/OOM и нулевой swap; отсутствие точных образов проверяется. Это датированные наблюдения, а не текущий прогон или полная квалификация выпуска.
 
 ## Связь с BGP
 
-Topology 172.21.0.0/24 соединяет GoBFD/GoBGP с FRR native BFD+BGP, BIRD3 native BFD+BGP и GoBFD/ExaBGP. ExaBGP использует GoBFD bridge; это не native BFD peer.
+Топология 172.21.0.0/24 соединяет GoBFD/GoBGP с FRR с нативными BFD+BGP, BIRD3 с нативными BFD+BGP и GoBFD/ExaBGP. ExaBGP использует мост GoBFD; это не нативный сосед BFD.
 
-| Peer path | Announced prefix |
+| Путь соседа | Объявленный префикс |
 |:---|:---|
 | FRR | 10.20.0.0/24 |
 | BIRD3 | 10.30.0.0/24 |
-| ExaBGP bridge | 10.40.0.0/24 |
+| Мост ExaBGP | 10.40.0.0/24 |
 
-Сохраняйте BFD/BGP established, route presence, failure withdrawal и restored route/BGP отдельно. Shared namespaces выравнивают source addresses BFD/BGP. Текущий dev использует GoBGP v4 API; поддерживаемая v0.6 сохраняет v3 и не использует endpoint contract v4.
+Сохранять отдельно установленные BFD/BGP, наличие маршрута, отзыв при отказе и восстановленный маршрут/BGP. Общие пространства имён выравнивают исходные адреса BFD/BGP. Текущий dev использует GoBGP v4 API; поддерживаемая v0.6 сохраняет v3 и не использует контракт конечных точек v4.
 
 ## Сценарии RFC
 
-Topology 172.22.0.0/24 содержит interval-alignment FRR, GoBFD/GoBGP BGP path, unsolicited FRR и независимый Echo reflector.
+Топология 172.22.0.0/24 содержит FRR для выравнивания интервалов, путь BGP GoBFD/GoBGP, незапрошенный FRR и независимый отражатель Echo.
 
-| Сценарий | Assertion | Граница квалификации |
+| Сценарий | Проверка | Граница квалификации |
 |:---|:---|:---|
-| 7419 | Configured 80 мс → 100 мс на линии | Точный interval scenario |
-| Action path с названием 9384 | BFD Down отключает BGP; Up включает | GoBGP DisablePeer выдаёт Cease/2; требуемый subcode 10 не реализован |
-| 9468 | Unconfigured incoming session достигает Up и держится пять секунд | Не проверяет expiry/cleanup |
-| Echo с названием 9747 | Reflector Up, paused failure, recovery | Echo preview; без полной RFC return validation/authentication |
+| 7419 | Настроенные 80 мс → 100 мс на линии | Точный сценарий интервала |
+| Цепочка действий с названием 9384 | BFD Down отключает BGP; Up включает | GoBGP DisablePeer выдаёт Cease/2; требуемый подкод 10 не реализован |
+| 9468 | Ненастроенная входящая сессия достигает Up и держится пять секунд | Не проверяет истечение срока/очистку |
+| Echo с названием 9747 | Up отражателя, отказ при паузе, восстановление | Предварительная реализация Echo; без полной проверки и аутентификации возврата по RFC |
 
-Нормативная область задана в [RFC 5880](../rfc/rfc5880.txt), [RFC 5881](../rfc/rfc5881.txt) и [RFC matrix](08-rfc-compliance.md). Passing action path не меняет RFC implementation status.
+Нормативная область задана в [RFC 5880](../rfc/rfc5880.txt), [RFC 5881](../rfc/rfc5881.txt) и [матрице RFC](08-rfc-compliance.md). Успешная цепочка действий не меняет статус реализации RFC.
 
-## Сохранённый Compose workflow
+<a id="сохранённый-compose-workflow"></a>
 
-Используйте для намеренно выбранного retained project; filters и failure handling отличаются от testcontainers gates.
+## Сохранённый процесс Compose
+
+Использовать для намеренно выбранного сохранённого проекта; фильтры и обработка отказов отличаются от проверок testcontainers.
 
 ```bash title="Retained base topology"
 make interop-up
@@ -122,15 +130,15 @@ make interop-test
 make interop-logs
 ```
 
-После разрешения owned cleanup используйте interop-down. BGP/RFC имеют соответствующие -up/-test/-logs/-down. Capture helpers — interop-capture, interop-pcap, interop-pcap-summary. Routing aggregate base/BGP и legacy RFC aggregate не используют race detector. Fixed names/subnets могут конфликтовать между projects.
+После разрешения очистки принадлежащих сценарию ресурсов использовать interop-down. BGP/RFC имеют соответствующие -up/-test/-logs/-down. Помощники захвата — interop-capture, interop-pcap, interop-pcap-summary. Совокупная проверка маршрутизации базового сценария и BGP и устаревшая совокупная проверка RFC не используют детектор гонок. Фиксированные имена и подсети могут конфликтовать между проектами.
 
 ## Процедура FRR в Containerlab
 
-Execution policy задают [profiles.json](../../test/e2e/vendor/profiles.json) и [vendorprofiles](../../test/internal/vendorprofiles/manifest.go). Arista cEOS, Nokia SR Linux, SONiC-VS, VyOS и deferred Cisco XRd остаются retained-unavailable. Cached images, historical config, registry metadata и vendor manuals не дают разрешения выполнения и приёмки. e2e-vendor сообщает policy без deployment.
+Политику выполнения задают [profiles.json](../../test/e2e/vendor/profiles.json) и [vendorprofiles](../../test/internal/vendorprofiles/manifest.go). Arista cEOS, Nokia SR Linux, SONiC-VS, VyOS и отложенный Cisco XRd остаются retained-unavailable. Кешированные образы, историческая конфигурация, метаданные реестра и руководства производителей не дают разрешения выполнения и приёмки. e2e-vendor сообщает политику без развёртывания.
 
-1. Используйте native Linux amd64/arm64, Podman с нужным Unix API socket, GNU Make/coreutils/flock и точный containerlab 0.82.0 из controller pin.
-2. Предзагрузите SDK/Debian references из [test_compiler_source.go](../../test/internal/clabbootstrap/test_compiler_source.go). Оставьте CLAB_LABDIR_BASE незаданным.
-3. Выполните полный цикл или явные owned stages:
+1. Использовать нативный Linux amd64/arm64, Podman с нужным сокетом Unix API, GNU Make/coreutils/flock и точный containerlab 0.82.0 из закрепления контроллера.
+2. Предзагрузить ссылки SDK/Debian из [test_compiler_source.go](../../test/internal/clabbootstrap/test_compiler_source.go). Оставить CLAB_LABDIR_BASE незаданным.
+3. Выполнить полный цикл или явные стадии с учётом владения:
 
 ```bash title="Owned FRR Containerlab lifecycle"
 make interop-clab-bootstrap ARGS=--dry-run
@@ -138,31 +146,31 @@ make interop-clab-up
 make interop-clab-test
 ```
 
-4. Проверьте package PASS и десять named PASS: dual-stack establishment, failure, negotiation, detection timing, packet format и all-available. Только SessionIndependence может skip при одном FRR.
-5. Выполните разрешённый interop-clab-down и подтвердите отсутствие точных записанных IDs.
+4. Проверить PASS пакета и десять именованных PASS: установление сессии в двух стеках, отказ, согласование, время обнаружения, формат пакета и all-available. Только SessionIndependence может быть пропущен при одном FRR.
+5. Выполнить разрешённый interop-clab-down и подтвердить отсутствие точных записанных ID.
 
-interop-clab выполняет полный FRR cycle. Prepare-only bootstrap сохраняет оба staged image IDs/receipt для --deploy --skip-build или owned cleanup; skip-build не доверяет latest. Help/dry-run/down также собирают новый controller. Старые vendor archive/ISO flags разбираются, но не разрешают preparation.
+interop-clab выполняет полный цикл FRR. Начальная подготовка без развёртывания сохраняет оба ID подготовленных образов и квитанцию для --deploy --skip-build или очистки своих ресурсов; skip-build не доверяет latest. Справка, dry-run и down также собирают новый контроллер. Старые флаги архивов/ISO производителей разбираются, но не разрешают подготовку.
 
-Cold compiler получает private source snapshot без engine socket и с limits. Payload компилируется отдельно с race detector в network-disabled SDK; Debian runtime получает exact hashed binaries и selected engine socket без compiler. Read-only socket mount сохраняет engine authority. Native host controller имеет timeout без эквивалентного hard memory cap. Payload limits — 2 CPU/2 GiB/без дополнительного swap/512 PIDs.
+Компилятор при холодном запуске получает частный снимок исходников без сокета контейнерного движка и с ограничениями. Полезная нагрузка компилируется отдельно с детектором гонок в SDK с отключённой сетью; рабочая среда Debian получает точные бинарные файлы с хешами и выбранный сокет движка без компилятора. Монтирование сокета только для чтения сохраняет полномочия управления движком. Нативный контроллер хоста имеет ограничение времени без эквивалентного жёсткого ограничения памяти. Ограничения полезной нагрузки — 2 CPU/2 GiB/без дополнительного swap/512 PID.
 
-Проверки до/после compile валидируют schema-3 receipt, полные IDs и метки owner/run через CLI и однажды выбранный API client; каждый context — 30 секунд. Changed/malformed receipts, foreign fixed-name collisions и retained-NOS roster отклоняются. Host-global UID lock сериализует fixed lab между worktrees.
+Проверки до и после компиляции проверяют квитанцию schema-3, полные ID и метки owner/run через CLI и однажды выбранный API-клиент; каждый контекст — 30 секунд. Изменённые или некорректные квитанции, конфликты чужих фиксированных имён и список сохранённых NOS отклоняются. Общая для UID на хосте блокировка сериализует фиксированную лабораторию между рабочими деревьями.
 
-Containerlab соединяет запущенные ext-container applications без management network. IPv6 addresses ждут DAD до 30 секунд. Выбирайте sessions по точному tuple и typed local/remote state; другая session или diagnostic со словом Down недостаточны.
+Containerlab соединяет запущенные приложения ext-container без сети управления. Адреса IPv6 ждут DAD до 30 секунд. Выбирать сессии по точному кортежу и типизированному локальному и удалённому состоянию; другой сессии или диагностики со словом Down недостаточно.
 
-Cleanup валидирует identities до мутации, удаляет exact application image IDs без force/pruning и receipt последним. Failed destroy сохраняет discovery/receipt для retry. Historical schema-1/2 служат только cleanup inputs. Shared SDK/runtime images сохраняются. Test-result JSON остаётся в test/interop-clab/gobfd/.runtime.
+Очистка проверяет идентичности до изменения, удаляет точные ID образов приложений без принудительного удаления и прореживания, а квитанцию — последней. Неуспешное уничтожение сохраняет данные обнаружения и квитанцию для повтора. Исторические schema-1/2 служат только входом очистки. Общие образы SDK и рабочей среды сохраняются. JSON результатов теста остаётся в test/interop-clab/gobfd/.runtime.
 
-FRR assertions используют nominal/negotiated 300 мс и detection 900 мс; timing test допускает пять секунд. Packet-format требует двадцать полных dual-stack frames. Native FRR lifecycle/compiler-engine qualification и все пять NOS qualifications остаются незавершёнными; сохраните записи фактического выполнения до заявления приёмки.
+Проверки FRR используют номинальные и согласованные 300 мс и обнаружение 900 мс; проверка времени допускает пять секунд. Проверка формата пакета требует двадцать полных кадров двух стеков. Квалификация нативного жизненного цикла FRR, компилятора и контейнерного движка и все пять квалификаций NOS остаются незавершёнными; сохранить записи фактического выполнения до заявления приёмки.
 
 ## Диагностика
 
 | Симптом | Проверка | Действие |
 |:---|:---|:---|
-| Нет required runtime | Provider/socket и GOBFD_REQUIRE_PODMAN | Восстановите runtime; не принимайте skip |
-| Fixed-name/subnet collision | Project manifest и exact live ownership | Выберите isolated project; сохраните чужие ресурсы |
-| Session остаётся Down | Local/peer tuple, capabilities, TTL/auth/ports | Исправьте input; сохраните packets |
-| Пустой capture | Namespace/filter, start time, matching rows | Повторите bounded capture в assertion window |
-| RFC-name pass без wire guarantee | Assertions и RFC matrix | Укажите точную action-path scope |
-| Cleanup не завершён | Receipt IDs, labels, API selection | Повторите owning down; сохраните recovery state |
-| Vendor profile unavailable | Policy и source/license evidence | Сохраните unavailable до отдельного допуска |
+| Нет обязательной среды исполнения | Провайдер/сокет и GOBFD_REQUIRE_PODMAN | Восстановить среду исполнения; не принимать пропуск |
+| Конфликт фиксированного имени/подсети | Манифест проекта и точное текущее владение | Выбрать изолированный проект; сохранить чужие ресурсы |
+| Сессия остаётся Down | Локальный кортеж и кортеж соседа, возможности, TTL/аутентификация/порты | Исправить вход; сохранить пакеты |
+| Пустой захват | Пространство имён/фильтр, время начала, совпадающие строки | Повторить ограниченный захват в окне проверки |
+| Успех теста с именем RFC без гарантии обмена на линии | Проверки и матрица RFC | Указать точную область цепочки действий |
+| Очистка не завершена | ID квитанции, метки, выбор API | Повторить down владельца; сохранить состояние восстановления |
+| Профиль производителя недоступен | Политика и доказательства исходников/лицензии | Сохранить unavailable до отдельного допуска |
 
-[Разработка](09-development.md), [E2E harness](../../test/e2e/README.md), [vendor reference](reference/vendor-bfd.md), [измерения runtime](14-performance-analysis.md).
+[Разработка](09-development.md), [стенд E2E](../../test/e2e/README.md), [справочник производителей](reference/vendor-bfd.md), [измерения среды исполнения](14-performance-analysis.md).

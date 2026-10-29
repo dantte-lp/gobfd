@@ -1,51 +1,52 @@
 # Развёртывание
 
-GoBFD работает на Linux с UDP, raw sockets и учётом интерфейсов. Репозиторий определяет архивы, DEB/RPM и OCI; наличие определения не доказывает публикацию или приёмку конкретного кандидата. Источники: [release config](../../.goreleaser.yml), [Containerfile](../../deployments/docker/Containerfile), [systemd unit](../../deployments/systemd/gobfd.service).
+GoBFD работает на Linux с обычным UDP, низкоуровневыми сокетами и инвентаризацией интерфейсов. Репозиторий определяет поставку архивов, DEB/RPM и OCI; эти определения не доказывают публикацию или приёмку конкретного кандидата. Источники: [конфигурация выпуска](../../.goreleaser.yml), [прикладной Containerfile](../../deployments/docker/Containerfile), [служба systemd](../../deployments/systemd/gobfd.service).
 
 ## Артефакты и установка
 
-| Артефакт | Состав | Граница |
+| Артефакт | Заявленный состав | Граница |
 | :--- | :--- | :--- |
-| Linux amd64/arm64 архив | Четыре бинарника, YAML-пример, unit | Учётные записи и установка принадлежат оператору |
-| DEB/RPM | Бинарники, noreplace config, unit, sysusers/tmpfiles, lifecycle | При обновлении сохраняется конфигурация |
-| Debian trixie OCI | Бинарники, release labels/SBOM config | Проверить точный digest и evidence кандидата |
-| Development Compose | Source mount и build tools | Среда разработки без демона/file watcher |
+| Архив Linux amd64/arm64 | Четыре бинарных файла, YAML-пример, служба systemd | Учётные записи и установка на хост принадлежат оператору |
+| DEB/RPM | Четыре бинарных файла, конфигурация noreplace, служба, sysusers/tmpfiles и поддержка жизненного цикла | Сохранить существующую конфигурацию при обновлении |
+| Выпускной OCI Debian trixie | Четыре бинарных файла из [Containerfile.release](../../deployments/docker/Containerfile.release), метки выпуска и конфигурация SBOM | Проверить точный digest манифеста и доказательства кандидата |
+| Прикладной OCI для производственного Compose | `gobfd` и `gobfdctl` из [Containerfile](../../deployments/docker/Containerfile) | [Производственный Compose](../../deployments/compose/compose.yml) собирает этот образ с двумя бинарными файлами |
+| Compose для разработки | Монтирование исходников и инструменты сборки | Среда разработки; без демона и наблюдения за файлами |
 
-Прикладные бинарники: `gobfd`, `gobfdctl`, `gobfd-haproxy-agent`, `gobfd-exabgp-bridge`. Oracle Linux 10 исключён из v1 OCI qualification; generic RPM сохраняется. Alpine, bookworm и исполняемый scratch runtime вне контракта. Версии принадлежат [текущим manifests](../../go.mod) и digest-pinned Containerfiles, а не непроверенному тегу latest.
+Четыре прикладных бинарных файла — `gobfd`, `gobfdctl`, `gobfd-haproxy-agent` и `gobfd-exabgp-bridge`. Oracle Linux 10 исключён из квалификации OCI v1; общая упаковка RPM сохраняется. Alpine, bookworm и исполняемые среды scratch находятся вне контракта репозитория. Идентичности зависимостей и инструментария задают [текущие манифесты](../../go.mod) и Containerfile с закреплённым digest, а не неквалифицированный тег «latest».
 
-1. Выбрать принятый release/candidate; записать SHA, checksum и архитектуру.
-2. Проверить опубликованный checksum/provenance; сохранить результат.
-3. Установить выбранный пакет/архив; сохранить бинарник и конфигурацию для rollback.
-4. Проверить `gobfd -version` и `gobfdctl version` до запуска.
-5. Сверить [конфигурацию](03-configuration.md); задать peer/local/interface и защитить auth.
+1. Выбрать принятый выпуск или кандидат и записать SHA исходников, контрольную сумму артефакта и архитектуру.
+2. Проверить опубликованную контрольную сумму и происхождение; сохранить вывод проверки.
+3. Установить пакет или архив согласно выбранному артефакту; сохранить принятые бинарные файлы и конфигурацию для отката.
+4. Проверить `gobfd -version` и `gobfdctl version` до активации службы.
+5. Сверить действующую конфигурацию с [контрактом конфигурации](03-configuration.md); задать явные привязки соседа, локального адреса и интерфейса и защитить материал аутентификации.
 
-Путь `-config PATH` должен находиться под контролем локального оператора. Поддерживаются абсолютные пути и относительные компоненты `..`; этот путь определяет открываемый каталог. В описании сервиса использовать абсолютный путь и защитить файл и содержащие его каталоги правами файловой системы. [Граница путей конфигурации](15-security.md#пути-к-конфигурации) определяет ограничения последнего имени символической ссылки.
+Путь `-config PATH` должен находиться под контролем локального оператора. Поддерживаются абсолютные пути и относительные родительские компоненты `..`; этот путь выбирает каталог, открываемый загрузчиком. В описании службы использовать абсолютный путь и защитить файл и содержащие его каталоги правами файловой системы. [Граница путей конфигурации](15-security.md#пути-к-конфигурации) определяет ограничения символических ссылок в последнем компоненте имени.
 
-URL загрузки или изменяемый image tag не заменяет проверку кандидата.
+URL загрузки выпуска или изменяемый тег образа не заменяет проверку кандидата.
 
 ## systemd
 
-Unit запускает `/usr/local/bin/gobfd -config /etc/gobfd/gobfd.yml` как `gobfd:gobfd` с дополнительной группой `gobfd-admin`. Применяются `Type=notify`, watchdog 30 секунд и restart on-failure через 5 секунд. `ExecReload` отправляет SIGHUP без подтверждения сходимости.
+Поставляемая служба запускает `/usr/local/bin/gobfd -config /etc/gobfd/gobfd.yml`. Она работает как `gobfd:gobfd`, входит в `gobfd-admin` для доступа к сокету управления, использует `Type=notify`, сторожевой таймер 30 секунд и перезапуск при отказе через 5 секунд. `ExecReload` отправляет SIGHUP; он не подтверждает принятую сверку.
 
-| Контроль | Значение | Следствие |
+| Контроль | Поставляемое значение | Следствие |
 | :--- | :--- | :--- |
-| Runtime directory | `/run/gobfd`, `0755` | Жизненный цикл сокета принадлежит service |
+| Каталог среды исполнения | `/run/gobfd`, права `0755` | Жизненный цикл сокета принадлежит службе |
 | UMask | `0077` | Ограничение новых файлов |
-| Capabilities | `CAP_NET_RAW CAP_NET_ADMIN` | Сетевые привилегии без полного privileged |
-| Файловая система | `ProtectSystem=strict`, config read-only, private tmp | Запись в runtime directory/private tmp |
-| Ядро/процессы | Защищены tunables/modules/cgroups, ограничена видимость процессов | Actuator требует отдельной проверки |
-| Address families | Unix, IPv4, IPv6, netlink | Управление, UDP/TCP, interface monitor |
-| Descriptors | `16384` | Бюджет `2*sessions+256`; проверить реальную нагрузку |
+| Полномочия | `CAP_NET_RAW CAP_NET_ADMIN` | Сетевые привилегии без полного привилегированного выполнения |
+| Файловая система | `ProtectSystem=strict`, конфигурация только для чтения, отдельный tmp | Каталог среды исполнения и отдельный tmp остаются доступны для записи |
+| Ядро/процессы | Защищены параметры ядра, модули и группы управления; ограничена видимость процессов | Необязательные исполнители требуют явной проверки интеграции |
+| Семейства адресов | Unix, IPv4, IPv6, netlink | Управление, UDP/TCP и монитор интерфейсов |
+| Предел дескрипторов | `16384` | Бюджет исходников `2*sessions+256`; квалифицировать фактическую нагрузку |
 
-Источники: [unit](../../deployments/systemd/gobfd.service), [accounts](../../deployments/systemd/gobfd.sysusers), [directories](../../deployments/systemd/gobfd.tmpfiles).
+Источники: [служба](../../deployments/systemd/gobfd.service), [учётные записи](../../deployments/systemd/gobfd.sysusers), [каталоги](../../deployments/systemd/gobfd.tmpfiles).
 
-Операторы входят в `gobfd-admin`, а не в читающую secrets группу демона. После установки проверить effective unit и права сокета. Запуск, перечитывание и rollback определены в [регламенте](16-production-runbooks.md).
+Операторы входят в `gobfd-admin`, а не в группу демона, способную читать секреты конфигурации. Проверить действующее описание службы и права сокета после установки пакета. Активация, перечитывание и откат определены в [регламенте](16-production-runbooks.md).
 
-Опциональный [kernel-bond drop-in](../../deployments/systemd/gobfd-kernel-bond.conf) открывает запись одного sysfs slaves и добавляет `CAP_DAC_OVERRIDE`, расширяя чтение root-owned файлов. Bond должен существовать при запуске. Native-приёмка требует реальной записи/чтения состояния участника и проверки отказа/восстановления пересылки на хосте с bonding module. Dry-run и наличие drop-in не доказывают enforcement.
+Необязательное [дополнение kernel-bond](../../deployments/systemd/gobfd-kernel-bond.conf) разрешает запись файла slaves одного bond в sysfs и добавляет `CAP_DAC_OVERRIDE`. Это расширяет чтение файлов root. Bond должен существовать при запуске. Приёмка в нативной среде требует фактической записи и чтения состояния участника и проверки отказа и восстановления пересылки на хосте с модулем bonding. Успешный dry-run или наличие дополнения не подтверждает приёмку применения состояния.
 
 ## Podman Compose
 
-Поддерживается `podman compose` с checksum-pinned Go provider. Python `podman-compose` и прямой вызов provider вне контракта. Версия/checksum принадлежат bootstrap, а не старой инструкции.
+Поддерживается `podman compose` с провайдером Go Compose, закреплённым контрольной суммой. Python `podman-compose` и прямой вызов провайдера находятся вне контракта. Начальная подготовка владеет закреплением версии и контрольной суммой провайдера; не копировать версию из старого руководства.
 
 ```sh title="compose-provider.sh"
 go run ./test/cmd/toolbootstrap compose --install-dir "$HOME/.local/bin"
@@ -56,7 +57,9 @@ podman compose version
 podman compose -f deployments/compose/compose.yml config
 ```
 
-Bootstrap выполняется на хосте с repository toolchain. Требуется цепочка реальных каталогов с безопасным ownership; проверка предшествует atomic publication. `DOCKER_BUILDKIT=0` сохраняет поддерживаемый Podman API path. Источники: [bootstrap](../../test/cmd/toolbootstrap), [Makefile](../../Makefile).
+Начальная подготовка выполняется на хосте с инструментарием репозитория. Она требует цепочку реальных каталогов установки с безопасным владением и проверяет провайдера до атомарной публикации. `DOCKER_BUILDKIT=0` сохраняет сборки через Podman на поддерживаемом пути API. Источники: [начальная подготовка](../../test/cmd/toolbootstrap), [Makefile](../../Makefile).
+
+Цели разработки:
 
 ```sh title="development.sh"
 make up
@@ -64,23 +67,23 @@ make build
 make test-run RUN=TestFSMTransition PKG=./internal/bfd
 ```
 
-[Production Compose specimen](../../deployments/compose/compose.yml) использует host networking, read-only config, `NET_RAW`/`NET_ADMIN` и loopback Prometheus/Grafana. Это исходный образец, не site receipt. Проверить image identities, доступность socket group, host port conflicts и права до запуска. Existing fixed names/shared volumes требуют проверки владельца.
+[Образец производственного Compose](../../deployments/compose/compose.yml) использует сеть хоста, конфигурацию только для чтения, `NET_RAW`/`NET_ADMIN` и слушающие сокеты Prometheus/Grafana на loopback. Это образец исходников, а не запись развёртывания на площадке. Проверить идентичности образов, доступность группы сокета, конфликты портов хоста и действующие права до активации. Существующие фиксированные имена или общие тома требуют явной проверки владения.
 
-Host networking не разделяет filesystem paths. Compose не монтирует `/run/gobfd` на host; читать default socket внутри контейнера:
+Сеть хоста не разделяет пути файловой системы. Этот Compose не монтирует `/run/gobfd` на хост; проверить сокет управления по умолчанию внутри контейнера:
 
 ```sh
 podman exec gobfd gobfdctl session list
 ```
 
-Доступ host CLI требует отдельно проверенного mount каталога сокета/прав либо явно настроенного TCP management transport.
+Доступ CLI с хоста требует отдельно проверенных монтирования каталога сокета и прав либо явно настроенного TCP-транспорта управления.
 
 ## Kubernetes
 
-[DaemonSet](../../deployments/integrations/kubernetes/manifests/daemonset.yml) выбирает Linux, `hostNetwork: true`, `ClusterFirstWithHostNet`, runtime-default seccomp и `NET_RAW`/`NET_ADMIN`. Оба контейнера используют local images с `imagePullPolicy: Never`; доставить их в runtime каждого eligible node до apply. Host port conflicts и открытые host-network metrics требуют явной host-network политики.
+[Образец DaemonSet](../../deployments/integrations/kubernetes/manifests/daemonset.yml) выбирает Linux, `hostNetwork: true`, `ClusterFirstWithHostNet`, seccomp по умолчанию среды исполнения и `NET_RAW`/`NET_ADMIN`. Оба контейнера используют локальные образы с `imagePullPolicy: Never`; доставить образы в среду исполнения каждого подходящего узла до применения. Конфликты портов узла и метрики сети хоста без аутентификации требуют явной сетевой политики, не ограниченной предположениями о сети пода.
 
-Readiness выполняет `gobfdctl session list` через сокет; liveness проверяет metrics TCP. Они не доказывают BFD Up или сходимость BGP. GoBGP API/probes используют loopback. Приёмка требует image import на каждом выбранном node, правильного выбора labels/probes в runner, rollout и отказа/восстановления при заявленных CPU/memory limits фактического кластера. Образец не содержит live-cluster receipt.
+Проверка готовности выполняет `gobfdctl session list` через сокет; проверка жизнеспособности подключается к TCP метрик. Эти пробы не доказывают BFD Up или сходимость BGP. API и пробы GoBGP используют loopback. До приёмки требовать успешный импорт образов на каждом выбранном узле, правильный выбор метки исполнителя и проб, развёртывание, отказ и восстановление при заявленных ограничениях CPU/памяти в фактическом кластере. Образец не предоставляет запись такого выполнения в кластере.
 
-После согласования кластера/context и импорта обоих local images на все выбранные nodes:
+После допуска целевого кластера и контекста и импорта обоих локальных образов на каждом выбранном узле:
 
 ```sh title="kubernetes-rollout.sh"
 kubectl apply -f deployments/integrations/kubernetes/manifests/
@@ -91,25 +94,25 @@ kubectl -n gobfd describe daemonset/gobfd
 kubectl -n gobfd logs -l app.kubernetes.io/name=gobfd -c gobfd --tail=100
 ```
 
-Требовать совпадения desired/current/ready и одного нужного pod на каждом eligible node. Проверить restart/OOM и container status каждого pod. Для каждого найденного pod подставить точное имя:
+Требовать совпадения desired/current/ready и размещения одного нужного пода на каждом подходящем узле. Проверить перезапуски, OOM и состояние контейнеров каждого пода. Для каждого найденного пода подставить его точное имя при чтении состояния:
 
 ```sh
 kubectl -n gobfd exec POD_NAME -c gobfd -- /bin/gobfdctl session list
 ```
 
-Требовать заданного peer state и отдельной route/forwarding проверки каждого node. Сохранить прежние ConfigMaps/DaemonSet и image identities для rollback; не удалять общие namespace/resources вместо rollback. Источник команд: [процедура Kubernetes DaemonSet](https://kubernetes.io/docs/tasks/manage-daemon/create-daemon-set/).
+Требовать заданного состояния соседа и отдельной проверки маршрута и пересылки для каждого узла. Сохранить прежние ConfigMaps/DaemonSet и идентичности образов для отката; не удалять общие пространства имён и ресурсы вместо отката. Источник команд: [процедура Kubernetes DaemonSet](https://kubernetes.io/docs/tasks/manage-daemon/create-daemon-set/).
 
 ## Ресурсы и приёмка
 
-Задать `GOMEMLIMIT` по измеренным RSS, packet rate, числу сессий и limit контейнера. Сохранить default `GOGC` без измеренного обоснования изменения. Heap target не ограничивает RSS: остаются descriptors, kernel buffers, goroutines, traces и peer processes.
+Задать `GOMEMLIMIT` по измеренным резидентной памяти, частоте пакетов, числу сессий и ограничению контейнера. Сохранить `GOGC` по умолчанию, если измерения не обосновывают изменение. Целевой размер кучи не ограничивает RSS; остаются затраты дескрипторов, буферов ядра, goroutines, трассировок и процессов соседей.
 
-Перед production-приёмкой сохранить:
+Перед производственной приёмкой сохранить:
 
-1. Точные source/artifact identities, конфигурацию и rollback copy.
-2. Проверки management permissions и доступности listeners без аутентификации.
-3. Negotiated peer state/timers и пакетные проверки.
-4. Consumer route/backend response и независимый forwarding probe при отказе/восстановлении.
-5. Resource/OOM/restart behavior при заявленной нагрузке.
-6. [Integration evidence](11-integrations.md), [security gates](15-security.md) и ограничения preview.
+1. Точные идентичности исходников и артефактов, конфигурацию и копию для отката.
+2. Проверки прав управления и доступности слушающих сокетов без аутентификации.
+3. Согласованные состояние и таймеры соседа, проверки захвата пакетов.
+4. Реакцию маршрутов или серверной реализации потребителя и независимые пробы пересылки при отказе и восстановлении.
+5. Поведение ресурсов, OOM и перезапусков при заявленной нагрузке.
+6. Соответствующие [доказательства интеграции](11-integrations.md), [проверки безопасности](15-security.md) и оставшиеся ограничения предварительных реализаций.
 
-Локальный тест, принятая конфигурация и HTTP health доказывают только собственные измеренные границы.
+Локальные тесты, принятая конфигурация и исправный слушающий HTTP-сокет доказывают только собственные измеренные границы.

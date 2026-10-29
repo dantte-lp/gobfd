@@ -66,7 +66,7 @@ Checks and mutations are separate calls. Concurrent administrator edits require 
 | Ownership | Local socket belongs to GoBFD | Local socket belongs to GoBFD |
 | Unsupported owners | Kernel/OVS/OVN/Cilium/Calico/NSX backend names fail closed | Same reserved names fail closed |
 
-A kernel or vendor overlay owning the same local address/port/namespace is outside the userspace profile. Missing/special-use Geneve VAP identity, IPv6 inner payload and Format B fail closed. RFC 9521 traffic must have controlled/provisioned rates; congestion can cause false failures. Sources: [backend admission](../../../internal/netio/overlay_backend.go), [inner framing](../../../internal/netio/overlay_inner.go), [RFC 8971](../../rfc/rfc8971.txt), [RFC 9521](../../rfc/rfc9521.txt).
+A kernel or vendor overlay owning the same local address/port/namespace is outside the userspace profile. Missing/special-use Geneve VAP identity, IPv6 inner payload and Format B fail closed. [RFC 9521 §1](https://www.rfc-editor.org/rfc/rfc9521.html#section-1) requires BFD for Geneve to run within a Traffic-Managed Controlled Environment (TMCE) unless BFD traffic has real congestion control. In a TMCE, the operator provisions BFD transmission rates to avoid congestion and false failure detection. Sources: [backend admission](../../../internal/netio/overlay_backend.go), [inner framing](../../../internal/netio/overlay_inner.go), [RFC 8971](../../rfc/rfc8971.txt), [RFC 9521](../../rfc/rfc9521.txt).
 
 ## Consequences
 

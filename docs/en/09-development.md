@@ -90,13 +90,13 @@ The [E2E target inventory](../../test/e2e/targets.md) distinguishes assertion-ba
 
 ### Overlay wire qualification
 
-1. Run `make e2e-overlay` in an isolated Linux namespace with UDP 4789/6081 available.
-2. Retain Go test JSON for both inner tuples on the same outer endpoints/VNI. Assertions cover bidirectional userspace UDP, TTL 255, identity/malformed rejection, cancellation, reuse and Close.
-3. Capture loopback UDP 4789/6081 with the existing tshark image in that test namespace. Bound capture with `-a duration:20 -a filesize:1024`.
-4. Correlate decoded frames and discriminators with accepted/rejected test outcomes; retain command, image IDs, limits and hashes.
-5. Replay the six overlay fuzz targets with race detection, two workers, a 20-second budget and an outer timeout.
+Run `make e2e-overlay` for the assertion-based userspace UDP tests. The [launcher](../../test/internal/e2erunner/runner.go) creates a separate `--network none` runtime, starts the bounded test immediately and attempts best-effort removal before returning. It provides no capture startup, readiness or join hook. A capture started after the target returns cannot observe the completed test in that runtime.
 
-The generated `packets.csv` is a codec fixture summary. It is not a PCAP. These checks do not qualify vendor or owner-specific overlay backends.
+Retain Go test JSON for both inner tuples on the same outer endpoints/VNI. [Assertions](../../test/e2e/overlay/wire_test.go) cover bidirectional userspace UDP, TTL 255, identity/malformed rejection, cancellation, reuse and Close. The generated `packets.csv` is a codec fixture summary, not a PCAP.
+
+Wire qualification requires a separately implemented and reviewed capture lifecycle: admission into the exact runtime namespace before traffic, confirmed capture readiness, bounded duration/file size, capture stop/join and nonempty artifact checks before runtime removal. Correlate decoded frames and discriminators with accepted/rejected outcomes only after that lifecycle exists; retain command, image IDs, limits and hashes. The current target alone does not provide this qualification.
+
+Replay the six overlay fuzz targets with race detection, two workers, a 20-second budget and an outer timeout as a separate gate. These checks do not qualify vendor or owner-specific overlay backends.
 
 ### Package lifecycle qualification
 

@@ -1,38 +1,40 @@
-# ADR-0011: Владение встроенным authentication payload
+<a id="adr-0011-владение-встроенным-authentication-payload"></a>
+
+# ADR-0011: Владение встроенной полезной нагрузкой аутентификации BFD
 
 | Поле | Значение |
 |:---|:---|
-| Status | Accepted |
-| Date | 2026-10-26 |
+| Статус | Принято |
+| Дата | 2026-10-26 |
 
 ## Контекст
 
-[ADR-0010](0010-bfd-auth-value-ownership.md) передаёт metadata по значению, но разделяет slice backing storage. Поддерживаемые passwords занимают 1–16 байт, MD5 digest — 16, SHA1 — 20. Bounded inline representation владеет любым supported payload без отдельной allocation. Размеры задаёт [RFC 5880 §§4.2–4.4](../../rfc/rfc5880.txt).
+[ADR-0010](0010-bfd-auth-value-ownership.md) передаёт метаданные по значению, но разделяет хранилище среза. Поддерживаемые пароли занимают 1–16 байт, хеши MD5 — 16, SHA1 — 20. Встроенное представление ограниченного размера может владеть любой поддерживаемой полезной нагрузкой без отдельного выделения памяти. Размеры задаёт [RFC 5880 §§4.2–4.4](../../rfc/rfc5880.txt).
 
 ## Решение
 
-`AuthSection.Data` — массив 20 байт внутри value. Logical `DataLen` отделён от wire `Len`. Marshal и Verify отклоняют missing, short, long и inconsistent lengths до byte access либо wire write. Полный zero value означает отсутствие auth.
+`AuthSection.Data` — массив 20 байт внутри значения. Логический `DataLen` отделён от `Len` на линии. Marshal и Verify отклоняют отсутствующую, короткую, длинную и несогласованную длину полезной нагрузки до доступа к байтам либо записи на линию. Полное нулевое значение означает отсутствие аутентификации.
 
-Decode проверяет local authentication value и публикует после полной section validation. Assignment копирует metadata/payload; reuse input buffer и mutation другой копии их не меняют. Failed header decode не атомарен; ingress отбрасывает каждый decode failure.
+Decode проверяет данные в локальном значении аутентификации и публикует его только после полной проверки секции. Присваивание копирует метаданные и полезную нагрузку; повторное использование входного буфера и изменение другого пакета их не меняют. Неуспешное декодирование заголовка не атомарно; входной путь отбрасывает каждый результат неуспешного декодирования.
 
-Built-in Sign читает package-owned immutable keys через private accessor и копирует в packet-owned storage. Public key-store accessors возвращают owned copies. Hash signing записывает fixed digest width, не раскрывая backing bytes key store либо другого packet.
+Встроенный Sign читает принадлежащие пакету Go неизменяемые ключи через закрытый метод доступа и копирует их в хранилище пакета BFD. Публичные методы доступа хранилища ключей по-прежнему возвращают собственные копии. Подпись хешем записывает фиксированную длину хеша и не раскрывает байты хранилища ключей либо другого пакета BFD.
 
-Read-only Verify и DemuxWithWire передают values. Hash verification сохраняет bounded scratch PDU, digest-width checks, constant-time comparison и изменение replay state только после успеха. Receivers сохраняют complete authenticated wire до pool release; owned decoded payload его не заменяет. Retained copy не декодируется повторно.
+Verify только для чтения и DemuxWithWire передают значения. Проверка хеша сохраняет временный PDU ограниченного размера, проверки длины хеша, сравнение за постоянное время и изменение состояния защиты от повторов только после успеха. Приёмники по-прежнему сохраняют полные аутентифицированные байты с линии до возврата буфера в пул; собственная декодированная полезная нагрузка их не заменяет. Сохранённая копия не разбирается повторно.
 
-Protobuf, configuration и BFD wire formats сохраняются. Неподдерживаемые future auth types отклоняются; payload больше 20 байт требует нового design/qualification. ADR заменяет ADR-0010, сохраняя immutable verification и value transfer.
+Форматы protobuf, конфигурации и BFD на линии сохраняются. Неподдерживаемые будущие типы аутентификации отклоняются; полезная нагрузка больше 20 байт требует нового проекта и квалификации. ADR заменяет ADR-0010, сохраняя решения о неизменяемой проверке и передаче по значению.
 
 ## Последствия
 
-Allocation targets охватывают пять built-in Sign methods и authenticated owner/event loop с real metrics. Qualification проверяет independent vectors, invalid lengths/keys, packet copies, repeated signing, key-store isolation, races, fuzzing и обе supported compilation targets.
+Обязательные целевые показатели выделений охватывают все пять встроенных методов Sign и аутентифицированный цикл владельца и событий с реальными метриками. Квалификация проверяет независимые векторы, недопустимые длины и ключи, копии пакетов, повторную подпись, изоляцию хранилища ключей, гонки, фаззинг и обе поддерживаемые цели компиляции.
 
-Local linux/amd64 layout: ControlPacket 60 байт, AuthSection 28 вместо 64 и 32. Alignment сохраняет RX queue element 160 байт; уменьшение packet его не уменьшает. Retained RSS из этого не следует. UDP, native arm64, scale, timer distributions и release qualification находятся за границами allocation benchmark.
+Локальная компоновка linux/amd64: ControlPacket 60 байт, AuthSection 28 вместо 64 и 32. Выравнивание сохраняет элемент очереди RX 160 байт; меньший пакет его не уменьшает. Вывод об удерживаемом RSS из этого не следует. UDP, нативный arm64, масштаб, распределения таймеров и квалификация выпуска находятся за границами микротеста выделений.
 
-Source qualification сохраняет storage/allocation regressions; full runtime comparison остаётся отдельным.
+Квалификация исходников должна сохранять регрессионные проверки хранения и выделений; полное сравнение в среде исполнения остаётся отдельным.
 
 ## Источники
 
-- [Codec и inline type](../../../internal/bfd/packet.go).
-- [Key access, Sign и Verify](../../../internal/bfd/auth.go).
-- [Storage/allocation regression tests](../../../internal/bfd/packet_auth_storage_test.go).
-- [Padded independent vectors](../../../internal/bfd/auth_padding_test.go).
-- [Allocation evidence](../12-benchmarks.md).
+- [Кодек и встроенный тип](../../../internal/bfd/packet.go).
+- [Доступ к ключам, Sign и Verify](../../../internal/bfd/auth.go).
+- [Регрессионные тесты хранения и выделений](../../../internal/bfd/packet_auth_storage_test.go).
+- [Независимые векторы с дополнением](../../../internal/bfd/auth_padding_test.go).
+- [Доказательства выделений](../12-benchmarks.md).

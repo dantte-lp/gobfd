@@ -8,7 +8,8 @@ GoBFD runs on Linux with ordinary UDP, raw-socket and interface inventory suppor
 | :--- | :--- | :--- |
 | Linux amd64/arm64 archive | Four binaries, example YAML, systemd unit | Accounts and host installation are operator-owned |
 | DEB/RPM | Four binaries, noreplace config, unit, sysusers/tmpfiles and lifecycle support | Preserve existing configuration on upgrade |
-| Debian trixie OCI | Four binaries, release labels/SBOM configuration | Verify exact manifest digest and candidate evidence |
+| Release Debian trixie OCI | Four binaries from [Containerfile.release](../../deployments/docker/Containerfile.release), release labels/SBOM configuration | Verify exact manifest digest and candidate evidence |
+| Application/production Compose OCI | `gobfd` and `gobfdctl` from [Containerfile](../../deployments/docker/Containerfile) | [Production Compose](../../deployments/compose/compose.yml) builds this two-binary image |
 | Development Compose | Source mount and build tools | Development environment; no daemon/file watcher |
 
 The four application binaries are `gobfd`, `gobfdctl`, `gobfd-haproxy-agent` and `gobfd-exabgp-bridge`. Oracle Linux 10 is excluded from v1 OCI qualification; generic RPM packaging remains. Alpine, bookworm and executable scratch runtimes are outside the repository contract. The dependency/toolchain identities come from the [current manifests](../../go.mod) and digest-pinned Containerfiles, not an unqualified “latest” tag.

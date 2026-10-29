@@ -5,17 +5,22 @@ Micro-benchmarks measure one named operation. They do not establish packet throu
 ## Collect a snapshot
 
 1. Prepare the [pinned development environment](09-development.md).
-2. Choose a new snapshot identifier; preserve previous raw samples.
-3. Run the required collection and comparison:
+2. Select the baseline revision. Choose unused snapshot identifiers and preserve previous raw samples. Require identical benchmark bodies, compiler, architecture, resource limits and environment for both revisions.
+3. Collect a fresh baseline:
 
 ```bash title="Go benchmark snapshot"
 make up
-make benchmark-save BENCH_VERSION=local-doc-audit
-make benchmark-compare OLD=v0.4.0 NEW=local-doc-audit
+make benchmark-save BENCH_VERSION=local-baseline
 ```
 
-4. Require successful exit and complete samples before using metadata or reports. Keep partial failure output for diagnosis.
-5. Compare identical benchmark bodies, compiler, architecture, resource limits and environment. Inspect uncertainty and contention before attributing a result to code.
+4. Select the candidate revision in the same checkout, retaining the baseline files and equivalent development environment. Collect and compare:
+
+```bash title="Equivalent candidate comparison"
+make benchmark-save BENCH_VERSION=local-candidate
+make benchmark-compare OLD=local-baseline NEW=local-candidate
+```
+
+5. Require successful exit and complete samples before using metadata or reports. Keep partial failure output for diagnosis. Inspect uncertainty and contention before attributing a result to code; [Makefile](../../Makefile) does not enforce compiler or benchmark-body equivalence.
 
 | Target | Collection/output |
 |:---|:---|
@@ -116,6 +121,12 @@ The local receipt `reports/collector-owner-20261022/` records 16 B/op and 2 allo
 ## Historical and comparison sources
 
 [v0.4.0 samples](../../testdata/benchmarks/v0.4.0/benchmark.txt) and [metadata](../../testdata/benchmarks/v0.4.0/meta.json) retain Go 1.26.0, six runs, source identifier 48eb954, dated 2026-02-24. These results are not Go 1.27.3 qualification.
+
+Use the retained samples only for a historical diagnostic, excluding claims of equivalent compiler/benchmark bodies or current-candidate qualification:
+
+```bash
+make benchmark-compare OLD=v0.4.0 NEW=local-candidate
+```
 
 [C models](../../bench/c/) are repository-owned replicas. Fixed C iterations and validation differ from Go's adaptive benchmark bodies; do not rank FRR/BIRD daemons or languages with them. See [comparison method](13-competitive-analysis.md).
 
