@@ -2133,6 +2133,11 @@ func scanWorkflowLine(
 }
 
 func shouldScanDeclaredSource(relative string) bool {
+	// cirunner.TestCoverage owns this root-level gotestsum event stream, which
+	// can still be growing while dependency checks run in the same test suite.
+	if relative == "unit-report.json" {
+		return false
+	}
 	if strings.HasPrefix(filepath.Base(relative), "Containerfile") {
 		return true
 	}

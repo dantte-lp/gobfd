@@ -539,6 +539,54 @@ func TestDiscoverDeclaredComponentsIgnoresRepositoryWorktrees(t *testing.T) {
 	}
 }
 
+func TestDiscoverDeclaredComponentsIgnoresGeneratedUnitReport(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	// gotestsum writes this event stream while the repository test is running.
+	writeFixture(t, root, "unit-report.json", strings.Repeat(" ", 4<<20)+
+		`{"Output":"docker.io/example/runtime-output:9.9.9"}`+"\n")
+	const image = "docker.io/example/router:1.2.3"
+	paths := []string{"profiles.json", "testdata/unit-report.json", "unit-report-custom.json"}
+	for _, path := range paths {
+		writeFixture(t, root, path, `{"image":"`+image+`"}`)
+	}
+
+	components, err := discoverDeclaredComponents(t.Context(), root)
+	if err != nil {
+		t.Fatalf("discoverDeclaredComponents() with generated report: %v", err)
+	}
+	if len(components) != 1 || components[0].Kind != KindOCIImage || components[0].Installed != image {
+		t.Fatalf("discoverDeclaredComponents() = %#v, want only the declared JSON image", components)
+	}
+	wantSources := make([]SourceLocation, 0, len(paths))
+	for _, path := range paths {
+		wantSources = append(wantSources, SourceLocation{Path: path, Match: image})
+	}
+	if !slices.Equal(components[0].Sources, wantSources) {
+		t.Fatalf("JSON image sources = %#v, want %#v", components[0].Sources, wantSources)
+	}
+}
+
+func TestDiscoverDeclaredComponentsRejectsOversizedDependencyJSON(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{"profiles.json", "testdata/unit-report.json", "unit-report-custom.json"} {
+		t.Run(path, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeFixture(t, root, path, strings.Repeat(" ", 4<<20)+
+				`{"image":"docker.io/example/router:1.2.3"}`)
+			_, err := discoverDeclaredComponents(t.Context(), root)
+			if err == nil || !strings.Contains(err.Error(), "read dependency source "+path+":") ||
+				!strings.Contains(err.Error(), "source exceeds 4194304 bytes") {
+				t.Fatalf("discoverDeclaredComponents() error = %v, want oversized dependency source %s rejected", err, path)
+			}
+		})
+	}
+}
+
 func TestDiscoverDeclaredComponentsDoesNotClassifyBuildProvenanceAsTools(t *testing.T) {
 	t.Parallel()
 

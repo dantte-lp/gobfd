@@ -50,6 +50,9 @@ see the [RFC coverage matrix](docs/en/08-rfc-compliance.md).
 
 ### Fixed
 
+- Restore non-Linux compilation without granting Unix peer credentials or
+  writing certificate files on unsupported platforms.
+  [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - Control timer/Poll/Final handling preserves explicit RX zero, retries failed
   Final sends, confirms only transmitted Polls and expires learned wire parameters
   independently of authentication sequence state.

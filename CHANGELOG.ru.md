@@ -51,6 +51,9 @@ Echo и Micro-BFD остаются preview, выключенными по умо
 
 ### Исправлено
 
+- Восстановлена сборка на других ОС без назначения Unix peer credentials
+  или записи файлов сертификатов на неподдерживаемых платформах.
+  [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - Таймеры Control и Poll/Final сохраняют явный RX zero, повторяют неотправленный
   Final, подтверждают только отправленный Poll и сбрасывают learned wire parameters
   независимо от состояния authentication sequence.

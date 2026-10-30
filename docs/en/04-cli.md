@@ -98,6 +98,8 @@ Before mutation, verify preview enablement, the owned tuple/member set and the p
 
 `certificate renew` contacts an external CA using an existing identity, validates the returned certificate and atomically replaces only the certificate. Enrollment, key rotation and scheduling are outside its scope.
 
+File renewal requires Linux. The [platform guard](../../internal/stepca/files_other.go) returns `errors.ErrUnsupported` on other platforms before reading credentials or contacting the CA.
+
 On Linux, use an account that can read the separate certificate, key and trust-root files and replace the certificate in its trusted parent directory. Preserve a protected accepted certificate and an independent management session. Verify the CA origin and current credential identity before running this unexecuted example; stop if the files, ownership or trust roots differ from the accepted inputs.
 
 ```sh

@@ -75,6 +75,12 @@ jobs:
       - name: Test the non-Linux transport boundary
         run: go test ./internal/netio -race -count=1
 
+      - name: Test unsupported management operations
+        run: >-
+          go test -race -count=1
+          -run '^(TestUnixPeerUIDRejectsUnsupportedPlatform|TestRenewFileRejectsUnsupportedPlatform|TestRenewFilePreservesCancellationOnUnsupportedPlatform|TestConnContextAttachesUnixPeerPrincipal)$'
+          ./internal/server ./internal/stepca
+
       - name: Cross-compile all packages without cgo
         env:
           CGO_ENABLED: "0"
