@@ -193,6 +193,7 @@ func publicImages() []imageReference {
 
 func validateFRRTemplate(projectRoot string) (returnErr error) {
 	topologyPath := filepath.Join(projectRoot, "test", "interop-clab", "gobfd-vendors.clab.yml")
+	// #nosec G304 -- The project root is operator-selected; the fixed topology is checked as a bounded regular file.
 	file, err := os.Open(topologyPath)
 	if err != nil {
 		return fmt.Errorf("open Containerlab topology %s: %w", topologyPath, err)

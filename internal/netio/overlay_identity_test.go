@@ -123,7 +123,7 @@ func TestOverlayScopesAllowSameVNIDistinctInnerTuples(t *testing.T) {
 
 func TestGeneveScopedListenerDemuxesSameVNIDistinctInnerTuples(t *testing.T) {
 	local := netip.MustParseAddr("127.0.0.1")
-	peer := netip.MustParseAddr("127.0.0.2")
+	peer := local
 	first := bfd.TransportScope{
 		Kind: bfd.TransportScopeGeneve, Owner: "geneve-config", Backend: "userspace-udp", VNI: 100,
 		OuterPeerAddr: peer, OuterLocalAddr: local,

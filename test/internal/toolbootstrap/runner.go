@@ -80,10 +80,15 @@ func executeOutput(
 	command.Env = environment
 	command.ExtraFiles = extraFiles
 	command.WaitDelay = commandWaitDelay
-	output, err := command.CombinedOutput()
+	// Wrapper diagnostics belong to stderr; version checks consume exact stdout.
+	output, err := command.Output()
 	if err != nil {
-		return "", fmt.Errorf("run %s %s; output=%s: %w", displayName, strings.Join(arguments, " "),
-			strings.TrimSpace(string(output)), err)
+		stderr := ""
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
+			stderr = strings.TrimSpace(string(exitErr.Stderr))
+		}
+		return "", fmt.Errorf("run %s %s; stdout=%s; stderr=%s: %w", displayName, strings.Join(arguments, " "),
+			strings.TrimSpace(string(output)), stderr, err)
 	}
 	return strings.TrimSpace(string(output)), nil
 }
@@ -106,6 +111,7 @@ func runStreaming(ctx context.Context, name string, arguments, environment []str
 }
 
 func allowPastaSignals(ctx context.Context, abstraction, profile string) error {
+	// #nosec G304 -- production passes the fixed AppArmor abstraction path; other callers are owned test fixtures.
 	data, err := os.ReadFile(abstraction)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -122,6 +128,7 @@ func allowPastaSignals(ctx context.Context, abstraction, profile string) error {
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, e2eCommandTimeout)
 	defer cancel()
+	// #nosec G204 -- sudo resolves through the command allowlist; tee argv uses the fixed AppArmor path without a shell.
 	command := exec.CommandContext(commandCtx, path, "tee", "-a", abstraction)
 	command.Stdin = strings.NewReader(pastaSignalRule)
 	command.Stdout, command.Stderr = io.Discard, os.Stderr
@@ -160,7 +167,7 @@ func ensureE2ESocket(
 	if err != nil {
 		return nil, err
 	}
-	// #nosec G702 -- the executable comes from the fixed Podman allowlist; argv is fixed and no shell is invoked.
+	// #nosec G204 G702 -- Podman is allowlisted; argv uses the validated private Unix socket and no shell is invoked.
 	command := exec.CommandContext(context.WithoutCancel(ctx), path, "system", "service", "--time=0", "unix://"+socket)
 	command.Env, command.Stdout, command.Stderr = environment, logFile, logFile
 	startErr := command.Start()
@@ -204,7 +211,7 @@ func openE2EServiceLog(path string) (*os.File, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("inspect E2E service log: %w", err)
 	}
-	// #nosec G703 -- the fixed path passed the file guard; append privately and preserve retained diagnostics.
+	// #nosec G304 G703 -- the fixed log path passed regular-file, ownership and private-mode guards before private append.
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open E2E service log: %w", err)
@@ -220,6 +227,7 @@ func AppArmorDenials(ctx context.Context, output io.Writer) error {
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, e2eCommandTimeout)
 	defer cancel()
+	// #nosec G204 -- sudo resolves through the command allowlist; dmesg is a literal argument and no shell is invoked.
 	command := exec.CommandContext(commandCtx, path, "dmesg")
 	command.WaitDelay = commandWaitDelay
 	pipe, err := command.StdoutPipe()

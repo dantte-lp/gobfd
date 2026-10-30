@@ -18,6 +18,7 @@ Echo и Micro-BFD остаются preview, выключенными по умо
 
 - Release Please готовит PR версии; GoReleaser публикует проверенные draft
   со ссылками на release PR и отдельным каналом alpha без изменения stable aliases.
+  [#104](https://github.com/dantte-lp/gobfd/pull/104)
 - Версионированные снимки сессий и Watch с `GAP`, `SYNC_COMPLETE`
   и `SESSION_DELETED`; клиенты восстанавливают актуальное состояние после потерь.
 - `gobfdctl capabilities` сообщает зрелость preview, включение и готовность;

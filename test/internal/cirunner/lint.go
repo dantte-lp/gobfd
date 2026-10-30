@@ -356,6 +356,7 @@ func countBuildTagFiles(root, tag string) (int, error) {
 }
 
 func fileContainsBuildTag(path, tag string) (bool, error) {
+	// #nosec G304 -- countBuildTagFiles selects .go entries from WalkDir under the caller-selected repository root.
 	contents, err := os.ReadFile(path)
 	if err != nil {
 		return false, fmt.Errorf("read Go source: %w", err)

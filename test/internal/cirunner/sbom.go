@@ -67,6 +67,7 @@ func prepareArtifact(path, name string) error {
 	if err := rejectNonregularArtifact(path, name); err != nil {
 		return err
 	}
+	// #nosec G304 -- SBOM selects fixed output basenames under validateSafeDirectory; nonregular targets are rejected.
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, reportFileMode)
 	if err != nil {
 		return fmt.Errorf("prepare %s SBOM artifact: %w", name, err)

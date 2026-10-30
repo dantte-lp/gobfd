@@ -34,17 +34,19 @@ URL загрузки выпуска или изменяемый тег обра�
 
 ## systemd
 
-Поставляемая служба запускает `/usr/local/bin/gobfd -config /etc/gobfd/gobfd.yml`. Она работает как `gobfd:gobfd`, входит в `gobfd-admin` для доступа к сокету управления, использует `Type=notify`, сторожевой таймер 30 секунд и перезапуск при отказе через 5 секунд. `ExecReload` отправляет SIGHUP; он не подтверждает принятую сверку.
+Поставляемая служба запускает `/usr/local/bin/gobfd -config /etc/gobfd/gobfd.yml`. Она работает как `gobfd:gobfd`, входит в `gobfd-admin` для доступа к сокету управления, использует `Type=notify`, `WatchdogSec=30s`, `Restart=on-failure` и `RestartSec=5s`. `ExecReload` отправляет SIGHUP; он не подтверждает принятую сверку.
 
 | Контроль | Поставляемое значение | Следствие |
 |:---|:---|:---|
 | Каталог среды исполнения | `/run/gobfd`, права `0755` | Жизненный цикл сокета принадлежит службе |
-| UMask | `0077` | Ограничение новых файлов |
+| UMask | `UMask=0077` | Ограничение новых файлов |
 | Полномочия | `CAP_NET_RAW CAP_NET_ADMIN` | Сетевые привилегии без полного привилегированного выполнения |
 | Файловая система | `ProtectSystem=strict`, конфигурация только для чтения, отдельный tmp | Каталог среды исполнения и отдельный tmp остаются доступны для записи |
-| Ядро/процессы | Защищены параметры ядра, модули и группы управления; ограничена видимость процессов | Необязательные исполнители требуют явной проверки интеграции |
-| Семейства адресов | Unix, IPv4, IPv6, netlink | Управление, UDP/TCP и монитор интерфейсов |
-| Предел дескрипторов | `16384` | Бюджет исходников `2*sessions+256`; квалифицировать фактическую нагрузку |
+| Ядро | `ProtectKernelTunables=true`, `ProtectKernelModules=true`, `ProtectControlGroups=true` | Настройки ядра и группы управления защищены |
+| Процессы | `ProtectProc=invisible`, `ProcSubset=pid`, `LockPersonality=true` | Ограниченная видимость процессов; необязательные исполнители требуют явной проверки интеграции |
+| Системные вызовы | `SystemCallArchitectures=native`, `SystemCallFilter=@system-service`, `SystemCallErrorNumber=EPERM` | Проверить дополнительные исполнители с этим фильтром |
+| Семейства адресов | `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK` | Управление, UDP/TCP и монитор интерфейсов |
+| Предел дескрипторов | `LimitNOFILE=16384` | Бюджет исходников `2*sessions+256`; квалифицировать фактическую нагрузку |
 
 Источники: [служба](../../deployments/systemd/gobfd.service), [учётные записи](../../deployments/systemd/gobfd.sysusers), [каталоги](../../deployments/systemd/gobfd.tmpfiles).
 

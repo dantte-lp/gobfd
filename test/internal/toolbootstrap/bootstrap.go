@@ -487,6 +487,7 @@ func appendWorkflowFile(name, content string) error {
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect workflow file %s: %w", name, err)
 	}
+	// #nosec G304 -- the operator/runner supplies the workflow path; newline and regular-file guards precede this append.
 	file, err := os.OpenFile(name, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("open workflow file %s: %w", name, err)

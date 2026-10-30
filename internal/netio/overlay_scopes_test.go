@@ -31,7 +31,8 @@ func scopedTestGeneveScopes(local, peer netip.Addr) (bfd.TransportScope, bfd.Tra
 // SetScopes widens and narrows the identities of a running scoped socket
 // without replacing it.
 func TestGeneveConnSetScopesWidensAndNarrowsInPlace(t *testing.T) {
-	local, peer := netip.MustParseAddr("127.0.55.1"), netip.MustParseAddr("127.0.55.2")
+	local := netip.MustParseAddr("127.0.0.1")
+	peer := local
 	first, second := scopedTestGeneveScopes(local, peer)
 	conn, err := NewGeneveConnForScopes(local, 49152, []bfd.TransportScope{first}, slog.New(slog.DiscardHandler))
 	if err != nil {
@@ -80,7 +81,8 @@ func TestGeneveConnSetScopesWidensAndNarrowsInPlace(t *testing.T) {
 }
 
 func TestOverlayConnSetScopesRejectsInvalidSets(t *testing.T) {
-	local, peer := netip.MustParseAddr("127.0.55.3"), netip.MustParseAddr("127.0.55.4")
+	local := netip.MustParseAddr("127.0.0.1")
+	peer := local
 	first, _ := scopedTestGeneveScopes(local, peer)
 	conn, err := NewGeneveConnForScopes(local, 49152, []bfd.TransportScope{first}, slog.New(slog.DiscardHandler))
 	if err != nil {
@@ -96,7 +98,7 @@ func TestOverlayConnSetScopesRejectsInvalidSets(t *testing.T) {
 			t.Errorf("%s: SetScopes = %v, want ErrOverlayIdentityMismatch", name, setErr)
 		}
 	}
-	unscoped, err := NewVXLANConn(netip.MustParseAddr("127.0.55.5"), 7, 49153, slog.New(slog.DiscardHandler))
+	unscoped, err := NewVXLANConn(local, 7, 49153, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Skipf("VXLAN loopback socket unavailable: %v", err)
 	}
@@ -109,7 +111,8 @@ func TestOverlayConnSetScopesRejectsInvalidSets(t *testing.T) {
 // Run with -race: identity lookups on the send and receive paths read the
 // set with one atomic load while SetScopes replaces it.
 func TestOverlayConnSetScopesRacesSendAndDecap(t *testing.T) {
-	local, peer := netip.MustParseAddr("127.0.55.6"), netip.MustParseAddr("127.0.55.7")
+	local := netip.MustParseAddr("127.0.0.1")
+	peer := local
 	first, second := scopedTestGeneveScopes(local, peer)
 	conn, err := NewGeneveConnForScopes(local, 49152, []bfd.TransportScope{first}, slog.New(slog.DiscardHandler))
 	if err != nil {

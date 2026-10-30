@@ -85,6 +85,7 @@ type ExecRunner struct {
 
 // Run executes one command and preserves its output streams.
 func (r ExecRunner) Run(ctx context.Context, name string, args ...string) error {
+	// #nosec G204 -- The production Build caller selects literal go and constructs build argv; no shell is invoked.
 	command := exec.CommandContext(ctx, name, args...)
 	command.Stdout = r.Stdout
 	command.Stderr = r.Stderr

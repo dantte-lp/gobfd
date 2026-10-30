@@ -18,6 +18,7 @@ see the [RFC coverage matrix](docs/en/08-rfc-compliance.md).
 
 - Release Please prepares version PRs; GoReleaser publishes verified drafts
   with release PR links and a separate alpha channel that preserves stable aliases.
+  [#104](https://github.com/dantte-lp/gobfd/pull/104)
 - Revisioned session snapshots and Watch streams with `GAP`, `SYNC_COMPLETE`
   and `SESSION_DELETED`; clients recover from lost events without stale state.
 - `gobfdctl capabilities` reports preview maturity, enablement and readiness;

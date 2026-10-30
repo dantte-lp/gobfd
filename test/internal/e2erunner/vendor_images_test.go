@@ -10,13 +10,7 @@ import (
 func TestVendorRetainedUnavailableDoesNotBecomeAvailableFromCache(t *testing.T) {
 	root := t.TempDir()
 	commandMarker := filepath.Join(root, "podman-called")
-	commandDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(commandDir, "podman"),
-		[]byte("#!/bin/sh\nprintf called > \"$GOBFD_VENDOR_COMMAND_MARKER\"\nexit 0\n"), 0o700); err != nil {
-		t.Fatalf("write cached-image Podman sentinel: %v", err)
-	}
-	t.Setenv("PATH", commandDir)
-	t.Setenv("GOBFD_VENDOR_COMMAND_MARKER", commandMarker)
+	installVendorPodmanSentinel(t, commandMarker, "0")
 	writeRetainedVendorManifest(t, root)
 	r := &runner{root: root, reportDir: t.TempDir()}
 	if err := r.writeVendorImages(t.Context()); err != nil {
@@ -104,13 +98,7 @@ func writeRetainedVendorManifest(t *testing.T, root string) {
 func TestVendorBuildEvidenceRequiresOwnedReceipt(t *testing.T) {
 	root := t.TempDir()
 	commandMarker := filepath.Join(root, "podman-called")
-	commandDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(commandDir, "podman"),
-		[]byte("#!/bin/sh\nprintf called > \"$GOBFD_VENDOR_COMMAND_MARKER\"\nexit 1\n"), 0o700); err != nil {
-		t.Fatalf("write Podman command sentinel: %v", err)
-	}
-	t.Setenv("PATH", commandDir)
-	t.Setenv("GOBFD_VENDOR_COMMAND_MARKER", commandMarker)
+	installVendorPodmanSentinel(t, commandMarker, "1")
 	writeRetainedVendorManifest(t, root)
 	r := &runner{root: root, reportDir: t.TempDir()}
 	if err := r.writeVendorImages(t.Context()); err != nil {
@@ -150,4 +138,18 @@ func TestVendorBuildEvidenceRequiresOwnedReceipt(t *testing.T) {
 		return
 	}
 	t.Fatal("FRR build profile evidence is missing")
+}
+
+func installVendorPodmanSentinel(t *testing.T, marker, exitCode string) {
+	t.Helper()
+	fakeGo := installFakeGo(t)
+	directory := filepath.Dir(fakeGo)
+	if err := os.Symlink(fakeGo, filepath.Join(directory, "podman")); err != nil {
+		t.Fatalf("install Podman test-binary sentinel: %v", err)
+	}
+	t.Setenv("PATH", directory)
+	t.Setenv(fakeGoEnabled, "1")
+	t.Setenv(fakeGoCapture, marker)
+	t.Setenv(fakeGoSilent, "1")
+	t.Setenv(fakeGoExit, exitCode)
 }

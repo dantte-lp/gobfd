@@ -384,6 +384,7 @@ func writeTarGzip(path, reports string, reportsRoot *os.Root) (returnErr error) 
 	if err := resetArtifact(path, "release reports archive"); err != nil {
 		return err
 	}
+	// #nosec G304 -- The archive path comes from validateRootFile and resetArtifact rejects nonregular targets.
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, benchmarkArtifactMode)
 	if err != nil {
 		return fmt.Errorf("open release reports archive: %w", err)

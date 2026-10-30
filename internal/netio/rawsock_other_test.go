@@ -74,6 +74,18 @@ func TestLinuxTransportAPIsRejectUnsupportedPlatform(t *testing.T) {
 				return err
 			},
 		},
+		{
+			name: "placeholder send",
+			run: func() error {
+				return (&UDPSender{}).SendPacket(t.Context(), []byte{0x20}, addr)
+			},
+		},
+		{
+			name: "placeholder close",
+			run: func() error {
+				return (&UDPSender{}).Close()
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -84,5 +96,15 @@ func TestLinuxTransportAPIsRejectUnsupportedPlatform(t *testing.T) {
 				t.Fatalf("error = %v, want %v", err, ErrUnsupportedPlatform)
 			}
 		})
+	}
+}
+
+func TestUnsupportedSenderExposesNoLinuxSocketState(t *testing.T) {
+	t.Parallel()
+
+	sender := &UDPSender{}
+	if sender.SrcPort() != 0 || sender.PaddingPrepared() {
+		t.Fatalf("unsupported sender reports socket state: source port %d, padding %t",
+			sender.SrcPort(), sender.PaddingPrepared())
 	}
 }

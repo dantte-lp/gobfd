@@ -34,17 +34,19 @@ No release download URL or mutable image tag substitutes for candidate verificat
 
 ## systemd
 
-The shipped service starts `/usr/local/bin/gobfd -config /etc/gobfd/gobfd.yml`. It runs as `gobfd:gobfd`, joins `gobfd-admin` for the management socket, uses `Type=notify`, a 30-second watchdog and on-failure restart after five seconds. `ExecReload` sends SIGHUP; it does not confirm accepted reconciliation.
+The shipped service starts `/usr/local/bin/gobfd -config /etc/gobfd/gobfd.yml`. It runs as `gobfd:gobfd`, joins `gobfd-admin` for the management socket, uses `Type=notify`, `WatchdogSec=30s`, `Restart=on-failure` and `RestartSec=5s`. `ExecReload` sends SIGHUP; it does not confirm accepted reconciliation.
 
 | Control | Shipped value | Consequence |
 |:---|:---|:---|
 | Runtime directory | `/run/gobfd`, mode `0755` | Socket lifecycle is service-owned |
-| UMask | `0077` | Restrict newly created files |
+| UMask | `UMask=0077` | Restrict newly created files |
 | Capabilities | `CAP_NET_RAW CAP_NET_ADMIN` | Networking privileges without full privileged execution |
 | Filesystem | `ProtectSystem=strict`, config read-only, private tmp | Runtime directory/private tmp remain writable |
-| Kernel/process | Kernel tunables/modules/control groups protected; restricted process visibility | Optional actuators need explicit integration review |
-| Address families | Unix, IPv4, IPv6, netlink | Management, UDP/TCP and interface monitor |
-| Descriptor limit | `16384` | Source budget `2*sessions+256`; qualify actual workload |
+| Kernel | `ProtectKernelTunables=true`, `ProtectKernelModules=true`, `ProtectControlGroups=true` | Kernel configuration and control groups remain protected |
+| Processes | `ProtectProc=invisible`, `ProcSubset=pid`, `LockPersonality=true` | Restricted process visibility; optional actuators need explicit integration review |
+| System calls | `SystemCallArchitectures=native`, `SystemCallFilter=@system-service`, `SystemCallErrorNumber=EPERM` | Qualify additional actuators against this filter |
+| Address families | `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK` | Management, UDP/TCP and interface monitor |
+| Descriptor limit | `LimitNOFILE=16384` | Source budget `2*sessions+256`; qualify actual workload |
 
 Sources: [unit](../../deployments/systemd/gobfd.service), [accounts](../../deployments/systemd/gobfd.sysusers), [directories](../../deployments/systemd/gobfd.tmpfiles).
 

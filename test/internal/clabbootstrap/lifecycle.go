@@ -578,6 +578,7 @@ func firstAvailableImage(ctx context.Context, options Options, runner Runner, ca
 
 func writeRuntimeTopology(options Options, profiles []vendorProfile, receipt lifecycleReceipt) (string, error) {
 	source := filepath.Join(options.ProjectRoot, "test", "interop-clab", "gobfd-vendors.clab.yml")
+	// #nosec G304 -- The topology basename is fixed under the explicit project root and decoded through a 1 MiB limit.
 	file, err := os.Open(source)
 	if err != nil {
 		return "", fmt.Errorf("open vendor topology: %w", err)
@@ -1254,6 +1255,7 @@ func createLifecycleReceipt(projectRoot string, receipt lifecycleReceipt) error 
 }
 
 func createPrivateReceipt(path string, receipt any) error {
+	// #nosec G304 -- Callers select fixed private receipt basenames; O_EXCL prevents replacing any existing target.
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("create vendor lifecycle receipt: %w", err)
@@ -1300,6 +1302,7 @@ func loadPrivateReceipt(path string, receipt any) error {
 	if !privateReceiptFile(info) || info.Size() <= 0 || info.Size() > maxReceiptSize {
 		return fmt.Errorf("validate private receipt %s: %w", path, errLifecycleState)
 	}
+	// #nosec G304 -- privateReceiptFile requires owned single-link 0600 regular input; the read is size-bounded.
 	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("open private receipt: %w", err)

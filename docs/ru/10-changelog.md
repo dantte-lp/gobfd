@@ -46,6 +46,8 @@ Workflow проверяет предварительные идентифика�
 
 Поддерживаемый продукт OCI — Debian trixie с закреплённым digest. Генерация обычных RPM остаётся доступной; Oracle Linux 10 вне квалификации OCI и жизненного цикла v1. [Справочник автоматизации](reference/automation.md) фиксирует границы артефактов и проверяющего компонента.
 
+После проверки опубликованного выпуска и его артефактов заменить метку PR выпуска `autorelease: pending` на `autorelease: tagged` и добавить `autorelease: published`. Сохранять pending до завершения публикации. Этот учёт после публикации завершает [жизненный цикл Release Please](https://github.com/googleapis/release-please/blob/v17.11.2/docs/customizing.md#release-lifecycle-labels) и отделён от завершающей команды публикации.
+
 <a id="граница-prerelease"></a>
 
 ## Граница предварительного выпуска

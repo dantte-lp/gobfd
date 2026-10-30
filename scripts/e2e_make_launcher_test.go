@@ -40,6 +40,9 @@ func TestMain(m *testing.M) {
 			os.Exit(runE2EMakeFixture())
 		}
 	}
+	if os.Getenv(benchmarkMakeProducerEnabled) == "1" && filepath.Base(os.Args[0]) == "producer" {
+		os.Exit(runBenchmarkMakeProducer())
+	}
 	os.Exit(m.Run())
 }
 

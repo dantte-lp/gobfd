@@ -159,8 +159,8 @@ func TestSystemdDeclarativeInputs(t *testing.T) {
 	}
 }
 
-// TestSystemdServiceHardening pins the measured M-19 sandbox contract
-// (gobfd-qj0.8.2.3.3) and keeps the documented unit identical to the file.
+// TestSystemdServiceHardening pins shipped sandbox directives and checks that
+// translated manuals document their values and link the canonical unit.
 func TestSystemdServiceHardening(t *testing.T) {
 	t.Parallel()
 
@@ -179,7 +179,7 @@ func TestSystemdServiceHardening(t *testing.T) {
 	for line := range strings.Lines(unit) {
 		lines[strings.TrimSpace(line)] = true
 	}
-	for _, want := range []string{
+	requiredDirectives := []string{
 		"Restart=on-failure",
 		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK",
 		"SystemCallArchitectures=native",
@@ -190,7 +190,8 @@ func TestSystemdServiceHardening(t *testing.T) {
 		"ProcSubset=pid",
 		"UMask=0077",
 		"LimitNOFILE=16384",
-	} {
+	}
+	for _, want := range requiredDirectives {
 		if !lines[want] {
 			t.Errorf("gobfd.service lacks %q", want)
 		}
@@ -201,8 +202,22 @@ func TestSystemdServiceHardening(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %s: %v", doc, err)
 		}
-		if !strings.Contains(string(text), "```ini\n"+unit+"```\n") {
-			t.Errorf("%s does not contain deployments/systemd/gobfd.service verbatim", doc)
+		const unitReference = "../../deployments/systemd/gobfd.service"
+		if !strings.Contains(string(text), "]("+unitReference+")") {
+			t.Errorf("%s does not link the canonical systemd unit", doc)
+		}
+		referencedUnit := filepath.Join(repositoryRoot, filepath.Dir(doc), unitReference)
+		reference, err := os.ReadFile(referencedUnit)
+		if err != nil {
+			t.Fatalf("resolve %s systemd unit reference: %v", doc, err)
+		}
+		if !bytes.Equal(reference, data) {
+			t.Errorf("%s systemd reference differs from the shipped unit", doc)
+		}
+		for _, want := range requiredDirectives {
+			if !strings.Contains(string(text), "`"+want+"`") {
+				t.Errorf("%s does not document shipped directive %q", doc, want)
+			}
 		}
 	}
 }

@@ -197,6 +197,7 @@ func (r *runner) appendLoggedCommand(ctx context.Context, suite string, argv ...
 	if runErr != nil || closeErr != nil {
 		return errors.Join(runErr, closeErr)
 	}
+	// #nosec G304 -- suite is selected from routingSuite; goTestJSONName is a fixed runner artifact basename.
 	data, err := os.ReadFile(filepath.Join(r.reportDir, suite, goTestJSONName))
 	if err != nil {
 		return fmt.Errorf("read %s Go test JSON: %w", suite, err)
@@ -220,6 +221,7 @@ func closeFiles(files []*os.File) error {
 }
 
 func passedGoTest(path string) error {
+	// #nosec G304 -- Callers pass their own fixed Go test JSON artifact path; no network input selects files.
 	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("open Go test JSON: %w", err)
@@ -364,6 +366,7 @@ func (r *runner) collectRoutingPcap(
 }
 
 func appendPacketCSV(reportDir, suite, source string) error {
+	// #nosec G304 -- source is the packets.csv just emitted by collectRoutingPackets for an allowlisted suite.
 	file, err := os.Open(source)
 	if err != nil {
 		return fmt.Errorf("open suite packet CSV: %w", err)
@@ -382,6 +385,7 @@ func appendPacketCSV(reportDir, suite, source string) error {
 		return fmt.Errorf("stat aggregate packet CSV: %w", statErr)
 	}
 	flags := os.O_WRONLY | os.O_CREATE | os.O_APPEND
+	// #nosec G304 -- outputPath is the fixed packets.csv basename under the runner-owned report directory.
 	output, err := os.OpenFile(outputPath, flags, 0o600)
 	if err != nil {
 		return fmt.Errorf("open aggregate packet CSV: %w", err)

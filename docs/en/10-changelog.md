@@ -46,6 +46,8 @@ The workflow validates preflight identities, derives notes from all maintenance 
 
 The supported OCI product is digest-pinned Debian trixie. Generic RPM generation remains available; Oracle Linux 10 is outside v1 OCI/lifecycle qualification. [Automation reference](reference/automation.md) records asset and verifier boundaries.
 
+After verifying the published release and its assets, replace the release PR's `autorelease: pending` label with `autorelease: tagged` and add `autorelease: published`. Keep the pending label while publication is incomplete. This postpublication bookkeeping completes the [Release Please lifecycle](https://github.com/googleapis/release-please/blob/v17.11.2/docs/customizing.md#release-lifecycle-labels); it is separate from the terminal publication command.
+
 ## Prerelease boundary
 
 [ADR-0008](adr/0008-experimental-prerelease-boundary.md) accepts an experimental `v1.0.0-alpha.N` channel, where `N` is a positive decimal integer without leading zeroes. Use `release/v1.0`; never tag `dev` or `master` for this channel. Other prerelease spellings are rejected deliberately.

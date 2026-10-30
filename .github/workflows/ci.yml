@@ -27,7 +27,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ hashFiles('go.sum', 'tools/go.sum') }}
 
       - name: Build
         run: go run ./test/cmd/cictl build --output /tmp/gobfd-build
@@ -92,7 +92,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ hashFiles('go.sum', 'tools/go.sum') }}
 
       - name: golangci-lint v2
         run: go run ./test/cmd/cictl lint
@@ -114,7 +114,10 @@ jobs:
         run: go tool -modfile=tools/go.mod yamlfmt -lint .
 
       - name: Spelling policy
-        run: make lint-spell
+        run: >-
+          go tool -modfile=tools/go.mod misspell -error
+          README.md CONTRIBUTING.md CODE_OF_CONDUCT.md SUPPORT.md
+          GOVERNANCE.md MAINTAINERS.md CHANGELOG.md docs/en/roadmap.md
 
   commit-policy:
     name: Commit policy (PR title)
@@ -144,7 +147,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ hashFiles('go.sum', 'tools/go.sum') }}
 
       - name: Vulnerability Audit
         run: go run ./scripts/vuln-audit.go --report-dir reports/security
@@ -214,7 +217,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ hashFiles('go.sum', 'tools/go.sum') }}
 
       - name: Run paired benchmarks (base and PR)
         run: go run ./test/cmd/cictl benchmark-pair --old old.txt --new new.txt

@@ -552,7 +552,7 @@ func (r *runner) commandEnvironment(
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	//nolint:gosec // Executables and argument layouts are selected by fixed target implementations.
+	// #nosec G204 G702 -- Target implementations select executable/argv layouts; exec passes arguments without a shell.
 	cmd := exec.CommandContext(commandCtx, argv[0], argv[1:]...)
 	cmd.Dir = r.root
 	cmd.Stdin = os.Stdin
@@ -600,7 +600,7 @@ func (r *runner) bestEffortCommand(ctx context.Context, argv ...string) {
 }
 
 func secureFile(path string) (*os.File, error) {
-	// #nosec G703 -- every caller joins fixed artifact names or allowlisted suite names beneath runner.reportDir.
+	// #nosec G304 G703 -- Callers join fixed artifact or allowlisted suite names beneath runner.reportDir; mode is 0600.
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("create artifact %s: %w", path, err)

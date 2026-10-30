@@ -231,6 +231,7 @@ func verifyCompiledArtifact(path, wantPath string, race bool) (string, error) {
 	if identityErr := verifyCompiledArtifactIdentity(path, wantPath, race); identityErr != nil {
 		return "", identityErr
 	}
+	// #nosec G304 -- A bounded regular artifact and its package/toolchain/race identity are checked before hashing.
 	file, err := os.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("open compiled artifact: %w", err)

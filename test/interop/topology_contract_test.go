@@ -807,9 +807,38 @@ func TestInteropOperationalContract(t *testing.T) {
 		`c.compose(ctx, commandTimeout, "up", "-d", "--no-build")`,
 	})
 	inventory := contents["target inventory"]
-	assertContainsAll(t, "target inventory", inventory, []string{
-		"GoBFD, FRR, BIRD3, Holo, Holo loader, Thoro/bfd, tshark, Go BFD invalid-vector generator",
-		"Exact Compose project label",
+	var interopRows []string
+	for line := range strings.SplitSeq(inventory, "\n") {
+		if strings.HasPrefix(line, "| interop / interop-testcontainers |") {
+			interopRows = append(interopRows, line)
+		}
+	}
+	if len(interopRows) != 1 {
+		t.Fatalf("target inventory has %d base interop rows, want 1", len(interopRows))
+	}
+	columns := strings.Split(interopRows[0], "|")
+	if len(columns) != 6 {
+		t.Fatalf("base interop target row has %d cells, want 4", len(columns)-2)
+	}
+	assertContainsAll(t, "base interop runtime", columns[2], []string{
+		"four peers", "meticulous/crafted/TTL", "172.20.0.0/24",
+	})
+	assertContainsAll(t, "base interop evidence", columns[3], []string{
+		"Captures", "config/receipt sidecars", "exact resource cleanup",
+	})
+	assertContainsAll(t, "base interop acceptance boundary", columns[4], []string{
+		"Final candidate/peer matrix", "requires actual run",
+	})
+	// Ownership is enforced by the controller, independently of inventory prose.
+	resolveContainer := contractSection(t, projectControl,
+		"func (c *Controller) resolveContainerID(",
+		"func (c *Controller) resolveServiceContainerID(")
+	assertOrdered(t, "exact Compose project ownership", resolveContainer, []string{
+		`{{.ID}}|{{ index .Config.Labels "com.docker.compose.project" }}`,
+		`id, label, ok := strings.Cut(strings.TrimSpace(details), "|")`,
+		`if !ok || id == "" || label != c.projectName {`,
+		`refusing foreign container`,
+		`return id, nil`,
 	})
 }
 
@@ -823,8 +852,44 @@ func TestInteropJitterAnalyzerContract(t *testing.T) {
 	tagged := readContractFile(t, "tagged Go helper", filepath.Join(root, "test", "interop", "interop_test.go"))
 	assertContainsAll(t, "tagged jitter analyzer", tagged, []string{
 		`"github.com/dantte-lp/gobfd/test/internal/bfdjitter"`,
+	})
+	jitter := contractSection(t, tagged,
+		`t.Run("RFC5880_6.8.7_JitterCompliance"`,
+		`t.Run("RFC5880_6.8.1_SessionIndependence"`)
+	assertOrdered(t, "four-peer jitter stream", jitter, []string{
+		`{"FRR", frrIP}`, `{"BIRD3", bird3IP}`, `{"Holo", holoIP}`, `{"Thoro", thoroIP}`,
+		`for _, p := range peers {`,
+		`output, err := tsharkFieldStream(ctx,`,
+		`"bfd && ip.src == "+gobfdIP+" && ip.dst == "+p.ip`,
+		`[]string{"frame.time_epoch", "bfd.sta", "bfd.flags.p", "bfd.flags.f"}`,
 		`bfdjitter.Evaluate(strings.NewReader(output))`,
-		`[]string{"frame.time_epoch", "bfd.sta", "bfd.flags.p", "bfd.flags.f"}, 0`,
+		`switch report.Status {`,
+		`case bfdjitter.StatusSkip:`, `case bfdjitter.StatusFail:`, `case bfdjitter.StatusPass:`,
+	})
+	stream := contractSection(t, tagged, "func tsharkFieldStream(", "func tsharkCount(")
+	assertOrdered(t, "unlimited ordered TSV stream", stream, []string{
+		`args = append(args, "-Y", filter, "-T", "fields")`,
+		`for _, f := range fields {`,
+		`args = append(args, "-e", f)`,
+		`args = append(args, "-E", "separator=\t", "-E", "header=n")`,
+		`return tsharkQuery(ctx, args...)`,
+	})
+	for _, forbidden := range []string{`"-c"`, "maxCount", "parseTsharkFieldRows", "TrimSpace", "TrimPrefix"} {
+		if strings.Contains(stream, forbidden) {
+			t.Errorf("jitter field stream retains limiting or normalizing operation %q", forbidden)
+		}
+	}
+	query := contractSection(t, tagged, "func tsharkQuery(", "func tsharkQueryFile(")
+	assertContainsAll(t, "jitter capture source", query, []string{
+		`return tsharkQueryFile(ctx, "/captures/bfd.pcapng", args...)`,
+	})
+	queryFile := contractSection(t, tagged, "func tsharkQueryFile(", "func tsharkFields(")
+	assertOrdered(t, "jitter capture stdout", queryFile, []string{
+		`resolveProjectContainerID(ctx, "tshark-interop")`,
+		`[]string{"tshark", "-r", capturePath}`,
+		`cmd.Stdout = &stdout`, `cmd.Stderr = &stderr`,
+		`err = commandContextError(ctx, cmd.Run())`, `if err != nil {`,
+		`return stdout.String(), nil`,
 	})
 	assertOrdered(t, "tagged jitter before mutations", tagged, []string{
 		`t.Run("RFC5880_6.8.7_JitterCompliance"`,
