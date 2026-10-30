@@ -645,8 +645,9 @@ func TestInteropOperationalContract(t *testing.T) {
 		"BIRD_COMMIT=c3669497e3949b942d86d07e343092cc439b4659",
 		"BIRD_SOURCE_SHA256=9d19e6ac4f812423721a27bda5df6fc14cceb24af57609f6287c259b3b38893a",
 		"BIRD_FIX_COMMIT=7cf75587b6f38b87849fe192bf5dfd124b7702bc",
-		"BIRD_FIX_SHA256=1655d26ae3d3acd66d3ff87b4aff2b36b61c362885b64d1cc39e976faffac13e",
+		"BIRD_FIX_SHA256=ebb9556370e85ea825a03533099b3c1ed7436d9a0a54aa5990375a997b511bde",
 		"ADD --checksum=sha256:${BIRD_FIX_SHA256}",
+		"https://github.com/CZ-NIC/bird/commit/${BIRD_FIX_COMMIT}.patch",
 		"patch --batch --fuzz=0 -p1 < /tmp/flowspec-fix.patch",
 		"0fdd10a135787dd14226cadfaee542d2a4e13444a32444782ed5deb26907c5e5  nest/rt-table.c' | sha256sum -c -",
 	})
