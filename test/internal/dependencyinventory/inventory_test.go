@@ -26,7 +26,7 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read checked repository inventory: %v", err)
 	}
-	wantGraphCounts := map[string]int{"runtime": 199, "tools": 456}
+	wantGraphCounts := map[string]int{"runtime": 193, "tools": 458}
 	for _, graph := range inv.ModuleGraphs {
 		if len(graph.Modules) != wantGraphCounts[graph.ID] {
 			t.Fatalf("%s module count = %d, want %d", graph.ID, len(graph.Modules), wantGraphCounts[graph.ID])
@@ -65,8 +65,8 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 			}
 		}
 	}
-	if kindCounts[KindTool] != 13 {
-		t.Fatalf("inventory tool count = %d, want 13", kindCounts[KindTool])
+	if kindCounts[KindTool] != 15 {
+		t.Fatalf("inventory tool count = %d, want 15", kindCounts[KindTool])
 	}
 	for _, removed := range []string{
 		"tool:git_commit", "tool:bird_commit", "tool:bird_source_sha256",
@@ -602,6 +602,196 @@ ARG BIRD_SOURCE_SHA256=0123456789abcdef0123456789abcdef0123456789abcdef012345678
 	}
 	if len(components) != 1 || components[0].ID != "tool:buf" {
 		t.Fatalf("discoverDeclaredComponents() = %#v, want only tool:buf", components)
+	}
+}
+
+func TestDiscoverDeclaredComponentsIncludesReleasePleaseTool(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	const path = "tools/release-please/package.json"
+	writeFixture(t, root, path, releasePleaseTestManifest)
+	writeFixture(t, root, "tools/release-please/package-lock.json", releasePleaseTestLock)
+	components, err := discoverDeclaredComponents(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(components) != 1 || components[0].ID != "tool:release_please" ||
+		components[0].Kind != KindTool || components[0].Installed != "17.11.2" ||
+		!slices.Equal(components[0].Sources, []SourceLocation{
+			{Path: "tools/release-please/package-lock.json", Match: `"lockfileVersion"`},
+			{Path: path, Match: `"release-please"`},
+		}) || !strings.HasPrefix(components[0].ContentPin.Value, "sha256:") {
+		t.Fatalf("Release Please component = %#v; want exact scoped tool declaration", components)
+	}
+	coordinates := componentCoordinates(components[0])
+	if coordinates.SourceRepository != "https://github.com/googleapis/release-please" ||
+		coordinates.PURL != "pkg:npm/release-please@17.11.2" {
+		t.Fatalf("Release Please coordinates = %#v", coordinates)
+	}
+	component := Component{ID: components[0].ID, Kind: KindTool, Record: Record{
+		Installed: "17.11.2", SourceLocations: components[0].Sources,
+		ImmutablePin: components[0].ContentPin,
+	}}
+	if compareErr := compareDeclaredComponents([]Component{component}, components); compareErr != nil {
+		t.Fatalf("current lock binding rejected: %v", compareErr)
+	}
+	// A transitive change must invalidate the old receipt even when the CLI version is unchanged.
+	writeFixture(t, root, "tools/release-please/package-lock.json", `{"lockfileVersion":3,"packages":{"":{"dependencies":{"release-please":"17.11.2"}},"node_modules/release-please":{"version":"17.11.2"},"node_modules/other":{"version":"1.0.0"}}}`)
+	changed, err := discoverDeclaredComponents(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := compareDeclaredComponents([]Component{component}, changed); err == nil {
+		t.Fatal("changed dependency closure accepted with the previous lockfile receipt")
+	}
+}
+
+func TestDiscoverDeclaredComponentsBindsNPMBootstrapArtifactsToContentPin(t *testing.T) {
+	t.Parallel()
+
+	const path = "tools/release-please/bootstrap.json"
+	data, err := os.ReadFile(filepath.Join(repositoryRoot(t), path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	writeFixture(t, root, path, string(data))
+	components, err := discoverDeclaredComponents(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(components) != 1 || components[0].ID != "tool:npm" || components[0].Installed != "12.2.1" ||
+		components[0].ContentPin.Kind != "artifact-manifest-sha256" {
+		t.Fatalf("bootstrap component = %#v; want the pinned npm bundle", components)
+	}
+	coordinates := componentCoordinates(components[0])
+	if coordinates.SourceRepository != "https://github.com/npm/cli" || coordinates.PURL != "pkg:npm/npm@12.2.1" {
+		t.Fatalf("bootstrap coordinates = %#v", coordinates)
+	}
+	component := Component{ID: components[0].ID, Kind: KindTool, Record: Record{
+		Installed: components[0].Installed, SourceLocations: components[0].Sources, ImmutablePin: components[0].ContentPin,
+	}}
+	if compareErr := compareDeclaredComponents([]Component{component}, components); compareErr != nil {
+		t.Fatalf("current bootstrap pin rejected: %v", compareErr)
+	}
+	// A different compatible patch must invalidate the receipt for the same npm version.
+	changed := strings.Replace(string(data), `"version": "6.29.1"`, `"version": "6.29.0"`, 1)
+	if changed == string(data) {
+		t.Fatal("bootstrap control did not change the undici patch")
+	}
+	writeFixture(t, root, path, changed)
+	updated, err := discoverDeclaredComponents(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compareErr := compareDeclaredComponents([]Component{component}, updated); compareErr == nil {
+		t.Fatal("changed bootstrap patch accepted with the previous content pin")
+	}
+}
+
+const (
+	releasePleaseTestManifest = `{"private":true,"dependencies":{"release-please":"17.11.2"}}`
+	releasePleaseTestPackages = `{"":{"dependencies":{"release-please":"17.11.2"}},"node_modules/release-please":{"version":"17.11.2"}}`
+	releasePleaseTestLock     = `{"lockfileVersion":3,"packages":` + releasePleaseTestPackages + `}`
+)
+
+func TestDiscoverDeclaredComponentsRejectsMutableReleasePleaseTool(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ name, document string }{
+		{name: "range", document: `{"private":true,"dependencies":{"release-please":"^17.11.2"}}`},
+		{name: "dist tag", document: `{"private":true,"dependencies":{"release-please":"latest"}}`},
+		{name: "leading zero", document: `{"private":true,"dependencies":{"release-please":"017.11.2"}}`},
+		{name: "public package", document: `{"private":false,"dependencies":{"release-please":"17.11.2"}}`},
+		{name: "missing dependency", document: `{"private":true,"dependencies":{}}`},
+		{name: "duplicate dependency", document: `{"private":true,"dependencies":{"release-please":"17.11.2","release-please":"17.11.1"}}`},
+		{name: "private alias cannot override false", document: `{"private":false,"Private":true,"dependencies":{"release-please":"17.11.2"}}`},
+		{name: "dependencies alias cannot supply missing key", document: `{"private":true,"Dependencies":{"release-please":"17.11.2"}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeFixture(t, root, "tools/release-please/package.json", tc.document)
+			writeFixture(t, root, "tools/release-please/package-lock.json", releasePleaseTestLock)
+			_, err := discoverDeclaredComponents(t.Context(), root)
+			if err == nil || strings.Contains(err.Error(), "lockfile") {
+				t.Fatalf("unsafe manifest error = %v; want manifest rejection with a valid version-3 lock", err)
+			}
+		})
+	}
+}
+
+func TestDiscoverDeclaredComponentsRejectsInvalidReleasePleaseLock(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ name, document string }{
+		{name: "version two", document: strings.Replace(releasePleaseTestLock, `"lockfileVersion":3`, `"lockfileVersion":2`, 1)},
+		{name: "root dependency mismatch", document: strings.Replace(releasePleaseTestLock, `"release-please":"17.11.2"`, `"release-please":"17.11.1"`, 1)},
+		{name: "CLI version mismatch", document: strings.Replace(releasePleaseTestLock, `"version":"17.11.2"`, `"version":"17.11.1"`, 1)},
+		{name: "missing CLI package", document: `{"lockfileVersion":3,"packages":{"":{"dependencies":{"release-please":"17.11.2"}}}}`},
+		{name: "LockfileVersion cannot override version two", document: strings.Replace(releasePleaseTestLock, `"lockfileVersion":3`, `"lockfileVersion":2,"LockfileVersion":3`, 1)},
+		{name: "Packages cannot override empty packages", document: `{"lockfileVersion":3,"packages":{},"Packages":` + releasePleaseTestPackages + `}`},
+		{name: "Dependencies cannot override empty root dependencies", document: strings.Replace(releasePleaseTestLock, `"dependencies":{"release-please":"17.11.2"}`, `"dependencies":{},"Dependencies":{"release-please":"17.11.2"}`, 1)},
+		{name: "Version cannot override wrong CLI version", document: strings.Replace(releasePleaseTestLock, `"version":"17.11.2"`, `"version":"17.11.1","Version":"17.11.2"`, 1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeFixture(t, root, "tools/release-please/package.json", releasePleaseTestManifest)
+			writeFixture(t, root, "tools/release-please/package-lock.json", tc.document)
+			if _, err := discoverDeclaredComponents(t.Context(), root); err == nil {
+				t.Fatal("invalid or case-aliased Release Please lock accepted")
+			}
+		})
+	}
+}
+
+func TestDiscoverDeclaredComponentsIgnoresUnconsumedReleasePleaseAliases(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ name, manifest, lock string }{
+		{
+			name: "Private", lock: releasePleaseTestLock,
+			manifest: strings.Replace(releasePleaseTestManifest, `"private":true`, `"private":true,"Private":false`, 1),
+		},
+		{
+			name: "Dependencies", lock: releasePleaseTestLock,
+			manifest: strings.Replace(releasePleaseTestManifest, `"dependencies":{"release-please":"17.11.2"}`, `"dependencies":{"release-please":"17.11.2"},"Dependencies":{"release-please":"17.11.1"}`, 1),
+		},
+		{
+			name: "LockfileVersion", manifest: releasePleaseTestManifest,
+			lock: strings.Replace(releasePleaseTestLock, `"lockfileVersion":3`, `"lockfileVersion":3,"LockfileVersion":2`, 1),
+		},
+		{
+			name: "Packages", manifest: releasePleaseTestManifest,
+			lock: `{"lockfileVersion":3,"packages":` + releasePleaseTestPackages + `,"Packages":{"":{"dependencies":{"release-please":"17.11.1"}}}}`,
+		},
+		{
+			name: "root Dependencies", manifest: releasePleaseTestManifest,
+			lock: strings.Replace(releasePleaseTestLock, `"dependencies":{"release-please":"17.11.2"}`, `"dependencies":{"release-please":"17.11.2"},"Dependencies":{"release-please":"17.11.1"}`, 1),
+		},
+		{
+			name: "Version", manifest: releasePleaseTestManifest,
+			lock: strings.Replace(releasePleaseTestLock, `"version":"17.11.2"`, `"version":"17.11.2","Version":"17.11.1"`, 1),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeFixture(t, root, "tools/release-please/package.json", tc.manifest)
+			writeFixture(t, root, "tools/release-please/package-lock.json", tc.lock)
+			components, err := discoverDeclaredComponents(t.Context(), root)
+			if err != nil {
+				t.Fatalf("irrelevant alias changed exact-key semantics: %v", err)
+			}
+			if len(components) != 1 || components[0].ID != "tool:release_please" || components[0].Installed != "17.11.2" {
+				t.Fatalf("irrelevant alias changed Release Please identity: %#v", components)
+			}
+		})
 	}
 }
 

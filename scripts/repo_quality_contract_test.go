@@ -39,7 +39,6 @@ func TestRepositoryQualityGatesHaveNoNodeRuntime(t *testing.T) {
 	releaseWorkflow := readContractFile(t, "../.github/workflows/release.yml")
 	repositorySettings := readContractFile(t, "../.github/repository-settings.md")
 	containerfile := readContractFile(t, "../deployments/docker/Containerfile.dev")
-	sonarProject := readContractFile(t, "../sonar-project.properties")
 
 	requireContractStrings(t, "Makefile", makefile, []string{
 		"lint-ci:\n\tgo run ./test/cmd/cictl lint\n",
@@ -62,11 +61,6 @@ func TestRepositoryQualityGatesHaveNoNodeRuntime(t *testing.T) {
 	})
 	requireContractStrings(t, "release workflow", releaseWorkflow, []string{
 		"go run ./test/cmd/cictl release-test-report",
-	})
-	requireContractStrings(t, "Sonar project", sonarProject, []string{
-		"internal/netio/listener_linux.go",
-		"internal/netio/listener_other.go",
-		"internal/netio/rawsock_other.go",
 	})
 	requireContractStrings(t, "repository settings", repositorySettings, []string{
 		"Commit policy (PR title)",

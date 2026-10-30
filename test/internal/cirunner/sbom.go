@@ -67,7 +67,8 @@ func prepareArtifact(path, name string) error {
 	if err := rejectNonregularArtifact(path, name); err != nil {
 		return err
 	}
-	// #nosec G304 -- SBOM selects fixed output basenames under validateSafeDirectory; nonregular targets are rejected.
+	// Public SBOMs contain dependency identities and preserve shared-reader mode 0644.
+	// #nosec G302 G304 -- Fixed output basenames use validateSafeDirectory; nonregular targets are rejected.
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, reportFileMode)
 	if err != nil {
 		return fmt.Errorf("prepare %s SBOM artifact: %w", name, err)
@@ -101,6 +102,7 @@ func validateArtifact(path, name string) error {
 		return fmt.Errorf("%s SBOM artifact %s is not a non-empty regular file: %w",
 			name, path, errInvalidConfig)
 	}
+	// #nosec G302 -- The validated dependency SBOM intentionally permits public readers with mode 0644.
 	if err := os.Chmod(path, reportFileMode); err != nil {
 		return fmt.Errorf("set %s SBOM artifact mode: %w", name, err)
 	}

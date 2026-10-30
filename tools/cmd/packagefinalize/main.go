@@ -234,6 +234,7 @@ func (counter *rpmArchiveCounter) Write(data []byte) (int, error) {
 func addRPMFile(
 	rpm *rpmpack.RPM, archive *cpio.Writer, source, destination string, mode cpio.FileMode, kind rpmpack.FileType,
 ) error {
+	// #nosec G304 -- addRPMContents selects fixed repository inputs and fixed-architecture build outputs.
 	data, err := os.ReadFile(source)
 	if err != nil {
 		return fmt.Errorf("read RPM input %s: %w", source, err)
@@ -263,6 +264,7 @@ func addRPMFile(
 
 func refreshArtifactManifest(dist, version string) error {
 	manifestPath := filepath.Join(dist, "artifacts.json")
+	// #nosec G304 -- Fixed artifacts.json comes from the trusted GoReleaser --clean dist directory.
 	manifest, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return fmt.Errorf("read artifact manifest: %w", err)
@@ -318,7 +320,7 @@ func rpmArtifactDigests(dist, version string) (map[string]string, error) {
 	digests := make(map[string]string, 2)
 	for _, arch := range []string{amd64, arm64} {
 		name := "gobfd_" + version + "_linux_" + arch + ".rpm"
-		// #nosec G703 -- name contains only the validated stable version and fixed architectures.
+		// #nosec G304 G703 -- The trusted release caller supplies a validated release version and fixed architectures.
 		data, err := os.ReadFile(filepath.Join(dist, name))
 		if err != nil {
 			return nil, fmt.Errorf("read finalized RPM %s: %w", arch, err)
@@ -330,6 +332,7 @@ func rpmArtifactDigests(dist, version string) (map[string]string, error) {
 
 func refreshChecksums(dist string) error {
 	manifestPath := filepath.Join(dist, "checksums.txt")
+	// #nosec G304 -- Fixed checksums.txt comes from the trusted GoReleaser --clean dist directory.
 	manifest, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return fmt.Errorf("read checksum manifest: %w", err)
@@ -352,7 +355,7 @@ func refreshChecksums(dist string) error {
 	slices.Sort(names)
 	var rendered strings.Builder
 	for _, name := range names {
-		// #nosec G703 -- name is restricted to its canonical basename above.
+		// #nosec G304 G703 -- Basename-only names come from the trusted producer checksum list in the fresh dist directory.
 		data, err := os.ReadFile(filepath.Join(dist, name))
 		if err != nil {
 			return fmt.Errorf("read checksummed artifact %s: %w", name, err)

@@ -17,13 +17,32 @@ These are source contracts. A command's existence does not establish candidate a
 | `cictl proto-verify` | Build pinned generators, regenerate, reject tracked/staged/untracked protobuf drift |
 | `cictl buf-fetch-base`, `buf-breaking` | Validate GITHUB_BASE_REF, fetch full refspec, resolve exact commit for Buf |
 | `cictl sbom` | Separate nonempty runtime/tools CycloneDX module-file scans |
-| `cictl sonar-mode`, `sonar-skip-notice` | Preserve workflow analysis selection and explicit skip notices |
 
 Fixed report outputs are validated and cleared before collection. A failed child command keeps its stdout/stderr and fails the step; an older regular artifact cannot substitute for successful execution. SBOM collection records dependency inventory, not symbol reachability.
 
 `toolbootstrap podman-runtime` verifies the pinned Go Compose provider, Podman and jq. `podman-e2e` adds hosted-runner setup and a private rootless API socket. Socket readiness has a 20-second bound; it does not prove API health. An existing socket is reused without ownership. Failed bootstrap kills/joins only a newly owned service; its diagnostic log remains available. GITHUB_ENV/GITHUB_PATH publication is part of readiness. `apparmor-denials` filters diagnostics to denial lines.
 
-CI executable steps remain single commands; no multiline shell programs or explicit shell declarations are required. Token values stay in process environments, never command arguments or artifacts.
+CI executable steps remain single commands; no multiline shell programs or explicit shell declarations are required. Keep token values out of command arguments and retained artifacts; the proposal stage uses the temporary credential file described below.
+
+## Release proposal
+
+Invoke `cictl release-please-pr` from the [proposal workflow](../../../.github/workflows/release-please.yml). Run the job in this pinned image and install Go 1.27.3 through the existing official setup action:
+
+```text
+docker.io/library/node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
+```
+
+The Slim image supplies Node 26.13.0. The trusted Ubuntu runner must provide the public `/etc/ssl/certs/ca-certificates.crt` file; the workflow mounts it read-only at the same container path and sets `SSL_CERT_FILE` for Go HTTPS downloads. This trust store belongs to the runner platform; its contents are not an immutable image pin. Archive integrity and the dependency lock remain mandatory. Its bundled npm is not executed. [tools/release-please](../../../tools/release-please/) isolates upstream Release Please 17.11.2 and its consumer lock from the runtime and Go quality tools. The lock selects `@xmldom/xmldom` 0.8.15, handlebars 4.7.10, js-yaml 4.3.2, brace-expansion 5.0.12 and minimatch 10.2.6.
+
+The Go-owned [bootstrap installer](../../../test/internal/npmbootstrap/install.go) obtains the three official registry archives fixed by [bootstrap.json](../../../tools/release-please/bootstrap.json): npm 12.2.1, undici 6.29.1 and ip-address 10.7.4. It verifies SHA-512, compressed size, regular-file paths, entry count and expanded size. It preserves upstream npm code and replaces only the two bundled dependency subtrees. This is an artifact installation contract; npm retains dependency resolution and installation. Package-audit results do not establish zero vulnerabilities in the OCI base.
+
+1. Copy the reviewed manifest, lock, `.npmrc` and bootstrap contract into an owned temporary workspace. Install the verified npm bootstrap before executing Node. Enforce exact Node/npm engines through `engine-strict=true`.
+2. Invoke the private npm entrypoint through Node: run `ci --ignore-scripts` against the frozen lock, then `audit`. Compare all four copied input digests before and after execution; reject installation, input drift or audit failures before reading the GitHub token.
+3. Create a `0600` token file inside an owned `0700` directory. Pass its existing absolute filename through upstream `--token=<file>`; do not copy the token value into child arguments or child environments.
+4. Run upstream `release-pr` for `dantte-lp/gobfd`, target `release/v1.0`, using the checked-in config and manifest. Keep `skip-github-release: true` and `skip-changelog: true`; curate both changelogs in the resulting PR.
+5. Keep `NODE_COMPILE_CACHE` inside the owned workspace. Remove the token, compile cache and workspace on success and failure. Retain only non-secret diagnostics; do not suppress child-command or cleanup failures.
+
+Go owns orchestration. Node executes upstream npm and the [Release Please CLI](https://github.com/googleapis/release-please/blob/v17.11.2/docs/cli.md); no repository JavaScript, shell or Python launcher is added. The main Go quality gates remain unchanged. Complete exact-candidate API and OCI qualification before delivery; a successful isolated install/audit/help check does not establish publication readiness.
 
 ## Benchmarks
 

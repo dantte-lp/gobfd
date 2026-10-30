@@ -124,8 +124,8 @@ func TestE2ESocketStartupCancellationAfterPIDRegistrationKillsAndJoinsChild(t *t
 	pid, err := waitBootstrapFixturePID(registration, state)
 	if err != nil {
 		cancel()
-		<-done
-		t.Fatalf("service PID registration failed before cancellation: %v", err)
+		startupErr := <-done
+		t.Fatalf("service PID registration failed before cancellation: %v; startup result: %v", err, startupErr)
 	}
 	cancel()
 	select {

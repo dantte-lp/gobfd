@@ -149,8 +149,8 @@ func (service *e2eSocketService) stop() error {
 	if errors.Is(killErr, os.ErrProcessDone) {
 		killErr = nil
 	}
-	<-service.done
-	return killErr
+	waitErr := <-service.done
+	return errors.Join(killErr, waitErr)
 }
 
 func ensureE2ESocket(

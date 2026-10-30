@@ -28,50 +28,6 @@ var (
 	errInvalidConfig = errors.New("invalid CI runner configuration")
 )
 
-// SonarOptions supplies the inputs used to select the Sonar workflow mode.
-type SonarOptions struct {
-	TokenPresent string
-	Actor        string
-	Output       string
-}
-
-// SonarMode appends the selected Sonar policy mode to the GitHub output file.
-func SonarMode(options SonarOptions) error {
-	var mode string
-	switch options.TokenPresent {
-	case "true":
-		mode = "run"
-	case "false":
-		if options.Actor != "dependabot[bot]" {
-			return fmt.Errorf("SONAR_TOKEN is required for non-Dependabot SonarQube scans: %w", errInvalidConfig)
-		}
-		mode = "skip-dependabot"
-	default:
-		return fmt.Errorf("SONAR_TOKEN_PRESENT must be exactly true or false: %w", errInvalidConfig)
-	}
-	if options.Output == "" {
-		return fmt.Errorf("GITHUB_OUTPUT is required for Sonar mode: %w", errInvalidConfig)
-	}
-
-	output, err := os.OpenFile(options.Output, os.O_WRONLY|os.O_APPEND, 0)
-	if err != nil {
-		return fmt.Errorf("open GITHUB_OUTPUT for append: %w", err)
-	}
-	line := "mode=" + mode + "\n"
-	written, writeErr := io.WriteString(output, line)
-	if writeErr == nil && written != len(line) {
-		writeErr = io.ErrShortWrite
-	}
-	closeErr := output.Close()
-	if writeErr != nil {
-		return fmt.Errorf("append Sonar mode to GITHUB_OUTPUT: %w", writeErr)
-	}
-	if closeErr != nil {
-		return fmt.Errorf("close GITHUB_OUTPUT after append: %w", closeErr)
-	}
-	return nil
-}
-
 // CommandRunner executes an argument vector without a shell.
 type CommandRunner interface {
 	Run(ctx context.Context, name string, args ...string) error
@@ -116,9 +72,11 @@ func Build(ctx context.Context, options BuildOptions) error {
 	if options.Runner == nil {
 		return fmt.Errorf("build command runner is required: %w", errInvalidConfig)
 	}
+	// #nosec G301 -- The caller selects a public binary output directory; 0755 allows traversal and owner-only writes.
 	if err := os.MkdirAll(options.Output, buildOutputMode); err != nil {
 		return fmt.Errorf("create build output directory %s: %w", options.Output, err)
 	}
+	// #nosec G302 -- The binary output directory intentionally preserves mode 0755 for shared artifact consumers.
 	if err := os.Chmod(options.Output, buildOutputMode); err != nil {
 		return fmt.Errorf("set build output directory %s mode 0755: %w", options.Output, err)
 	}

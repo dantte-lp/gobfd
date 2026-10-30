@@ -35,6 +35,10 @@ see the [RFC coverage matrix](docs/en/08-rfc-compliance.md).
 
 ### Changed
 
+- Update Connect to v2.0.2, gRPC to v1.85.0, golangci-lint to v2.15.0,
+  gosec to v2.30.0, Buf to v1.75.0 and x/perf to `v0.0.0-20261009192801-be2c69fb417e`. Release Please 17.11.2
+  uses an isolated dependency lock and verified npm 12.2.1 bootstrap; candidate and OCI qualification
+  remain required. [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - **Breaking:** management defaults to `unix:///run/gobfd/gobfd.sock` with Unix
   UID ownership. TCP requires explicit loopback or mTLS configuration; move
   operators to `gobfd-admin` or configure authorized certificate identities.
@@ -50,6 +54,9 @@ see the [RFC coverage matrix](docs/en/08-rfc-compliance.md).
 
 ### Fixed
 
+- Preserve the next Control transmit deadline when reloading DetectMult from
+  1 to a larger value; advertise the new multiplier before relaxing jitter.
+  [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - Restore non-Linux compilation without granting Unix peer credentials or
   writing certificate files on unsupported platforms.
   [#105](https://github.com/dantte-lp/gobfd/pull/105)
@@ -71,6 +78,9 @@ see the [RFC coverage matrix](docs/en/08-rfc-compliance.md).
 
 ### Security
 
+- Remediate 12 additional advisories in the selected Go dependency graphs:
+  update tool dependencies, pin upstream JOSE/Goldmark fixes and remove unused
+  affected module selections. [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - Restrict mutations to authorized Unix/mTLS principals; reject certificate
   identities that imitate Unix UIDs. Plaintext loopback mutation requires an
   explicit unsafe opt-in. Flight recorder dumps require management authorization.
@@ -85,6 +95,8 @@ see the [RFC coverage matrix](docs/en/08-rfc-compliance.md).
 
 ### Removed
 
+- Remove Sonar analysis and its required check; retain race tests, atomic
+  coverage and reports in the main CI. [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - Oracle Linux 10 OCI products and aliases are outside v1. Use Debian trixie;
   generic RPM generation and historical v0.6 artifacts remain available.
 

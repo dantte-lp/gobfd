@@ -24,6 +24,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dantte-lp/gobfd/test/internal/npmbootstrap"
+	"github.com/dantte-lp/gobfd/test/internal/strictjson"
 )
 
 // SchemaID is the canonical inventory schema identifier.
@@ -38,6 +41,9 @@ const (
 )
 
 const (
+	npmToolID             = "tool:npm"
+	releasePleaseToolID   = "tool:release_please"
+	licenseApache2        = "Apache-2.0"
 	currentSchemaVersion  = 2
 	githubRepositoryParts = 2
 	snapshotObservedAt    = "2026-10-28T19:52:52Z"
@@ -378,6 +384,9 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 	}
 	for _, item := range declared {
 		pin := ImmutablePin{Status: PinVerified, Kind: "ecosystem-version", Value: item.Installed}
+		if item.ContentPin.Value != "" {
+			pin = item.ContentPin
+		}
 		assessment := "tool-version-audited"
 		if item.Kind == KindGitHubAction && githubActionSHA(item.Installed) {
 			pin = ImmutablePin{Status: PinVerified, Kind: "git-commit", Value: item.Installed}
@@ -393,6 +402,9 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 		record := baseRecord(item.Installed, deliveryChannel(item.Kind), item.Sources, pin)
 		record.Target = item.Installed
 		record.Coordinates = componentCoordinates(item)
+		if item.ID == releasePleaseToolID || item.ID == npmToolID {
+			record.DeliveryChannel = "https://registry.npmjs.org"
+		}
 		record.Assessment = assessmentTemplate(assessment)
 		record.RepositoryState = repositoryStateTemplate(assessment, pin)
 		if item.Kind == KindGitHubAction {
@@ -486,7 +498,7 @@ type ociLicenseOverride struct {
 	SecondHash       string
 }
 
-// CollectLicenseEvidence resolves exact selected Go module versions through the stable deps.dev v3 API.
+// CollectLicenseEvidence resolves exact Go module and approved npm package licenses through their owning APIs.
 // It deliberately leaves records without detected SPDX expressions unverified for explicit resolution.
 func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 	return collectLicenseEvidence(ctx, inv, &http.Client{Timeout: 20 * time.Second})
@@ -642,6 +654,9 @@ func collectLicenseEvidence(ctx context.Context, inv *Inventory, client *http.Cl
 		identity, _ := declaredToolModule(component.ID, component.Installed)
 		observeDepsDevLicense(inv, component.ID, &component.Record, identity)
 	}
+	if err := collectNPMLicenseEvidence(ctx, inv, client); err != nil {
+		return err
+	}
 	slices.SortFunc(inv.Evidence, func(left, right Evidence) int { return strings.Compare(left.ID, right.ID) })
 	return nil
 }
@@ -732,7 +747,7 @@ func exactOCILicense(reference string) (ociLicenseOverride, bool) {
 	licenses := map[string]ociLicenseOverride{
 		"docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad": {
 			SourceRepository: "debuerreotype/docker-debian-artifacts", SourceCommit: "cee78df586385250331cacba8fd1140133c054e5",
-			LicenseFile: "LICENSE", SPDX: "Apache-2.0", LicenseHash: "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
+			LicenseFile: "LICENSE", SPDX: licenseApache2, LicenseHash: "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
 		},
 		"docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c": {
 			SourceRepository: "docker-library/golang", SourceCommit: "41d9b4da70324ae7b6461ac2cc401b06719ff57d",
@@ -1025,6 +1040,18 @@ func goModulePURL(path, version string) string {
 }
 
 func componentCoordinates(item declaredComponent) Coordinates {
+	if item.ID == npmToolID {
+		return Coordinates{
+			SourceRepository: "https://github.com/npm/cli",
+			PURL:             "pkg:npm/npm@" + item.Installed,
+		}
+	}
+	if item.ID == releasePleaseToolID {
+		return Coordinates{
+			SourceRepository: "https://github.com/googleapis/release-please",
+			PURL:             "pkg:npm/release-please@" + item.Installed,
+		}
+	}
 	switch item.Kind {
 	case KindGitHubAction:
 		repository := actionRepository(item.Installed)
@@ -1057,25 +1084,24 @@ func actionRepository(installed string) string {
 
 func githubActionLicense(repository string) string {
 	licenses := map[string]string{
-		"SonarSource/sonarqube-scan-action": "LGPL-3.0",
-		"actions/cache":                     "MIT",
-		"actions/checkout":                  "MIT",
-		"actions/download-artifact":         "MIT",
-		"actions/github-script":             "MIT",
-		"actions/setup-go":                  "MIT",
-		"actions/setup-node":                "MIT",
-		"actions/upload-artifact":           "MIT",
-		"anchore/sbom-action":               "Apache-2.0",
-		"aquasecurity/trivy-action":         "Apache-2.0",
-		"bufbuild/buf-action":               "Apache-2.0",
-		"codecov/codecov-action":            "MIT",
-		"docker/login-action":               "Apache-2.0",
-		"docker/setup-buildx-action":        "Apache-2.0",
-		"docker/setup-qemu-action":          "Apache-2.0",
-		"github/codeql-action":              "MIT",
-		"goreleaser/goreleaser-action":      "MIT",
-		"ossf/scorecard-action":             "Apache-2.0",
-		"securego/gosec":                    "Apache-2.0",
+		"actions/cache":                "MIT",
+		"actions/checkout":             "MIT",
+		"actions/download-artifact":    "MIT",
+		"actions/github-script":        "MIT",
+		"actions/setup-go":             "MIT",
+		"actions/setup-node":           "MIT",
+		"actions/upload-artifact":      "MIT",
+		"anchore/sbom-action":          licenseApache2,
+		"aquasecurity/trivy-action":    licenseApache2,
+		"bufbuild/buf-action":          licenseApache2,
+		"codecov/codecov-action":       "MIT",
+		"docker/login-action":          licenseApache2,
+		"docker/setup-buildx-action":   licenseApache2,
+		"docker/setup-qemu-action":     licenseApache2,
+		"github/codeql-action":         "MIT",
+		"goreleaser/goreleaser-action": "MIT",
+		"ossf/scorecard-action":        licenseApache2,
+		"securego/gosec":               licenseApache2,
 	}
 	return licenses[repository]
 }
@@ -1183,6 +1209,12 @@ func evidenceContext(
 ) (string, string, EvidenceTool) {
 	if review == "artifact_available" && tool.Name == "go" && strings.HasPrefix(command, "go list ") {
 		return source, command, tool
+	}
+	if review == reviewLicense {
+		if identity, ok := declaredNPMLicense(subject, record.Installed); ok {
+			endpoint := npmLicenseURL(identity)
+			return endpoint, "GET " + endpoint, npmLicenseTool()
+		}
 	}
 	if review == "license" && strings.HasPrefix(subject, "tool:") {
 		if identity, ok := declaredToolModule(subject, record.Installed); ok {
@@ -1414,7 +1446,7 @@ func evidenceCommandProvesReview(evidence Evidence) bool {
 	case "channel_current":
 		return evidence.Tool.Name == "bd" && strings.HasPrefix(command, "bd show ")
 	case "license":
-		return (evidence.Tool.Name == "gh" &&
+		return npmLicenseCommandProvesReview(evidence) || (evidence.Tool.Name == "gh" &&
 			(strings.HasPrefix(command, "gh api repos/") || strings.HasPrefix(command, "gh api 'repos/"))) ||
 			(evidence.Tool.Name == "deps.dev" && evidence.Tool.Version == "v3" &&
 				strings.HasPrefix(evidence.Source, depsDevAPIBase+"/systems/go/packages/") && command == "GET "+evidence.Source)
@@ -1574,6 +1606,11 @@ func validateRecord(
 	}
 	if err := validateAssessment(id, record.Assessment, evidenceByID, referencedEvidence); err != nil {
 		return err
+	}
+	if kind == KindTool {
+		if err := validateNPMLicenseEvidence(id, record, evidenceByID); err != nil {
+			return err
+		}
 	}
 	if err := validateRepositoryState(id, record.RepositoryState, evidenceByID, referencedEvidence); err != nil {
 		return err
@@ -1759,68 +1796,8 @@ func decodeOneJSONFile(path string, target any) error {
 }
 
 func rejectDuplicateJSONFields(data []byte) error {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if err := walkJSONValue(decoder); err != nil {
-		return err
-	}
-	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return fmt.Errorf("multiple JSON documents")
-		}
-		return fmt.Errorf("decode trailing JSON token: %w", err)
-	}
-	return nil
-}
-
-func walkJSONValue(decoder *json.Decoder) error {
-	token, tokenErr := decoder.Token()
-	if tokenErr != nil {
-		return fmt.Errorf("decode JSON token: %w", tokenErr)
-	}
-	delimiter, ok := token.(json.Delim)
-	if !ok {
-		return nil
-	}
-	switch delimiter {
-	case '{':
-		seen := make(map[string]struct{})
-		for decoder.More() {
-			keyToken, keyErr := decoder.Token()
-			if keyErr != nil {
-				return fmt.Errorf("decode JSON object key: %w", keyErr)
-			}
-			key, ok := keyToken.(string)
-			if !ok {
-				return fmt.Errorf("JSON object key is not a string")
-			}
-			if _, exists := seen[key]; exists {
-				return fmt.Errorf("duplicate JSON field %q", key)
-			}
-			seen[key] = struct{}{}
-			if valueErr := walkJSONValue(decoder); valueErr != nil {
-				return valueErr
-			}
-		}
-	case '[':
-		for decoder.More() {
-			if valueErr := walkJSONValue(decoder); valueErr != nil {
-				return valueErr
-			}
-		}
-	default:
-		return fmt.Errorf("unexpected JSON delimiter %q", delimiter)
-	}
-	closing, closingErr := decoder.Token()
-	if closingErr != nil {
-		return fmt.Errorf("decode JSON closing token: %w", closingErr)
-	}
-	want := json.Delim('}')
-	if delimiter == '[' {
-		want = ']'
-	}
-	if closing != want {
-		return fmt.Errorf("unexpected JSON closing delimiter %q", closing)
+	if err := strictjson.Validate(data); err != nil {
+		return fmt.Errorf("validate dependency JSON: %w", err)
 	}
 	return nil
 }
@@ -1962,10 +1939,11 @@ func describeModuleDifference(want, got []moduleIdentity) string {
 }
 
 type declaredComponent struct {
-	ID        string
-	Kind      Kind
-	Installed string
-	Sources   []SourceLocation
+	ID         string
+	Kind       Kind
+	Installed  string
+	Sources    []SourceLocation
+	ContentPin ImmutablePin
 }
 
 var (
@@ -1979,6 +1957,7 @@ var (
 	goContainerlabVersion   = regexp.MustCompile(`^\s*ContainerlabVersion\s*=\s*"([^"]+)"`)
 	workflowToolVersion     = regexp.MustCompile(`^\s*(?:version|syft-version):\s*["']?([^"'#\s]+)`)
 	coordinateDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	npmExactVersionPattern  = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
 	ociDigestPattern        = regexp.MustCompile(`@sha256:[0-9a-f]{64}$`)
 	actionSHAPattern        = regexp.MustCompile(`@[0-9a-f]{40}$`)
 	sourceCommitPattern     = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -2031,6 +2010,16 @@ func discoverDeclaredComponentsFromRoot(
 		data, err := readDeclaredSource(repository, relative)
 		if err != nil {
 			return fmt.Errorf("read dependency source %s: %w", relative, err)
+		}
+		if filepath.ToSlash(relative) == "tools/release-please/package.json" {
+			if err := discoverReleasePleaseManifest(repository, components, relative, data); err != nil {
+				return err
+			}
+		}
+		if filepath.ToSlash(relative) == "tools/release-please/bootstrap.json" {
+			if err := discoverNPMBootstrapManifest(components, relative, data); err != nil {
+				return err
+			}
 		}
 		currentAction := ""
 		for line := range strings.SplitSeq(string(data), "\n") {
@@ -2196,6 +2185,9 @@ func addDeclared(components map[string]declaredComponent, candidate declaredComp
 			existing.Sources = append(existing.Sources, source)
 		}
 	}
+	if candidate.ContentPin.Value != "" {
+		existing.ContentPin = candidate.ContentPin
+	}
 	components[candidate.ID] = existing
 }
 
@@ -2207,6 +2199,89 @@ func addImage(components map[string]declaredComponent, path, image string) {
 		ID: "oci-image:" + image, Kind: KindOCIImage, Installed: image,
 		Sources: []SourceLocation{{Path: path, Match: image}},
 	})
+}
+
+func discoverReleasePleaseManifest(repository *os.Root, components map[string]declaredComponent, path string, data []byte) error {
+	if err := rejectDuplicateJSONFields(data); err != nil {
+		return fmt.Errorf("read Release Please tool manifest: %w", err)
+	}
+	var private bool
+	var dependencies map[string]string
+	if err := decodeReleasePleaseFields(data, map[string]any{"private": &private, "dependencies": &dependencies}); err != nil {
+		return fmt.Errorf("decode Release Please tool manifest: %w", err)
+	}
+	version := dependencies["release-please"]
+	if !private || !npmExactVersionPattern.MatchString(version) {
+		return fmt.Errorf("release automation requires a private manifest and an exact stable version")
+	}
+	lockPath := filepath.Join(filepath.Dir(path), "package-lock.json")
+	lockData, err := readDeclaredSource(repository, lockPath)
+	if err != nil {
+		return fmt.Errorf("read Release Please lockfile: %w", err)
+	}
+	if err := rejectDuplicateJSONFields(lockData); err != nil {
+		return fmt.Errorf("validate Release Please lockfile: %w", err)
+	}
+	var lockVersion int
+	var packages map[string]json.RawMessage
+	if err := decodeReleasePleaseFields(lockData, map[string]any{"lockfileVersion": &lockVersion, "packages": &packages}); err != nil {
+		return fmt.Errorf("decode Release Please lockfile: %w", err)
+	}
+	var lockedDependencies map[string]string
+	if err := decodeReleasePleaseFields(packages[""], map[string]any{"dependencies": &lockedDependencies}); err != nil {
+		return fmt.Errorf("decode Release Please lockfile root: %w", err)
+	}
+	var lockedVersion string
+	if err := decodeReleasePleaseFields(packages["node_modules/release-please"], map[string]any{"version": &lockedVersion}); err != nil {
+		return fmt.Errorf("decode Release Please lockfile tool: %w", err)
+	}
+	if lockVersion != 3 || lockedDependencies["release-please"] != version || lockedVersion != version {
+		return fmt.Errorf("release automation manifest and version-3 lockfile disagree")
+	}
+	addDeclared(components, declaredComponent{
+		ID: releasePleaseToolID, Kind: KindTool, Installed: version,
+		ContentPin: ImmutablePin{Status: PinVerified, Kind: "npm-lock-sha256", Value: contentDigest(lockData)},
+		Sources:    []SourceLocation{{Path: path, Match: `"release-please"`}, {Path: lockPath, Match: `"lockfileVersion"`}},
+	})
+	return nil
+}
+
+func discoverNPMBootstrapManifest(components map[string]declaredComponent, path string, data []byte) error {
+	contract, err := npmbootstrap.Parse(data)
+	if err != nil {
+		return fmt.Errorf("decode npm bootstrap inventory declaration: %w", err)
+	}
+	addDeclared(components, declaredComponent{
+		ID: npmToolID, Kind: KindTool, Installed: contract.Artifacts[0].Version,
+		ContentPin: ImmutablePin{Status: PinVerified, Kind: "artifact-manifest-sha256", Value: contentDigest(data)},
+		Sources: []SourceLocation{
+			{Path: path, Match: `"npm"`}, {Path: path, Match: `"undici"`}, {Path: path, Match: `"ip-address"`},
+		},
+	})
+	return nil
+}
+
+func contentDigest(data []byte) string {
+	return fmt.Sprintf("sha256:%x", sha256.Sum256(data))
+}
+
+// Decode consumed npm fields by exact key; encoding/json struct matching also
+// accepts case aliases, which do not describe the package manager's declaration.
+func decodeReleasePleaseFields(data []byte, fields map[string]any) error {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return fmt.Errorf("decode npm object: %w", err)
+	}
+	for key, target := range fields {
+		value, found := object[key]
+		if !found {
+			return fmt.Errorf("npm object requires field %q", key)
+		}
+		if err := json.Unmarshal(value, target); err != nil {
+			return fmt.Errorf("decode npm field %q: %w", key, err)
+		}
+	}
+	return nil
 }
 
 func addTool(components map[string]declaredComponent, path, name, version, match string) {
@@ -2236,6 +2311,9 @@ func compareDeclaredComponents(inventory []Component, declared []declaredCompone
 		}
 		if actual.Kind != expected.Kind || actual.Installed != expected.Installed {
 			return fmt.Errorf("declared component %s is stale: inventory=%s source=%s", expected.ID, actual.Installed, expected.Installed)
+		}
+		if expected.ContentPin.Value != "" && actual.ImmutablePin != expected.ContentPin {
+			return fmt.Errorf("declared component %s content pin is stale", expected.ID)
 		}
 		for _, source := range expected.Sources {
 			if !slices.Contains(actual.SourceLocations, source) {

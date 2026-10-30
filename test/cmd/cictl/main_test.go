@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"flag"
 	"io"
 	"os"
 	"path/filepath"
@@ -109,20 +110,6 @@ func TestRunResidualCIModesUseFixedInputs(t *testing.T) {
 	}
 }
 
-func TestRunSonarSkipNoticePreservesMessage(t *testing.T) {
-	t.Parallel()
-
-	var output bytes.Buffer
-	if err := run(context.Background(), []string{"sonar-skip-notice"}, dependencies{stdout: &output}); err != nil {
-		t.Fatalf("run(sonar-skip-notice) error = %v", err)
-	}
-	want := "Skipping SonarQube scan because this run was triggered by Dependabot " +
-		"and no Dependabot SONAR_TOKEN secret is available.\n"
-	if output.String() != want {
-		t.Errorf("Sonar skip message = %q, want %q", output.String(), want)
-	}
-}
-
 func TestRunDispatchesReleaseReportModes(t *testing.T) {
 	t.Parallel()
 
@@ -186,6 +173,27 @@ func TestRunDispatchesReleaseEvidenceFromWorkflowEnvironment(t *testing.T) {
 	})
 	if err == nil || strings.Contains(err.Error(), "unknown CI command") {
 		t.Fatalf("run(release-evidence) error = %v, want dispatched environment validation", err)
+	}
+}
+
+func TestRunDispatchesReleasePleaseWithoutReadingTokenForUntrustedContext(t *testing.T) {
+	t.Parallel()
+
+	for _, arguments := range [][]string{{"release-please-pr"}, {"release-please-pr", "extra"}} {
+		calls := 0
+		err := run(t.Context(), arguments, dependencies{
+			getwd: func() (string, error) { return t.TempDir(), nil },
+			getenv: func(name string) string {
+				if name == "GH_TOKEN" {
+					t.Fatal("untrusted release automation read a token")
+				}
+				return ""
+			},
+			environ: func() []string { calls++; return nil },
+		})
+		if err == nil || strings.Contains(err.Error(), "unknown CI command") || calls != 0 {
+			t.Fatalf("release-please-pr dispatch error = %v, environment reads = %d", err, calls)
+		}
 	}
 }
 
@@ -301,38 +309,6 @@ func TestRunBenchmarkBaseDerivesOriginRefFromGitHubEnvironment(t *testing.T) {
 	}
 }
 
-func TestRunSonarModeReadsGitHubEnvironment(t *testing.T) {
-	t.Parallel()
-
-	output := filepath.Join(t.TempDir(), "github-output")
-	if err := os.WriteFile(output, nil, 0o600); err != nil {
-		t.Fatalf("create GitHub output: %v", err)
-	}
-	values := map[string]string{
-		"SONAR_TOKEN_PRESENT": "true",
-		"GITHUB_ACTOR":        "developer",
-		"GITHUB_OUTPUT":       output,
-	}
-	err := run(context.Background(), []string{"sonar-mode"}, dependencies{
-		getenv: func(name string) string {
-			if name == "SONAR_TOKEN" {
-				t.Fatal("cictl read the raw SONAR_TOKEN")
-			}
-			return values[name]
-		},
-	})
-	if err != nil {
-		t.Fatalf("run() error = %v", err)
-	}
-	got, readErr := os.ReadFile(output)
-	if readErr != nil {
-		t.Fatalf("read GitHub output: %v", readErr)
-	}
-	if string(got) != "mode=run\n" {
-		t.Errorf("GitHub output = %q, want mode=run", got)
-	}
-}
-
 func TestRunBuildReadsGitHubSHAAndOutputFlag(t *testing.T) {
 	t.Parallel()
 
@@ -409,14 +385,31 @@ func TestRunProtoVerifyReadsRunnerEnvironment(t *testing.T) {
 func TestRunRejectsUnknownModeWithoutEnvironmentLeak(t *testing.T) {
 	t.Parallel()
 
-	err := run(context.Background(), []string{"unknown"}, dependencies{
-		getenv: func(string) string { return "secret" },
-	})
-	if err == nil {
-		t.Fatal("run() error = nil, want usage error")
-	}
-	if strings.Contains(err.Error(), "secret") {
-		t.Error("usage error contains an environment value")
+	for _, mode := range []string{"unknown", "sonar-mode", "sonar-skip-notice"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+
+			var output bytes.Buffer
+			environmentReads := 0
+			runner := &commandRecorder{}
+			specRunner := &specCommandRecorder{}
+			err := run(t.Context(), []string{mode}, dependencies{
+				getenv: func(string) string {
+					environmentReads++
+					return "secret"
+				},
+				stdout: &output, runner: runner, specRunner: specRunner,
+			})
+			if !errors.Is(err, flag.ErrHelp) {
+				t.Fatalf("run(%s) error = %v, want usage error", mode, err)
+			}
+			if strings.Contains(err.Error(), "secret") {
+				t.Error("usage error contains an environment value")
+			}
+			if environmentReads != 0 || output.Len() != 0 || len(runner.names) != 0 || len(specRunner.specs) != 0 {
+				t.Error("unknown or retired command read environment, emitted output or ran a child command")
+			}
+		})
 	}
 }
 

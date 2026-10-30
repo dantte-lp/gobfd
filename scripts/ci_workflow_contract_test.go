@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestCIWorkflowBuildAndSonarStepsDelegateToCICTL(t *testing.T) {
+func TestCIWorkflowBuildStepsDelegateToCICTL(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -16,16 +16,6 @@ func TestCIWorkflowBuildAndSonarStepsDelegateToCICTL(t *testing.T) {
 		required  []string
 		forbidden []string
 	}{
-		{
-			name:     "Sonar token",
-			workflow: "../.github/workflows/build.yml",
-			step:     "Check Sonar token",
-			command:  "go run ./test/cmd/cictl sonar-mode",
-			required: []string{"SONAR_TOKEN_PRESENT: ${{ secrets.SONAR_TOKEN != '' }}"},
-			forbidden: []string{
-				"SONAR_TOKEN:", "shell: bash", "run: |", "mode=run", "skip-dependabot", "SONAR_TOKEN is required",
-			},
-		},
 		{
 			name:      "binary build",
 			workflow:  "../.github/workflows/ci.yml",
@@ -110,14 +100,6 @@ func TestCIWorkflowResidualShellStepsUseOneGoCommand(t *testing.T) {
 		required  []string
 		forbidden []string
 	}{
-		{
-			name:      "Sonar skip notice",
-			workflow:  "../.github/workflows/build.yml",
-			step:      "SonarQube skipped for Dependabot",
-			command:   "go run ./test/cmd/cictl sonar-skip-notice",
-			required:  []string{"if: steps.sonar-token.outputs.mode == 'skip-dependabot'"},
-			forbidden: []string{"run: >", "echo ", "Dependabot SONAR_TOKEN"},
-		},
 		{
 			name:      "coverage test",
 			workflow:  "../.github/workflows/ci.yml",

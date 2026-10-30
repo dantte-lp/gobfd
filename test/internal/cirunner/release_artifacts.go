@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
-	"unicode/utf8"
+
+	"github.com/dantte-lp/gobfd/test/internal/strictjson"
 )
 
 const releaseArtifactsManifestLimit = 16 << 20
@@ -196,74 +196,8 @@ func validateRootPathIdentity(root *os.Root, path, purpose string) error {
 }
 
 func validateStrictJSONDocument(data []byte, purpose string) error {
-	if !utf8.Valid(data) {
-		return fmt.Errorf("%s contains invalid UTF-8: %w", purpose, errInvalidConfig)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if err := validateUniqueJSONValue(decoder); err != nil {
-		return fmt.Errorf("validate %s structure: %w", purpose, err)
-	}
-	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		return fmt.Errorf("%s contains trailing JSON data: %w", purpose, errInvalidConfig)
-	}
-	return nil
-}
-
-func validateUniqueJSONValue(decoder *json.Decoder) error {
-	token, err := decoder.Token()
-	if err != nil {
-		return fmt.Errorf("read JSON value token: %w", err)
-	}
-	delimiter, compound := token.(json.Delim)
-	if !compound {
-		return nil
-	}
-	switch delimiter {
-	case '{':
-		return validateUniqueJSONObject(decoder)
-	case '[':
-		return validateUniqueJSONArray(decoder)
-	default:
-		return fmt.Errorf("unexpected JSON delimiter %q: %w", delimiter, errInvalidConfig)
-	}
-}
-
-func validateUniqueJSONObject(decoder *json.Decoder) error {
-	seen := make(map[string]struct{})
-	for decoder.More() {
-		keyToken, err := decoder.Token()
-		if err != nil {
-			return fmt.Errorf("read JSON object key: %w", err)
-		}
-		key, ok := keyToken.(string)
-		if !ok {
-			return fmt.Errorf("JSON object key is not a string: %w", errInvalidConfig)
-		}
-		if _, exists := seen[key]; exists {
-			return fmt.Errorf("duplicate JSON object member %q: %w", key, errInvalidConfig)
-		}
-		seen[key] = struct{}{}
-		if err := validateUniqueJSONValue(decoder); err != nil {
-			return err
-		}
-	}
-	closing, err := decoder.Token()
-	if err != nil || closing != json.Delim('}') {
-		return errors.Join(err, errInvalidConfig)
-	}
-	return nil
-}
-
-func validateUniqueJSONArray(decoder *json.Decoder) error {
-	for decoder.More() {
-		if err := validateUniqueJSONValue(decoder); err != nil {
-			return err
-		}
-	}
-	closing, err := decoder.Token()
-	if err != nil || closing != json.Delim(']') {
-		return errors.Join(err, errInvalidConfig)
+	if err := strictjson.Validate(data); err != nil {
+		return fmt.Errorf("validate %s structure: %w", purpose, errors.Join(err, errInvalidConfig))
 	}
 	return nil
 }

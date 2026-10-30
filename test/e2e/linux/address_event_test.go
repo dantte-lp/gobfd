@@ -50,7 +50,9 @@ func TestAddressEventFollowsUnassignedBind(t *testing.T) {
 		if err := mon.Close(); err != nil && !errors.Is(err, unix.EBADF) {
 			t.Errorf("close interface monitor: %v", err)
 		}
-		<-errc
+		if runErr := <-errc; runErr != nil {
+			t.Errorf("interface monitor shutdown: %v", runErr)
+		}
 	}()
 
 	nl := newRouteSocket(t)

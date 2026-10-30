@@ -100,7 +100,10 @@ func TestHandlerRawLossResyncRejectsQueuedOldUp(t *testing.T) {
 	}
 	cancel()
 	select {
-	case <-done:
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("handler shutdown: %v", err)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("handler did not stop after cancellation")
 	}

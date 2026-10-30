@@ -35,6 +35,10 @@ Echo и Micro-BFD остаются preview, выключенными по умо
 
 ### Изменено
 
+- Обновлены Connect до v2.0.2, gRPC до v1.85.0, golangci-lint до v2.15.0,
+  gosec до v2.30.0, Buf до v1.75.0 и x/perf до `v0.0.0-20261009192801-be2c69fb417e`. Release Please 17.11.2
+  использует изолированный lock и проверенный bootstrap npm 12.2.1; квалификация кандидата
+  и OCI остаётся обязательной. [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - **Несовместимо:** management использует `unix:///run/gobfd/gobfd.sock` и Unix
   UID владельца. TCP требует явной настройки loopback или mTLS. Добавить
   операторов в `gobfd-admin` либо задать разрешённые идентификаторы сертификатов.
@@ -51,6 +55,9 @@ Echo и Micro-BFD остаются preview, выключенными по умо
 
 ### Исправлено
 
+- При reload DetectMult с 1 на большее значение сохраняется ближайший срок
+  отправки Control; jitter ослабляется после объявления нового множителя.
+  [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - Восстановлена сборка на других ОС без назначения Unix peer credentials
   или записи файлов сертификатов на неподдерживаемых платформах.
   [#105](https://github.com/dantte-lp/gobfd/pull/105)
@@ -72,6 +79,9 @@ Echo и Micro-BFD остаются preview, выключенными по умо
 
 ### Безопасность
 
+- Устранены 12 дополнительных advisories в выбранных графах Go-зависимостей:
+  обновлены зависимости инструментов, закреплены upstream-исправления JOSE/Goldmark
+  и удалены неиспользуемые уязвимые версии модулей. [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - Мутации доступны разрешённым Unix/mTLS principals; сертификат не может
   имитировать Unix UID. Мутации plaintext loopback требуют явного unsafe opt-in.
   Доступ к flight recorder dump требует авторизации management.
@@ -86,6 +96,8 @@ Echo и Micro-BFD остаются preview, выключенными по умо
 
 ### Удалено
 
+- Удалены анализ Sonar и его обязательная проверка; race tests, atomic coverage
+  и отчёты сохранены в основном CI. [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - OCI-продукты и aliases Oracle Linux 10 исключены из v1. Использовать Debian trixie;
   универсальная генерация RPM и исторические артефакты v0.6 сохранены.
 
