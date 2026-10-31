@@ -39,13 +39,13 @@ func TestParseRejectsAmbiguousIncompleteAndUnboundedContracts(t *testing.T) {
 		"duplicate artifact": bytes.Replace(valid, []byte(`"name":"npm"`), []byte(`"name":"npm","name":"npm"`), 1),
 		"missing schema":     bytes.Replace(valid, []byte(`"schema_version":1,`), nil, 1),
 		"missing identity":   bytes.Replace(valid, []byte(`"name":"npm",`), nil, 1),
-		"missing bound":      bytes.Replace(valid, []byte(`,"entries":3`), nil, 1),
+		"missing bound":      bytes.Replace(valid, []byte(`,"entries":6`), nil, 1),
 		"null artifact":      []byte(`{"schema_version":1,"artifacts":[null,null,null]}`),
 		"trailing":           append(bytes.Clone(valid), []byte(`{}`)...),
 		"bad version":        bytes.Replace(valid, []byte(`"version":"12.2.1"`), []byte(`"version":"12.02.1"`), 1),
 		"registry escape":    bytes.Replace(valid, []byte(`"name":"undici"`), []byte(`"name":"../undici"`), 1),
 		"bad integrity":      bytes.Replace(valid, []byte(`sha512-`), []byte(`sha256-`), 1),
-		"entry bound":        bytes.Replace(valid, []byte(`"entries":3`), []byte(`"entries":4097`), 1),
+		"entry bound":        bytes.Replace(valid, []byte(`"entries":6`), []byte(`"entries":4097`), 1),
 		"huge":               bytes.Repeat([]byte(" "), contractLimit+1),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -104,7 +104,7 @@ func TestInstallVerifiesAndReplacesOnlyPinnedBundledPackages(t *testing.T) {
 	root := t.TempDir()
 	requests := 0
 	client := fixtureClient(t, bodies, &requests)
-	if err := Install(t.Context(), root, contract, client); err != nil {
+	if err := installFixture(t.Context(), root, contract, client); err != nil {
 		t.Fatal(err)
 	}
 	if requests != artifactCount {
@@ -122,6 +122,13 @@ func TestInstallVerifiesAndReplacesOnlyPinnedBundledPackages(t *testing.T) {
 		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(name)))
 		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
 			t.Fatalf("private regular file %s: %v", name, err)
+		}
+	}
+	outputs := fixtureRepairOutputs()
+	for index, name := range npmRepairFileNames() {
+		data, err := os.ReadFile(filepath.Join(root, "npm-bootstrap", filepath.FromSlash(name)))
+		if err != nil || string(data) != outputs[index] {
+			t.Fatalf("mandatory repair %s mismatch: %v", name, err)
 		}
 	}
 	oldUndici := filepath.Join(root, "npm-bootstrap", "node_modules", "undici", "old.js")
@@ -158,9 +165,9 @@ func TestInstallRejectsHashLinksTraversalDuplicatesAndBounds(t *testing.T) {
 			if name == "symlink" || name == "hardlink" {
 				headers = append(headers, &tar.Header{Name: "package/safe.txt", Mode: 0o644, Typeflag: tar.TypeReg, Size: 1})
 			}
-			data, expanded := makeArchive(t, headers, nil)
+			data, expanded, count := makeRepairedFixtureArchive(t, headers)
 			contract, bodies := fixture(t)
-			contract.Artifacts[0] = artifactFor("npm", "12.2.1", data, expanded, len(headers))
+			contract.Artifacts[0] = artifactFor("npm", "12.2.1", data, expanded, count)
 			bodies["npm"] = data
 			switch name {
 			case "hash":
@@ -173,11 +180,11 @@ func TestInstallRejectsHashLinksTraversalDuplicatesAndBounds(t *testing.T) {
 				bodies["npm"] = append(bytes.Clone(data), 'x')
 			case "gzip":
 				data[len(data)-1] ^= 1
-				contract.Artifacts[0] = artifactFor("npm", "12.2.1", data, expanded, len(headers))
+				contract.Artifacts[0] = artifactFor("npm", "12.2.1", data, expanded, count)
 			default:
 			}
 			requests := 0
-			if err := Install(t.Context(), t.TempDir(), contract, fixtureClient(t, bodies, &requests)); err == nil {
+			if err := installFixture(t.Context(), t.TempDir(), contract, fixtureClient(t, bodies, &requests)); err == nil {
 				t.Fatal("unsafe bootstrap archive accepted")
 			}
 			if requests != 1 {
@@ -198,7 +205,7 @@ func TestInstallRejectsRedirectAndCancellation(t *testing.T) {
 			Body: io.NopCloser(strings.NewReader("")), Request: request,
 		}, nil
 	})}
-	if err := Install(t.Context(), t.TempDir(), contract, client); !errors.Is(err, ErrInvalid) || calls != 1 {
+	if err := installFixture(t.Context(), t.TempDir(), contract, client); !errors.Is(err, ErrInvalid) || calls != 1 {
 		t.Fatalf("redirect error = %v, requests=%d", err, calls)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -206,7 +213,7 @@ func TestInstallRejectsRedirectAndCancellation(t *testing.T) {
 	client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return nil, request.Context().Err()
 	})
-	if err := Install(ctx, t.TempDir(), contract, client); !errors.Is(err, context.Canceled) {
+	if err := installFixture(ctx, t.TempDir(), contract, client); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation error=%v", err)
 	}
 }
@@ -218,10 +225,18 @@ func fixture(t *testing.T) (Contract, map[string][]byte) {
 		"package/node_modules/undici/old.js":     "old undici",
 		"package/node_modules/ip-address/old.js": "old ip-address",
 	}
-	headers := make([]*tar.Header, 0, len(contents))
-	for _, name := range []string{
+	repairFiles := npmRepairFileNames()
+	names := make([]string, 0, len(contents)+len(repairFiles))
+	names = append(names,
 		"package/bin/npm-cli.js", "package/node_modules/undici/old.js", "package/node_modules/ip-address/old.js",
-	} {
+	)
+	inputs := fixtureRepairInputs()
+	for index, name := range repairFiles {
+		names = append(names, "package/"+name)
+		contents["package/"+name] = inputs[index]
+	}
+	headers := make([]*tar.Header, 0, len(contents))
+	for _, name := range names {
 		headers = append(headers, &tar.Header{
 			Name: name, Mode: 0o644, Typeflag: tar.TypeReg, Size: int64(len(contents[name])),
 		})

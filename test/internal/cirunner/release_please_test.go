@@ -1,13 +1,7 @@
 package cirunner
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
 	"context"
-	"crypto/sha512"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -96,7 +90,7 @@ func TestReleasePleaseAuditsBeforeTokenAndUsesPrivateNativeTokenFile(t *testing.
 				assertReleasePleaseToken(t, spec, token)
 				return nil
 			})
-			if err := PrepareReleasePleasePullRequest(t.Context(), options); err != nil {
+			if err := prepareReleasePleaseTest(t.Context(), options); err != nil {
 				t.Fatalf("prepare release PR: %v", err)
 			}
 			if calls != 3 || reads != 1 {
@@ -124,7 +118,7 @@ func TestReleasePleaseFailureStopsLaterStagesAndCleansPrivateFiles(t *testing.T)
 			}
 			return nil
 		})
-		if err := PrepareReleasePleasePullRequest(t.Context(), options); !errors.Is(err, want) {
+		if err := prepareReleasePleaseTest(t.Context(), options); !errors.Is(err, want) {
 			t.Fatalf("stage %d error = %v, want original failure", failAt, err)
 		}
 		if calls != failAt || (reads != 0) != (failAt == 3) {
@@ -155,7 +149,7 @@ func TestReleasePleaseRejectsInputDriftBeforeToken(t *testing.T) {
 				}
 				return nil
 			})
-			if err := PrepareReleasePleasePullRequest(t.Context(), options); !errors.Is(err, errInvalidConfig) || calls != 2 {
+			if err := prepareReleasePleaseTest(t.Context(), options); !errors.Is(err, errInvalidConfig) || calls != 2 {
 				t.Fatalf("modified input error = %v, commands = %d; want rejection before token access", err, calls)
 			}
 			assertReleasePleaseCleanup(t, directory)
@@ -178,7 +172,7 @@ func TestReleasePleaseCancellationStopsBeforeTokenAndCleansPrivateFiles(t *testi
 		cancel()
 		return nil
 	})
-	if err := PrepareReleasePleasePullRequest(ctx, options); !errors.Is(err, context.Canceled) || calls != 1 {
+	if err := prepareReleasePleaseTest(ctx, options); !errors.Is(err, context.Canceled) || calls != 1 {
 		t.Fatalf("cancelled release automation error = %v, calls = %d", err, calls)
 	}
 	assertReleasePleaseCleanup(t, directory)
@@ -202,7 +196,7 @@ func TestReleasePleaseRejectsLinkedManifestBeforeInstall(t *testing.T) {
 		t.Fatal("linked manifest executed npm")
 		return nil
 	})
-	if err := PrepareReleasePleasePullRequest(t.Context(), options); !errors.Is(err, errInvalidConfig) {
+	if err := prepareReleasePleaseTest(t.Context(), options); !errors.Is(err, errInvalidConfig) {
 		t.Fatalf("linked manifest error = %v, want invalid configuration", err)
 	}
 }
@@ -220,7 +214,7 @@ func TestReleasePleaseRejectsInvalidTokenAfterAudit(t *testing.T) {
 			directory = spec.Dir
 			return nil
 		})
-		if err := PrepareReleasePleasePullRequest(t.Context(), options); !errors.Is(err, errInvalidConfig) || calls != 2 {
+		if err := prepareReleasePleaseTest(t.Context(), options); !errors.Is(err, errInvalidConfig) || calls != 2 {
 			t.Fatalf("invalid token error = %v, calls = %d; want rejection after audit", err, calls)
 		}
 		assertReleasePleaseCleanup(t, directory)
@@ -235,7 +229,7 @@ func releasePleaseFixture(t *testing.T) ReleasePleaseOptions {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"package.json", "package-lock.json", ".npmrc"} {
+	for _, name := range releasePleaseInputNames() {
 		data, err := os.ReadFile(filepath.Join("..", "..", "..", "tools", "release-please", name))
 		if err != nil {
 			t.Fatal(err)
@@ -245,8 +239,7 @@ func releasePleaseFixture(t *testing.T) ReleasePleaseOptions {
 		}
 	}
 	return ReleasePleaseOptions{
-		HTTPClient: releasePleaseBootstrapFixture(t, directory),
-		Root:       root, Repository: releasePleaseRepository, Ref: releasePleaseRef, Event: "push",
+		Root: root, Repository: releasePleaseRepository, Ref: releasePleaseRef, Event: "push",
 		Environment: func() []string {
 			return []string{
 				"PATH=/usr/bin", "GH_TOKEN=private-release-fixture-value", "GITHUB_TOKEN=other-sensitive-value",
@@ -339,61 +332,13 @@ func (f releasePleaseTransport) RoundTrip(request *http.Request) (*http.Response
 	return f(request)
 }
 
-func releasePleaseBootstrapFixture(t *testing.T, directory string) *http.Client {
-	t.Helper()
-	contract := npmbootstrap.Contract{SchemaVersion: 1}
-	bodies := make(map[string][]byte)
-	for _, name := range []string{"npm", "undici", "ip-address"} {
-		var data bytes.Buffer
-		compressed := gzip.NewWriter(&data)
-		archive := tar.NewWriter(compressed)
-		entry := "package/package.json"
-		if name == "npm" {
-			entry = "package/bin/npm-cli.js"
-		}
-		const content = "upstream-fixture"
-		header := &tar.Header{Name: entry, Size: int64(len(content)), Mode: 0o644, Typeflag: tar.TypeReg}
-		if err := archive.WriteHeader(header); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := io.WriteString(archive, content); err != nil {
-			t.Fatal(err)
-		}
-		if err := errors.Join(archive.Close(), compressed.Close()); err != nil {
-			t.Fatal(err)
-		}
-		bodies[name] = data.Bytes()
-		digest := sha512.Sum512(data.Bytes())
-		contract.Artifacts = append(contract.Artifacts, npmbootstrap.Artifact{
-			Name: name, Version: "1.0.0", Integrity: "sha512-" + base64.StdEncoding.EncodeToString(digest[:]),
-			ArchiveBytes: int64(data.Len()), ExpandedBytes: int64(len(content)), Entries: 1,
-		})
-	}
-	data, err := json.Marshal(contract)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(directory, "bootstrap.json"), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return &http.Client{Transport: releasePleaseTransport(func(request *http.Request) (*http.Response, error) {
-		name, _, _ := strings.Cut(strings.TrimPrefix(request.URL.Path, "/"), "/")
-		body, ok := bodies[name]
-		if !ok || request.URL.Host != "registry.npmjs.org" || request.Header.Get("Authorization") != "" {
-			t.Fatal("unexpected bootstrap authority")
-		}
-		return &http.Response{
-			StatusCode: http.StatusOK, ContentLength: int64(len(body)),
-			Body: io.NopCloser(bytes.NewReader(body)), Header: make(http.Header), Request: request,
-		}, nil
-	})}
-}
-
 func TestReleasePleaseBootstrapFailureStopsBeforeCredentialsAndCommands(t *testing.T) {
 	t.Parallel()
 	options := releasePleaseFixture(t)
 	want := errors.New("injected registry failure")
-	options.HTTPClient.Transport = releasePleaseTransport(func(*http.Request) (*http.Response, error) { return nil, want })
+	options.HTTPClient = &http.Client{Transport: releasePleaseTransport(func(*http.Request) (*http.Response, error) {
+		return nil, want
+	})}
 	options.Token = func() string { t.Fatal("failed bootstrap read token"); return "" }
 	options.Runner = releasePleaseRunnerFunc(func(context.Context, CommandSpec) error {
 		t.Fatal("failed bootstrap executed child")
@@ -402,4 +347,10 @@ func TestReleasePleaseBootstrapFailureStopsBeforeCredentialsAndCommands(t *testi
 	if err := PrepareReleasePleasePullRequest(t.Context(), options); !errors.Is(err, want) {
 		t.Fatalf("bootstrap failure=%v", err)
 	}
+}
+
+func prepareReleasePleaseTest(ctx context.Context, options ReleasePleaseOptions) error {
+	return prepareReleasePleasePullRequest(ctx, options, func(context.Context, string, *http.Client) error {
+		return nil
+	})
 }

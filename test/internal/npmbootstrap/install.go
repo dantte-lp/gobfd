@@ -26,8 +26,21 @@ const (
 )
 
 // Install verifies each upstream archive before extracting it into a private directory.
-// It replaces only the two pinned bundled packages and never executes package code.
-func Install(ctx context.Context, directory string, contract Contract, client *http.Client) (returnErr error) {
+// It replaces two bundled packages and applies the bound preprocessing repair
+// before returning the private installation. It never executes package code.
+func Install(ctx context.Context, directory string, contract Contract, client *http.Client) error {
+	if err := contract.validate(); err != nil {
+		return err
+	}
+	if contract.Artifacts[0] != npmRepairArtifact() {
+		return fmt.Errorf("npm archive differs from the qualified repair source: %w", ErrInvalid)
+	}
+	return install(ctx, directory, contract, client, npmRepairSourceHashes())
+}
+
+func install(ctx context.Context, directory string, contract Contract, client *http.Client,
+	hashes [3]npmRepairHashes,
+) (returnErr error) {
 	if err := contract.validate(); err != nil {
 		return err
 	}
@@ -48,7 +61,7 @@ func Install(ctx context.Context, directory string, contract Contract, client *h
 		if err := createPackageDirectory(root, target, artifact.Name); err != nil {
 			return fmt.Errorf("create bootstrap package directory: %w", err)
 		}
-		if err := installArchive(root, target, artifact, data); err != nil {
+		if err := installArchive(root, target, artifact, data, hashes); err != nil {
 			return err
 		}
 	}
@@ -96,7 +109,9 @@ func readArchiveResponse(response *http.Response, artifact Artifact) ([]byte, er
 	return data, nil
 }
 
-func installArchive(root *os.Root, target string, artifact Artifact, data []byte) (returnErr error) {
+func installArchive(root *os.Root, target string, artifact Artifact, data []byte,
+	hashes [3]npmRepairHashes,
+) (returnErr error) {
 	input := bytes.NewReader(data)
 	compressed, err := gzip.NewReader(input)
 	if err != nil {
@@ -106,7 +121,7 @@ func installArchive(root *os.Root, target string, artifact Artifact, data []byte
 	compressed.Multistream(false)
 	limit := artifact.ExpandedBytes + int64(artifact.Entries)*tarEntryOverhead + tarTrailerLimit
 	limited := &io.LimitedReader{R: compressed, N: limit + 1}
-	if err := extractTar(root, target, artifact, tar.NewReader(limited)); err != nil {
+	if err := extractTar(root, target, artifact, tar.NewReader(limited), hashes); err != nil {
 		return err
 	}
 	if _, err := io.Copy(io.Discard, limited); err != nil {
@@ -118,16 +133,13 @@ func installArchive(root *os.Root, target string, artifact Artifact, data []byte
 	return nil
 }
 
-func extractTar(root *os.Root, target string, artifact Artifact, reader *tar.Reader) error {
+func extractTar(root *os.Root, target string, artifact Artifact, reader *tar.Reader, hashes [3]npmRepairHashes) error {
 	seen := make(map[string]bool)
 	var expanded int64
 	for count := 0; ; count++ {
 		header, err := reader.Next()
 		if errors.Is(err, io.EOF) {
-			if count != artifact.Entries || expanded != artifact.ExpandedBytes {
-				return fmt.Errorf("bootstrap tar entry count or expanded size: %w", ErrInvalid)
-			}
-			return nil
+			return verifyTarContents(artifact, count, expanded, seen)
 		}
 		if err != nil {
 			return fmt.Errorf("read bootstrap tar header: %w", err)
@@ -141,13 +153,32 @@ func extractTar(root *os.Root, target string, artifact Artifact, reader *tar.Rea
 		}
 		seen[name] = true
 		expanded += header.Size
-		if artifact.Name == "npm" && replacedEntry(name) {
-			continue
-		}
-		if err := writeEntry(root, filepath.Join(target, filepath.FromSlash(name)), reader, header.Size); err != nil {
+		if err := writeArtifactEntry(root, target, artifact.Name, name, reader, header.Size, hashes); err != nil {
 			return err
 		}
 	}
+}
+
+func verifyTarContents(artifact Artifact, count int, expanded int64, seen map[string]bool) error {
+	if count != artifact.Entries || expanded != artifact.ExpandedBytes {
+		return fmt.Errorf("bootstrap tar entry count or expanded size: %w", ErrInvalid)
+	}
+	if artifact.Name == "npm" {
+		return verifyNPMRepairPresence(seen)
+	}
+	return nil
+}
+
+func writeArtifactEntry(root *os.Root, target, artifact, name string, reader io.Reader,
+	size int64, hashes [3]npmRepairHashes,
+) error {
+	if artifact == "npm" {
+		if replacedEntry(name) {
+			return nil
+		}
+		return writeNPMEntry(root, target, name, reader, size, hashes)
+	}
+	return writeEntry(root, filepath.Join(target, filepath.FromSlash(name)), reader, size)
 }
 
 func regularEntryName(header *tar.Header) (string, error) {

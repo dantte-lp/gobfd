@@ -39,7 +39,14 @@ type ReleasePleaseOptions struct {
 
 // PrepareReleasePleasePullRequest audits the locked CLI before exposing its token.
 // Only the upstream release-pr command runs; tagging and publication remain separate.
-func PrepareReleasePleasePullRequest(ctx context.Context, options ReleasePleaseOptions) (returnErr error) {
+func PrepareReleasePleasePullRequest(ctx context.Context, options ReleasePleaseOptions) error {
+	return prepareReleasePleasePullRequest(ctx, options, installReleasePleaseBootstrap)
+}
+
+func prepareReleasePleasePullRequest(
+	ctx context.Context, options ReleasePleaseOptions,
+	bootstrap func(context.Context, string, *http.Client) error,
+) (returnErr error) {
 	if err := validateReleasePleaseContext(options); err != nil {
 		return err
 	}
@@ -63,7 +70,7 @@ func PrepareReleasePleasePullRequest(ctx context.Context, options ReleasePleaseO
 		return err
 	}
 	environment := releasePleaseEnvironment(options.Environment(), directory)
-	if err := installReleasePleaseBootstrap(ctx, directory, options.HTTPClient); err != nil {
+	if err := bootstrap(ctx, directory, options.HTTPClient); err != nil {
 		return err
 	}
 	if err := installAndVerifyReleasePlease(ctx, options.Runner, directory, environment); err != nil {
