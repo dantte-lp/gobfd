@@ -89,6 +89,9 @@ backends remain previews. See the [RFC coverage matrix](docs/en/08-rfc-complianc
 
 ### Security
 
+- Validate written RPM metadata before atomic replacement and checksum generation.
+  A mismatched version, architecture or native lifecycle program stops release
+  asset upload. [#109](https://github.com/dantte-lp/gobfd/pull/109)
 - Remediate minimatch pattern amplification in release proposal automation:
   select 11.0.3 for the isolated consumer and backport the upstream fix to npm's
   bundled matcher with verified source hashes and supported modular glob entrypoints.
