@@ -634,6 +634,7 @@ func verifySelectedPackages(manifest string) error {
 	args = append(args, "-deps", "-f", "{{.ImportPath}}", pattern)
 	result := runGoWithEnvironment(environment, args...)
 	if result.Err != nil || result.TimedOut {
+		printStderr("selected packages "+manifest, result.Stderr)
 		return fmt.Errorf("list selected packages: %w", errors.Join(errSelectedModuleGraph, result.Err))
 	}
 	return checkExcludedPackages(result.Stdout)

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -82,6 +83,7 @@ func (fixture *sourceToolsFixture) RunCommand(ctx context.Context, spec CommandS
 				fixture.fault = "foreign owner"
 			}
 		}
+		return fixture.prepareWorker(ctx, spec)
 	}
 	if spec.Name == "docker" && spec.Args[0] == "start" && fixture.tool == "release-goreleaser" {
 		switch fixture.batchFault {
@@ -104,6 +106,26 @@ func (fixture *sourceToolsFixture) RunCommand(ctx context.Context, spec CommandS
 		return fixture.writePublisherWorker(ctx)
 	}
 	return fixture.syftCompilerFixture.RunCommand(ctx, spec)
+}
+
+func (fixture *sourceToolsFixture) prepareWorker(ctx context.Context, spec CommandSpec) error {
+	if err := fixture.syftCompilerFixture.RunCommand(ctx, spec); err != nil {
+		return err
+	}
+	temporary := filepath.Join(fixture.work, "cache", "tmp")
+	info, statErr := os.Lstat(temporary)
+	if statErr != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
+		fixture.t.Fatalf("worker temporary directory is not private: %v", statErr)
+	}
+	for _, key := range []string{"GOTMPDIR", "TMPDIR"} {
+		if !slices.Contains(spec.Args, key+"="+temporary) {
+			fixture.t.Fatalf("worker %s lacks its disk temporary path", fixture.tool)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(temporary, fixture.tool), []byte("worker temporary output"), 0o600); err != nil {
+		return fmt.Errorf("write worker temporary output: %w", err)
+	}
+	return nil
 }
 
 func (fixture *sourceToolsFixture) writePublisherWorker(ctx context.Context) (returnErr error) {
@@ -237,6 +259,11 @@ func TestSourceToolWorkerSelectionIsClosed(t *testing.T) {
 		}
 		if err != nil || !slices.Equal(args[len(args)-3:], []string{"600s", "/runner/gobfd-cictl-20-2", "release-" + tool}) {
 			t.Fatalf("worker command escaped its individual timeout: %q %v", args, err)
+		}
+		for _, required := range []string{"GOTMPDIR=/private/cache/tmp", "TMPDIR=/private/cache/tmp"} {
+			if !slices.Contains(args, required) {
+				t.Fatalf("worker %s lacks owned disk temporary path %q", tool, required)
+			}
 		}
 	}
 }

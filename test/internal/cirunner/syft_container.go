@@ -283,7 +283,8 @@ func syftCompilerArguments(repository, directory, executable string, uid, gid in
 		"GOMAXPROCS=2", "GOMEMLIMIT=2GiB", "GOPROXY=https://proxy.golang.org", "GOSUMDB=sum.golang.org",
 		"GOCACHE=" + filepath.Join(directory, "cache", "build"), "GOMODCACHE=" + filepath.Join(directory, "cache", "mod"),
 		"GOPATH=" + filepath.Join(directory, "cache", "go"),
-		"HOME=" + filepath.Join(directory, "cache"), "TMPDIR=/tmp",
+		"HOME=" + filepath.Join(directory, "cache"),
+		"GOTMPDIR=" + filepath.Join(directory, "cache", "tmp"), "TMPDIR=" + filepath.Join(directory, "cache", "tmp"),
 		"RUNNER_TEMP=" + filepath.Join(directory, "install"), "GITHUB_PATH=" + filepath.Join(directory, "github-path"),
 	} {
 		args = append(args, "--env", value)
@@ -465,7 +466,7 @@ func prepareSyftCompilerFiles(parentPath string) (_ *syftCompilerFiles, returnEr
 	if err != nil {
 		return nil, fmt.Errorf("open Syft compiler root: %w", err)
 	}
-	for _, name := range []string{"cache", "install"} {
+	for _, name := range []string{"cache", filepath.Join("cache", "tmp"), "install"} {
 		if mkdirErr := files.root.Mkdir(name, 0o700); mkdirErr != nil {
 			return nil, fmt.Errorf("create private Syft compiler %s: %w", name, mkdirErr)
 		}
@@ -620,6 +621,7 @@ func (files *syftCompilerFiles) removeTransient() error {
 			return err
 		}
 		delete(files.owned, "cache")
+		delete(files.owned, filepath.Join("cache", "tmp"))
 	}
 	info, err := files.root.Lstat("github-path")
 	if errors.Is(err, os.ErrNotExist) {

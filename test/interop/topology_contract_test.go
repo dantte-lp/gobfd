@@ -1067,6 +1067,61 @@ func TestTrackedOperationalTextHasNoRemovedReferences(t *testing.T) {
 	}
 }
 
+func TestTrackedOperationalTextBoundsLargeDependencyInventory(t *testing.T) {
+	t.Parallel()
+
+	const inventoryPath = "docs/supply-chain/dependency-inventory.json"
+	removed := "aio" + "bfd"
+	tests := []struct {
+		name     string
+		path     string
+		tail     string
+		oversize bool
+		wantErr  string
+	}{
+		{name: "large inventory", path: inventoryPath},
+		{name: "removed reference at end", path: inventoryPath, tail: removed, wantErr: "retains removed reference"},
+		{name: "oversize inventory", path: inventoryPath, oversize: true, wantErr: "limit is"},
+		{name: "ordinary file keeps original limit", path: "dependency-inventory.json", wantErr: "limit is"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			path := filepath.Join(root, filepath.FromSlash(test.path))
+			if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+				t.Fatalf("create inventory fixture directory: %v", err)
+			}
+			if test.oversize {
+				writeFixture(t, path, "")
+				if err := os.Truncate(path, int64(maxDependencyInventoryFileSize)+1); err != nil {
+					t.Fatalf("extend oversized inventory fixture: %v", err)
+				}
+			} else {
+				writeFixture(t, path, `{"text":"`+strings.Repeat("a", 6<<20)+test.tail+`"}`)
+			}
+			rooted, err := os.OpenRoot(root)
+			if err != nil {
+				t.Fatalf("open fixture root: %v", err)
+			}
+			t.Cleanup(func() {
+				if closeErr := rooted.Close(); closeErr != nil {
+					t.Errorf("close fixture root: %v", closeErr)
+				}
+			})
+			err = validateTrackedOperationalPath(rooted, test.path, false, nil, []string{removed})
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("large inventory scan: %v", err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("inventory scan error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestTrackedOperationalTextScansNonGeneratedPublicAPIFile(t *testing.T) {
 	t.Parallel()
 
@@ -2118,7 +2173,7 @@ func TestOperationalSurfaceScanRejectsUnsafeEntries(t *testing.T) {
 
 const (
 	maxOperationalFileSize         = 2 << 20
-	maxDependencyInventoryFileSize = 3 << 20
+	maxDependencyInventoryFileSize = 16 << 20 // Matches dependencyinventory.maxJSONFileBytes.
 	maxOperationalEntries          = 10_000
 )
 

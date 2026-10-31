@@ -38,6 +38,7 @@ func TestSyftCompilerArgumentsUseActualIdentityAndClosedMounts(t *testing.T) {
 				"GITHUB_PATH=/runner/private/github-path", "RUNNER_TEMP=/runner/private/install",
 				"GOCACHE=/runner/private/cache/build", "GOMODCACHE=/runner/private/cache/mod",
 				"GOPATH=/runner/private/cache/go", "GOSUMDB=sum.golang.org",
+				"GOTMPDIR=/runner/private/cache/tmp", "TMPDIR=/runner/private/cache/tmp",
 				"CGO_ENABLED=0", "GOTOOLCHAIN=local", "GOENV=off", "GOWORK=off",
 			} {
 				if !slices.Contains(args, required) {
@@ -361,7 +362,7 @@ func TestSyftCompilerCleanupRemovesReadonlyCacheWithoutFollowingLinks(t *testing
 
 func TestSyftCompilerCleanupPreservesReplacedOwnedDirectories(t *testing.T) {
 	t.Parallel()
-	for _, selected := range []string{"root", "cache", "install"} {
+	for _, selected := range []string{"root", "cache", filepath.Join("cache", "tmp"), "install"} {
 		t.Run(selected, func(t *testing.T) {
 			t.Parallel()
 			files, prepareErr := prepareSyftCompilerFiles(t.TempDir())

@@ -57,6 +57,7 @@ func discoverGoToolManifest(
 	if !isGoToolManifest(path) {
 		return fmt.Errorf("unsupported Go tool manifest %q: %w", path, errGoToolDeclaration)
 	}
+	// #nosec G204 -- Fixed read-only Go arguments; path must match the first-party manifest allowlist above.
 	command := exec.CommandContext(ctx, "go", "mod", "edit", "-json", path)
 	command.Dir = root
 	output, err := command.Output()
