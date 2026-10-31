@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 )
 
 // Diagnostic identifies one repository policy violation.
@@ -148,10 +149,10 @@ func ignoredCommit(message string) bool {
 func subjectIsUpper(subject string) bool {
 	hasLetter := false
 	for _, character := range subject {
-		if character >= 'a' && character <= 'z' {
+		if unicode.IsLower(character) {
 			return false
 		}
-		if character >= 'A' && character <= 'Z' {
+		if unicode.IsUpper(character) {
 			hasLetter = true
 		}
 	}
