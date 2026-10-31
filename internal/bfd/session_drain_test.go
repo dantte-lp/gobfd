@@ -134,6 +134,7 @@ func TestManagerDrainConcurrentAlreadyAdminDown(t *testing.T) {
 			t.Fatal(err)
 		}
 		<-sender.successful
+		synctest.Wait() // Finish the initial write before starting a new drain.
 		results := make(chan error, 2)
 		for range 2 {
 			go func() { results <- mgr.DrainAllSessions(t.Context()) }()
