@@ -102,7 +102,7 @@ jobs:
           --user=0:0 --read-only --cap-drop=ALL --security-opt=no-new-privileges
           --cpus=2 --memory=3221225472 --memory-swap=3221225472 --pids-limit=512
           --workdir /src --entrypoint /usr/bin/timeout
-          --tmpfs /tmp:rw,nosuid,nodev,size=1073741824,mode=1777
+          --tmpfs /tmp:rw,nosuid,nodev,exec,size=1073741824,mode=1777
           --tmpfs /cache:rw,nosuid,nodev,size=1073741824,mode=0700
           --mount "type=bind,src=${{ github.workspace }},dst=/src,readonly"
           --env CGO_ENABLED=1 --env GOTOOLCHAIN=local --env GOENV=off --env GOWORK=off
