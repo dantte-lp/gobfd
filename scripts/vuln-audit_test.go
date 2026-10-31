@@ -1044,3 +1044,34 @@ func publisherEvidenceFixture(t *testing.T) publisherAuditEvidence {
 		nativeReport: append([]byte(config), append(sbom, []byte(nativeFinding)...)...),
 	}
 }
+
+func TestSelectedPackagesIgnoreUnavailableVCS(t *testing.T) {
+	root := t.TempDir()
+	for name, data := range map[string]string{
+		"go.mod":  "module example.invalid/gobfd-vcs-control\n\ngo 1.27\n",
+		"main.go": "package main\nfunc main() {}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command := exec.CommandContext(t.Context(), "git", "init", "--quiet", root)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("initialize VCS fixture: %v, %s", err, output)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "config"), []byte("[invalid\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	t.Setenv("GOFLAGS", "")
+	t.Setenv("GOWORK", "off")
+	t.Setenv("GOTOOLCHAIN", "local")
+	t.Setenv("GOPROXY", "off")
+	control := runGo("list", "-mod=readonly", "-modfile=go.mod", "-deps", "-f", "{{.ImportPath}}", "./...")
+	if control.Err == nil || !strings.Contains(control.Stderr, "VCS") {
+		t.Fatalf("unavailable VCS control did not fail: %v, %s", control.Err, control.Stderr)
+	}
+	if err := verifySelectedPackages("go.mod"); err != nil {
+		t.Fatalf("package selection requires unrelated VCS metadata: %v", err)
+	}
+}

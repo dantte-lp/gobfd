@@ -625,7 +625,7 @@ func verifySelectedPackages(manifest string) error {
 	if manifest == "go.mod" {
 		pattern = "./..."
 	}
-	args := []string{"list", "-mod=readonly", "-modfile=" + manifest}
+	args := []string{"list", "-buildvcs=false", "-mod=readonly", "-modfile=" + manifest}
 	var environment []string
 	if manifest == toolprofile.SyftManifest {
 		args = append(args, "-tags="+toolprofile.SyftBuildTags)
