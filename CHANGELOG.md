@@ -84,6 +84,10 @@ see the [RFC coverage matrix](docs/en/08-rfc-compliance.md).
 
 ### Security
 
+- Remediate minimatch pattern amplification in release proposal automation:
+  select 11.0.3 for the isolated consumer and backport the upstream fix to npm's
+  bundled matcher with verified source hashes and supported modular glob entrypoints.
+  [#106](https://github.com/dantte-lp/gobfd/pull/106)
 - Update the tools and Syft source graphs to go-jose/v4 4.1.7 for upstream
   JWK/JWT/JWE/JWS validation fixes. See the
   [security release](https://github.com/go-jose/go-jose/releases/tag/v4.1.7).

@@ -85,6 +85,10 @@ Echo и Micro-BFD остаются preview, выключенными по умо
 
 ### Безопасность
 
+- Устранено разрастание шаблонов minimatch в автоматизации предложения выпуска:
+  изолированный потребитель использует 11.0.3; встроенный matcher npm получает
+  upstream-исправление с проверкой хешей и модульными точками входа glob.
+  [#106](https://github.com/dantte-lp/gobfd/pull/106)
 - Графы исходников tools и Syft обновлены до go-jose/v4 4.1.7 с upstream-
   исправлениями проверки JWK/JWT/JWE/JWS. См.
   [security release](https://github.com/go-jose/go-jose/releases/tag/v4.1.7).
