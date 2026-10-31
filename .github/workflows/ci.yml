@@ -96,6 +96,22 @@ jobs:
       - name: Check source-built GoReleaser configuration
         run: goreleaser check
 
+      - name: Test RPM publication metadata
+        run: >-
+          docker run --rm --name gobfd-packagefinalize-${{ github.run_id }}-${{ github.run_attempt }}
+          --user=0:0 --read-only --cap-drop=ALL --security-opt=no-new-privileges
+          --cpus=2 --memory=3221225472 --memory-swap=3221225472 --pids-limit=512
+          --workdir /src --entrypoint /usr/bin/timeout
+          --tmpfs /tmp:rw,nosuid,nodev,exec,size=1073741824,mode=1777
+          --tmpfs /cache:rw,nosuid,nodev,size=1073741824,mode=0700
+          --mount "type=bind,src=${{ github.workspace }},dst=/src,readonly"
+          --env CGO_ENABLED=1 --env GOTOOLCHAIN=local --env GOENV=off --env GOWORK=off
+          --env GOCACHE=/cache/build --env GOMODCACHE=/cache/mod --env GOPATH=/cache/go
+          --env HOME=/cache --env TMPDIR=/tmp --env GOMAXPROCS=2 --env GOMEMLIMIT=2GiB
+          docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c
+          --signal=TERM --kill-after=5s 600s /usr/local/go/bin/go -C tools
+          test -race -count=1 -mod=readonly -buildvcs=false -p=2 ./cmd/packagefinalize
+
   non-linux-contract:
     name: Non-Linux transport contract
     runs-on: macos-latest

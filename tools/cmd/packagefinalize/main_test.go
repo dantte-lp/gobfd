@@ -55,15 +55,15 @@ func writeRPMFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	files := map[string]string{
-		"dist/gobfd_linux_amd64_v1/gobfd":                                     "gobfd",
-		"dist/gobfdctl_linux_amd64_v1/gobfdctl":                               "gobfdctl",
-		"dist/gobfd-haproxy-agent_linux_amd64_v1/gobfd-haproxy-agent":         "haproxy",
-		"dist/gobfd-exabgp-bridge_linux_amd64_v1/gobfd-exabgp-bridge":         "exabgp",
-		"dist/gobfd-package-lifecycle_linux_amd64_v1/gobfd-package-lifecycle": "lifecycle",
-		"configs/gobfd.example.yml":                                           "config",
-		"deployments/systemd/gobfd.service":                                   "service",
-		"deployments/systemd/gobfd.sysusers":                                  "sysusers",
-		"deployments/systemd/gobfd.tmpfiles":                                  "tmpfiles",
+		"configs/gobfd.example.yml":          "config",
+		"deployments/systemd/gobfd.service":  "service",
+		"deployments/systemd/gobfd.sysusers": "sysusers",
+		"deployments/systemd/gobfd.tmpfiles": "tmpfiles",
+	}
+	for _, target := range []string{"linux_amd64_v1", "linux_arm64_v8.0"} {
+		for _, name := range []string{"gobfd", "gobfdctl", "gobfd-haproxy-agent", "gobfd-exabgp-bridge", "gobfd-package-lifecycle"} {
+			files["dist/"+name+"_"+target+"/"+name] = name
+		}
 	}
 	for name, body := range files {
 		path := filepath.Join(root, name)
@@ -80,26 +80,13 @@ func writeRPMFixture(t *testing.T) string {
 
 func assertRPMStringTag(t *testing.T, data []byte, tag uint32, want string) {
 	t.Helper()
-	const leadSize, headerSize, indexSize, alignment = 96, 16, 16, 8
-	signature := data[leadSize:]
-	length := headerSize + int(binary.BigEndian.Uint32(signature[8:12]))*indexSize +
-		int(binary.BigEndian.Uint32(signature[12:16]))
-	header := data[leadSize+(length+alignment-1)/alignment*alignment:]
-	entries := int(binary.BigEndian.Uint32(header[8:12]))
-	store := header[headerSize+entries*indexSize:]
-	for index := range entries {
-		entry := header[headerSize+index*indexSize:][:indexSize]
-		if binary.BigEndian.Uint32(entry[:4]) != tag {
-			continue
-		}
-		offset := int(binary.BigEndian.Uint32(entry[8:12]))
-		value, _, found := bytes.Cut(store[offset:], []byte{0})
-		if !found || string(value) != want {
-			t.Fatalf("RPM tag %d = %q, want %q", tag, value, want)
-		}
-		return
+	entry := rpmMetadataTag(t, data, tag)
+	store := rpmMetadataStore(data)
+	offset := int(binary.BigEndian.Uint32(entry[8:12]))
+	value, _, found := bytes.Cut(store[offset:], []byte{0})
+	if !found || string(value) != want {
+		t.Fatalf("RPM tag %d = %q, want %q", tag, value, want)
 	}
-	t.Fatalf("RPM lacks tag %d", tag)
 }
 
 func TestRunRecognizesApprovedAlphaBeforeArtifactValidation(t *testing.T) {
