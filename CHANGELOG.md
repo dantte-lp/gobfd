@@ -7,12 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The 1.0 candidate is experimental. The qualification load generator fails its
-strict CPU-window gate; native A/B, calibrated 24-hour operation and final wire
-qualification remain incomplete.
+## [1.0.0-alpha.1] - 2026-10-31
+
+This is an experimental prerelease. The qualification load generator fails its
+strict CPU-window gate. Native Control/Echo A/B, calibrated 24-hour operation
+and final wire qualification remain incomplete. Stable API compatibility,
+supported session scale and production readiness are not established.
 Echo and Micro-BFD remain default-off previews; unsolicited BFD and VXLAN/Geneve
-backends remain previews;
-see the [RFC coverage matrix](docs/en/08-rfc-compliance.md).
+backends remain previews. See the [RFC coverage matrix](docs/en/08-rfc-compliance.md).
 
 ### Added
 
@@ -38,9 +40,12 @@ see the [RFC coverage matrix](docs/en/08-rfc-compliance.md).
 - Isolate the Syft dependency graph and share source-built SBOM tooling with
   the release workflow. Require complete selected-module coverage from OSV;
   preserve raw scanner evidence.
-- Align Podman Compose 5.6.1, GoReleaser 2.19.0, Syft 1.55.0 and Trivy 0.76.1
-  across bootstrap, local commands and CI. Rebuild the development image to
-  install the updated Compose provider. [#105](https://github.com/dantte-lp/gobfd/pull/105)
+- Managed tooling uses Podman Compose 5.6.1, GoReleaser 2.19.0, Syft 1.55.0,
+  Trivy 0.76.1 and UPX 5.3.0. gopls 0.24.0 builds from its isolated module.
+  Rebuild the development image to install the updated Compose provider.
+  The provider remains the checksum-pinned upstream binary; qualification of
+  an isolated source-built provider is pending.
+  [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - Update Connect to v2.0.2, gRPC to v1.85.0, golangci-lint to v2.15.0,
   gosec to v2.30.0, Buf to v1.75.0 and x/perf to `v0.0.0-20261009192801-be2c69fb417e`. Release Please 17.11.2
   uses an isolated dependency lock and verified npm 12.2.1 bootstrap; candidate and OCI qualification
@@ -84,11 +89,19 @@ see the [RFC coverage matrix](docs/en/08-rfc-compliance.md).
 
 ### Security
 
+- Validate written RPM metadata before atomic replacement and checksum generation.
+  A mismatched version, architecture or native lifecycle program stops release
+  asset upload. [#109](https://github.com/dantte-lp/gobfd/pull/109)
 - Remediate minimatch pattern amplification in release proposal automation:
   select 11.0.3 for the isolated consumer and backport the upstream fix to npm's
   bundled matcher with verified source hashes and supported modular glob entrypoints.
   [#106](https://github.com/dantte-lp/gobfd/pull/106)
-- Update the tools and Syft source graphs to go-jose/v4 4.1.7 for upstream
+- The managed publisher uses authenticated GoReleaser and Refmt sources and
+  isolated manifests. Its audit binds the complete selected graph to the compiled
+  artifact. Publisher-only dependency dispositions expire on 2026-11-30; runtime
+  and tools retain separate exception policies.
+  [#105](https://github.com/dantte-lp/gobfd/pull/105)
+- Use go-jose/v4 4.1.7 in the tools, Syft and managed publisher graphs for upstream
   JWK/JWT/JWE/JWS validation fixes. See the
   [security release](https://github.com/go-jose/go-jose/releases/tag/v4.1.7).
 - Remediate 12 additional advisories in the selected Go dependency graphs:
@@ -648,7 +661,8 @@ see the [RFC coverage matrix](docs/en/08-rfc-compliance.md).
 - CI pipeline: build, test, lint, govulncheck, buf lint/breaking.
 - Bilingual documentation (English and Russian).
 
-[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.6.4...HEAD
+[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v1.0.0-alpha.1...release/v1.0
+[1.0.0-alpha.1]: https://github.com/dantte-lp/gobfd/compare/v0.6.4...v1.0.0-alpha.1
 [0.6.4]: https://github.com/dantte-lp/gobfd/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...v0.6.2

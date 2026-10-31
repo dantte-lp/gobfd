@@ -7,12 +7,15 @@
 
 ## [Не выпущено]
 
-Кандидат 1.0 является экспериментальным. Генератор квалификационной нагрузки
-не проходит проверку строгих CPU-окон; native A/B, калиброванный 24-часовой прогон
-и финальная wire qualification не завершены.
-Echo и Micro-BFD остаются preview, выключенными по умолчанию; unsolicited BFD
-и VXLAN/Geneve backends остаются preview;
-границы определяет [матрица покрытия RFC](docs/ru/08-rfc-compliance.md).
+## [1.0.0-alpha.1] - 2026-10-31
+
+Экспериментальный предварительный выпуск. Генератор квалификационной нагрузки
+не проходит проверку строгих CPU-окон. Native Control/Echo A/B, калиброванный
+24-часовой прогон и финальная wire qualification не завершены. Совместимость
+стабильного API, поддерживаемый масштаб сессий и готовность к production
+не подтверждены. Echo и Micro-BFD остаются preview, выключенными по умолчанию;
+unsolicited BFD и VXLAN/Geneve backends остаются preview.
+Границы определяет [матрица покрытия RFC](docs/ru/08-rfc-compliance.md).
 
 ### Добавлено
 
@@ -38,9 +41,12 @@ Echo и Micro-BFD остаются preview, выключенными по умо
 - Изолирован граф зависимостей Syft; сбор SBOM и workflow выпуска используют
   общий инструмент, собранный из исходников. OSV обязан покрывать весь выбранный
   граф модулей; исходные доказательства сканера сохраняются.
-- Согласованы Podman Compose 5.6.1, GoReleaser 2.19.0, Syft 1.55.0 и Trivy 0.76.1
-  в bootstrap, локальных командах и CI. Пересобрать образ разработки для
-  установки обновлённого провайдера Compose. [#105](https://github.com/dantte-lp/gobfd/pull/105)
+- Закреплены Podman Compose 5.6.1, GoReleaser 2.19.0, Syft 1.55.0,
+  Trivy 0.76.1 и UPX 5.3.0. gopls 0.24.0 собирается из изолированного модуля.
+  Пересобрать образ разработки для установки обновлённого провайдера Compose.
+  Провайдер остаётся upstream-бинарником с закреплённой контрольной суммой;
+  квалификация его изолированной сборки из исходников не завершена.
+  [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - Обновлены Connect до v2.0.2, gRPC до v1.85.0, golangci-lint до v2.15.0,
   gosec до v2.30.0, Buf до v1.75.0 и x/perf до `v0.0.0-20261009192801-be2c69fb417e`. Release Please 17.11.2
   использует изолированный lock и проверенный bootstrap npm 12.2.1; квалификация кандидата
@@ -85,11 +91,19 @@ Echo и Micro-BFD остаются preview, выключенными по умо
 
 ### Безопасность
 
+- Метаданные записанного RPM проверяются до атомарной замены и формирования
+  контрольных сумм. Неверные версия, архитектура или native lifecycle program
+  останавливают загрузку release assets. [#109](https://github.com/dantte-lp/gobfd/pull/109)
 - Устранено разрастание шаблонов minimatch в автоматизации предложения выпуска:
   изолированный потребитель использует 11.0.3; встроенный matcher npm получает
   upstream-исправление с проверкой хешей и модульными точками входа glob.
   [#106](https://github.com/dantte-lp/gobfd/pull/106)
-- Графы исходников tools и Syft обновлены до go-jose/v4 4.1.7 с upstream-
+- Управляемый publisher использует исходники GoReleaser и Refmt с проверкой
+  контрольных сумм и изолированные manifests. Его аудит связывает полный
+  выбранный граф с собранным артефактом. Срок review исключений только для
+  publisher — 2026-11-30; runtime и tools сохраняют отдельные политики исключений.
+  [#105](https://github.com/dantte-lp/gobfd/pull/105)
+- Графы tools, Syft и управляемого publisher используют go-jose/v4 4.1.7 с upstream-
   исправлениями проверки JWK/JWT/JWE/JWS. См.
   [security release](https://github.com/go-jose/go-jose/releases/tag/v4.1.7).
 - Устранены 12 дополнительных advisories в выбранных графах Go-зависимостей:
@@ -640,7 +654,8 @@ Echo и Micro-BFD остаются preview, выключенными по умо
 - CI-пайплайн: сборка, тесты, линтер, govulncheck, buf lint/breaking.
 - Двуязычная документация (английский и русский).
 
-[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.6.4...HEAD
+[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v1.0.0-alpha.1...release/v1.0
+[1.0.0-alpha.1]: https://github.com/dantte-lp/gobfd/compare/v0.6.4...v1.0.0-alpha.1
 [0.6.4]: https://github.com/dantte-lp/gobfd/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...v0.6.2
