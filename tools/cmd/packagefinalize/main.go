@@ -119,6 +119,9 @@ func replaceRPM(path, root, version, arch string) (returnErr error) {
 	if err := writeRPM(temporary, root, version, arch); err != nil {
 		return err
 	}
+	if err := inspectRPMMetadata(temporary, version, arch); err != nil {
+		return fmt.Errorf("inspect written RPM metadata: %w", err)
+	}
 	if err := temporary.Close(); err != nil {
 		return fmt.Errorf("close temporary RPM: %w", err)
 	}
