@@ -6,21 +6,22 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/dantte-lp/gobfd/internal/toolprofile"
 )
 
-const (
-	reportFileMode = 0o644
-	syftModule     = "github.com/anchore/syft/cmd/syft@v1.54.1"
-)
+const reportFileMode = 0o644
 
-// SBOMOptions configures generation of the separate runtime and tools SBOMs.
+// SBOMOptions configures reports for each first-party Go module manifest.
 type SBOMOptions struct {
-	ReportDir string
-	Runner    SpecRunner
+	Root        string
+	ReportDir   string
+	Environment []string
+	Runner      SpecRunner
 }
 
-// SBOM generates and validates the runtime and tools CycloneDX reports.
-func SBOM(ctx context.Context, options SBOMOptions) error {
+// SBOM emits CycloneDX and SPDX manifest reports, not full selected-MVS attestations.
+func SBOM(ctx context.Context, options SBOMOptions) (returnErr error) {
 	if options.Runner == nil {
 		return fmt.Errorf("SBOM command runner is required: %w", errInvalidConfig)
 	}
@@ -28,35 +29,71 @@ func SBOM(ctx context.Context, options SBOMOptions) error {
 	if err != nil {
 		return err
 	}
-	if err := ensureDirectory(reportDir, "SBOM report"); err != nil {
+	if directoryErr := ensureDirectory(reportDir, "SBOM report"); directoryErr != nil {
+		return directoryErr
+	}
+	root, err := validateAbsoluteExistingDirectory(options.Root, "SBOM repository")
+	if err != nil {
 		return err
 	}
+	installation, err := InstallSyft(ctx, SyftOptions{
+		Root: root, InstallDir: temporarySyftDirectory(reportDir),
+		Environment: options.Environment, Runner: options.Runner,
+	})
+	if err != nil {
+		return err
+	}
+	defer func() { returnErr = errors.Join(returnErr, installation.Close()) }()
 
 	reports := []struct {
-		name   string
-		input  string
-		output string
+		name  string
+		input string
 	}{
-		{name: "runtime", input: "go.mod", output: "runtime-sbom.cdx.json"},
-		{name: "tools", input: "tools/go.mod", output: "tools-sbom.cdx.json"},
+		{name: "runtime", input: goModFilename},
+		{name: "tools", input: "tools/go.mod"},
+		{name: "gopls", input: "tools/gopls/go.mod"},
+		{name: syftName, input: toolprofile.SyftManifest},
 	}
+	options.Root, options.ReportDir = root, reportDir
 	for _, report := range reports {
-		output := filepath.Join(reportDir, report.output)
-		if err := prepareArtifact(output, report.name); err != nil {
+		if scanErr := emitManifestSBOMs(ctx, options, installation, report.name, report.input); scanErr != nil {
+			return scanErr
+		}
+	}
+	return nil
+}
+
+func emitManifestSBOMs(
+	ctx context.Context, options SBOMOptions, installation *SyftInstallation, name, input string,
+) error {
+	for _, format := range []struct{ extension, cataloger string }{
+		{"cdx", "cyclonedx-json"}, {"spdx", "spdx-json"},
+	} {
+		output := filepath.Join(options.ReportDir, name+"-sbom."+format.extension+".json")
+		if err := prepareArtifact(output, name); err != nil {
 			return err
 		}
 		spec := CommandSpec{
-			Name: "go",
+			Name: syftName, Dir: options.Root, Env: syftEnvironment(options.Environment), Executable: installation.executable,
 			Args: []string{
-				"run", syftModule, "scan", "file:" + report.input,
+				"scan", "file:" + input,
 				"--override-default-catalogers", "go-module-file-cataloger",
-				"--quiet", "--output", "cyclonedx-json=" + output,
+				"--quiet", "--output", format.cataloger + "=" + output,
 			},
 		}
-		if err := options.Runner.RunCommand(ctx, spec); err != nil {
-			return fmt.Errorf("generate %s SBOM: %w", report.name, err)
+		if err := installation.verify(); err != nil {
+			return err
 		}
-		if err := validateArtifact(output, report.name); err != nil {
+		if err := options.Runner.RunCommand(ctx, spec); err != nil {
+			return fmt.Errorf("generate %s SBOM: %w", name, err)
+		}
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("finish %s SBOM: %w", name, err)
+		}
+		if err := installation.verify(); err != nil {
+			return err
+		}
+		if err := validateArtifact(output, name); err != nil {
 			return err
 		}
 	}
@@ -67,6 +104,8 @@ func prepareArtifact(path, name string) error {
 	if err := rejectNonregularArtifact(path, name); err != nil {
 		return err
 	}
+	// Public SBOMs contain dependency identities and preserve shared-reader mode 0644.
+	// #nosec G302 G304 -- Fixed output basenames use validateSafeDirectory; nonregular targets are rejected.
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, reportFileMode)
 	if err != nil {
 		return fmt.Errorf("prepare %s SBOM artifact: %w", name, err)
@@ -100,6 +139,7 @@ func validateArtifact(path, name string) error {
 		return fmt.Errorf("%s SBOM artifact %s is not a non-empty regular file: %w",
 			name, path, errInvalidConfig)
 	}
+	// #nosec G302 -- The validated dependency SBOM intentionally permits public readers with mode 0644.
 	if err := os.Chmod(path, reportFileMode); err != nil {
 		return fmt.Errorf("set %s SBOM artifact mode: %w", name, err)
 	}

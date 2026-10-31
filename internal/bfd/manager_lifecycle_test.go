@@ -264,15 +264,21 @@ func TestManagerDetachedSessionCleanupKeepsCloseWaitingAndAllowsReentry(t *testi
 					t.Error("Manager.Close returned before metrics cleanup completed")
 				default:
 				}
+				var releaseErr error
+				releaseReturned := false
 				select {
-				case <-releaseDone:
-					t.Errorf("%s returned before metrics cleanup completed", tt.name)
+				case releaseErr = <-releaseDone:
+					releaseReturned = true
+					t.Errorf("%s returned before metrics cleanup completed: %v", tt.name, releaseErr)
 				default:
 				}
 
 				close(metrics.release)
 				synctest.Wait()
-				if releaseErr := <-releaseDone; releaseErr != nil {
+				if !releaseReturned {
+					releaseErr = <-releaseDone
+				}
+				if releaseErr != nil {
 					t.Errorf("%s: %v", tt.name, releaseErr)
 				}
 				<-closeDone

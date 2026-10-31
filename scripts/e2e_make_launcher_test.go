@@ -40,6 +40,9 @@ func TestMain(m *testing.M) {
 			os.Exit(runE2EMakeFixture())
 		}
 	}
+	if os.Getenv(benchmarkMakeProducerEnabled) == "1" && filepath.Base(os.Args[0]) == "producer" {
+		os.Exit(runBenchmarkMakeProducer())
+	}
 	os.Exit(m.Run())
 }
 
@@ -140,24 +143,24 @@ func TestE2EMakeSerializesWholeLifecycleAndUnlocksAfterFailure(t *testing.T) {
 	case err := <-runtimeReady:
 		if err != nil {
 			cancel()
-			<-firstDone
-			t.Fatalf("first runner never reached runtime: %v\n%s", err, &firstOutput)
+			firstErr := <-firstDone
+			t.Fatalf("first runner never reached runtime: %v; shutdown result: %v\n%s", err, firstErr, &firstOutput)
 		}
 	}
 	second := fixture.command(ctx, "linux")
 	second.Stdout, second.Stderr = &secondOutput, &secondOutput
 	if err := second.Start(); err != nil {
 		cancel()
-		<-firstDone
-		t.Fatal(err)
+		firstErr := <-firstDone
+		t.Fatalf("start second lifecycle: %v; first lifecycle shutdown: %v", err, firstErr)
 	}
 	secondDone := make(chan error, 1)
 	go func() { secondDone <- second.Wait() }()
 	select {
 	case err := <-secondDone:
 		cancel()
-		<-firstDone
-		t.Fatalf("second lifecycle escaped held lock: %v\n%s", err, &secondOutput)
+		firstErr := <-firstDone
+		t.Fatalf("second lifecycle escaped held lock: %v; first lifecycle shutdown: %v\n%s", err, firstErr, &secondOutput)
 	case <-time.After(200 * time.Millisecond):
 	}
 	if calls := fixture.invocations(t); len(calls) != 3 {

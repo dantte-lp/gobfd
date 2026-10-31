@@ -5,10 +5,8 @@ import (
 	"crypto/tls"
 	"net"
 	"net/http"
-	"strconv"
 
 	"connectrpc.com/connect/v2/connecthttp"
-	"golang.org/x/sys/unix"
 )
 
 type principalKey struct{}
@@ -37,9 +35,10 @@ func (p transportPrincipal) display() string {
 }
 
 // ConnContext is an http.Server.ConnContext hook. For a connection accepted
-// on a Unix socket it records the peer UID that the kernel captured at
-// connect(2) (SO_PEERCRED) as the request principal "uid:<n>". Other
-// connections carry no principal (gobfd-330).
+// on a Linux Unix socket it records the peer UID that the kernel captured at
+// connect(2) (SO_PEERCRED) as the request principal "uid:<n>". Unix sockets
+// on other platforms and connections without authenticated peer credentials
+// carry no principal.
 func ConnContext(ctx context.Context, c net.Conn) context.Context {
 	if tcp, ok := c.(*net.TCPConn); ok {
 		local, localOK := tcp.LocalAddr().(*net.TCPAddr)
@@ -53,23 +52,7 @@ func ConnContext(ctx context.Context, c net.Conn) context.Context {
 	if !ok {
 		return ctx
 	}
-	raw, err := uc.SyscallConn()
-	if err != nil {
-		return ctx
-	}
-	var (
-		cred    *unix.Ucred
-		credErr error
-	)
-	if err := raw.Control(func(fd uintptr) {
-		cred, credErr = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
-	}); err != nil || credErr != nil {
-		return ctx
-	}
-	return context.WithValue(ctx, principalKey{}, transportPrincipal{
-		kind:     principalUnix,
-		identity: "uid:" + strconv.FormatUint(uint64(cred.Uid), 10),
-	})
+	return unixConnContext(ctx, uc)
 }
 
 // PrincipalFromContext returns the authenticated request principal: the

@@ -6,7 +6,7 @@ toolchain go1.27.3
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2
-	connectrpc.com/connect/v2 v2.0.0
+	connectrpc.com/connect/v2 v2.0.2
 	connectrpc.com/grpchealth/v2 v2.0.0
 	github.com/containerd/errdefs v1.0.0
 	github.com/godbus/dbus/v5 v5.2.4
@@ -28,7 +28,7 @@ require (
 	golang.org/x/net v0.62.0
 	golang.org/x/sync v0.24.0
 	golang.org/x/sys v0.49.0
-	google.golang.org/grpc v1.84.0
+	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 )
 
@@ -107,3 +107,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	mvdan.cc/sh/v3 v3.13.1 // indirect
 )
+
+// No project package needs this inherited module. Disallow its affected version
+// in the resolver instead of retaining an unused requirement or an audit waiver.
+exclude github.com/go-jose/go-jose/v4 v4.1.4

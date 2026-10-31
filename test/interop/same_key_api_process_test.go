@@ -47,8 +47,7 @@ func sameKeyFRRRequest() *bfdv1.AddSessionRequest {
 	}
 }
 
-func runSameKeyAPI(ctx context.Context) (sameKeyAPIReceipt, error) {
-	var receipt sameKeyAPIReceipt
+func runSameKeyAPI(ctx context.Context) (receipt sameKeyAPIReceipt, returnErr error) {
 	raw, err := readSameKeyBoundedFile("/tmp/same-key-api-input.json")
 	if err != nil {
 		return receipt, err
@@ -88,7 +87,9 @@ func runSameKeyAPI(ctx context.Context) (sameKeyAPIReceipt, error) {
 	defer func() {
 		cancel()
 		if !joined {
-			<-done
+			if deleteErr := <-done; deleteErr != nil {
+				returnErr = errors.Join(returnErr, fmt.Errorf("join cancelled same-key Delete: %w", deleteErr))
+			}
 		}
 	}()
 	_, err = pollUntil(ctx, 25*time.Millisecond, func(pollCtx context.Context) (bool, bool, error) {

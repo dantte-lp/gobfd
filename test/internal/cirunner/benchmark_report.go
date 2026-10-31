@@ -497,6 +497,7 @@ func appendBenchmarkSummary(path string, comparison benchmarkComparison) error {
 	if summary.Len() == 0 {
 		return nil
 	}
+	// #nosec G304 -- GITHUB_STEP_SUMMARY is runner-selected; validateStepSummary checks its path and regular-file type.
 	output, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		return fmt.Errorf("open GITHUB_STEP_SUMMARY for append: %w", err)

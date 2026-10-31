@@ -119,6 +119,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: go run ./test/cmd/cictl release-upx
 
+      - name: Prepare source-built package publisher
+        run: go run ./test/cmd/cictl release-goreleaser
+
       - name: Build DEB and RPM packages
         run: go run ./test/cmd/cictl package-build
 

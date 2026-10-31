@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -43,51 +44,117 @@ func TestPackageBuildRejectsUnavailableUPX(t *testing.T) {
 	}
 }
 
-func TestPackageBuildUsesReleasePath(t *testing.T) {
-	t.Parallel()
-
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "upx"), []byte("fixture"), 0o755); err != nil {
+func newPackageBuildFixture(t *testing.T) (*goreleaserFixture, *recordingSpecRunner, string) {
+	t.Helper()
+	fixture := newGoReleaserFixture(t)
+	installation, err := installGoReleaser(t.Context(), GoReleaserOptions{
+		Root: fixture.root, InstallDir: fixture.installDir, Runner: fixture,
+	}, fixture.profile, fixture.buildInfo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := installation.Close(); err != nil {
+			t.Errorf("close package publisher fixture: %v", err)
+		}
+	})
+	upxBin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(upxBin, "upx"), []byte("fixture"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	runner := &recordingSpecRunner{afterRun: func(spec CommandSpec) {
-		if spec.Name == "upx" {
+		version := ""
+		switch spec.Name {
+		case "upx":
 			if spec.Executable == nil {
-				t.Fatal("UPX version check did not bind the opened executable")
+				t.Fatal("UPX probe did not bind the opened executable")
 			}
-			if _, err := io.WriteString(spec.Stdout, "upx "+defaultUPXAssetContract().version+"\n"); err != nil {
+			version = "upx " + defaultUPXAssetContract().version + "\n"
+		case goreleaserName:
+			if spec.Executable == nil {
+				t.Fatal("publisher invocation did not bind the opened executable")
+			}
+			if slices.Equal(spec.Args, []string{"--version"}) {
+				version = fixture.version()
+			}
+		}
+		if version != "" {
+			if _, err := io.WriteString(spec.Stdout, version); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}}
-	if err := PackageBuild(t.Context(), PackageOptions{
-		Root: "/repo", Environment: []string{"GITHUB_REF_NAME=v9.9.9", "PATH=" + bin}, Runner: runner,
-	}); err != nil {
+	path := upxBin + string(filepath.ListSeparator) + filepath.Join(fixture.installDir, "bin")
+	return fixture, runner, path
+}
+
+func TestPackageBuildUsesReleasePath(t *testing.T) {
+	t.Parallel()
+	fixture, runner, path := newPackageBuildFixture(t)
+	if err := packageBuildWithInfo(t.Context(), PackageOptions{
+		Root: fixture.root, Environment: []string{"GITHUB_REF_NAME=v9.9.9", "PATH=" + path}, Runner: runner,
+	}, fixture.buildInfo); err != nil {
 		t.Fatalf("PackageBuild() error = %v", err)
 	}
-	if len(runner.calls) != 3 || runner.calls[0].name != "upx" {
-		t.Fatalf("PackageBuild commands = %v, want UPX, GoReleaser and RPM finalization", runner.calls)
+	if len(runner.calls) != 4 || runner.calls[0].name != "upx" ||
+		!slices.Equal(runner.calls[1].args, []string{"--version"}) {
+		t.Fatalf("PackageBuild commands = %v, want UPX, bound publisher probe/release and finalization", runner.calls)
 	}
-	release, finalize := runner.calls[1], runner.calls[2]
-	if release.name != "go" || !slices.Contains(release.args, goreleaserModule) ||
-		!slices.Contains(release.args, "--skip=publish,announce,validate,sign,sbom,docker") {
+	release, finalize := runner.calls[2], runner.calls[3]
+	if release.name != goreleaserName ||
+		!slices.Equal(release.args, []string{
+			"release", "--clean", "--parallelism=1",
+			"--skip=publish,announce,validate,sign,sbom,docker",
+		}) {
 		t.Errorf("release command = %s %v", release.name, release.args)
 	}
 	if !slices.Equal(finalize.args, []string{"-C", "tools", "run", "./cmd/packagefinalize"}) {
 		t.Errorf("finalize command = %v", finalize.args)
 	}
-	for _, spec := range runner.calls {
-		if spec.dir != "/repo" {
-			t.Errorf("%v runs in %q, want /repo", spec.args, spec.dir)
+	for _, spec := range []specInvocation{release, finalize} {
+		if spec.dir != fixture.root {
+			t.Errorf("%v runs in %q, want fixture checkout", spec.args, spec.dir)
 		}
-		for _, want := range []string{"GORELEASER_CURRENT_TAG=v0.0.0", "GITHUB_REF_NAME=v0.0.0", "PATH=" + bin} {
+		for _, want := range []string{"GORELEASER_CURRENT_TAG=v0.0.0", "GITHUB_REF_NAME=v0.0.0", "PATH=" + path} {
 			if !slices.Contains(spec.env, want) {
 				t.Errorf("%v environment lacks %q: %v", spec.args, want, spec.env)
 			}
 		}
 		if slices.Contains(spec.env, "GITHUB_REF_NAME=v9.9.9") {
-			t.Errorf("%v keeps the caller release ref", spec.args)
+			t.Errorf("%v keeps caller release ref", spec.args)
 		}
+	}
+}
+
+func TestPackageBuildRejectsMissingOrUnverifiedPublisher(t *testing.T) {
+	t.Parallel()
+	for _, fault := range []string{"missing", "missing profile", "wrong profile", "wrong executable"} {
+		t.Run(fault, func(t *testing.T) {
+			t.Parallel()
+			fixture, runner, path := newPackageBuildFixture(t)
+			switch fault {
+			case "missing":
+				path = strings.Split(path, string(filepath.ListSeparator))[0]
+			case "missing profile":
+				name := filepath.Join(fixture.root, "tools", "goreleaser", "source.json")
+				if err := os.Rename(name, name+"-original"); err != nil {
+					t.Fatal(err)
+				}
+			case "wrong profile":
+				fixture.profile.Manifests.ModSHA256 = strings.Repeat("0", 64)
+				fixture.writeProfile()
+			case "wrong executable":
+				fixture.fault = "forged main version"
+			}
+			if err := packageBuildWithInfo(t.Context(), PackageOptions{
+				Root: fixture.root, Environment: []string{"PATH=" + path}, Runner: runner,
+			}, fixture.buildInfo); err == nil {
+				t.Fatal("unverified publisher accepted")
+			}
+			if len(runner.calls) != 1 || runner.calls[0].name != "upx" {
+				t.Fatalf("publisher failure reached release/finalization: %v", runner.calls)
+			}
+		})
 	}
 }
 

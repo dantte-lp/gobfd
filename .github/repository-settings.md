@@ -1,6 +1,6 @@
 # Repository publication controls
 
-Snapshot: **2026-10-29**, read through the GitHub repository and ruleset APIs.
+Snapshot: **2026-10-30**, read through the GitHub repository and ruleset APIs.
 Settings describe publication controls, not release qualification.
 [Governance](../GOVERNANCE.md) defines maintainer authority and branch roles.
 
@@ -40,14 +40,15 @@ without bypass. Do not equate a ruleset setting with technical review.
 
 ## Required check contexts
 
-The branch rulesets require these exact, case-sensitive contexts:
+The source policy requires these exact, case-sensitive contexts. Apply the
+corresponding ruleset change and verify the live contexts before integration;
+removing a workflow does not update GitHub enforcement:
 
 ```text
 Build & test
 Lint (Go)
 Vulnerability audit
 Buf
-SonarQube
 Trivy filesystem scan
 Lint (docs)
 Commit policy (PR title)

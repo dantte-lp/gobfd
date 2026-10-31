@@ -110,6 +110,7 @@ func ReleaseBenchmarks(ctx context.Context, root, version string, output io.Writ
 		return err
 	}
 	for index := range targets {
+		// #nosec G302 -- Prepared non-secret release benchmark outputs preserve public artifact mode 0644.
 		artifact, openErr := os.OpenFile(paths[index], os.O_WRONLY|os.O_TRUNC, benchmarkArtifactMode)
 		if openErr != nil {
 			return fmt.Errorf("open prepared release benchmark %s: %w", paths[index], openErr)
@@ -384,6 +385,8 @@ func writeTarGzip(path, reports string, reportsRoot *os.Root) (returnErr error) 
 	if err := resetArtifact(path, "release reports archive"); err != nil {
 		return err
 	}
+	// The release evidence archive is a public non-secret artifact with mode 0644.
+	// #nosec G302 G304 -- validateRootFile bounds the archive path and resetArtifact rejects nonregular targets.
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, benchmarkArtifactMode)
 	if err != nil {
 		return fmt.Errorf("open release reports archive: %w", err)

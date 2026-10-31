@@ -40,88 +40,7 @@ func TestHAProxyOwnedLifecycle(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			const fixture = `#!/bin/sh
-printf '%s\n' "$*" >> "$GOBFD_HAP_TRACE"
-state=; IFS= read -r state < "$GOBFD_HAP_STATE" || :
-net=; IFS= read -r net < "$GOBFD_HAP_NETWORK_STATE" || :
-last=; for arg do last=$arg; done
-case "$1" in
-  ps)
-    case "$state" in *a*) printf '%s\n' "$GOBFD_HAP_MONITOR";; esac
-    case "$state" in *b*) printf '%s\n' "$GOBFD_HAP_SIDECAR";; esac
-    case "$state" in *d*) printf '%s\n' "$GOBFD_HAP_CAPTURE";; esac ;;
-  network)
-    if [ "$2" = ls ]; then [ -z "$net" ] || printf '%s\n' "$GOBFD_HAP_NETWORK";
-    elif [ "$2" = rm ]; then : > "$GOBFD_HAP_NETWORK_STATE"; else exit 65; fi ;;
-  volume) [ "$2" = ls ] || exit 65 ;;
-  container)
-    if [ "$GOBFD_HAP_MODE" = 'foreign backend' ] && [ "$last" = backend2 ]; then exit 0; fi
-    case "$last" in
-      "$GOBFD_HAP_MONITOR") case "$state" in *a*) exit 0;; esac ;;
-      "$GOBFD_HAP_SIDECAR") case "$state" in *b*) exit 0;; esac ;;
-      "$GOBFD_HAP_CAPTURE") case "$state" in *d*) exit 0;; esac ;;
-      gobfd-monitor|backend1-bfd|tshark-haproxy) [ -z "$state" ] || exit 0 ;;
-    esac; exit 1 ;;
-  inspect)
-    case "$*" in
-      *'{{json .}}'*)
-        owner=$GOBFD_HAP_PROJECT
-        [ "$GOBFD_HAP_MODE" != 'foreign cleanup' ] || owner=foreign-project
-        printf '{"Id":"%s","Config":{"Labels":{"com.docker.compose.project":"%s"}},"Mounts":[]}\n' "$last" "$owner" ;;
-      *'{{.ID}}|'*)
-        case "$last" in
-          gobfd-monitor) id=$GOBFD_HAP_MONITOR;; backend1-bfd) id=$GOBFD_HAP_SIDECAR;;
-          tshark-haproxy) id=$GOBFD_HAP_CAPTURE;; *) exit 65;;
-        esac
-        printf '%s|%s\n' "$id" "$GOBFD_HAP_PROJECT" ;;
-      *) printf 'foreign-project\n' ;;
-    esac ;;
-  compose)
-    [ "$DOCKER_BUILDKIT" = 0 ] && [ "$PODMAN_COMPOSE_PROVIDER" = fixture-compose-provider ] || exit 71
-    if [ "$2" = version ]; then
-      if [ "$GOBFD_HAP_MODE" = 'wrong provider' ]; then printf '5.5.0\n'; else printf '5.6.0\n'; fi
-      exit 0
-    fi
-    [ "$2" = -p ] && [ "$3" = "$GOBFD_HAP_PROJECT" ] && [ "$4" = -f ] || exit 65
-    case "$6" in
-      config)
-        printf '{"services":{"monitor":{"build":{"context":"%s","dockerfile":"Containerfile"}}}}\n' \
-          "$GOBFD_HAP_ROOT" ;;
-      up)
-        [ "$7" = -d ] && [ "$8" = --no-build ] || exit 65
-        printf 'abd\n' > "$GOBFD_HAP_STATE"; printf '1\n' > "$GOBFD_HAP_NETWORK_STATE"
-        [ "$GOBFD_HAP_MODE" != 'partial up' ] || exit 27 ;;
-      *) exit 65 ;;
-    esac ;;
-  build)
-    case " $* " in *' --cpu-period 100000 --cpu-quota 200000 '*) :;; *) exit 66;; esac
-    case " $* " in *' --memory 2g --memory-swap 2g --jobs 1 '*) :;; *) exit 66;; esac
-    case " $* " in
-      *' --build-arg GIT_COMMIT=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa '*) :;;
-      *) exit 67;;
-    esac
-    case " $* " in *' --label io.gobfd.image=gobfd-haproxy-health-monitor '*) :;; *) exit 68;; esac ;;
-  rm)
-    case "$last" in
-      "$GOBFD_HAP_MONITOR") remove=a;; "$GOBFD_HAP_SIDECAR") remove=b;; "$GOBFD_HAP_CAPTURE") remove=d ;;
-      *) exit 65 ;;
-    esac
-    case "$state" in *"$remove"*) state="${state%%"$remove"*}${state#*"$remove"}";; esac
-    printf '%s\n' "$state" > "$GOBFD_HAP_STATE" ;;
-  exec)
-    case "$2" in
-      "$GOBFD_HAP_MONITOR") [ "$3" = /bin/gobfdctl ] && [ "$6 $7" = 'session list' ] || exit 69 ;;
-      "$GOBFD_HAP_CAPTURE") [ "$3" = tshark ] || exit 69 ;;
-      *) exit 69;;
-    esac ;;
-  pause|unpause) [ "$2" = "$GOBFD_HAP_SIDECAR" ] || exit 70 ;;
-  *) exit 65 ;;
-esac
-exit 0
-`
-			if err := os.WriteFile(filepath.Join(directory, "podman"), []byte(fixture), 0o700); err != nil {
-				t.Fatal(err)
-			}
+			installHAProxyPodmanFixture(t, directory)
 			for key, value := range map[string]string{
 				"PATH": directory, "XDG_RUNTIME_DIR": directory, "GOBFD_BUILD_REVISION": strings.Repeat("a", 40),
 				"GOBFD_HAP_PROJECT": project, "GOBFD_HAP_ROOT": directory, "GOBFD_HAP_MODE": mode,
@@ -227,29 +146,7 @@ func TestHAProxyRequiredChecksAndRecovery(t *testing.T) {
 			const sidecar = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 			const capture = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 			tracePath := filepath.Join(directory, "commands")
-			const fixture = `#!/bin/sh
-printf '%s\n' "$*" >> "$GOBFD_HAPROXY_FIXTURE_TRACE"
-last=; for arg do last=$arg; done
-case "$*" in
-  'container exists '*) exit 0 ;;
-  'inspect --type container --format '* )
-    case "$last" in
-      gobfd-monitor) id=$GOBFD_HAPROXY_FIXTURE_MONITOR;; backend1-bfd) id=$GOBFD_HAPROXY_FIXTURE_SIDECAR;;
-      tshark-haproxy) id=$GOBFD_HAPROXY_FIXTURE_CAPTURE;; *) exit 65;;
-    esac
-    printf '%s|gobfd-haproxy-health\n' "$id"; exit 0 ;;
-  "exec $GOBFD_HAPROXY_FIXTURE_MONITOR /bin/gobfdctl --addr 127.0.0.1:50052 session list")
-    exit "$GOBFD_HAPROXY_FIXTURE_CLI_EXIT" ;;
-  'exec gobfd-monitor gobfdctl sessions'|'exec gobfd-monitor /bin/gobfdctl sessions') exit 64 ;;
-  "pause $GOBFD_HAPROXY_FIXTURE_SIDECAR") exit "$GOBFD_HAPROXY_FIXTURE_PAUSE_EXIT" ;;
-  "unpause $GOBFD_HAPROXY_FIXTURE_SIDECAR") exit "$GOBFD_HAPROXY_FIXTURE_UNPAUSE_EXIT" ;;
-  "exec $GOBFD_HAPROXY_FIXTURE_CAPTURE tshark "*) exit "$GOBFD_HAPROXY_FIXTURE_CAPTURE_EXIT" ;;
-  *) exit 65 ;;
-esac
-`
-			if err := os.WriteFile(filepath.Join(directory, "podman"), []byte(fixture), 0o700); err != nil {
-				t.Fatal(err)
-			}
+			installHAProxyPodmanFixture(t, directory)
 			t.Setenv("PATH", directory)
 			t.Setenv("GOBFD_HAPROXY_FIXTURE_TRACE", tracePath)
 			t.Setenv("GOBFD_HAPROXY_FIXTURE_MONITOR", monitor)
@@ -335,4 +232,325 @@ esac
 			})
 		})
 	}
+}
+
+func TestMain(m *testing.M) {
+	if filepath.Base(os.Args[0]) == "podman" {
+		if os.Getenv("GOBFD_HAP_TRACE") != "" {
+			os.Exit(runHAProxyOwnedPodmanFixture())
+		}
+		if os.Getenv("GOBFD_HAPROXY_FIXTURE_TRACE") != "" {
+			os.Exit(runHAProxyRecoveryPodmanFixture())
+		}
+	}
+	os.Exit(m.Run())
+}
+
+func installHAProxyPodmanFixture(t *testing.T, directory string) {
+	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+	if err := os.Symlink(executable, filepath.Join(directory, "podman")); err != nil {
+		t.Fatalf("install Podman test-binary fixture: %v", err)
+	}
+}
+
+func appendHAProxyFixtureTrace(path string, arguments []string) error {
+	trace, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	_, writeErr := fmt.Fprintln(trace, strings.Join(arguments, " "))
+	return errors.Join(writeErr, trace.Close())
+}
+
+func writeHAProxyFixtureOutput(output string) int {
+	if _, err := fmt.Fprint(os.Stdout, output); err != nil {
+		return 125
+	}
+	return 0
+}
+
+func writeHAProxyFixtureState(name, state string) int {
+	if err := os.WriteFile(os.Getenv(name), []byte(state), 0o600); err != nil {
+		return 125
+	}
+	return 0
+}
+
+func haproxyFixtureArgument(arguments []string, index int) string {
+	if index < 0 || index >= len(arguments) {
+		return ""
+	}
+	return arguments[index]
+}
+
+func haproxyFixtureID(name, prefix string) string {
+	switch name {
+	case "gobfd-monitor":
+		return os.Getenv(prefix + "MONITOR")
+	case "backend1-bfd":
+		return os.Getenv(prefix + "SIDECAR")
+	case "tshark-haproxy":
+		return os.Getenv(prefix + "CAPTURE")
+	default:
+		return ""
+	}
+}
+
+type haproxyOwnedFixture struct {
+	arguments []string
+	state     string
+	network   string
+}
+
+func runHAProxyOwnedPodmanFixture() int {
+	arguments := os.Args[1:]
+	if err := appendHAProxyFixtureTrace(os.Getenv("GOBFD_HAP_TRACE"), arguments); err != nil {
+		return 125
+	}
+	state, err := os.ReadFile(os.Getenv("GOBFD_HAP_STATE"))
+	if err != nil {
+		return 125
+	}
+	network, err := os.ReadFile(os.Getenv("GOBFD_HAP_NETWORK_STATE"))
+	if err != nil {
+		return 125
+	}
+	fixture := haproxyOwnedFixture{
+		arguments: arguments, state: strings.TrimSpace(string(state)), network: strings.TrimSpace(string(network)),
+	}
+	return fixture.run()
+}
+
+func (f haproxyOwnedFixture) run() int {
+	switch haproxyFixtureArgument(f.arguments, 0) {
+	case "ps":
+		return writeHAProxyFixtureOutput(f.containerList())
+	case "network":
+		return f.networkCommand()
+	case "volume":
+		if haproxyFixtureArgument(f.arguments, 1) == "ls" {
+			return 0
+		}
+	case "container":
+		return f.containerExists()
+	case "inspect":
+		return f.inspect()
+	case "compose":
+		return f.compose()
+	case "build":
+		return f.build()
+	case "rm":
+		return f.remove()
+	case "exec":
+		return f.exec()
+	case "pause", "unpause":
+		if haproxyFixtureArgument(f.arguments, 1) == os.Getenv("GOBFD_HAP_SIDECAR") {
+			return 0
+		}
+		return 70
+	}
+	return 65
+}
+
+func (f haproxyOwnedFixture) containerList() string {
+	var output strings.Builder
+	for _, entry := range []struct{ marker, name string }{
+		{"a", "MONITOR"}, {"b", "SIDECAR"}, {"d", "CAPTURE"},
+	} {
+		if strings.Contains(f.state, entry.marker) {
+			output.WriteString(os.Getenv("GOBFD_HAP_" + entry.name))
+			output.WriteByte('\n')
+		}
+	}
+	return output.String()
+}
+
+func (f haproxyOwnedFixture) networkCommand() int {
+	switch haproxyFixtureArgument(f.arguments, 1) {
+	case "ls":
+		if f.network == "" {
+			return 0
+		}
+		return writeHAProxyFixtureOutput(os.Getenv("GOBFD_HAP_NETWORK") + "\n")
+	case "rm":
+		return writeHAProxyFixtureState("GOBFD_HAP_NETWORK_STATE", "")
+	default:
+		return 65
+	}
+}
+
+func (f haproxyOwnedFixture) containerExists() int {
+	name := haproxyFixtureArgument(f.arguments, len(f.arguments)-1)
+	if os.Getenv("GOBFD_HAP_MODE") == "foreign backend" && name == "backend2" {
+		return 0
+	}
+	for _, entry := range []struct{ marker, name string }{
+		{"a", "MONITOR"}, {"b", "SIDECAR"}, {"d", "CAPTURE"},
+	} {
+		if name == os.Getenv("GOBFD_HAP_"+entry.name) && strings.Contains(f.state, entry.marker) {
+			return 0
+		}
+	}
+	if haproxyFixtureID(name, "GOBFD_HAP_") != "" && f.state != "" {
+		return 0
+	}
+	return 1
+}
+
+func (f haproxyOwnedFixture) inspect() int {
+	joined := strings.Join(f.arguments, " ")
+	name := haproxyFixtureArgument(f.arguments, len(f.arguments)-1)
+	switch {
+	case strings.Contains(joined, "{{json .}}"):
+		owner := os.Getenv("GOBFD_HAP_PROJECT")
+		if os.Getenv("GOBFD_HAP_MODE") == "foreign cleanup" {
+			owner = "foreign-project"
+		}
+		return writeHAProxyFixtureOutput(fmt.Sprintf(
+			"{\"Id\":%q,\"Config\":{\"Labels\":{\"com.docker.compose.project\":%q}},\"Mounts\":[]}\n", name, owner,
+		))
+	case strings.Contains(joined, "{{.ID}}|"):
+		id := haproxyFixtureID(name, "GOBFD_HAP_")
+		if id == "" {
+			return 65
+		}
+		return writeHAProxyFixtureOutput(id + "|" + os.Getenv("GOBFD_HAP_PROJECT") + "\n")
+	default:
+		return writeHAProxyFixtureOutput("foreign-project\n")
+	}
+}
+
+func (f haproxyOwnedFixture) compose() int {
+	if os.Getenv("DOCKER_BUILDKIT") != "0" || os.Getenv("PODMAN_COMPOSE_PROVIDER") != "fixture-compose-provider" {
+		return 71
+	}
+	if haproxyFixtureArgument(f.arguments, 1) == "version" {
+		version := "5.6.1\n"
+		if os.Getenv("GOBFD_HAP_MODE") == "wrong provider" {
+			version = "5.5.0\n"
+		}
+		return writeHAProxyFixtureOutput(version)
+	}
+	if haproxyFixtureArgument(f.arguments, 1) != "-p" ||
+		haproxyFixtureArgument(f.arguments, 2) != os.Getenv("GOBFD_HAP_PROJECT") ||
+		haproxyFixtureArgument(f.arguments, 3) != "-f" {
+		return 65
+	}
+	switch haproxyFixtureArgument(f.arguments, 5) {
+	case "config":
+		return writeHAProxyFixtureOutput(fmt.Sprintf(
+			"{\"services\":{\"monitor\":{\"build\":{\"context\":%q,\"dockerfile\":\"Containerfile\"}}}}\n",
+			os.Getenv("GOBFD_HAP_ROOT"),
+		))
+	case "up":
+		if haproxyFixtureArgument(f.arguments, 6) != "-d" || haproxyFixtureArgument(f.arguments, 7) != "--no-build" {
+			return 65
+		}
+		if code := writeHAProxyFixtureState("GOBFD_HAP_STATE", "abd\n"); code != 0 {
+			return code
+		}
+		if code := writeHAProxyFixtureState("GOBFD_HAP_NETWORK_STATE", "1\n"); code != 0 {
+			return code
+		}
+		if os.Getenv("GOBFD_HAP_MODE") == "partial up" {
+			return 27
+		}
+		return 0
+	default:
+		return 65
+	}
+}
+
+func (f haproxyOwnedFixture) build() int {
+	joined := " " + strings.Join(f.arguments, " ") + " "
+	for _, check := range []struct {
+		value string
+		code  int
+	}{
+		{" --cpu-period 100000 --cpu-quota 200000 ", 66},
+		{" --memory 2g --memory-swap 2g --jobs 1 ", 66},
+		{" --build-arg GIT_COMMIT=" + strings.Repeat("a", 40) + " ", 67},
+		{" --label io.gobfd.image=gobfd-haproxy-health-monitor ", 68},
+	} {
+		if !strings.Contains(joined, check.value) {
+			return check.code
+		}
+	}
+	return 0
+}
+
+func (f haproxyOwnedFixture) remove() int {
+	name := haproxyFixtureArgument(f.arguments, len(f.arguments)-1)
+	marker := ""
+	for _, entry := range []struct{ marker, name string }{
+		{"a", "MONITOR"}, {"b", "SIDECAR"}, {"d", "CAPTURE"},
+	} {
+		if name == os.Getenv("GOBFD_HAP_"+entry.name) {
+			marker = entry.marker
+		}
+	}
+	if marker == "" {
+		return 65
+	}
+	return writeHAProxyFixtureState("GOBFD_HAP_STATE", strings.Replace(f.state, marker, "", 1)+"\n")
+}
+
+func (f haproxyOwnedFixture) exec() int {
+	switch haproxyFixtureArgument(f.arguments, 1) {
+	case os.Getenv("GOBFD_HAP_MONITOR"):
+		if haproxyFixtureArgument(f.arguments, 2) == "/bin/gobfdctl" &&
+			haproxyFixtureArgument(f.arguments, 5) == "session" && haproxyFixtureArgument(f.arguments, 6) == "list" {
+			return 0
+		}
+	case os.Getenv("GOBFD_HAP_CAPTURE"):
+		if haproxyFixtureArgument(f.arguments, 2) == "tshark" {
+			return 0
+		}
+	}
+	return 69
+}
+
+func runHAProxyRecoveryPodmanFixture() int {
+	arguments := os.Args[1:]
+	if err := appendHAProxyFixtureTrace(os.Getenv("GOBFD_HAPROXY_FIXTURE_TRACE"), arguments); err != nil {
+		return 125
+	}
+	joined := strings.Join(arguments, " ")
+	monitor := os.Getenv("GOBFD_HAPROXY_FIXTURE_MONITOR")
+	sidecar := os.Getenv("GOBFD_HAPROXY_FIXTURE_SIDECAR")
+	capture := os.Getenv("GOBFD_HAPROXY_FIXTURE_CAPTURE")
+	switch {
+	case strings.HasPrefix(joined, "container exists "):
+		return 0
+	case strings.HasPrefix(joined, "inspect --type container --format "):
+		id := haproxyFixtureID(haproxyFixtureArgument(arguments, len(arguments)-1), "GOBFD_HAPROXY_FIXTURE_")
+		if id == "" {
+			return 65
+		}
+		return writeHAProxyFixtureOutput(id + "|gobfd-haproxy-health\n")
+	case joined == "exec "+monitor+" /bin/gobfdctl --addr 127.0.0.1:50052 session list":
+		return haproxyFixtureExitCode("CLI")
+	case joined == "exec gobfd-monitor gobfdctl sessions" || joined == "exec gobfd-monitor /bin/gobfdctl sessions":
+		return 64
+	case joined == "pause "+sidecar:
+		return haproxyFixtureExitCode("PAUSE")
+	case joined == "unpause "+sidecar:
+		return haproxyFixtureExitCode("UNPAUSE")
+	case strings.HasPrefix(joined, "exec "+capture+" tshark "):
+		return haproxyFixtureExitCode("CAPTURE")
+	default:
+		return 65
+	}
+}
+
+func haproxyFixtureExitCode(stage string) int {
+	code, err := strconv.Atoi(os.Getenv("GOBFD_HAPROXY_FIXTURE_" + stage + "_EXIT"))
+	if err != nil {
+		return 125
+	}
+	return code
 }

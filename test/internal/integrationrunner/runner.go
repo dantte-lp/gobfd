@@ -566,6 +566,7 @@ func (r *runner) commandEnv(
 ) error {
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	// #nosec G204 -- Integration target implementations select executable/argv; no shell command string is evaluated.
 	cmd := exec.CommandContext(commandCtx, name, args...)
 	cmd.Dir = r.root
 	cmd.Env = append(os.Environ(), environment...)

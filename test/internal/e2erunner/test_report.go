@@ -144,6 +144,7 @@ func artifactEnvironmentNames() []string {
 
 func writeObservabilityOwner(reportDir, owner string) error {
 	path := filepath.Join(reportDir, observabilityOwnerFile)
+	// #nosec G304 -- The fixed owner basename is created exclusively in the freshly allocated private report directory.
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("create observability report owner: %w", err)

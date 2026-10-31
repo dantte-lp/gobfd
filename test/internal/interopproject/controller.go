@@ -79,6 +79,7 @@ func AcquireLock(projectName string) (*ProjectLock, error) {
 	if validateErr := validateLockFile(lockPath, true); validateErr != nil {
 		return nil, validateErr
 	}
+	// #nosec G304 -- The project name is regex-validated; the owned 0700 lock directory and opened file are checked.
 	file, err := os.OpenFile(lockPath, os.O_WRONLY|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open interop lock %s: %w", lockPath, err)
@@ -377,7 +378,7 @@ func (c *Controller) lockRun(ctx context.Context, args []string) error {
 	if err := c.assertExistingProject(ctx); err != nil {
 		return err
 	}
-	//nolint:gosec // lock-run intentionally executes caller argv after ownership checks.
+	// #nosec G204 -- lock-run intentionally executes operator argv after -- and project ownership/lock checks.
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	cmd.Dir = c.root
 	cmd.Stdin = os.Stdin
@@ -469,7 +470,7 @@ func (c *Controller) compose(ctx context.Context, timeout time.Duration, args ..
 func (c *Controller) podmanText(ctx context.Context, timeout time.Duration, args ...string) (string, error) {
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	//nolint:gosec // Binary is fixed; argv is never shell-expanded.
+	// #nosec G204 G702 -- Fixed podman executes controller-built argv directly without shell expansion.
 	cmd := exec.CommandContext(commandCtx, "podman", args...)
 	cmd.Dir = c.root
 	cmd.Env = append(os.Environ(), ComposeEnvironment()...)
@@ -487,6 +488,7 @@ func (c *Controller) podmanText(ctx context.Context, timeout time.Duration, args
 func (c *Controller) podmanStream(ctx context.Context, timeout time.Duration, args ...string) error {
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	// #nosec G204 -- The executable is fixed podman; the controller selects subcommands and passes separate arguments.
 	cmd := exec.CommandContext(commandCtx, "podman", args...)
 	cmd.Dir = c.root
 	cmd.Env = append(os.Environ(), ComposeEnvironment()...)
@@ -785,6 +787,7 @@ func (c *Controller) resolveServiceContainerID(ctx context.Context, projectName,
 func (c *Controller) containerExists(ctx context.Context, name string) (bool, error) {
 	commandCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
+	// #nosec G204 -- podman container exists only probes the selected container name as one argument; no shell is used.
 	cmd := exec.CommandContext(commandCtx, "podman", "container", "exists", name)
 	cmd.Dir = c.root
 	err := cmd.Run()

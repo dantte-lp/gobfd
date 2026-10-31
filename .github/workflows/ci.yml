@@ -27,7 +27,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ hashFiles('go.sum', 'tools/go.sum', 'tools/gopls/go.sum', 'tools/syft/go.sum', 'tools/goreleaser/qualified.sum', 'tools/goreleaser/source.sum', 'tools/goreleaser/refmt.sum') }}
 
       - name: Build
         run: go run ./test/cmd/cictl build --output /tmp/gobfd-build
@@ -61,6 +61,41 @@ jobs:
           flags: unittests
           fail_ci_if_error: false
 
+  release-source-prerequisites:
+    name: Release source prerequisites
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Hosted VM teardown bounds prestart orphans and bind outputs after abrupt CLI death.
+      - name: Compile Syft controller in pinned Go image
+        run: >-
+          docker run --rm --name gobfd-cictl-${{ github.run_id }}-${{ github.run_attempt }}
+          --user=0:0 --read-only --cap-drop=ALL --cap-add=DAC_OVERRIDE --security-opt=no-new-privileges
+          --cpus=2 --memory=3221225472 --memory-swap=3221225472 --pids-limit=512
+          --workdir /src --entrypoint /usr/bin/timeout
+          --tmpfs /tmp:rw,nosuid,nodev,size=1073741824,mode=1777
+          --tmpfs /cache:rw,nosuid,nodev,size=1073741824,mode=0700
+          --mount "type=bind,src=${{ github.workspace }},dst=/src,readonly"
+          --mount "type=bind,src=${{ runner.temp }},dst=/out"
+          --env CGO_ENABLED=0 --env GOTOOLCHAIN=local --env GOENV=off --env GOWORK=off
+          --env GOCACHE=/cache/build --env GOMODCACHE=/cache/mod --env GOPATH=/cache/go
+          --env HOME=/cache --env TMPDIR=/tmp --env GOMAXPROCS=2 --env GOMEMLIMIT=2GiB
+          docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c
+          --signal=TERM --kill-after=5s 600s /usr/local/go/bin/go build
+          -trimpath -mod=readonly -buildvcs=false
+          -o /out/gobfd-cictl-${{ github.run_id }}-${{ github.run_attempt }} ./test/cmd/cictl
+
+      - name: Install source-built release tools in pinned Go image
+        run: '"${{ runner.temp }}/gobfd-cictl-${{ github.run_id }}-${{ github.run_attempt }}" release-source-tools --compiler-container'
+
+      - name: Check source-built GoReleaser configuration
+        run: goreleaser check
+
   non-linux-contract:
     name: Non-Linux transport contract
     runs-on: macos-latest
@@ -74,6 +109,12 @@ jobs:
 
       - name: Test the non-Linux transport boundary
         run: go test ./internal/netio -race -count=1
+
+      - name: Test unsupported management operations
+        run: >-
+          go test -race -count=1
+          -run '^(TestUnixPeerUIDRejectsUnsupportedPlatform|TestRenewFileRejectsUnsupportedPlatform|TestRenewFilePreservesCancellationOnUnsupportedPlatform|TestConnContextAttachesUnixPeerPrincipal)$'
+          ./internal/server ./internal/stepca
 
       - name: Cross-compile all packages without cgo
         env:
@@ -92,7 +133,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ hashFiles('go.sum', 'tools/go.sum', 'tools/gopls/go.sum', 'tools/syft/go.sum', 'tools/goreleaser/qualified.sum', 'tools/goreleaser/source.sum', 'tools/goreleaser/refmt.sum') }}
 
       - name: golangci-lint v2
         run: go run ./test/cmd/cictl lint
@@ -114,7 +155,10 @@ jobs:
         run: go tool -modfile=tools/go.mod yamlfmt -lint .
 
       - name: Spelling policy
-        run: make lint-spell
+        run: >-
+          go tool -modfile=tools/go.mod misspell -error
+          README.md CONTRIBUTING.md CODE_OF_CONDUCT.md SUPPORT.md
+          GOVERNANCE.md MAINTAINERS.md CHANGELOG.md docs/en/roadmap.md
 
   commit-policy:
     name: Commit policy (PR title)
@@ -144,12 +188,15 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ hashFiles('go.sum', 'tools/go.sum', 'tools/gopls/go.sum', 'tools/syft/go.sum', 'tools/goreleaser/qualified.sum', 'tools/goreleaser/source.sum', 'tools/goreleaser/refmt.sum') }}
 
       - name: Vulnerability Audit
         run: go run ./scripts/vuln-audit.go --report-dir reports/security
 
-      - name: Generate separate runtime and tools SBOMs
+      - name: Publisher vulnerability audit
+        run: go run ./test/cmd/cictl publisher-audit
+
+      - name: Generate separate runtime, tools, gopls, and Syft SBOMs
         if: always()
         run: go run ./test/cmd/cictl sbom --report-dir reports/security
 
@@ -214,7 +261,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ hashFiles('go.sum', 'tools/go.sum', 'tools/gopls/go.sum', 'tools/syft/go.sum', 'tools/goreleaser/qualified.sum', 'tools/goreleaser/source.sum', 'tools/goreleaser/refmt.sum') }}
 
       - name: Run paired benchmarks (base and PR)
         run: go run ./test/cmd/cictl benchmark-pair --old old.txt --new new.txt
@@ -286,7 +333,7 @@ jobs:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          version: v0.75.0
+          version: v0.76.1
           scan-type: fs
           scan-ref: .
           severity: CRITICAL,HIGH

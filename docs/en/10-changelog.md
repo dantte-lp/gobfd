@@ -46,11 +46,13 @@ The workflow validates preflight identities, derives notes from all maintenance 
 
 The supported OCI product is digest-pinned Debian trixie. Generic RPM generation remains available; Oracle Linux 10 is outside v1 OCI/lifecycle qualification. [Automation reference](reference/automation.md) records asset and verifier boundaries.
 
+After verifying the published release and its assets, replace the release PR's `autorelease: pending` label with `autorelease: tagged` and add `autorelease: published`. Keep the pending label while publication is incomplete. This postpublication bookkeeping completes the [Release Please lifecycle](https://github.com/googleapis/release-please/blob/v17.11.2/docs/customizing.md#release-lifecycle-labels); it is separate from the terminal publication command.
+
 ## Prerelease boundary
 
 [ADR-0008](adr/0008-experimental-prerelease-boundary.md) accepts an experimental `v1.0.0-alpha.N` channel, where `N` is a positive decimal integer without leading zeroes. Use `release/v1.0`; never tag `dev` or `master` for this channel. Other prerelease spellings are rejected deliberately.
 
-Release Please prepares the release PR in manifest mode with `skip-github-release: true` and `skip-changelog: true`. Curate both root changelogs in that same PR using `## [1.0.0-alpha.1] - YYYY-MM-DD` with the actual release date. The manifest version and both version headings must agree. Release Please neither creates the tag nor publishes the draft. The [release-please workflow](../../.github/workflows/release-please.yml) proposes releases on `release/v1.0` pushes. Manual dispatch is available only after GitHub registers the workflow from the default branch; the release-line push remains the initial trigger.
+The Go-owned `cictl release-please-pr` command invokes upstream Release Please 17.11.2 in manifest mode with `skip-github-release: true` and `skip-changelog: true`. Its isolated consumer lock, pinned Node image, verified npm bootstrap, script-disabled installation, pre-token input/audit checks and temporary token file follow the [proposal contract](reference/automation.md#release-proposal). The upstream Action bundle is not the proposal dependency source. Curate both root changelogs in that same PR using `## [1.0.0-alpha.1] - YYYY-MM-DD` with the actual release date. The manifest version and both version headings must agree. Release Please neither creates the tag nor publishes the draft. The [release-please workflow](../../.github/workflows/release-please.yml) proposes releases on `release/v1.0` pushes. Manual dispatch is available only after GitHub registers the workflow from the default branch; the release-line push remains the initial trigger.
 
 Commit the curated English/Russian sections to the release PR source branch using the maintainer identity. Confirm that all required PR checks run and pass; approve workflow runs when GitHub requires it. Do not merge an automation-created PR without those checks.
 

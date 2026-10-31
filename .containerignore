@@ -97,7 +97,6 @@ deployments/
 .commitlintrc.yaml
 .editorconfig
 .pre-commit-config.yaml
-sonar-project.properties
 
 # Node and legacy Python local caches that may appear during dev
 node_modules/

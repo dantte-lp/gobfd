@@ -301,7 +301,7 @@ func TestReceiverRunReturnsWhenListenerClosedBeforeCancel(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		cancel()
 		close(release)
-		<-result
-		t.Fatal("Run kept serving a closed listener while its context was live")
+		runErr := <-result
+		t.Fatalf("Run kept serving a closed listener while its context was live; shutdown result: %v", runErr)
 	}
 }

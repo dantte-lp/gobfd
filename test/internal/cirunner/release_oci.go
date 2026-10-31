@@ -502,7 +502,7 @@ func addOCIManifestDescriptor(
 		return nil
 	}
 	if !hasReferenceType || !hasReferenceDigest || referenceType != ociAttestationManifestType ||
-		descriptor.Platform.OS != "unknown" || descriptor.Platform.Architecture != "unknown" {
+		descriptor.Platform.OS != unknownMetadataValue || descriptor.Platform.Architecture != unknownMetadataValue {
 		return fmt.Errorf("OCI index %s has unexpected referenced descriptor: %w", image, errInvalidConfig)
 	}
 	if !canonicalOCIDigest(referenceDigest) {

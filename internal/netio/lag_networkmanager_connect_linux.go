@@ -160,6 +160,7 @@ func networkManagerBusKey(keys, key string) string {
 
 func writeNetworkManagerBusNonce(socket net.Conn, path string) (returnErr error) {
 	// A nonce is a local regular 16-byte file, never a pipe that can stall Open.
+	// #nosec G304 -- The operator system-bus address selects this nonce; reads require a regular 16-byte file.
 	file, err := os.OpenFile(path, os.O_RDONLY|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return fmt.Errorf("open system-bus nonce: %w", err)

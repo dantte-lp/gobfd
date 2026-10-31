@@ -321,6 +321,8 @@ func openFreshArtifact(path, purpose string) (*os.File, error) {
 	if err := resetArtifact(path, purpose); err != nil {
 		return nil, err
 	}
+	// Public benchmark evidence uses 0644 for shared CI and release consumers.
+	// #nosec G302 G304 -- resetArtifact checks the target; callers resolve outputs through validateRootFile.
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, benchmarkArtifactMode)
 	if err != nil {
 		return nil, fmt.Errorf("open %s %s: %w", purpose, path, err)
@@ -332,6 +334,8 @@ func resetArtifact(path, purpose string) error {
 	if err := validateRegularOrMissingFile(path, purpose); err != nil {
 		return err
 	}
+	// Public CI reports and benchmark evidence retain the shared-reader 0644 contract.
+	// #nosec G302 G304 -- validateRootFile bounds paths; Lstat rejects symlinks and nonregular targets before truncation.
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, benchmarkArtifactMode)
 	if err != nil {
 		return fmt.Errorf("prepare %s %s: %w", purpose, path, err)
@@ -364,6 +368,7 @@ func validateNonemptyRegularFile(path, purpose string) error {
 	if !info.Mode().IsRegular() || info.Size() == 0 {
 		return fmt.Errorf("%s %s is not a non-empty regular file: %w", purpose, path, errInvalidConfig)
 	}
+	// #nosec G302 -- Validated non-secret benchmark evidence intentionally permits shared readers with mode 0644.
 	if err := os.Chmod(path, benchmarkArtifactMode); err != nil {
 		return fmt.Errorf("set %s %s mode: %w", purpose, path, err)
 	}
@@ -374,6 +379,7 @@ func readRegularFile(path, purpose string) ([]byte, error) {
 	if err := validateNonemptyRegularFile(path, purpose); err != nil {
 		return nil, err
 	}
+	// #nosec G304 -- Callers validate rooted input paths; regular-file checks and a size-limited read precede decoding.
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open %s %s: %w", purpose, path, err)
@@ -430,6 +436,7 @@ func writeAtomicArtifact(path string, data []byte, purpose string) error {
 			wrapOptional("remove temporary "+purpose, os.Remove(temporaryName)),
 		)
 	}
+	// #nosec G302 -- Published benchmark reports are non-secret evidence and preserve their existing 0644 contract.
 	if err := os.Chmod(path, benchmarkArtifactMode); err != nil {
 		return fmt.Errorf("set %s %s mode: %w", purpose, path, err)
 	}

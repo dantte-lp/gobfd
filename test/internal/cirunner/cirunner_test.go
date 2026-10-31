@@ -12,103 +12,6 @@ import (
 	"time"
 )
 
-func TestSonarModeAppendsOnlySelectedMode(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		tokenPresent string
-		actor        string
-		want         string
-	}{
-		{name: "token available", tokenPresent: "true", actor: "developer", want: "mode=run\n"},
-		{name: "Dependabot without token", tokenPresent: "false", actor: "dependabot[bot]", want: "mode=skip-dependabot\n"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			output := filepath.Join(t.TempDir(), "github-output")
-			if err := os.WriteFile(output, []byte("existing=value\n"), 0o600); err != nil {
-				t.Fatalf("seed GitHub output: %v", err)
-			}
-			if err := SonarMode(SonarOptions{TokenPresent: test.tokenPresent, Actor: test.actor, Output: output}); err != nil {
-				t.Fatalf("SonarMode() error = %v", err)
-			}
-			got, err := os.ReadFile(output)
-			if err != nil {
-				t.Fatalf("read GitHub output: %v", err)
-			}
-			want := "existing=value\n" + test.want
-			if string(got) != want {
-				t.Errorf("GitHub output = %q, want %q", got, want)
-			}
-		})
-	}
-}
-
-func TestSonarModeFailsClosedWithoutToken(t *testing.T) {
-	t.Parallel()
-
-	output := filepath.Join(t.TempDir(), "github-output")
-	if err := os.WriteFile(output, []byte("existing=value\n"), 0o600); err != nil {
-		t.Fatalf("seed GitHub output: %v", err)
-	}
-	err := SonarMode(SonarOptions{TokenPresent: "false", Actor: "developer", Output: output})
-	if err == nil {
-		t.Fatal("SonarMode() error = nil, want fail-closed error")
-	}
-	if !strings.Contains(err.Error(), "SONAR_TOKEN is required for non-Dependabot SonarQube scans") {
-		t.Errorf("SonarMode() error = %q, want contextual policy error", err)
-	}
-	got, readErr := os.ReadFile(output)
-	if readErr != nil {
-		t.Fatalf("read GitHub output: %v", readErr)
-	}
-	if string(got) != "existing=value\n" {
-		t.Errorf("GitHub output changed on failure: %q", got)
-	}
-}
-
-func TestSonarModeRejectsMissingOrInvalidPresence(t *testing.T) {
-	t.Parallel()
-
-	for _, present := range []string{"", "TRUE", "1", "yes", "unexpected"} {
-		t.Run(present, func(t *testing.T) {
-			t.Parallel()
-
-			output := filepath.Join(t.TempDir(), "github-output")
-			if err := os.WriteFile(output, nil, 0o600); err != nil {
-				t.Fatalf("create GitHub output: %v", err)
-			}
-			err := SonarMode(SonarOptions{TokenPresent: present, Actor: "dependabot[bot]", Output: output})
-			if err == nil {
-				t.Fatal("SonarMode() error = nil, want invalid presence error")
-			}
-			if !strings.Contains(err.Error(), "SONAR_TOKEN_PRESENT") {
-				t.Errorf("SonarMode() error = %q, want input context", err)
-			}
-			got, readErr := os.ReadFile(output)
-			if readErr != nil {
-				t.Fatalf("read GitHub output: %v", readErr)
-			}
-			if len(got) != 0 {
-				t.Errorf("GitHub output changed for invalid presence: %q", got)
-			}
-		})
-	}
-}
-
-func TestSonarModeWrapsOutputErrors(t *testing.T) {
-	t.Parallel()
-
-	missing := filepath.Join(t.TempDir(), "missing", "github-output")
-	err := SonarMode(SonarOptions{TokenPresent: "true", Output: missing})
-	if !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("SonarMode() error = %v, want wrapped os.ErrNotExist", err)
-	}
-}
-
 func TestBuildRunsFixedCommandsWithMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -258,27 +161,26 @@ func TestSBOMRunsPinnedScansAndValidatesArtifacts(t *testing.T) {
 			}
 		},
 	}
-	if err := SBOM(context.Background(), SBOMOptions{ReportDir: reportDir, Runner: runner}); err != nil {
+	fixture := &syftFixtureRunner{t: t, scanner: runner}
+	root := syftFixtureRoot(t)
+	if err := SBOM(context.Background(), SBOMOptions{Root: root, ReportDir: reportDir, Runner: fixture}); err != nil {
 		t.Fatalf("SBOM() error = %v", err)
 	}
 
-	want := []specInvocation{
-		{
-			name: "go",
-			args: []string{
-				"run", "github.com/anchore/syft/cmd/syft@v1.54.1", "scan", "file:go.mod",
+	want := make([]specInvocation, 0, 8)
+	for _, scope := range []struct{ name, manifest string }{
+		{"runtime", "go.mod"},
+		{"tools", "tools/go.mod"},
+		{"gopls", "tools/gopls/go.mod"},
+		{"syft", "tools/syft/go.mod"},
+	} {
+		for _, format := range []struct{ extension, name string }{{"cdx", "cyclonedx-json"}, {"spdx", "spdx-json"}} {
+			want = append(want, specInvocation{name: "syft", dir: root, env: syftEnvironment(nil), args: []string{
+				"scan", "file:" + scope.manifest,
 				"--override-default-catalogers", "go-module-file-cataloger", "--quiet",
-				"--output", "cyclonedx-json=" + filepath.Join(reportDir, "runtime-sbom.cdx.json"),
-			},
-		},
-		{
-			name: "go",
-			args: []string{
-				"run", "github.com/anchore/syft/cmd/syft@v1.54.1", "scan", "file:tools/go.mod",
-				"--override-default-catalogers", "go-module-file-cataloger", "--quiet",
-				"--output", "cyclonedx-json=" + filepath.Join(reportDir, "tools-sbom.cdx.json"),
-			},
-		},
+				"--output", format.name + "=" + filepath.Join(reportDir, scope.name+"-sbom."+format.extension+".json"),
+			}})
+		}
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
 		t.Errorf("SBOM invocations = %#v, want %#v", runner.calls, want)
@@ -286,6 +188,20 @@ func TestSBOMRunsPinnedScansAndValidatesArtifacts(t *testing.T) {
 	assertExactMode(t, reportDir, 0o755)
 	assertExactMode(t, filepath.Join(reportDir, "runtime-sbom.cdx.json"), 0o644)
 	assertExactMode(t, filepath.Join(reportDir, "tools-sbom.cdx.json"), 0o644)
+	for _, scope := range []string{"runtime", "tools", "gopls", "syft"} {
+		assertExactMode(t, filepath.Join(reportDir, scope+"-sbom.spdx.json"), 0o644)
+	}
+	var executable *os.File
+	for _, spec := range fixture.specs {
+		if spec.Name == "syft" {
+			if executable == nil {
+				executable = spec.Executable
+			}
+			if spec.Executable == nil || spec.Executable != executable {
+				t.Fatal("scanner did not retain one bound executable")
+			}
+		}
+	}
 }
 
 func TestSBOMRejectsMissingEmptyAndNonregularArtifacts(t *testing.T) {
@@ -320,8 +236,9 @@ func TestSBOMRejectsMissingEmptyAndNonregularArtifacts(t *testing.T) {
 				test.write(t, outputArgument(t, spec.Args))
 			}}
 			err := SBOM(context.Background(), SBOMOptions{
+				Root:      syftFixtureRoot(t),
 				ReportDir: filepath.Join(t.TempDir(), "reports", "security"),
-				Runner:    runner,
+				Runner:    &syftFixtureRunner{t: t, scanner: runner},
 			})
 			if err == nil {
 				t.Fatal("SBOM() error = nil, want invalid artifact error")
@@ -348,7 +265,10 @@ func TestSBOMRejectsStaleRegularArtifactWhenScannerDoesNotRewrite(t *testing.T) 
 		t.Fatalf("seed stale runtime SBOM: %v", err)
 	}
 	runner := &recordingSpecRunner{}
-	err := SBOM(context.Background(), SBOMOptions{ReportDir: reportDir, Runner: runner})
+	err := SBOM(context.Background(), SBOMOptions{
+		Root: syftFixtureRoot(t), ReportDir: reportDir,
+		Runner: &syftFixtureRunner{t: t, scanner: runner},
+	})
 	if err == nil {
 		t.Fatal("SBOM() error = nil, want stale artifact failure")
 	}
@@ -365,8 +285,9 @@ func TestSBOMWrapsScannerFailure(t *testing.T) {
 
 	wantErr := errors.New("scanner failed")
 	err := SBOM(context.Background(), SBOMOptions{
+		Root:      syftFixtureRoot(t),
 		ReportDir: filepath.Join(t.TempDir(), "reports", "security"),
-		Runner:    &recordingSpecRunner{failAt: 1, err: wantErr},
+		Runner:    &syftFixtureRunner{t: t, scanner: &recordingSpecRunner{failAt: 1, err: wantErr}},
 	})
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("SBOM() error = %v, want wrapped scanner error", err)

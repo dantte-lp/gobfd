@@ -74,9 +74,9 @@ func TestGoToolsUseIsolatedModule(t *testing.T) {
 	}
 	protoHelper := readContractFile(t, "../test/internal/cirunner/proto.go")
 	requireContractStrings(t, "protobuf CI helper", protoHelper, []string{
-		"\"build\", toolsModuleFlag, \"-o\", filepath.Join(binDir, \"protoc-gen-go\")",
+		"goBuildSubcommand, toolsModuleFlag, \"-o\", filepath.Join(binDir, \"protoc-gen-go\")",
 		"\"google.golang.org/protobuf/cmd/protoc-gen-go\"",
-		"\"build\", toolsModuleFlag, \"-o\", filepath.Join(binDir, \"protoc-gen-connect-go\")",
+		"goBuildSubcommand, toolsModuleFlag, \"-o\", filepath.Join(binDir, \"protoc-gen-connect-go\")",
 		"\"connectrpc.com/connect/v2/cmd/protoc-gen-connect-go\"",
 	})
 }

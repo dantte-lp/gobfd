@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec" //nolint:depguard // Execute fixed Make targets with isolated producer fixtures and real tee.
 	"path/filepath"
@@ -56,10 +57,15 @@ func TestMakeBenchmarkPreservesCommandFailure(t *testing.T) {
 			t.Parallel()
 
 			root := t.TempDir()
-			for name, data := range map[string][]byte{"Makefile": makefile, "producer": []byte(benchmarkMakeProducer)} {
-				if err := os.WriteFile(filepath.Join(root, name), data, 0o700); err != nil {
-					t.Fatal(err)
-				}
+			if err := os.WriteFile(filepath.Join(root, "Makefile"), makefile, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			self, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(self, filepath.Join(root, "producer")); err != nil {
+				t.Fatal(err)
 			}
 			if test.sinkFailure {
 				if err := os.MkdirAll(filepath.Join(root, test.output), 0o700); err != nil {
@@ -72,7 +78,8 @@ func TestMakeBenchmarkPreservesCommandFailure(t *testing.T) {
 				"EXEC=./producer", "BENCH_DIR=samples", "BENCH_VERSION=local", "REPORT_DIR=reports",
 				"GIT_COMMIT=fixture", "BUILD_DATE=fixture", "VERSION=local")
 			command.Dir = root
-			command.Env = append(os.Environ(), "BENCHMARK_TEST_FAILURE="+test.failure, "MAKEFLAGS=", "MFLAGS=")
+			command.Env = append(os.Environ(), benchmarkMakeProducerEnabled+"=1",
+				"BENCHMARK_TEST_FAILURE="+test.failure, "MAKEFLAGS=", "MFLAGS=")
 			output, runErr := command.CombinedOutput()
 			if (runErr != nil) != test.wantError || ctx.Err() != nil {
 				t.Errorf("make exit = %v, context = %v, want error %t; output:\n%s", runErr, ctx.Err(), test.wantError, output)
@@ -114,19 +121,47 @@ func TestMakeBenchmarkPreservesCommandFailure(t *testing.T) {
 	}
 }
 
-const benchmarkMakeProducer = `#!/bin/sh
-case "$*" in
-  'go test -buildvcs=false -bench=. -benchmem -count=6 -run=^$ ./internal/bfd/' | \
-  'go test -buildvcs=false -bench=. -benchmem -count=6 -run=^$ -timeout=120s ./internal/bfd/') stage=bfd ;;
-  'go test -buildvcs=false -bench=. -benchmem -count=6 -run=^$ ./...') stage=all ;;
-  'go test -buildvcs=false -bench=. -benchmem -count=6 -run=^$ -timeout=120s ./internal/netio/') stage=netio ;;
-  'go env GOVERSION') stage=version ;;
-  'benchstat samples/baseline.txt samples/local/benchmark.txt') stage=compare ;;
-  *) printf 'unexpected producer arguments: %s\n' "$*" >&2; exit 90 ;;
-esac
-if [ "$stage" = version ]; then printf 'go-fixture\n'; else printf '%s sample\n' "$stage"; fi
-if [ "$BENCHMARK_TEST_FAILURE" = "$stage" ]; then
-  printf 'injected %s failure\n' "$stage" >&2
-  exit 23
-fi
-`
+const benchmarkMakeProducerEnabled = "GOBFD_BENCHMARK_MAKE_PRODUCER"
+
+func runBenchmarkMakeProducer() int {
+	arguments := strings.Join(os.Args[1:], " ")
+	stage := benchmarkMakeProducerStage(arguments)
+	if stage == "" {
+		if _, err := fmt.Fprintln(os.Stderr, "unexpected producer arguments:", arguments); err != nil {
+			return 91
+		}
+		return 90
+	}
+	output := stage + " sample"
+	if stage == "version" {
+		output = "go-fixture"
+	}
+	if _, err := fmt.Fprintln(os.Stdout, output); err != nil {
+		return 91
+	}
+	if os.Getenv("BENCHMARK_TEST_FAILURE") == stage {
+		if _, err := fmt.Fprintln(os.Stderr, "injected "+stage+" failure"); err != nil {
+			return 91
+		}
+		return 23
+	}
+	return 0
+}
+
+func benchmarkMakeProducerStage(arguments string) string {
+	switch arguments {
+	case "go test -buildvcs=false -bench=. -benchmem -count=6 -run=^$ ./internal/bfd/",
+		"go test -buildvcs=false -bench=. -benchmem -count=6 -run=^$ -timeout=120s ./internal/bfd/":
+		return "bfd"
+	case "go test -buildvcs=false -bench=. -benchmem -count=6 -run=^$ ./...":
+		return "all"
+	case "go test -buildvcs=false -bench=. -benchmem -count=6 -run=^$ -timeout=120s ./internal/netio/":
+		return "netio"
+	case "go env GOVERSION":
+		return "version"
+	case "benchstat samples/baseline.txt samples/local/benchmark.txt":
+		return "compare"
+	default:
+		return ""
+	}
+}

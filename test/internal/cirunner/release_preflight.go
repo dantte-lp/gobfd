@@ -629,7 +629,7 @@ func validateReleaseGraphQLResponseJSON(data []byte) error {
 		return err
 	}
 	_, err = decodeRequiredJSONObject(
-		dataFields["repository"], "release GraphQL repository", []string{"release"},
+		dataFields["repository"], "release GraphQL repository", []string{ghReleaseCommand},
 	)
 	return err
 }

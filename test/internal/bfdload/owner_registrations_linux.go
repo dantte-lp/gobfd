@@ -36,7 +36,8 @@ func observeOwnerRegistrations(families []*dto.MetricFamily, knownPeers int) (Ow
 			observed.RetainedPacketRows += uint64(len(family.GetMetric()))
 		}
 	}
-	if observed.ActiveMetricRegistrations != uint64(knownPeers) { //nolint:gosec // Manager registry length is nonnegative.
+	// #nosec G115 -- Both production callers pass len(statuses), a nonnegative int that fits uint64.
+	if observed.ActiveMetricRegistrations != uint64(knownPeers) {
 		return observed, fmt.Errorf("owner registry and active collector registrations disagree: %w", errOwnerConfig)
 	}
 	return observed, nil

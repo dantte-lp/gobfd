@@ -46,7 +46,7 @@ func runWorkload(ctx context.Context, args []string, output io.Writer) error {
 
 func parseWorkloadConfig(args []string) (bfdload.PeerConfig, error) {
 	var cfg bfdload.PeerConfig
-	if len(args) == 0 {
+	if len(args) < 1 {
 		return cfg, fmt.Errorf("missing workload profile: %w", bfdload.ErrProfile)
 	}
 	profile, err := bfdload.DefaultProfile(args[0])

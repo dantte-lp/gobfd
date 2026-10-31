@@ -3,6 +3,7 @@ package toolbootstrap
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,6 +11,92 @@ import (
 	"strings"
 	"testing"
 )
+
+const (
+	podmanProviderWarningFixture = "\x1b[4m>>>> Executing external compose provider " +
+		"\"/home/runner/.local/bin/docker-compose\". Please refer to the documentation for details. <<<<\n\n\x1b[0m"
+	providerOutputFailureExitCode = 17
+)
+
+func TestExecuteOutputSeparatesPodmanProviderWarning(t *testing.T) {
+	t.Parallel()
+
+	output, err := runBootstrapOutputFixture(t, "version")
+	if err != nil {
+		t.Fatalf("executeOutput() error = %v", err)
+	}
+	if output != ComposeVersion {
+		t.Fatalf("provider stdout = %q, want exact pinned version %q", output, ComposeVersion)
+	}
+}
+
+func TestExecuteOutputDoesNotNormalizeUnexpectedProviderVersion(t *testing.T) {
+	t.Parallel()
+
+	output, err := runBootstrapOutputFixture(t, "unexpected-version")
+	if err != nil {
+		t.Fatalf("executeOutput() error = %v", err)
+	}
+	if want := ComposeVersion + "-unexpected"; output != want {
+		t.Fatalf("provider stdout = %q, want unmodified unexpected version %q", output, want)
+	}
+}
+
+func TestExecuteOutputPreservesFailureDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	_, err := runBootstrapOutputFixture(t, "failure")
+	var exitErr interface{ ExitCode() int }
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != providerOutputFailureExitCode {
+		t.Fatalf("executeOutput() error = %v, want wrapped exit code %d", err, providerOutputFailureExitCode)
+	}
+	for _, diagnostic := range []string{"partial provider stdout", "provider failed"} {
+		if !strings.Contains(err.Error(), diagnostic) {
+			t.Errorf("executeOutput() error lacks %q: %v", diagnostic, err)
+		}
+	}
+}
+
+func runBootstrapOutputFixture(t *testing.T, mode string) (string, error) {
+	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+	environment := replaceEnvironment(os.Environ(), map[string]string{"GOBFD_BOOTSTRAP_OUTPUT_FIXTURE": mode})
+	return executeOutput(t.Context(), executable, "provider-output fixture",
+		[]string{"-test.run=^TestBootstrapOutputFixture$"}, environment, nil)
+}
+
+func TestBootstrapOutputFixture(_ *testing.T) {
+	mode := os.Getenv("GOBFD_BOOTSTRAP_OUTPUT_FIXTURE")
+	if mode == "" {
+		return
+	}
+	if _, err := fmt.Fprint(os.Stderr, podmanProviderWarningFixture); err != nil {
+		os.Exit(2)
+	}
+	version := ComposeVersion
+	switch mode {
+	case "failure":
+		if _, err := fmt.Fprintln(os.Stdout, "partial provider stdout"); err != nil {
+			os.Exit(2)
+		}
+		if _, err := fmt.Fprintln(os.Stderr, "provider failed"); err != nil {
+			os.Exit(2)
+		}
+		os.Exit(providerOutputFailureExitCode)
+	case "unexpected-version":
+		version += "-unexpected"
+	case "version":
+	default:
+		os.Exit(2)
+	}
+	if _, err := fmt.Fprintln(os.Stdout, version); err != nil {
+		os.Exit(2)
+	}
+	os.Exit(0)
+}
 
 func TestVerifyJQRunsFixedVersionCommand(t *testing.T) {
 	t.Parallel()

@@ -103,7 +103,10 @@ func TestEchoPreviewReceiverLossRevokesAdmission(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), readinessTestWait)
 	defer cancel()
 	select {
-	case <-f.owner.receivers.lost:
+	case lossErr := <-f.owner.receivers.lost:
+		if !errors.Is(lossErr, errRequiredWorkerStopped) {
+			t.Fatalf("receiver loss error = %v, want required worker failure", lossErr)
+		}
 	case <-ctx.Done():
 		t.Fatal("receiver loss did not revoke runtime readiness")
 	}

@@ -34,6 +34,27 @@ func inventoryRecords(inv *Inventory) map[string]*Record {
 	return records
 }
 
+func normalizePublicTracking(inv *Inventory) {
+	for _, record := range inventoryRecords(inv) {
+		decision := &record.Assessment.Decision
+		decision.Tracking = publicTrackingReference(decision.Tracking)
+		if decision.LicenseException != nil {
+			decision.LicenseException.Tracking = publicTrackingReference(decision.LicenseException.Tracking)
+		}
+		if decision.ReviewException != nil {
+			decision.ReviewException.Tracking = publicTrackingReference(decision.ReviewException.Tracking)
+		}
+	}
+}
+
+func publicTrackingReference(reference string) string {
+	if strings.HasPrefix(reference, "gobfd-") || strings.HasPrefix(reference, "bead:gobfd-") ||
+		strings.HasPrefix(reference, "bd show gobfd-") {
+		return devTracking
+	}
+	return reference
+}
+
 func reuseHistoricalEvidence(inv *Inventory, prior Inventory) {
 	// Only this generator's explicit observation epoch is a trusted reuse input.
 	// Older snapshots remain available in Git without becoming fresh observations.
@@ -110,8 +131,8 @@ func evidenceMatchesRecord(subject, review string, evidence Evidence, record *Re
 }
 
 func recordModuleIdentity(subject string, record *Record) (moduleLicenseIdentity, bool) {
-	for _, prefix := range []string{"runtime:", "tools:"} {
-		if path, ok := strings.CutPrefix(subject, prefix); ok {
+	for _, graph := range moduleGraphDefinitions() {
+		if path, ok := strings.CutPrefix(subject, graph.ID+":"); ok {
 			return moduleLicenseIdentity{Path: path, Version: record.Installed}, true
 		}
 	}

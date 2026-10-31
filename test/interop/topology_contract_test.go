@@ -645,8 +645,9 @@ func TestInteropOperationalContract(t *testing.T) {
 		"BIRD_COMMIT=c3669497e3949b942d86d07e343092cc439b4659",
 		"BIRD_SOURCE_SHA256=9d19e6ac4f812423721a27bda5df6fc14cceb24af57609f6287c259b3b38893a",
 		"BIRD_FIX_COMMIT=7cf75587b6f38b87849fe192bf5dfd124b7702bc",
-		"BIRD_FIX_SHA256=1655d26ae3d3acd66d3ff87b4aff2b36b61c362885b64d1cc39e976faffac13e",
+		"BIRD_FIX_SHA256=ebb9556370e85ea825a03533099b3c1ed7436d9a0a54aa5990375a997b511bde",
 		"ADD --checksum=sha256:${BIRD_FIX_SHA256}",
+		"https://github.com/CZ-NIC/bird/commit/${BIRD_FIX_COMMIT}.patch",
 		"patch --batch --fuzz=0 -p1 < /tmp/flowspec-fix.patch",
 		"0fdd10a135787dd14226cadfaee542d2a4e13444a32444782ed5deb26907c5e5  nest/rt-table.c' | sha256sum -c -",
 	})
@@ -807,9 +808,38 @@ func TestInteropOperationalContract(t *testing.T) {
 		`c.compose(ctx, commandTimeout, "up", "-d", "--no-build")`,
 	})
 	inventory := contents["target inventory"]
-	assertContainsAll(t, "target inventory", inventory, []string{
-		"GoBFD, FRR, BIRD3, Holo, Holo loader, Thoro/bfd, tshark, Go BFD invalid-vector generator",
-		"Exact Compose project label",
+	var interopRows []string
+	for line := range strings.SplitSeq(inventory, "\n") {
+		if strings.HasPrefix(line, "| interop / interop-testcontainers |") {
+			interopRows = append(interopRows, line)
+		}
+	}
+	if len(interopRows) != 1 {
+		t.Fatalf("target inventory has %d base interop rows, want 1", len(interopRows))
+	}
+	columns := strings.Split(interopRows[0], "|")
+	if len(columns) != 6 {
+		t.Fatalf("base interop target row has %d cells, want 4", len(columns)-2)
+	}
+	assertContainsAll(t, "base interop runtime", columns[2], []string{
+		"four peers", "meticulous/crafted/TTL", "172.20.0.0/24",
+	})
+	assertContainsAll(t, "base interop evidence", columns[3], []string{
+		"Captures", "config/receipt sidecars", "exact resource cleanup",
+	})
+	assertContainsAll(t, "base interop acceptance boundary", columns[4], []string{
+		"Final candidate/peer matrix", "requires actual run",
+	})
+	// Ownership is enforced by the controller, independently of inventory prose.
+	resolveContainer := contractSection(t, projectControl,
+		"func (c *Controller) resolveContainerID(",
+		"func (c *Controller) resolveServiceContainerID(")
+	assertOrdered(t, "exact Compose project ownership", resolveContainer, []string{
+		`{{.ID}}|{{ index .Config.Labels "com.docker.compose.project" }}`,
+		`id, label, ok := strings.Cut(strings.TrimSpace(details), "|")`,
+		`if !ok || id == "" || label != c.projectName {`,
+		`refusing foreign container`,
+		`return id, nil`,
 	})
 }
 
@@ -823,8 +853,44 @@ func TestInteropJitterAnalyzerContract(t *testing.T) {
 	tagged := readContractFile(t, "tagged Go helper", filepath.Join(root, "test", "interop", "interop_test.go"))
 	assertContainsAll(t, "tagged jitter analyzer", tagged, []string{
 		`"github.com/dantte-lp/gobfd/test/internal/bfdjitter"`,
+	})
+	jitter := contractSection(t, tagged,
+		`t.Run("RFC5880_6.8.7_JitterCompliance"`,
+		`t.Run("RFC5880_6.8.1_SessionIndependence"`)
+	assertOrdered(t, "four-peer jitter stream", jitter, []string{
+		`{"FRR", frrIP}`, `{"BIRD3", bird3IP}`, `{"Holo", holoIP}`, `{"Thoro", thoroIP}`,
+		`for _, p := range peers {`,
+		`output, err := tsharkFieldStream(ctx,`,
+		`"bfd && ip.src == "+gobfdIP+" && ip.dst == "+p.ip`,
+		`[]string{"frame.time_epoch", "bfd.sta", "bfd.flags.p", "bfd.flags.f"}`,
 		`bfdjitter.Evaluate(strings.NewReader(output))`,
-		`[]string{"frame.time_epoch", "bfd.sta", "bfd.flags.p", "bfd.flags.f"}, 0`,
+		`switch report.Status {`,
+		`case bfdjitter.StatusSkip:`, `case bfdjitter.StatusFail:`, `case bfdjitter.StatusPass:`,
+	})
+	stream := contractSection(t, tagged, "func tsharkFieldStream(", "func tsharkCount(")
+	assertOrdered(t, "unlimited ordered TSV stream", stream, []string{
+		`args = append(args, "-Y", filter, "-T", "fields")`,
+		`for _, f := range fields {`,
+		`args = append(args, "-e", f)`,
+		`args = append(args, "-E", "separator=\t", "-E", "header=n")`,
+		`return tsharkQuery(ctx, args...)`,
+	})
+	for _, forbidden := range []string{`"-c"`, "maxCount", "parseTsharkFieldRows", "TrimSpace", "TrimPrefix"} {
+		if strings.Contains(stream, forbidden) {
+			t.Errorf("jitter field stream retains limiting or normalizing operation %q", forbidden)
+		}
+	}
+	query := contractSection(t, tagged, "func tsharkQuery(", "func tsharkQueryFile(")
+	assertContainsAll(t, "jitter capture source", query, []string{
+		`return tsharkQueryFile(ctx, "/captures/bfd.pcapng", args...)`,
+	})
+	queryFile := contractSection(t, tagged, "func tsharkQueryFile(", "func tsharkFields(")
+	assertOrdered(t, "jitter capture stdout", queryFile, []string{
+		`resolveProjectContainerID(ctx, "tshark-interop")`,
+		`[]string{"tshark", "-r", capturePath}`,
+		`cmd.Stdout = &stdout`, `cmd.Stderr = &stderr`,
+		`err = commandContextError(ctx, cmd.Run())`, `if err != nil {`,
+		`return stdout.String(), nil`,
 	})
 	assertOrdered(t, "tagged jitter before mutations", tagged, []string{
 		`t.Run("RFC5880_6.8.7_JitterCompliance"`,
@@ -998,6 +1064,61 @@ func TestTrackedOperationalTextHasNoRemovedReferences(t *testing.T) {
 	removed := []string{"aio" + "bfd", "bit" + "string"}
 	if err := validateTrackedOperationalText(t.Context(), root, allowed, removed); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTrackedOperationalTextBoundsLargeDependencyInventory(t *testing.T) {
+	t.Parallel()
+
+	const inventoryPath = "docs/supply-chain/dependency-inventory.json"
+	removed := "aio" + "bfd"
+	tests := []struct {
+		name     string
+		path     string
+		tail     string
+		oversize bool
+		wantErr  string
+	}{
+		{name: "large inventory", path: inventoryPath},
+		{name: "removed reference at end", path: inventoryPath, tail: removed, wantErr: "retains removed reference"},
+		{name: "oversize inventory", path: inventoryPath, oversize: true, wantErr: "limit is"},
+		{name: "ordinary file keeps original limit", path: "dependency-inventory.json", wantErr: "limit is"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			path := filepath.Join(root, filepath.FromSlash(test.path))
+			if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+				t.Fatalf("create inventory fixture directory: %v", err)
+			}
+			if test.oversize {
+				writeFixture(t, path, "")
+				if err := os.Truncate(path, int64(maxDependencyInventoryFileSize)+1); err != nil {
+					t.Fatalf("extend oversized inventory fixture: %v", err)
+				}
+			} else {
+				writeFixture(t, path, `{"text":"`+strings.Repeat("a", 6<<20)+test.tail+`"}`)
+			}
+			rooted, err := os.OpenRoot(root)
+			if err != nil {
+				t.Fatalf("open fixture root: %v", err)
+			}
+			t.Cleanup(func() {
+				if closeErr := rooted.Close(); closeErr != nil {
+					t.Errorf("close fixture root: %v", closeErr)
+				}
+			})
+			err = validateTrackedOperationalPath(rooted, test.path, false, nil, []string{removed})
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("large inventory scan: %v", err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("inventory scan error = %v, want %q", err, test.wantErr)
+			}
+		})
 	}
 }
 
@@ -2052,7 +2173,7 @@ func TestOperationalSurfaceScanRejectsUnsafeEntries(t *testing.T) {
 
 const (
 	maxOperationalFileSize         = 2 << 20
-	maxDependencyInventoryFileSize = 3 << 20
+	maxDependencyInventoryFileSize = 16 << 20 // Matches dependencyinventory.maxJSONFileBytes.
 	maxOperationalEntries          = 10_000
 )
 

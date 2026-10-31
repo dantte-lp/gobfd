@@ -18,6 +18,7 @@ Echo и Micro-BFD остаются preview, выключенными по умо
 
 - Release Please готовит PR версии; GoReleaser публикует проверенные draft
   со ссылками на release PR и отдельным каналом alpha без изменения stable aliases.
+  [#104](https://github.com/dantte-lp/gobfd/pull/104)
 - Версионированные снимки сессий и Watch с `GAP`, `SYNC_COMPLETE`
   и `SESSION_DELETED`; клиенты восстанавливают актуальное состояние после потерь.
 - `gobfdctl capabilities` сообщает зрелость preview, включение и готовность;
@@ -34,6 +35,16 @@ Echo и Micro-BFD остаются preview, выключенными по умо
 
 ### Изменено
 
+- Изолирован граф зависимостей Syft; сбор SBOM и workflow выпуска используют
+  общий инструмент, собранный из исходников. OSV обязан покрывать весь выбранный
+  граф модулей; исходные доказательства сканера сохраняются.
+- Согласованы Podman Compose 5.6.1, GoReleaser 2.19.0, Syft 1.55.0 и Trivy 0.76.1
+  в bootstrap, локальных командах и CI. Пересобрать образ разработки для
+  установки обновлённого провайдера Compose. [#105](https://github.com/dantte-lp/gobfd/pull/105)
+- Обновлены Connect до v2.0.2, gRPC до v1.85.0, golangci-lint до v2.15.0,
+  gosec до v2.30.0, Buf до v1.75.0 и x/perf до `v0.0.0-20261009192801-be2c69fb417e`. Release Please 17.11.2
+  использует изолированный lock и проверенный bootstrap npm 12.2.1; квалификация кандидата
+  и OCI остаётся обязательной. [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - **Несовместимо:** management использует `unix:///run/gobfd/gobfd.sock` и Unix
   UID владельца. TCP требует явной настройки loopback или mTLS. Добавить
   операторов в `gobfd-admin` либо задать разрешённые идентификаторы сертификатов.
@@ -50,6 +61,12 @@ Echo и Micro-BFD остаются preview, выключенными по умо
 
 ### Исправлено
 
+- При reload DetectMult с 1 на большее значение сохраняется ближайший срок
+  отправки Control; jitter ослабляется после объявления нового множителя.
+  [#105](https://github.com/dantte-lp/gobfd/pull/105)
+- Восстановлена сборка на других ОС без назначения Unix peer credentials
+  или записи файлов сертификатов на неподдерживаемых платформах.
+  [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - Таймеры Control и Poll/Final сохраняют явный RX zero, повторяют неотправленный
   Final, подтверждают только отправленный Poll и сбрасывают learned wire parameters
   независимо от состояния authentication sequence.
@@ -68,6 +85,12 @@ Echo и Micro-BFD остаются preview, выключенными по умо
 
 ### Безопасность
 
+- Графы исходников tools и Syft обновлены до go-jose/v4 4.1.7 с upstream-
+  исправлениями проверки JWK/JWT/JWE/JWS. См.
+  [security release](https://github.com/go-jose/go-jose/releases/tag/v4.1.7).
+- Устранены 12 дополнительных advisories в выбранных графах Go-зависимостей:
+  обновлены зависимости инструментов, закреплены upstream-исправления JOSE/Goldmark
+  и удалены неиспользуемые уязвимые версии модулей. [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - Мутации доступны разрешённым Unix/mTLS principals; сертификат не может
   имитировать Unix UID. Мутации plaintext loopback требуют явного unsafe opt-in.
   Доступ к flight recorder dump требует авторизации management.
@@ -82,6 +105,8 @@ Echo и Micro-BFD остаются preview, выключенными по умо
 
 ### Удалено
 
+- Удалены анализ Sonar и его обязательная проверка; race tests, atomic coverage
+  и отчёты сохранены в основном CI. [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - OCI-продукты и aliases Oracle Linux 10 исключены из v1. Использовать Debian trixie;
   универсальная генерация RPM и исторические артефакты v0.6 сохранены.
 

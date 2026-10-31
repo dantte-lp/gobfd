@@ -16,18 +16,32 @@ jobs:
   release-pr:
     if: github.repository == 'dantte-lp/gobfd' && github.ref == 'refs/heads/release/v1.0'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    container:
+      image: docker.io/library/node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
+      volumes:
+        - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+      options: --cpus 2 --memory 3g --memory-swap 3g --pids-limit 512 --security-opt no-new-privileges
     permissions:
       contents: write
       pull-requests: write
+    env:
+      GOTOOLCHAIN: local
+      CGO_ENABLED: "0"
+      GOMAXPROCS: "2"
+      GOMEMLIMIT: 1000MiB
+      GOFLAGS: -p=2
+      SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
     steps:
-      - name: Prepare the release pull request
-        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          target-branch: release/v1.0
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-          # GoReleaser owns drafts and the verified publication sequence.
-          # The maintainer pushes an annotated tag after the release PR passes review.
-          skip-github-release: true
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+          cache: false
+      - name: Audit the locked CLI and prepare the release pull request
+        run: go run ./test/cmd/cictl release-please-pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

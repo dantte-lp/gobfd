@@ -26,7 +26,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ hashFiles('go.sum', 'tools/go.sum', 'tools/gopls/go.sum', 'tools/syft/go.sum', 'tools/goreleaser/qualified.sum', 'tools/goreleaser/source.sum', 'tools/goreleaser/refmt.sum') }}
 
       - name: Build
         run: go run ./test/cmd/cictl release-build
@@ -39,6 +39,17 @@ jobs:
 
       - name: Vulnerability Audit
         run: go run ./scripts/vuln-audit.go
+
+      - name: Publisher vulnerability audit
+        run: go run ./test/cmd/cictl publisher-audit
+
+      - name: Upload publisher security reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: publisher-security-reports
+          path: reports/security/publisher-audit/
+          retention-days: 30
 
   lint:
     runs-on: ubuntu-latest
@@ -53,7 +64,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ hashFiles('go.sum', 'tools/go.sum', 'tools/gopls/go.sum', 'tools/syft/go.sum', 'tools/goreleaser/qualified.sum', 'tools/goreleaser/source.sum', 'tools/goreleaser/refmt.sum') }}
 
       - name: Lint
         run: go run ./test/cmd/cictl lint
@@ -77,7 +88,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ hashFiles('go.sum', 'tools/go.sum', 'tools/gopls/go.sum', 'tools/syft/go.sum', 'tools/goreleaser/qualified.sum', 'tools/goreleaser/source.sum', 'tools/goreleaser/refmt.sum') }}
 
       - name: Install report tools
         run: go run ./test/cmd/toolbootstrap podman-runtime
@@ -106,6 +117,7 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     needs: [test, lint, reports]
     permissions:
       contents: write
@@ -115,6 +127,29 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      # Hosted VM teardown bounds prestart orphans and bind outputs after abrupt CLI death.
+      - name: Compile Syft controller in pinned Go image
+        run: >-
+          docker run --rm --name gobfd-cictl-${{ github.run_id }}-${{ github.run_attempt }}
+          --user=0:0 --read-only --cap-drop=ALL --cap-add=DAC_OVERRIDE --security-opt=no-new-privileges
+          --cpus=2 --memory=3221225472 --memory-swap=3221225472 --pids-limit=512
+          --workdir /src --entrypoint /usr/bin/timeout
+          --tmpfs /tmp:rw,nosuid,nodev,size=1073741824,mode=1777
+          --tmpfs /cache:rw,nosuid,nodev,size=1073741824,mode=0700
+          --mount "type=bind,src=${{ github.workspace }},dst=/src,readonly"
+          --mount "type=bind,src=${{ runner.temp }},dst=/out"
+          --env CGO_ENABLED=0 --env GOTOOLCHAIN=local --env GOENV=off --env GOWORK=off
+          --env GOCACHE=/cache/build --env GOMODCACHE=/cache/mod --env GOPATH=/cache/go
+          --env HOME=/cache --env TMPDIR=/tmp --env GOMAXPROCS=2 --env GOMEMLIMIT=2GiB
+          docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c
+          --signal=TERM --kill-after=5s 600s /usr/local/go/bin/go build
+          -trimpath -mod=readonly -buildvcs=false
+          -o /out/gobfd-cictl-${{ github.run_id }}-${{ github.run_attempt }} ./test/cmd/cictl
+
+      - name: Install source-built release tools in pinned Go image
+        run: '"${{ runner.temp }}/gobfd-cictl-${{ github.run_id }}-${{ github.run_attempt }}" release-source-tools --compiler-container'
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -149,23 +184,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Syft
-        id: syft
-        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
-        with:
-          syft-version: v1.54.1
-
       - name: Verify UPX prerequisite
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: go run ./test/cmd/cictl release-upx
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
-        with:
-          distribution: goreleaser
-          version: v2.18.2
-          args: release --clean --parallelism=1 --release-notes=release-notes.md
+        run: goreleaser release --clean --parallelism=1 --release-notes=release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

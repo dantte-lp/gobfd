@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -154,7 +155,9 @@ func TestEchoWatchHAProxyMixedPeerGapAndReconnect(t *testing.T) {
 				t.Fatalf("mixed reconnect health=%v, want %v, calls=%d", got, want, svc.calls.Load())
 			}
 			cancel()
-			<-done
+			if err := <-done; !errors.Is(err, context.Canceled) {
+				t.Fatalf("watch shutdown error = %v, want context cancellation", err)
+			}
 		})
 	}
 }
@@ -198,5 +201,7 @@ func TestWatchEventsReconnectsAfterEOF(t *testing.T) {
 	close(svc.loss)
 	wait(bfdv1.SessionState_SESSION_STATE_DOWN)
 	cancel()
-	<-done
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("watch shutdown error = %v, want context cancellation", err)
+	}
 }

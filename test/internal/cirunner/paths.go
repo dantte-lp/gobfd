@@ -70,6 +70,7 @@ func ensureDirectory(path, purpose string) error {
 					purpose, current, info.Mode(), errInvalidConfig)
 			}
 		case errors.Is(lstatErr, os.ErrNotExist):
+			// #nosec G301 -- CI report/tool directories use 0755 for traversal and owner-only writes.
 			if mkdirErr := os.Mkdir(current, directoryMode); mkdirErr != nil {
 				return fmt.Errorf("create %s directory %s: %w", purpose, current, mkdirErr)
 			}
@@ -77,6 +78,7 @@ func ensureDirectory(path, purpose string) error {
 			return fmt.Errorf("inspect %s path component %s: %w", purpose, current, lstatErr)
 		}
 	}
+	// #nosec G302 -- Validated CI report/tool directories preserve the explicit traversable 0755 contract.
 	if err := os.Chmod(absolute, directoryMode); err != nil {
 		return fmt.Errorf("set %s directory %s mode %#o: %w", purpose, absolute, directoryMode, err)
 	}

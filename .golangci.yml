@@ -64,14 +64,16 @@ linters:
     - wsl_v5 # Cosmetic whitespace policy overlaps gofumpt and obscures semantic diffs.
 
   settings:
+    gomoddirectives:
+      # Exact upstream security pins for inherited tool-module metadata.
+      replace-allow-list:
+        - github.com/go-jose/go-jose/v4
+        - github.com/yuin/goldmark
     cyclop:
       max-complexity: 15
       package-average: 0.0
     gocognit:
       min-complexity: 20
-    gomoddirectives:
-      replace-allow-list:
-        - google.golang.org/grpc # tools/go.mod pins the stable gRPC release.
     gosec:
       excludes: []
       severity: low
@@ -129,6 +131,12 @@ linters:
     loggercheck:
       require-string-key: true
       no-printf-like: true
+    wrapcheck:
+      # Connect constructors create protocol errors; WithCause preserves their
+      # original cause. Keep unrelated external errors subject to wrapping.
+      extra-ignore-sigs:
+        - connectrpc.com/connect/v2.NewError(
+        - (*connectrpc.com/connect/v2.Error).WithCause(
     mnd:
       # Configuration/default tables legitimately contain values. Require
       # named constants where numbers affect branching or arithmetic instead.

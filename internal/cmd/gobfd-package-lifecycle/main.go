@@ -142,6 +142,7 @@ func execute(ctx context.Context, commands []command, logger *slog.Logger) error
 			return fmt.Errorf("locate command %s: %w", command.name, err)
 		}
 
+		// #nosec G204 -- plan emits only fixed systemd tools and fixed unit/config arguments; no shell is invoked.
 		cmd := exec.CommandContext(ctx, path, command.args...)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout

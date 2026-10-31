@@ -198,7 +198,7 @@ func testUDPWorkloadOwnedTopology(t *testing.T, txOnly bool) {
 		case failedOwner := <-done:
 			inputs.write(t, "owner.stdout.json", []byte(failedOwner.result.Stdout))
 			inputs.write(t, "owner.stderr.log", []byte(failedOwner.result.Stderr))
-			inputs.write(t, "owner-exec-error.txt", []byte(fmt.Sprint(failedOwner.err)))
+			inputs.write(t, "owner-exec-error.txt", fmt.Append(nil, failedOwner.err))
 		case <-time.After(failureJoinTimeout):
 			inputs.write(t, "owner-exec-error.txt", []byte("owner execution did not return after bounded cancellation"))
 		}

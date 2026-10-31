@@ -127,7 +127,9 @@ func TestManagerReconcileMicroBFDGroupsIsOneLifecycleOperation(t *testing.T) {
 		if mgr.lifecycleMu.TryLock() {
 			mgr.lifecycleMu.Unlock()
 			close(barrier.release)
-			<-reconcileDone
+			if err := <-reconcileDone; err != nil {
+				t.Errorf("ReconcileMicroBFDGroups: %v", err)
+			}
 			mgr.Close()
 			t.Fatal("Micro-BFD reconciliation did not register a top-level lifecycle operation")
 		}
@@ -208,7 +210,9 @@ func assertOwnershipLockedAtBarrier(
 	if mgr.ownershipMu.TryLock() {
 		mgr.ownershipMu.Unlock()
 		close(barrier.release)
-		<-done
+		if err := <-done; err != nil {
+			t.Errorf("Micro-BFD mutation: %v", err)
+		}
 		t.Fatal("Micro-BFD mutation did not hold ownershipMu")
 	}
 	close(barrier.release)
@@ -258,7 +262,9 @@ func TestManagerReconcileEchoSessionsIsOneLifecycleOperation(t *testing.T) {
 		if mgr.lifecycleMu.TryLock() {
 			mgr.lifecycleMu.Unlock()
 			close(barrier.release)
-			<-reconcileDone
+			if err := <-reconcileDone; err != nil {
+				t.Errorf("ReconcileEchoSessions: %v", err)
+			}
 			mgr.Close()
 			t.Fatal("echo reconciliation did not register a top-level lifecycle operation")
 		}

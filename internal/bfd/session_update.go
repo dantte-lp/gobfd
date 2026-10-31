@@ -235,8 +235,11 @@ func (s *Session) processTimerUpdates(tx, detect *time.Timer) {
 	if unsolicitedFailed {
 		s.notifyUnsolicitedFailure()
 	}
-	jitterChanged := (oldDetectMult == 1) != (s.detectMult == 1)
-	if oldTX != s.calcTxIntervalHot() || oldAllowed != s.periodicTxAllowed() || jitterChanged {
+	// The peer still uses the last advertised multiplier (RFC 5880 Section 6.8.4).
+	// Preserve a multiplier-1 deadline until the next Control advertises the new
+	// value; subsequent periods can relax jitter (Sections 6.8.7 and 6.8.12).
+	jitterTightened := oldDetectMult != 1 && s.detectMult == 1
+	if oldTX != s.calcTxIntervalHot() || oldAllowed != s.periodicTxAllowed() || jitterTightened {
 		s.scheduleTxTimer(tx, s.lastPacketSent)
 	}
 	if oldDetection != s.calcDetectionTimeHot() {

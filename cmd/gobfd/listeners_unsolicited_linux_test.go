@@ -105,7 +105,10 @@ func checkUnsolicitedListenerAdmission(t *testing.T, cfg *config.Config, src, ds
 			_ = ln.Close() // Unblocks the reads; the owning cleanup closes again idempotently.
 		}
 		select {
-		case <-done:
+		case err := <-done:
+			if err != nil {
+				t.Errorf("receiver shutdown: %v", err)
+			}
 		case <-time.After(3 * time.Second):
 			t.Error("receiver did not stop")
 		}

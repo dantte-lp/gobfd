@@ -46,7 +46,7 @@ func listenManagementSocket(ctx context.Context, cfg config.GRPCSocketConfig) (n
 	// container image; create it when missing, as for a root container.
 	// 0755 like systemd RuntimeDirectoryMode=0755: the admin group does not
 	// own the directory, and the socket's own mode is the access gate.
-	//nolint:gosec // G301: group traversal is required; the socket mode gates access.
+	// #nosec G301 -- Parent traversal is public; secureSocket gates socket mode/group before accepting RPCs.
 	if mkdirErr := os.MkdirAll(filepath.Dir(cfg.Path), 0o755); mkdirErr != nil {
 		return nil, fmt.Errorf("create management socket directory: %w", mkdirErr)
 	}

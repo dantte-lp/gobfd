@@ -49,14 +49,14 @@ func ProtoVerify(ctx context.Context, options ProtoOptions) error {
 		{
 			context: "build protoc-gen-go",
 			spec: CommandSpec{Name: "go", Dir: root, Args: []string{
-				"build", toolsModuleFlag, "-o", filepath.Join(binDir, "protoc-gen-go"),
+				goBuildSubcommand, toolsModuleFlag, "-o", filepath.Join(binDir, "protoc-gen-go"),
 				"google.golang.org/protobuf/cmd/protoc-gen-go",
 			}},
 		},
 		{
 			context: "build protoc-gen-connect-go",
 			spec: CommandSpec{Name: "go", Dir: root, Args: []string{
-				"build", toolsModuleFlag, "-o", filepath.Join(binDir, "protoc-gen-connect-go"),
+				goBuildSubcommand, toolsModuleFlag, "-o", filepath.Join(binDir, "protoc-gen-connect-go"),
 				"connectrpc.com/connect/v2/cmd/protoc-gen-connect-go",
 			}},
 		},

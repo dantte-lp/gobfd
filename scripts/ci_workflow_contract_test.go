@@ -3,9 +3,11 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/dantte-lp/gobfd/internal/toolprofile"
 )
 
-func TestCIWorkflowBuildAndSonarStepsDelegateToCICTL(t *testing.T) {
+func TestCIWorkflowBuildStepsDelegateToCICTL(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -16,16 +18,6 @@ func TestCIWorkflowBuildAndSonarStepsDelegateToCICTL(t *testing.T) {
 		required  []string
 		forbidden []string
 	}{
-		{
-			name:     "Sonar token",
-			workflow: "../.github/workflows/build.yml",
-			step:     "Check Sonar token",
-			command:  "go run ./test/cmd/cictl sonar-mode",
-			required: []string{"SONAR_TOKEN_PRESENT: ${{ secrets.SONAR_TOKEN != '' }}"},
-			forbidden: []string{
-				"SONAR_TOKEN:", "shell: bash", "run: |", "mode=run", "skip-dependabot", "SONAR_TOKEN is required",
-			},
-		},
 		{
 			name:      "binary build",
 			workflow:  "../.github/workflows/ci.yml",
@@ -76,7 +68,7 @@ func TestCIWorkflowSupplyChainAndProtoStepsUseOneGoCommand(t *testing.T) {
 		},
 		{
 			name:      "SBOMs",
-			step:      "Generate separate runtime and tools SBOMs",
+			step:      "Generate separate runtime, tools, gopls, and Syft SBOMs",
 			command:   "go run ./test/cmd/cictl sbom --report-dir reports/security",
 			required:  []string{"if: always()"},
 			forbidden: []string{"run: |", "github.com/anchore/syft/cmd/syft", "test -s"},
@@ -110,14 +102,6 @@ func TestCIWorkflowResidualShellStepsUseOneGoCommand(t *testing.T) {
 		required  []string
 		forbidden []string
 	}{
-		{
-			name:      "Sonar skip notice",
-			workflow:  "../.github/workflows/build.yml",
-			step:      "SonarQube skipped for Dependabot",
-			command:   "go run ./test/cmd/cictl sonar-skip-notice",
-			required:  []string{"if: steps.sonar-token.outputs.mode == 'skip-dependabot'"},
-			forbidden: []string{"run: >", "echo ", "Dependabot SONAR_TOKEN"},
-		},
 		{
 			name:      "coverage test",
 			workflow:  "../.github/workflows/ci.yml",
@@ -279,32 +263,105 @@ func TestReleaseWorkflowTestAndReportStepsUseGoOwners(t *testing.T) {
 	}
 }
 
+func TestCIWorkflowReleaseSourcePrerequisitesMatchRelease(t *testing.T) {
+	t.Parallel()
+
+	workflow := readContractFile(t, "../.github/workflows/ci.yml")
+	_, rest, found := strings.Cut(workflow, "\n  release-source-prerequisites:\n")
+	if !found {
+		t.Fatal("release source prerequisite job is missing")
+	}
+	job, _, found := strings.Cut(rest, "\n  non-linux-contract:\n")
+	if !found {
+		t.Fatal("release source prerequisite job boundary is missing")
+	}
+	release := readContractFile(t, "../.github/workflows/release.yml")
+	bootstrap := namedWorkflowStep(t, release, "Compile Syft controller in pinned Go image")
+	assertClosedCompilerBootstrap(t, bootstrap)
+	worker := namedWorkflowStep(t, release, "Install source-built release tools in pinned Go image")
+	want := `    name: Release source prerequisites
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Hosted VM teardown bounds prestart orphans and bind outputs after abrupt CLI death.
+` + strings.TrimRight(bootstrap, "\n") + "\n\n" + strings.TrimRight(worker, "\n") + `
+
+      - name: Check source-built GoReleaser configuration
+        run: goreleaser check`
+	if strings.TrimRight(job, "\n") != want {
+		t.Error("CI source prerequisites differ from the closed release bootstrap, installer, and configuration check")
+	}
+}
+
+func assertClosedCompilerBootstrap(t *testing.T, bootstrap string) {
+	t.Helper()
+
+	_, program, found := strings.Cut(bootstrap, "\n        run: >-\n")
+	if !found {
+		t.Fatal("approved compiler bootstrap must contain its single folded command")
+	}
+	wantBootstrap := strings.Join([]string{
+		"docker run --rm --name gobfd-cictl-${{ github.run_id }}-${{ github.run_attempt }}",
+		"--user=0:0 --read-only --cap-drop=ALL --cap-add=DAC_OVERRIDE --security-opt=no-new-privileges",
+		"--cpus=2 --memory=3221225472 --memory-swap=3221225472 --pids-limit=512",
+		"--workdir /src --entrypoint /usr/bin/timeout",
+		"--tmpfs /tmp:rw,nosuid,nodev,size=1073741824,mode=1777",
+		"--tmpfs /cache:rw,nosuid,nodev,size=1073741824,mode=0700",
+		`--mount "type=bind,src=${{ github.workspace }},dst=/src,readonly"`,
+		`--mount "type=bind,src=${{ runner.temp }},dst=/out"`,
+		"--env CGO_ENABLED=0 --env GOTOOLCHAIN=local --env GOENV=off --env GOWORK=off",
+		"--env GOCACHE=/cache/build --env GOMODCACHE=/cache/mod --env GOPATH=/cache/go",
+		"--env HOME=/cache --env TMPDIR=/tmp --env GOMAXPROCS=2 --env GOMEMLIMIT=2GiB",
+		toolprofile.CompilerImage,
+		"--signal=TERM --kill-after=5s 600s /usr/local/go/bin/go build",
+		"-trimpath -mod=readonly -buildvcs=false",
+		"-o /out/gobfd-cictl-${{ github.run_id }}-${{ github.run_attempt }} ./test/cmd/cictl",
+	}, " ")
+	if strings.Join(strings.Fields(program), " ") != wantBootstrap {
+		t.Fatal("compiler bootstrap differs from the approved closed Docker command")
+	}
+}
+
 func TestReleaseWorkflowHasNoEmbeddedShellPrograms(t *testing.T) {
 	t.Parallel()
 
 	workflow := readContractFile(t, "../.github/workflows/release.yml")
+	bootstrap := namedWorkflowStep(t, workflow, "Compile Syft controller in pinned Go image")
+	assertClosedCompilerBootstrap(t, bootstrap)
+	// Exclude only the validated bootstrap; every other folded program remains forbidden.
+	workflow = strings.Replace(workflow, bootstrap, "", 1)
 	wantCommands := map[string]int{
-		"go run ./test/cmd/cictl release-build":                1,
-		"go run ./test/cmd/toolbootstrap podman-runtime":       2,
-		"go test -buildvcs=false ./... -race -count=1":         1,
-		"go run ./scripts/vuln-audit.go":                       1,
-		"go run ./test/cmd/cictl lint":                         1,
-		"go run ./test/cmd/cictl release-test-report":          1,
-		"go run ./test/cmd/cictl release-benchmarks":           1,
-		"go run ./test/cmd/cictl release-benchmark-metadata":   1,
-		"go run ./test/cmd/cictl release-benchmark-comparison": 1,
-		"go run ./test/cmd/cictl release-reports-archive":      1,
-		"go run ./test/cmd/cictl release-preflight":            1,
-		"go run ./test/cmd/cictl release-notes":                1,
-		"go run ./test/cmd/cictl release-upx":                  1,
-		"go -C tools run ./cmd/packagefinalize":                1,
-		"go run ./test/cmd/cictl release-artifacts":            1,
-		"go run ./test/cmd/cictl release-assets-upload":        1,
-		"go run ./test/cmd/cictl release-oci-evidence":         1,
-		"go run ./test/cmd/cictl release-evidence":             1,
-		"go run ./test/cmd/cictl release-verify":               1,
-		"go run ./test/cmd/cictl release-promote":              1,
-		"go run ./test/cmd/cictl release-publish":              1,
+		`'"${{ runner.temp }}/gobfd-cictl-${{ github.run_id }}-${{ github.run_attempt }}"` +
+			` release-source-tools --compiler-container'`: 1,
+		"go run ./test/cmd/cictl release-build":                                       1,
+		"go run ./test/cmd/toolbootstrap podman-runtime":                              2,
+		"go test -buildvcs=false ./... -race -count=1":                                1,
+		"go run ./scripts/vuln-audit.go":                                              1,
+		"go run ./test/cmd/cictl publisher-audit":                                     1,
+		"goreleaser release --clean --parallelism=1 --release-notes=release-notes.md": 1,
+		"go run ./test/cmd/cictl lint":                                                1,
+		"go run ./test/cmd/cictl release-test-report":                                 1,
+		"go run ./test/cmd/cictl release-benchmarks":                                  1,
+		"go run ./test/cmd/cictl release-benchmark-metadata":                          1,
+		"go run ./test/cmd/cictl release-benchmark-comparison":                        1,
+		"go run ./test/cmd/cictl release-reports-archive":                             1,
+		"go run ./test/cmd/cictl release-preflight":                                   1,
+		"go run ./test/cmd/cictl release-notes":                                       1,
+		"go run ./test/cmd/cictl release-pr-check":                                    1,
+		"go run ./test/cmd/cictl release-upx":                                         1,
+		"go -C tools run ./cmd/packagefinalize":                                       1,
+		"go run ./test/cmd/cictl release-artifacts":                                   1,
+		"go run ./test/cmd/cictl release-assets-upload":                               1,
+		"go run ./test/cmd/cictl release-oci-evidence":                                1,
+		"go run ./test/cmd/cictl release-evidence":                                    1,
+		"go run ./test/cmd/cictl release-verify":                                      1,
+		"go run ./test/cmd/cictl release-promote":                                     1,
+		"go run ./test/cmd/cictl release-publish":                                     1,
 	}
 	gotCommands := make(map[string]int)
 	for line := range strings.SplitSeq(workflow, "\n") {
@@ -368,17 +425,64 @@ func TestReleaseWorkflowNotesUseOneGoCommand(t *testing.T) {
 	}
 }
 
-func TestReleaseWorkflowUsesPinnedActionOwnedSyftPath(t *testing.T) {
+func TestReleaseWorkflowUsesHostedPinnedCompilerSyftBootstrap(t *testing.T) {
 	t.Parallel()
 
 	workflow := readContractFile(t, "../.github/workflows/release.yml")
-	requireContractStrings(t, "release workflow Syft bootstrap", workflow, []string{
-		"      - name: Install Syft\n",
-		"        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3\n",
-		"          syft-version: v1.54.1\n",
+	_, job, ok := strings.Cut(workflow, "\n  release:\n")
+	if !ok {
+		t.Fatal("release job missing")
+	}
+	requireContractStrings(t, "hosted release lifetime", job, []string{
+		"    runs-on: ubuntu-latest\n", "    timeout-minutes: 60\n", "          persist-credentials: false\n",
+		"# Hosted VM teardown bounds prestart orphans and bind outputs after abrupt CLI death.",
 	})
-	if strings.Contains(workflow, "      - name: Add Syft to PATH\n") {
-		t.Error("release workflow retains redundant Syft PATH shell step")
+	bootstrap := namedWorkflowStep(t, job, "Compile Syft controller in pinned Go image")
+	requireContractStrings(t, "Syft compiler bootstrap", bootstrap, []string{
+		"run: >-", "docker run --rm --name gobfd-cictl-${{ github.run_id }}-${{ github.run_attempt }}",
+		"--user=0:0 --read-only --cap-drop=ALL --cap-add=DAC_OVERRIDE --security-opt=no-new-privileges",
+		"--cpus=2 --memory=3221225472 --memory-swap=3221225472 --pids-limit=512",
+		"--workdir /src --entrypoint /usr/bin/timeout", "--tmpfs /tmp:", "--tmpfs /cache:",
+		"size=1073741824", "src=${{ github.workspace }},dst=/src,readonly", "src=${{ runner.temp }},dst=/out",
+		"--env CGO_ENABLED=0 --env GOTOOLCHAIN=local --env GOENV=off --env GOWORK=off",
+		"--env GOCACHE=/cache/build --env GOMODCACHE=/cache/mod", toolprofile.CompilerImage,
+		"--signal=TERM --kill-after=5s 600s /usr/local/go/bin/go build", "-trimpath -mod=readonly -buildvcs=false",
+		"-o /out/gobfd-cictl-${{ github.run_id }}-${{ github.run_attempt }} ./test/cmd/cictl",
+	})
+	if strings.Count(bootstrap, "docker run ") != 1 || strings.Count(bootstrap, "--mount ") != 2 ||
+		strings.Count(bootstrap, "--cap-add=") != 1 {
+		t.Error("bootstrap no longer has one direct command, two mounts and the sole required capability")
+	}
+	for _, marker := range []string{
+		"docker://", "docker.sock", "podman.sock", "--foreground", "GITHUB_PATH",
+		"GITHUB_TOKEN", "GH_TOKEN", "secrets.", "--privileged", "run: |", " sh ", " bash ", "--restart", "--pid=host",
+	} {
+		if strings.Contains(bootstrap, marker) {
+			t.Errorf("bootstrap exposes forbidden marker %q", marker)
+		}
+	}
+	worker := namedWorkflowStep(t, job, "Install source-built release tools in pinned Go image")
+	requireContractStrings(t, "prebuilt Syft controller", worker, []string{
+		`run: '"${{ runner.temp }}/gobfd-cictl-${{ github.run_id }}-${{ github.run_attempt }}" release-source-tools --` +
+			`compiler-container'`,
+	})
+	for _, marker := range []string{"go run", "go build", "secrets.", "GH_TOKEN", "GITHUB_TOKEN", "docker://"} {
+		if strings.Contains(worker, marker) {
+			t.Errorf("host Syft adapter step contains %q", marker)
+		}
+	}
+	if strings.Index(job, worker) > strings.Index(job, "GH_TOKEN:") || strings.Index(job,
+		worker) > strings.Index(job, "- name: Log in to GHCR") {
+		t.Error("compiler steps moved after credential-bearing steps")
+	}
+	for _, marker := range []string{"anchore/sbom-action/download-syft", "- name: Add Syft to PATH", "docker://"} {
+		if strings.Contains(workflow, marker) {
+			t.Errorf("release workflow retains obsolete Syft path %q", marker)
+		}
+	}
+	imageContract := readContractFile(t, "../deployments/docker/Containerfile.dev")
+	if !strings.Contains(imageContract, toolprofile.CompilerImage) {
+		t.Error("Syft compiler differs from the development compiler image")
 	}
 }
 

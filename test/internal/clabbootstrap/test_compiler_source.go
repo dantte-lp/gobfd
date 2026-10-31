@@ -15,13 +15,13 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/dantte-lp/gobfd/internal/toolprofile"
 	"github.com/dantte-lp/gobfd/test/internal/vendorprofiles"
 )
 
 const (
-	testCompilerImage = "docker.io/library/golang:1.27.3-trixie@sha256:" +
-		"604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c"
-	testRuntimeImage = "docker.io/library/debian:trixie-slim@sha256:" +
+	testCompilerImage = toolprofile.CompilerImage
+	testRuntimeImage  = "docker.io/library/debian:trixie-slim@sha256:" +
 		"62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad"
 	testPackagePath         = "github.com/dantte-lp/gobfd/test/interop-clab"
 	maxCompilerSourceSize   = 2 << 20
@@ -231,6 +231,7 @@ func verifyCompiledArtifact(path, wantPath string, race bool) (string, error) {
 	if identityErr := verifyCompiledArtifactIdentity(path, wantPath, race); identityErr != nil {
 		return "", identityErr
 	}
+	// #nosec G304 -- A bounded regular artifact and its package/toolchain/race identity are checked before hashing.
 	file, err := os.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("open compiled artifact: %w", err)
