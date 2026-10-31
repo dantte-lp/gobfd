@@ -43,6 +43,8 @@ backends remain previews. See the [RFC coverage matrix](docs/en/08-rfc-complianc
 - Managed tooling uses Podman Compose 5.6.1, GoReleaser 2.19.0, Syft 1.55.0,
   Trivy 0.76.1 and UPX 5.3.0. gopls 0.24.0 builds from its isolated module.
   Rebuild the development image to install the updated Compose provider.
+  The provider remains the checksum-pinned upstream binary; qualification of
+  an isolated source-built provider is pending.
   [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - Update Connect to v2.0.2, gRPC to v1.85.0, golangci-lint to v2.15.0,
   gosec to v2.30.0, Buf to v1.75.0 and x/perf to `v0.0.0-20261009192801-be2c69fb417e`. Release Please 17.11.2

@@ -44,6 +44,8 @@ unsolicited BFD и VXLAN/Geneve backends остаются preview.
 - Закреплены Podman Compose 5.6.1, GoReleaser 2.19.0, Syft 1.55.0,
   Trivy 0.76.1 и UPX 5.3.0. gopls 0.24.0 собирается из изолированного модуля.
   Пересобрать образ разработки для установки обновлённого провайдера Compose.
+  Провайдер остаётся upstream-бинарником с закреплённой контрольной суммой;
+  квалификация его изолированной сборки из исходников не завершена.
   [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - Обновлены Connect до v2.0.2, gRPC до v1.85.0, golangci-lint до v2.15.0,
   gosec до v2.30.0, Buf до v1.75.0 и x/perf до `v0.0.0-20261009192801-be2c69fb417e`. Release Please 17.11.2
