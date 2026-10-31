@@ -3,17 +3,19 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
-	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/dantte-lp/gobfd/internal/toolprofile"
 	"github.com/dantte-lp/gobfd/test/internal/cirunner"
 )
 
@@ -335,11 +337,19 @@ func TestRunBuildReadsGitHubSHAAndOutputFlag(t *testing.T) {
 func TestRunSBOMUsesReportDirectoryFlag(t *testing.T) {
 	t.Parallel()
 
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "tools", "syft"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	reportDir := filepath.Join(t.TempDir(), "reports", "security")
-	runner := &specCommandRecorder{afterRun: func(arguments []string) {
+	runner := &specCommandRecorder{afterSpec: func(spec cirunner.CommandSpec) {
+		if writeSyftCommandFixture(t, spec) {
+			return
+		}
+		arguments := spec.Args
 		for index, argument := range arguments {
 			if argument == "--output" && index+1 < len(arguments) {
-				output := strings.TrimPrefix(arguments[index+1], "cyclonedx-json=")
+				_, output, _ := strings.Cut(arguments[index+1], "=")
 				if err := os.WriteFile(output, []byte("{}\n"), 0o644); err != nil {
 					t.Fatalf("write simulated SBOM: %v", err)
 				}
@@ -349,12 +359,139 @@ func TestRunSBOMUsesReportDirectoryFlag(t *testing.T) {
 		t.Fatalf("SBOM command lacks output argument: %q", arguments)
 	}}
 	if err := run(context.Background(), []string{"sbom", "--report-dir", reportDir}, dependencies{
-		specRunner: runner,
+		specRunner: runner, getwd: func() (string, error) { return root, nil },
+		environ: func() []string { return []string{"PATH=/sdk/bin", "GH_TOKEN=private"} },
 	}); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	if got := len(runner.names); got != 2 {
-		t.Errorf("SBOM command count = %d, want 2", got)
+	if got := len(runner.names); got != 12 {
+		t.Errorf("SBOM command count = %d, want 12", got)
+	}
+}
+
+func writeSyftCommandFixture(t *testing.T, spec cirunner.CommandSpec) bool {
+	t.Helper()
+	var data map[string]any
+	switch spec.Name + " " + spec.Args[0] {
+	case "go list":
+		if spec.Args[len(spec.Args)-1] == toolprofile.SyftModule {
+			data = map[string]any{"Path": toolprofile.SyftModule, "Version": "v1.55.0", "Sum": toolprofile.SyftSourceSum}
+		} else {
+			data = map[string]any{
+				"Path": "github.com/dantte-lp/gobfd/tools/syft", "Main": true, "Dir": spec.Dir,
+				"GoMod": filepath.Join(spec.Dir, "go.mod"),
+			}
+		}
+	case "go build":
+		for index, arg := range spec.Args {
+			if arg == "-o" && index+1 < len(spec.Args) {
+				if err := os.WriteFile(spec.Args[index+1], []byte("fixture"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				return true
+			}
+		}
+		t.Fatal("missing Syft build output")
+	case "syft version":
+		data = map[string]any{
+			"application": "syft", "version": "1.55.0", "gitCommit": toolprofile.SyftSourceCommit, "gitDescription": "v1.55.0",
+			"goVersion": runtime.Version(), "compiler": runtime.Compiler, "platform": runtime.GOOS + "/" + runtime.GOARCH,
+		}
+	default:
+		return false
+	}
+	if err := json.NewEncoder(spec.Stdout).Encode(data); err != nil {
+		t.Fatal(err)
+	}
+	return true
+}
+
+func TestRunDispatchesReleaseSyftWithRootAndWorkflowEnvironment(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "tools", "syft"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	temp := t.TempDir()
+	path := filepath.Join(temp, "github-path")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &specCommandRecorder{afterSpec: func(spec cirunner.CommandSpec) {
+		if !writeSyftCommandFixture(t, spec) {
+			t.Fatalf("unexpected command %q", spec.Args)
+		}
+	}}
+	values := map[string]string{"RUNNER_TEMP": temp, "GITHUB_PATH": path}
+	if err := run(t.Context(), []string{"release-syft"}, dependencies{
+		specRunner: runner,
+		getwd:      func() (string, error) { return root, nil },
+		getenv:     func(name string) string { return values[name] },
+		environ:    func() []string { return []string{"PATH=/sdk/bin", "GITHUB_TOKEN=private"} },
+	}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != filepath.Join(temp, "gobfd-syft", "bin")+"\n" {
+		t.Fatalf("published Syft path = %q, %v", data, err)
+	}
+	for _, spec := range runner.specs {
+		if strings.Contains(strings.Join(spec.Env, "\n"), "private") {
+			t.Fatal("credential passed to Syft child")
+		}
+	}
+}
+
+func TestRunReleaseSyftCompilerFlagSelectsOuterAdapterWithoutHostGo(t *testing.T) {
+	t.Parallel()
+	runner := &specCommandRecorder{}
+	rootCalls := 0
+	err := run(t.Context(), []string{"release-syft", "--compiler-container"}, dependencies{
+		specRunner: runner,
+		getwd:      func() (string, error) { rootCalls++; return t.TempDir(), nil },
+		getenv:     func(string) string { return "" },
+		environ:    func() []string { return []string{"GH_TOKEN=never-forward"} },
+	})
+	// The test executable is not the workflow's run-scoped prebuilt controller.
+	if err == nil || rootCalls != 1 || len(runner.specs) != 0 {
+		t.Fatalf("outer adapter dispatch = %v, root calls=%d, host commands=%d", err, rootCalls, len(runner.specs))
+	}
+}
+
+func TestRunReleaseSyftRejectsUnknownFlagsAndPositionalArguments(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{{"--unknown"}, {"--compiler-container", "extra"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			t.Parallel()
+			rootCalls := 0
+			err := run(t.Context(), append([]string{"release-syft"}, args...), dependencies{
+				getwd: func() (string, error) { rootCalls++; return "", nil },
+			})
+			if err == nil || rootCalls != 0 {
+				t.Fatalf("invalid arguments reached the adapter: %v", err)
+			}
+		})
+	}
+}
+
+func TestRunSourceToolFoundationRequiresClosedCompilerCommand(t *testing.T) {
+	t.Parallel()
+	for _, arguments := range [][]string{
+		{"release-source-tools"},
+		{"release-source-tools", "--unknown"},
+		{"release-source-tools", "--compiler-container", "extra"},
+		{"release-goreleaser", "extra"},
+	} {
+		t.Run(strings.Join(arguments, " "), func(t *testing.T) {
+			t.Parallel()
+			rootCalls := 0
+			err := run(t.Context(), arguments, dependencies{
+				getwd: func() (string, error) { rootCalls++; return "", nil },
+			})
+			if err == nil || rootCalls != 0 {
+				t.Fatalf("invalid foundation command reached worker: %v", err)
+			}
+		})
 	}
 }
 
@@ -426,35 +563,32 @@ func TestRunPackageCommandsUseRepositoryRoot(t *testing.T) {
 	t.Parallel()
 
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "upx"), []byte("fixture"), 0o755); err != nil {
-		t.Fatal(err)
+	runner := &specCommandRecorder{}
+	deps := dependencies{
+		getwd:      func() (string, error) { return "/repo", nil },
+		environ:    func() []string { return []string{"PATH=" + bin} },
+		specRunner: runner,
 	}
-	for command, want := range map[string]int{"package-build": 3, "package-lifecycle": 1} {
-		runner := &specCommandRecorder{afterSpec: func(spec cirunner.CommandSpec) {
-			if spec.Name == "upx" {
-				if _, err := io.WriteString(spec.Stdout, "upx 4.2.2\n"); err != nil {
-					t.Fatal(err)
-				}
-			}
-		}}
-		if err := run(context.Background(), []string{command}, dependencies{
-			getwd:      func() (string, error) { return "/repo", nil },
-			environ:    func() []string { return []string{"PATH=" + bin} },
-			specRunner: runner,
-		}); err != nil {
-			t.Fatalf("run(%s) error = %v", command, err)
-		}
-		if len(runner.specs) != want {
-			t.Fatalf("%s ran %d commands, want %d", command, len(runner.specs), want)
-		}
-		for _, spec := range runner.specs {
-			if spec.Dir != "/repo" || !slices.Contains(spec.Env, "PATH="+bin) {
-				t.Errorf("%s spec dir %q env %v", command, spec.Dir, spec.Env)
-			}
-		}
+	if err := run(context.Background(), []string{"package-lifecycle"}, deps); err != nil {
+		t.Fatalf("run(package-lifecycle) error = %v", err)
+	}
+	if len(runner.specs) != 1 {
+		t.Fatalf("package-lifecycle ran %d commands, want 1", len(runner.specs))
+	}
+	if spec := runner.specs[0]; spec.Dir != "/repo" || !slices.Contains(spec.Env, "PATH="+bin) {
+		t.Errorf("package-lifecycle spec dir %q env %v", spec.Dir, spec.Env)
+	}
+	for _, command := range []string{"package-build", "package-lifecycle"} {
 		if err := run(context.Background(), []string{command, "extra"}, dependencies{specRunner: runner}); err == nil {
 			t.Errorf("%s accepted an extra argument", command)
 		}
+	}
+	// The owning cirunner package covers a fully verified publisher build.
+	// Dispatcher fixtures must not bypass managed-tool prerequisites.
+	runner.specs = nil
+	err := run(context.Background(), []string{"package-build"}, deps)
+	if err == nil || !strings.Contains(err.Error(), "pinned UPX is missing from PATH") || len(runner.specs) != 0 {
+		t.Fatalf("package-build prerequisite error = %v, commands = %#v", err, runner.specs)
 	}
 }
 

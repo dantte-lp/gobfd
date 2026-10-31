@@ -185,8 +185,7 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 	assertWorkflowStep(t, workflow, "Finalize shellless packages", "go -C tools run ./cmd/packagefinalize",
 		nil, []string{"run: |", "run: >", "shell:"}, "embedded shell program")
 	requireContractStrings(t, "GoReleaser workflow step", namedWorkflowStep(t, workflow, "Run GoReleaser"), []string{
-		"        uses: goreleaser/goreleaser-action@",
-		"          args: release --clean --parallelism=1 --release-notes=release-notes.md\n",
+		"        run: goreleaser release --clean --parallelism=1 --release-notes=release-notes.md\n",
 	})
 	requireContractStrings(t, "immutable release verifier checkout",
 		namedWorkflowStep(t, workflow, "Checkout immutable release verifier"), []string{

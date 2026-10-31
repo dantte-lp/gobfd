@@ -362,7 +362,8 @@ func (f haproxyOwnedFixture) containerList() string {
 		{"a", "MONITOR"}, {"b", "SIDECAR"}, {"d", "CAPTURE"},
 	} {
 		if strings.Contains(f.state, entry.marker) {
-			output.WriteString(os.Getenv("GOBFD_HAP_"+entry.name) + "\n")
+			output.WriteString(os.Getenv("GOBFD_HAP_" + entry.name))
+			output.WriteByte('\n')
 		}
 	}
 	return output.String()
@@ -428,7 +429,7 @@ func (f haproxyOwnedFixture) compose() int {
 		return 71
 	}
 	if haproxyFixtureArgument(f.arguments, 1) == "version" {
-		version := "5.6.0\n"
+		version := "5.6.1\n"
 		if os.Getenv("GOBFD_HAP_MODE") == "wrong provider" {
 			version = "5.5.0\n"
 		}

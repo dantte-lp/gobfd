@@ -710,7 +710,7 @@ func advanceCrafted(ctx context.Context, t *testing.T, peer testcontainers.Conta
 	if err == nil {
 		var output string
 		output, err = podmanCommand(ctx, "kill", "--signal", "USR1", peer.GetContainerID())
-		writeTimerArtifact(t, "crafted-"+phase+"-signal", "txt", []byte(fmt.Sprintf("%s\nerror=%v\n", output, err)))
+		writeTimerArtifact(t, "crafted-"+phase+"-signal", "txt", fmt.Appendf(nil, "%s\nerror=%v\n", output, err))
 	}
 	if err == nil && final {
 		filter := frameBoundary("bfd && ip.src == "+gobfdIP+" && ip.dst == "+fuzzIP+" && bfd.flags.f == 1", boundary)
@@ -824,7 +824,7 @@ func hupCraftedTimers(ctx context.Context, t *testing.T, baseline, timer, name s
 		t.Fatalf("crafted timer boundary: %v", err)
 	}
 	output, err := signalTimerReload(ctx)
-	writeTimerArtifact(t, name+"-hup", "txt", []byte(fmt.Sprintf("output=%s\nerror=%v\n", output, err)))
+	writeTimerArtifact(t, name+"-hup", "txt", fmt.Appendf(nil, "output=%s\nerror=%v\n", output, err))
 	if err != nil {
 		t.Fatalf("crafted timer HUP: %v", err)
 	}
@@ -923,9 +923,11 @@ func evaluateCraftedPeerRun(ctx context.Context, t *testing.T, plan craftedPlan,
 	fields := craftedFrameFields()
 	rows, err := tsharkFields(ctx, timerTraffic(fuzzIP), fields, 0)
 	var raw strings.Builder
-	raw.WriteString(strings.Join(fields, "\t") + "\n")
+	raw.WriteString(strings.Join(fields, "\t"))
+	raw.WriteByte('\n')
 	for _, row := range rows {
-		raw.WriteString(strings.Join(row, "\t") + "\n")
+		raw.WriteString(strings.Join(row, "\t"))
+		raw.WriteByte('\n')
 	}
 	writeTimerArtifact(t, "crafted-frames", "tsv", []byte(raw.String()))
 	if err != nil {

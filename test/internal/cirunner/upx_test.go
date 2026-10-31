@@ -27,7 +27,7 @@ func TestReleaseUPXUsesPinnedAssetAndAppendsVerifiedBinaryPath(t *testing.T) {
 	if err := os.WriteFile(githubPath, []byte("/existing/bin\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	runner := &upxTestRunner{archive: archiveData, tar: tarData, version: "upx 4.2.2\nextra\n"}
+	runner := &upxTestRunner{archive: archiveData, tar: tarData, version: "upx 5.3.0\nextra\n"}
 	environment := []string{"GH_TOKEN=secret", "PATH=/usr/bin", "OTHER=value"}
 	if err := ReleaseUPX(context.Background(), ReleaseUPXOptions{
 		RunnerTemp: runnerTemp, GitHubPath: githubPath, Environment: environment, Runner: runner, asset: &asset,
@@ -35,11 +35,11 @@ func TestReleaseUPXUsesPinnedAssetAndAppendsVerifiedBinaryPath(t *testing.T) {
 		t.Fatalf("ReleaseUPX() error = %v", err)
 	}
 
-	root := filepath.Join(runnerTemp, "gobfd-upx-4.2.2")
+	root := filepath.Join(runnerTemp, "gobfd-upx-5.3.0")
 	wantCalls := []specInvocation{
 		{name: "gh", args: []string{
-			"release", "download", "v4.2.2", "--repo", "upx/upx", "--pattern",
-			"upx-4.2.2-amd64_linux.tar.xz", "--output", "-",
+			"release", "download", "v5.3.0", "--repo", "upx/upx", "--pattern",
+			"upx-5.3.0-amd64_linux.tar.xz", "--output", "-",
 		}, dir: root, env: environment},
 		{name: "xz", args: []string{"-d", "-c", "-q"}, dir: root, env: []string{
 			"PATH=/usr/bin", "OTHER=value",
@@ -51,7 +51,7 @@ func TestReleaseUPXUsesPinnedAssetAndAppendsVerifiedBinaryPath(t *testing.T) {
 	if !reflect.DeepEqual(runner.calls, wantCalls) {
 		t.Errorf("UPX bootstrap calls = %#v, want %#v", runner.calls, wantCalls)
 	}
-	archivePath := filepath.Join(root, "download", "upx-4.2.2-amd64_linux.tar.xz")
+	archivePath := filepath.Join(root, "download", "upx-5.3.0-amd64_linux.tar.xz")
 	if data, err := os.ReadFile(archivePath); err != nil || !bytes.Equal(data, archiveData) {
 		t.Errorf("downloaded archive = %q, %v; want exact fixture", data, err)
 	}
@@ -141,27 +141,116 @@ func TestWriteRootedModeArtifactReportsCommitState(t *testing.T) {
 func TestReleaseUPXProductionAssetContract(t *testing.T) {
 	t.Parallel()
 
-	asset := defaultUPXAssetContract()
-	if asset.version != "4.2.2" || asset.archiveName != "upx-4.2.2-amd64_linux.tar.xz" ||
-		asset.archiveSize != 590172 ||
-		asset.archiveSHA256 != "915c8e844f835de03b9cc311ff185aedec79d757aee9d7133a528b9e89c463bb" ||
-		asset.tarSize != 747520 {
+	asset := upxAssetContractForArchitecture("amd64")
+	if asset.version != "5.3.0" || asset.archiveName != "upx-5.3.0-amd64_linux.tar.xz" ||
+		asset.archiveSize != 670704 ||
+		asset.archiveSHA256 != "79cea8a50b6fa102d10c7b79a419cd77dead3cc2d78661de2dc5e5815dc505c1" ||
+		asset.tarSize != 839680 {
 		t.Fatalf("production UPX contract = %#v", asset)
 	}
 	wantEntries := []upxTarEntry{
-		{name: "upx-4.2.2-amd64_linux/", size: 0, mode: 0o755, kind: tar.TypeDir},
-		{name: "upx-4.2.2-amd64_linux/COPYING", size: 18092, mode: 0o644, kind: tar.TypeReg},
-		{name: "upx-4.2.2-amd64_linux/LICENSE", size: 5448, mode: 0o644, kind: tar.TypeReg},
-		{name: "upx-4.2.2-amd64_linux/NEWS", size: 24953, mode: 0o644, kind: tar.TypeReg},
-		{name: "upx-4.2.2-amd64_linux/README", size: 3728, mode: 0o644, kind: tar.TypeReg},
-		{name: "upx-4.2.2-amd64_linux/THANKS.txt", size: 2230, mode: 0o644, kind: tar.TypeReg},
-		{name: "upx-4.2.2-amd64_linux/upx", size: 562176, mode: 0o755, kind: tar.TypeReg},
-		{name: "upx-4.2.2-amd64_linux/upx-doc.html", size: 38689, mode: 0o644, kind: tar.TypeReg},
-		{name: "upx-4.2.2-amd64_linux/upx-doc.txt", size: 37296, mode: 0o644, kind: tar.TypeReg},
-		{name: "upx-4.2.2-amd64_linux/upx.1", size: 43267, mode: 0o644, kind: tar.TypeReg},
+		{name: "upx-5.3.0-amd64_linux/", size: 0, mode: 0o755, kind: tar.TypeDir},
+		{name: "upx-5.3.0-amd64_linux/COPYING", size: 18092, mode: 0o644, kind: tar.TypeReg},
+		{name: "upx-5.3.0-amd64_linux/LICENSE", size: 5448, mode: 0o644, kind: tar.TypeReg},
+		{name: "upx-5.3.0-amd64_linux/NEWS", size: 26509, mode: 0o644, kind: tar.TypeReg},
+		{name: "upx-5.3.0-amd64_linux/README", size: 3718, mode: 0o644, kind: tar.TypeReg},
+		{name: "upx-5.3.0-amd64_linux/THANKS.txt", size: 2566, mode: 0o644, kind: tar.TypeReg},
+		{name: "upx-5.3.0-amd64_linux/upx", size: 645240, mode: 0o755, kind: tar.TypeReg},
+		{name: "upx-5.3.0-amd64_linux/upx-doc.html", size: 40839, mode: 0o644, kind: tar.TypeReg},
+		{name: "upx-5.3.0-amd64_linux/upx-doc.txt", size: 39224, mode: 0o644, kind: tar.TypeReg},
+		{name: "upx-5.3.0-amd64_linux/upx.1", size: 42280, mode: 0o644, kind: tar.TypeReg},
 	}
 	if !reflect.DeepEqual(asset.entries, wantEntries) {
 		t.Errorf("production UPX entries = %#v, want %#v", asset.entries, wantEntries)
+	}
+	if err := validateUPXAssetContract(asset); err != nil {
+		t.Fatalf("verified amd64 contract rejected: %v", err)
+	}
+	arm := upxAssetContractForArchitecture("arm64")
+	if arm.version != "5.3.0" || arm.architecture != "arm64" ||
+		arm.archiveName != "upx-5.3.0-arm64_linux.tar.xz" || arm.archiveSize != 681612 ||
+		arm.archiveSHA256 != "2a4afa860ac7aa6968f88df7841823746e5d00ba56affdf9342c2f5254fb776f" ||
+		arm.tarSize != 849920 || arm.entriesUPXSize() != 658684 {
+		t.Fatalf("production arm64 UPX contract = %#v", arm)
+	}
+	for index := range wantEntries {
+		wantEntries[index].name = strings.Replace(wantEntries[index].name, "amd64_linux", "arm64_linux", 1)
+		if strings.HasSuffix(wantEntries[index].name, "/upx") {
+			wantEntries[index].size = 658684
+		}
+	}
+	if !reflect.DeepEqual(arm.entries, wantEntries) {
+		t.Errorf("production arm64 UPX entries = %#v, want %#v", arm.entries, wantEntries)
+	}
+	if err := validateUPXAssetContract(arm); err != nil {
+		t.Fatalf("verified arm64 contract rejected: %v", err)
+	}
+}
+
+func TestReleaseUPXAssetsExposeIndependentPinnedMetadata(t *testing.T) {
+	t.Parallel()
+
+	want := []ReleaseUPXAsset{
+		{
+			Version: "5.3.0", Architecture: "amd64", ArchiveName: "upx-5.3.0-amd64_linux.tar.xz",
+			ArchiveSize: 670704, SHA256: "79cea8a50b6fa102d10c7b79a419cd77dead3cc2d78661de2dc5e5815dc505c1",
+			SourceCommit:  "7c7bea44146c7ad6e17cb2d0bb9566805b44a91a",
+			LicenseSHA256: "905d4a66d5324e154d976bbf88829d4d9263815a2b97cc40954f06d4a23c28eb",
+			CopyingSHA256: "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+		},
+		{
+			Version: "5.3.0", Architecture: "arm64", ArchiveName: "upx-5.3.0-arm64_linux.tar.xz",
+			ArchiveSize: 681612, SHA256: "2a4afa860ac7aa6968f88df7841823746e5d00ba56affdf9342c2f5254fb776f",
+			SourceCommit:  "7c7bea44146c7ad6e17cb2d0bb9566805b44a91a",
+			LicenseSHA256: "905d4a66d5324e154d976bbf88829d4d9263815a2b97cc40954f06d4a23c28eb",
+			CopyingSHA256: "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+		},
+	}
+	assets := ReleaseUPXAssets()
+	if !reflect.DeepEqual(assets, want) {
+		t.Fatalf("release UPX inventory metadata = %#v, want %#v", assets, want)
+	}
+	assets[0].SHA256 = strings.Repeat("0", 64)
+	if current := ReleaseUPXAssets(); !reflect.DeepEqual(current, want) {
+		t.Fatalf("caller mutated authoritative UPX metadata: %#v", current)
+	}
+}
+
+func TestReleaseUPXExtractsARM64TarWithoutExecutingIt(t *testing.T) {
+	t.Parallel()
+
+	tarData := makeUPXTestTarForArchitecture(t, "arm64", false)
+	asset := testUPXAssetContract(1, strings.Repeat("0", 64), int64(len(tarData)))
+	asset.architecture = "arm64"
+	asset.archiveName = "upx-5.3.0-arm64_linux.tar.xz"
+	for index := range asset.entries {
+		asset.entries[index].name = strings.Replace(asset.entries[index].name, "amd64_linux", "arm64_linux", 1)
+	}
+	if err := validateUPXAssetContract(asset); err != nil {
+		t.Fatalf("ARM64 fixture contract rejected: %v", err)
+	}
+	executable, err := validateUPXTar(tarData, asset)
+	if err != nil || !bytes.Equal(executable, []byte("test upx")) {
+		t.Fatalf("ARM64 archive extraction = %q, %v; want exact executable bytes", executable, err)
+	}
+}
+
+func TestReleaseUPXRejectsUnsupportedAndMismatchedArchitectureContracts(t *testing.T) {
+	t.Parallel()
+
+	for _, change := range []func(*upxAssetContract){
+		func(asset *upxAssetContract) { asset.architecture = "riscv64" },
+		func(asset *upxAssetContract) { asset.architecture = "../amd64" },
+		func(asset *upxAssetContract) { asset.architecture = "arm64" },
+		func(asset *upxAssetContract) { asset.archiveName = "../" + asset.archiveName },
+		func(asset *upxAssetContract) { asset.version = "4.2.2" },
+		func(asset *upxAssetContract) { asset.entries = upxAssetContractForArchitecture("arm64").entries },
+	} {
+		asset := upxAssetContractForArchitecture("amd64")
+		change(&asset)
+		if err := validateUPXAssetContract(asset); !errors.Is(err, errInvalidConfig) {
+			t.Errorf("invalid architecture/layout contract accepted: %#v; error = %v", asset, err)
+		}
 	}
 }
 
@@ -216,7 +305,7 @@ func TestReleaseUPXRejectsInvalidEvidenceAndUnsafePaths(t *testing.T) {
 			_ *upxTestRunner, _ *upxAssetContract,
 		) {
 			t.Helper()
-			if err := os.Mkdir(filepath.Join(options.RunnerTemp, "gobfd-upx-4.2.2"), 0o755); err != nil {
+			if err := os.Mkdir(filepath.Join(options.RunnerTemp, "gobfd-upx-5.3.0"), 0o755); err != nil {
 				t.Fatal(err)
 			}
 		}},
@@ -287,7 +376,7 @@ func TestReleaseUPXRejectsInvalidEvidenceAndUnsafePaths(t *testing.T) {
 			tarData := makeUPXTestTar(t, false)
 			digest := sha256.Sum256(archiveData)
 			asset := testUPXAssetContract(int64(len(archiveData)), hex.EncodeToString(digest[:]), int64(len(tarData)))
-			runner := &upxTestRunner{archive: archiveData, tar: tarData, version: "upx 4.2.2\n"}
+			runner := &upxTestRunner{archive: archiveData, tar: tarData, version: "upx 5.3.0\n"}
 			githubPath := filepath.Join(t.TempDir(), "github-path")
 			if err := os.WriteFile(githubPath, []byte("preserve\n"), 0o644); err != nil {
 				t.Fatal(err)
@@ -310,11 +399,11 @@ func TestReleaseUPXRejectsInvalidEvidenceAndUnsafePaths(t *testing.T) {
 			}
 			if test.name == "root ownership replacement" {
 				if data, readErr := os.ReadFile(filepath.Join(options.RunnerTemp,
-					"gobfd-upx-4.2.2", "sentinel")); readErr != nil || string(data) != "preserve" {
+					"gobfd-upx-5.3.0", "sentinel")); readErr != nil || string(data) != "preserve" {
 					t.Errorf("replacement UPX root changed: %q, %v", data, readErr)
 				}
 			} else if test.name != "directory collision" {
-				if _, err := os.Lstat(filepath.Join(options.RunnerTemp, "gobfd-upx-4.2.2")); !errors.Is(err, os.ErrNotExist) {
+				if _, err := os.Lstat(filepath.Join(options.RunnerTemp, "gobfd-upx-5.3.0")); !errors.Is(err, os.ErrNotExist) {
 					t.Errorf("partial UPX root remains after failure: %v", err)
 				}
 			}
@@ -327,26 +416,32 @@ func TestReleaseUPXRejectsInvalidEvidenceAndUnsafePaths(t *testing.T) {
 
 func testUPXAssetContract(archiveSize int64, archiveSHA string, tarSize int64) upxAssetContract {
 	return upxAssetContract{
-		version: "4.2.2", archiveName: "upx-4.2.2-amd64_linux.tar.xz",
+		version: "5.3.0", architecture: "amd64", archiveName: "upx-5.3.0-amd64_linux.tar.xz",
 		archiveSize: archiveSize, archiveSHA256: archiveSHA, tarSize: tarSize,
 		entries: []upxTarEntry{
-			{name: "upx-4.2.2-amd64_linux/", mode: 0o755, kind: tar.TypeDir},
-			{name: "upx-4.2.2-amd64_linux/upx", size: 8, mode: 0o755, kind: tar.TypeReg},
+			{name: "upx-5.3.0-amd64_linux/", mode: 0o755, kind: tar.TypeDir},
+			{name: "upx-5.3.0-amd64_linux/upx", size: 8, mode: 0o755, kind: tar.TypeReg},
 		},
 	}
 }
 
 func makeUPXTestTar(t *testing.T, unexpected bool) []byte {
 	t.Helper()
+	return makeUPXTestTarForArchitecture(t, "amd64", unexpected)
+}
+
+func makeUPXTestTarForArchitecture(t *testing.T, architecture string, unexpected bool) []byte {
+	t.Helper()
 	var output bytes.Buffer
 	writer := tar.NewWriter(&output)
+	prefix := "upx-5.3.0-" + architecture + "_linux/"
 	entries := []struct {
 		header tar.Header
 		data   string
 	}{
-		{header: tar.Header{Name: "upx-4.2.2-amd64_linux/", Mode: 0o755, Typeflag: tar.TypeDir}},
+		{header: tar.Header{Name: prefix, Mode: 0o755, Typeflag: tar.TypeDir}},
 		{header: tar.Header{
-			Name: "upx-4.2.2-amd64_linux/upx", Mode: 0o755, Size: 8,
+			Name: prefix + "upx", Mode: 0o755, Size: 8,
 			Typeflag: tar.TypeReg,
 		}, data: "test upx"},
 	}
@@ -354,7 +449,7 @@ func makeUPXTestTar(t *testing.T, unexpected bool) []byte {
 		entries = append(entries, struct {
 			header tar.Header
 			data   string
-		}{header: tar.Header{Name: "upx-4.2.2-amd64_linux/extra", Mode: 0o644, Size: 1, Typeflag: tar.TypeReg}, data: "x"})
+		}{header: tar.Header{Name: prefix + "extra", Mode: 0o644, Size: 1, Typeflag: tar.TypeReg}, data: "x"})
 	}
 	for _, entry := range entries {
 		if err := writer.WriteHeader(&entry.header); err != nil {

@@ -35,6 +35,12 @@ see the [RFC coverage matrix](docs/en/08-rfc-compliance.md).
 
 ### Changed
 
+- Isolate the Syft dependency graph and share source-built SBOM tooling with
+  the release workflow. Require complete selected-module coverage from OSV;
+  preserve raw scanner evidence.
+- Align Podman Compose 5.6.1, GoReleaser 2.19.0, Syft 1.55.0 and Trivy 0.76.1
+  across bootstrap, local commands and CI. Rebuild the development image to
+  install the updated Compose provider. [#105](https://github.com/dantte-lp/gobfd/pull/105)
 - Update Connect to v2.0.2, gRPC to v1.85.0, golangci-lint to v2.15.0,
   gosec to v2.30.0, Buf to v1.75.0 and x/perf to `v0.0.0-20261009192801-be2c69fb417e`. Release Please 17.11.2
   uses an isolated dependency lock and verified npm 12.2.1 bootstrap; candidate and OCI qualification
@@ -78,6 +84,9 @@ see the [RFC coverage matrix](docs/en/08-rfc-compliance.md).
 
 ### Security
 
+- Update the tools and Syft source graphs to go-jose/v4 4.1.7 for upstream
+  JWK/JWT/JWE/JWS validation fixes. See the
+  [security release](https://github.com/go-jose/go-jose/releases/tag/v4.1.7).
 - Remediate 12 additional advisories in the selected Go dependency graphs:
   update tool dependencies, pin upstream JOSE/Goldmark fixes and remove unused
   affected module selections. [#105](https://github.com/dantte-lp/gobfd/pull/105)

@@ -94,7 +94,7 @@ func uploadReleaseEvidence(
 			cleanupReleaseEvidenceStage(verifierRoot, stageRoot, stageInfo, expected),
 		)
 	}()
-	arguments := []string{"release", "upload", options.RefName}
+	arguments := []string{ghReleaseCommand, "upload", options.RefName}
 	for _, asset := range expected {
 		arguments = append(arguments, filepath.Join(stagePath, asset.name))
 	}

@@ -6,6 +6,21 @@ Go commands own workflow execution. [.github/workflows/ci.yml](../../../.github/
 
 These are source contracts. A command's existence does not establish candidate acceptance or authorize a remote mutation.
 
+| Surface | Pinned tool | Binding |
+|:---|:---|:---|
+| Podman Compose provider | [Compose 5.6.1](https://github.com/docker/compose/releases/tag/v5.6.1) | Verified bootstrap and development image |
+| Release packages | [GoReleaser 2.19.0](https://github.com/goreleaser/goreleaser/releases/tag/v2.19.0) | Release workflow and local `package-build` |
+| Module SBOMs | [Syft 1.55.0](https://github.com/anchore/syft/releases/tag/v1.55.0) | Release workflow and `cictl sbom` |
+| Filesystem scan | [Trivy 0.76.1](https://github.com/aquasecurity/trivy/releases/tag/v0.76.1) | CI fails on CRITICAL/HIGH findings |
+
+Rebuild the development image after the Compose pin changes. Recheck scanner output, SBOM validation and package lifecycle before release; a version update alone does not qualify their results.
+
+The runtime [module](../../../go.mod), shared Go [tools module](../../../tools/go.mod), isolated [gopls module](../../../tools/gopls/go.mod), isolated [Syft module](../../../tools/syft/go.mod) and managed [GoReleaser consumer](../../../tools/goreleaser/qualified.mod) have separate selected dependency graphs. The development image builds `gopls` from its own graph to retain its matching `golang.org/x/tools` API. Its same-module `golang.org/x/net` replacement selects the patched version without changing the language server's tool API dependency. The dependency inventory includes all five graphs; see [graph definitions](../../../test/internal/dependencyinventory/go_tools.go).
+
+The tools module declares `govulncheck` and `osv-scanner` with Go `tool` directives. The [vulnerability audit](../../../scripts/vuln-audit.go) executes those managed tools through `go tool -modfile=tools/go.mod`; it does not resolve independent command versions. Before each OSV pass, Go resolves the complete selected graph, including replacement artifact paths and versions. OSV receives that selection in a private temporary manifest; `--report-dir` retains the selected input and raw report for each graph. The default runtime/tools/gopls/Syft audit rejects empty or conflicting inputs and all local replacements. The separate `publisher-audit` command accepts only the authenticated `../source` and `../refmt-local` replacements in its prepared GoReleaser workspace; all other local replacements fail closed. The OSV response must cover exactly the selected Go module paths and versions; missing, duplicate or additional packages fail the audit. Coverage comparison accepts an omitted leading `v` without changing raw evidence. Actual package checks reject legacy Distribution imports and the packages excluded by the module-only advisory exceptions. Success of the default four-graph audit does not qualify the publisher binaries or their embedded dependencies.
+
+The shared [Syft installer](../../../test/internal/cirunner/syft.go) builds the isolated consumer with `CGO_ENABLED=0`, upstream Linux tags and metadata from the [source profile](../../../internal/toolprofile/syft.go). It verifies the source checksum and probes the opened executable before atomic installation. Keep symbols for binary vulnerability analysis. Failed builds clean only identity-matched temporary files; substituted paths and unexpected directory contents prevent cleanup.
+
 ## Routine commands
 
 | Command | Contract |
@@ -16,7 +31,7 @@ These are source contracts. A command's existence does not establish candidate a
 | `cictl commit-policy` | Pass PR_TITLE as one literal repository-quality argument |
 | `cictl proto-verify` | Build pinned generators, regenerate, reject tracked/staged/untracked protobuf drift |
 | `cictl buf-fetch-base`, `buf-breaking` | Validate GITHUB_BASE_REF, fetch full refspec, resolve exact commit for Buf |
-| `cictl sbom` | Separate nonempty runtime/tools CycloneDX module-file scans |
+| `cictl sbom` | Eight nonempty module-file reports: runtime/tools/gopls/Syft, each in CycloneDX and SPDX |
 
 Fixed report outputs are validated and cleared before collection. A failed child command keeps its stdout/stderr and fails the step; an older regular artifact cannot substitute for successful execution. SBOM collection records dependency inventory, not symbol reachability.
 
@@ -74,6 +89,10 @@ Release Please creates the proposal only with `skip-github-release: true`; the r
 | `release-pr-check` | After notes: exact merged PR/base/commit, manifest version and both dated changelog headings; append verified PR URL |
 | `release-build` | Four binaries using GITHUB_REF_NAME/GITHUB_SHA metadata |
 | `release-upx` | Exact archive size/hash, complete tar-entry validation, bound executable version; rooted PATH publication |
+| `release-syft` | Build and verify the isolated consumer; `--compiler-container` uses the prebuilt nonroot host controller and pinned compiler image |
+| `release-goreleaser` | Build and verify the managed publisher with the already pinned native Go toolchain; package callers require its bound binary |
+| `release-source-tools --compiler-container` | Authenticate and build Syft and GoReleaser in separate pinned compiler workers; publish both PATH entries after verification and cleanup |
+| `publisher-audit` | Prepare one authenticated publisher workspace, build its artifact and audit the same selected graph before cleanup |
 | `release-test-report` | Race tests and existing JUnit/JSON/HTML paths |
 | `release-benchmarks`, `release-benchmark-metadata` | Six BFD/netio samples; commit, version, UTC, Go and count |
 | `release-benchmark-comparison` | Fresh text/HTML/Markdown/CSV/notes/structured comparison when baseline.txt exists; otherwise clear stale outputs and skip comparison |
@@ -85,6 +104,12 @@ Release Please creates the proposal only with `skip-github-release: true`; the r
 | `release-verify` | Recheck identities, draft/prerelease state, body and exact 12 assets; download and semantically verify the same hashed bytes |
 | `release-promote` | Stable only; reject alpha, snapshot aliases, copy verified index, read back descriptors; bounded rollback on failure |
 | `release-publish` | Final identity/asset/digest checks, close roots, terminal publication; alpha uses `--prerelease --latest=false` |
+
+The release job compiles `cictl` inside the pinned [compiler image](../../../internal/toolprofile/compiler.go) before registry login. The nonroot host runs `release-source-tools --compiler-container`. Separate bounded workers build Syft and GoReleaser from authenticated sources. The host verifies the opened binaries, source provenance and version metadata, removes temporary files and publishes both absolute binary directories to `GITHUB_PATH` in one transaction. Installations remain outside `dist`; package builds reuse the bound publisher executable.
+
+The [publisher profile](../../../tools/goreleaser/source.json) binds original GoReleaser and Refmt source checksums, two reviewed import migrations and three manifest pairs. The managed consumer resolves only `../source` and `../refmt-local` as local modules. Inventory and security commands use the same verified workspace layout; reject changed files, foreign replacements and failed cleanup.
+
+Run this bootstrap only on a fresh GitHub-hosted Ubuntu runner. Its compiler deadline is 600 seconds with a 5-second kill grace; the release job has a 60-minute deadline. Hosted VM disposal bounds a bootstrap container left before start after abrupt CLI death; runner temporary-directory cleanup or VM disposal removes a leftover bootstrap file. A persistent runner requires a separate lifecycle owner. These source contracts do not establish hosted publication acceptance.
 
 GoReleaser creates a draft with primary upload disabled, `prerelease: auto` and `make_latest: false`. Stable latest promotion is deferred to the verified final publisher. Alpha leaves stable GitHub latest and OCI aliases unchanged. Native package finalization replaces RPM lifecycle programs and refreshes checksums/manifests. The asset matrix requires two Linux archives, four DEB/RPM packages, two archive-matched CycloneDX SBOMs and checksums; reports, OCI digest and supplemental checksum receipts complete the 12 remote names.
 
@@ -98,7 +123,7 @@ OCI evidence is queried by immutable index digest. Both primary and Debian produ
 
 [dependency-inventory.json](../../supply-chain/dependency-inventory.json) describes selected runtime/tools graphs, declared tools, Actions, OCI and peer sources. Generation queries exact-version license evidence through deps.dev; static overrides and source coordinates remain unverified without their own observation.
 
-The snapshot binds its observation epoch, source/query/result/hash, owner and review date. Advancing the epoch requires fresh collection. The offline checker rejects graph, package-count, source-binding and declaration drift. Unresolved release reviews require exact dimension coverage in review_exception; deferred/stale decisions keep their own bounds. Neither regeneration nor offline success supplies current upstream security or stable-line acceptance.
+The snapshot binds its observation epoch, source/query/result/hash, owner and review date. Advancing the epoch requires fresh collection. The inventory checker rejects graph, package-count, source-binding and declaration drift. Go may download authenticated publisher sources and selected modules when they are absent from the cache; this check is not guaranteed to run offline. Unresolved release reviews require exact dimension coverage in review_exception; deferred/stale decisions keep their own bounds. Neither regeneration nor a successful inventory check supplies current upstream security or stable-line acceptance.
 
 ## Failure procedure
 

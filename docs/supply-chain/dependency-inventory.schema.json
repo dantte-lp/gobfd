@@ -11,7 +11,7 @@
     "audited_at": {"type": "string", "format": "date-time"},
     "go_package_count": {"type": "integer", "minimum": 1},
     "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}},
-    "module_graphs": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/moduleGraph"}},
+    "module_graphs": {"type": "array", "minItems": 3, "items": {"$ref": "#/$defs/moduleGraph"}},
     "components": {"type": "array", "items": {"$ref": "#/$defs/component"}}
   },
   "$defs": {
@@ -132,7 +132,7 @@
     "moduleGraph": {
       "type": "object", "additionalProperties": false, "required": ["id", "manifest", "sum", "modules"],
       "properties": {
-        "id": {"enum": ["runtime", "tools"]}, "manifest": {"type": "string", "minLength": 1},
+        "id": {"enum": ["runtime", "tools", "gopls", "syft", "goreleaser"]}, "manifest": {"type": "string", "minLength": 1},
         "sum": {"type": "string", "minLength": 1}, "modules": {"type": "array", "items": {"$ref": "#/$defs/module"}}
       }
     },

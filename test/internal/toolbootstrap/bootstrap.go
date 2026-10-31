@@ -20,7 +20,7 @@ import (
 
 const (
 	// ComposeVersion is the exact Docker Compose Go provider used by Podman.
-	ComposeVersion = "5.6.0"
+	ComposeVersion = "5.6.1"
 	composeBaseURL = "https://github.com/docker/compose/releases/download"
 	httpTimeout    = 5 * time.Minute
 	otherWriteBits = os.FileMode(0o022)
@@ -381,14 +381,14 @@ func composeAssetFor(goarch string) (composeAsset, error) {
 	case "amd64":
 		return composeAsset{
 			name:   "docker-compose-linux-x86_64",
-			sha256: "40343e21ca777173e69cff5dbafeb37c6f81f3b0d57d9e597f036e95eb63e76a",
-			size:   32_663_526,
+			sha256: "47737f4236e6d3ccea7291995203f8f018058783b4c3a9469119811a0b5db8c0",
+			size:   32_676_477,
 		}, nil
 	case "arm64":
 		return composeAsset{
 			name:   "docker-compose-linux-aarch64",
-			sha256: "733ec76717ceb59052a9609b9dadfb523b2df8eab57a54212872d10a58078ea2",
-			size:   30_538_254,
+			sha256: "42cfa75f51ad0ccf290bad37899e0038a8c10a0069e85233ecc1d53e3ff1347d",
+			size:   30_604_453,
 		}, nil
 	default:
 		return composeAsset{}, fmt.Errorf("docker Compose architecture %s: %w", goarch, errUnsupportedArchitecture)

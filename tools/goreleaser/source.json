@@ -1,0 +1,44 @@
+{
+  "module": "github.com/goreleaser/goreleaser/v2",
+  "version": "v2.19.0",
+  "sum": "h1:itigLdv2rh1nB4YPDzfLxdbNE4HldoY/Jm3pZ+dSqoQ=",
+  "go_mod_sum": "h1:mnh43uONuuViy2+nl4xcbj3HAWnU86W9TZG+gJ2/iM8=",
+  "source_commit": "00139d15712716a3a2f21eb4d533f231ff19b9c5",
+  "files": 917,
+  "bytes": 3534846,
+  "patch": {
+    "path": "internal/pipe/ko/ko.go",
+    "before": "\"github.com/chrismellard/docker-credential-acr-env/pkg/credhelper\"",
+    "after": "\"github.com/osscontainertools/docker-credential-acr/pkg/credhelper\"",
+    "before_sha256": "fc6fb7a23b8ddca5b557b92618a7173639a7e02682344cd1f747fad9d75c193b",
+    "after_sha256": "5e012b59be6529c388a7787e5e3348b200973a2b96c912f346a8c4d5c009dae4"
+  },
+  "qualified_manifests": {
+    "go_mod_sha256": "c2611f7667243d4218327645d5239f68c6ef917ef12201b5e28f2798e9ed4cca",
+    "go_sum_sha256": "07ee2388cd4c00a3d157cb0270e29f3dc0f4645472db6e4cd4354ed4fccc2d64"
+  },
+  "source_manifests": {
+    "go_mod_sha256": "ec1d4f6ffe50e7bd337c6bf77c73171d4d69b28542a1babd3a50564ae28371af",
+    "go_sum_sha256": "e8e8de47a2381220f6bc9ed9e292bfac9ec765c196e58bfd99dce96bd193da85"
+  },
+  "refmt": {
+    "module": "github.com/polydawn/refmt",
+    "version": "v0.90.0",
+    "sum": "h1:58BfEsP+G4uIRD9ApJTFsag+Mw+QQlZuH9uI/lPmjfY=",
+    "go_mod_sum": "h1:XAlDMOunevTYDsZtOKQd8itHXFMsX/QtDkPHaj6ZLxk=",
+    "source_commit": "35c3f9f2719f09f226ddd74e6e4595c309b56165",
+    "files": 501,
+    "bytes": 736112,
+    "patch": {
+      "path": "cmd/refmt/helper_yaml.go",
+      "before": "\"github.com/go-yaml/yaml\"",
+      "after": "\"go.yaml.in/yaml/v2\"",
+      "before_sha256": "e9d7372bd9bc461446a4865c5ccf35cfa92245e34b19cc416115dc34b1c72bca",
+      "after_sha256": "7b5de31950659a16a072c326664f4fecf0639e38b1b6c977e7dd64bca91aab50"
+    },
+    "qualified_manifests": {
+      "go_mod_sha256": "7a1aa1b70d555accce6568516e0fb53d870f8b234b90d69aaf40df99878b79a5",
+      "go_sum_sha256": "784d140e81072f9a44d09e0fadaabeed3c55318c07a8dd4142dfc72f09974276"
+    }
+  }
+}

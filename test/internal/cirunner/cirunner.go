@@ -20,6 +20,9 @@ const (
 	imagetoolsSubcommand = "imagetools"
 	inspectSubcommand    = "inspect"
 	formatFlag           = "--format"
+	goBuildSubcommand    = "build"
+	downloadSubcommand   = "download"
+	unknownMetadataValue = "unknown"
 )
 
 var (
@@ -100,7 +103,7 @@ func Build(ctx context.Context, options BuildOptions) error {
 	)
 	for _, name := range []string{"gobfd", "gobfdctl", "gobfd-haproxy-agent", "gobfd-exabgp-bridge"} {
 		arguments := []string{
-			"build",
+			goBuildSubcommand,
 			buildVCSDisabledFlag,
 			"-ldflags=" + ldflags,
 			"-o",

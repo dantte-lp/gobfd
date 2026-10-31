@@ -46,7 +46,7 @@ func downloadExactReleaseAssets(
 	if err := runner.RunCommand(ctx, CommandSpec{
 		Name: "gh",
 		Args: []string{
-			"release", "download", refName, "--repo", repository, "--dir", downloadPath,
+			ghReleaseCommand, downloadSubcommand, refName, "--repo", repository, "--dir", downloadPath,
 		},
 		Dir: commandDirectory, Env: environment,
 	}); err != nil {

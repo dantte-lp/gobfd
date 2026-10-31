@@ -513,7 +513,7 @@ func persistTimerArtifact(name, extension string, data []byte) (string, error) {
 		path string
 		data []byte
 	}{
-		{path, data}, {path + ".sha256", []byte(fmt.Sprintf("%x  %s\n", sha256.Sum256(data), filepath.Base(path)))},
+		{path, data}, {path + ".sha256", fmt.Appendf(nil, "%x  %s\n", sha256.Sum256(data), filepath.Base(path))},
 	} {
 		file, err := os.OpenFile(artifact.path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {
@@ -705,7 +705,7 @@ func runTimerGeneration(
 		t.Fatalf("timer config copy: %v", copyErr)
 	}
 	output, err := signalTimerReload(phaseCtx)
-	writeTimerArtifact(t, name+"-hup", "txt", []byte(fmt.Sprintf("output=%s\nerror=%v\n", output, err)))
+	writeTimerArtifact(t, name+"-hup", "txt", fmt.Appendf(nil, "output=%s\nerror=%v\n", output, err))
 	if err != nil {
 		t.Fatalf("timer HUP: %v", err)
 	}
@@ -775,9 +775,11 @@ func runTimerGeneration(
 		err = errors.Join(err, wireErr)
 	}
 	var raw strings.Builder
-	raw.WriteString(strings.Join(fieldNames, "\t") + "\n")
+	raw.WriteString(strings.Join(fieldNames, "\t"))
+	raw.WriteByte('\n')
 	for _, row := range rows {
-		raw.WriteString(strings.Join(row, "\t") + "\n")
+		raw.WriteString(strings.Join(row, "\t"))
+		raw.WriteByte('\n')
 	}
 	writeTimerArtifact(t, name+"-frames", "tsv", []byte(raw.String()))
 	summary, marshalErr := json.Marshal(struct {
@@ -837,7 +839,7 @@ func setTimerPeerRX(ctx context.Context, t *testing.T, peer, birdBaseline string
 		output, err = projectContainerCommand(ctx, "bird3-interop",
 			"exec", "birdc", "configure", "check", `"/etc/bird/timer-reload.conf"`)
 		writeTimerArtifact(t, "bird-config-check", "txt",
-			[]byte(fmt.Sprintf("%s\nerror=%v\n", output, err)))
+			fmt.Appendf(nil, "%s\nerror=%v\n", output, err))
 		if err != nil || !strings.Contains(output, "Configuration OK") {
 			t.Fatalf("BIRD config check: error=%v output=%s", err, output)
 		}
@@ -850,7 +852,7 @@ func setTimerPeerRX(ctx context.Context, t *testing.T, peer, birdBaseline string
 		}
 	}
 	writeTimerArtifact(t, "peer-rx-command", "txt",
-		[]byte(fmt.Sprintf("peer=%s rx_ms=%d\n%s\nerror=%v\n", peer, milliseconds, output, err)))
+		fmt.Appendf(nil, "peer=%s rx_ms=%d\n%s\nerror=%v\n", peer, milliseconds, output, err))
 	if err != nil || strings.Contains(output, "%") {
 		t.Fatalf("peer RX floor: error=%v output=%s", err, output)
 	}
@@ -869,7 +871,7 @@ func restoreTimerBaseline(ctx context.Context, t *testing.T, baseline []byte, na
 	}
 	output, err := signalTimerReload(ctx)
 	writeTimerArtifact(t, name+"-hup", "txt",
-		[]byte(fmt.Sprintf("generation=%d\noutput=%s\nerror=%v\n", generation, output, err)))
+		fmt.Appendf(nil, "generation=%d\noutput=%s\nerror=%v\n", generation, output, err))
 	if err != nil {
 		t.Fatalf("restore daemon HUP: %v", err)
 	}

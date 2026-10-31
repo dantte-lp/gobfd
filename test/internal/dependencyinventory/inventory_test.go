@@ -26,7 +26,10 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read checked repository inventory: %v", err)
 	}
-	wantGraphCounts := map[string]int{"runtime": 193, "tools": 458}
+	wantGraphCounts := map[string]int{"runtime": 193, "tools": 746, "gopls": 45, "syft": 851, "goreleaser": 807}
+	if len(inv.ModuleGraphs) != len(wantGraphCounts) {
+		t.Fatalf("module graph count = %d, want %d", len(inv.ModuleGraphs), len(wantGraphCounts))
+	}
 	for _, graph := range inv.ModuleGraphs {
 		if len(graph.Modules) != wantGraphCounts[graph.ID] {
 			t.Fatalf("%s module count = %d, want %d", graph.ID, len(graph.Modules), wantGraphCounts[graph.ID])
@@ -65,8 +68,8 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 			}
 		}
 	}
-	if kindCounts[KindTool] != 15 {
-		t.Fatalf("inventory tool count = %d, want 15", kindCounts[KindTool])
+	if kindCounts[KindTool] != 16 {
+		t.Fatalf("inventory tool count = %d, want 16", kindCounts[KindTool])
 	}
 	for _, removed := range []string{
 		"tool:git_commit", "tool:bird_commit", "tool:bird_source_sha256",
@@ -471,7 +474,7 @@ func TestCompareModuleInventoryRejectsIncompleteSelectedGraph(t *testing.T) {
 	}
 }
 
-func TestSelectedModuleGraphIncludesTransitiveBuildList(t *testing.T) {
+func TestSelectedModuleGraphRejectsArbitraryLocalReplacement(t *testing.T) {
 	root := t.TempDir()
 	writeFixture(t, root, "go.mod", `module example.invalid/root
 
@@ -490,16 +493,27 @@ require example.invalid/two v1.2.0
 `)
 	writeFixture(t, root, "two/go.mod", "module example.invalid/two\n\ngo 1.27\n")
 
-	modules, err := selectedModuleGraph(context.Background(), root, ModuleGraph{ID: "runtime", Manifest: "go.mod", Sum: "go.sum"})
+	_, err := selectedModuleGraph(context.Background(), root, ModuleGraph{ID: "runtime", Manifest: "go.mod", Sum: "go.sum"})
+	if err == nil || !strings.Contains(err.Error(), "unsupported local replacement in runtime: example.invalid/one => ./one") {
+		t.Fatalf("selectedModuleGraph() error = %v, want rejected arbitrary local replacement", err)
+	}
+}
+
+func TestSelectedModuleGraphIncludesTransitiveBuildList(t *testing.T) {
+	t.Parallel()
+
+	modules, err := selectedModuleGraph(context.Background(), repositoryRoot(t),
+		ModuleGraph{ID: "runtime", Manifest: "go.mod", Sum: "go.sum"})
 	if err != nil {
 		t.Fatalf("selectedModuleGraph() error = %v", err)
 	}
-	want := []moduleIdentity{
-		{Path: "example.invalid/one", Version: "v1.0.0"},
-		{Path: "example.invalid/two", Version: "v1.2.0", Indirect: true},
-	}
-	if err := compareModuleInventory("runtime", want, modules); err != nil {
-		t.Fatalf("selectedModuleGraph() omitted transitive build-list module: %v", err)
+	for _, want := range []moduleIdentity{
+		{Path: "github.com/prometheus/client_golang", Version: "v1.25.0"},
+		{Path: "github.com/beorn7/perks", Version: "v1.0.1", Indirect: true},
+	} {
+		if !slices.Contains(modules, want) {
+			t.Errorf("selectedModuleGraph() omitted current pinned build-list module: %#v", want)
+		}
 	}
 }
 
@@ -845,6 +859,9 @@ func validInventory() Inventory {
 		ModuleGraphs: []ModuleGraph{
 			{ID: "runtime", Manifest: "go.mod", Sum: "go.sum"},
 			{ID: "tools", Manifest: "tools/go.mod", Sum: "tools/go.sum"},
+			{ID: "gopls", Manifest: "tools/gopls/go.mod", Sum: "tools/gopls/go.sum"},
+			{ID: "syft", Manifest: "tools/syft/go.mod", Sum: "tools/syft/go.sum"},
+			{ID: "goreleaser", Manifest: "tools/goreleaser/qualified.mod", Sum: "tools/goreleaser/qualified.sum"},
 		},
 		Components: []Component{{
 			ID:   "tool:example",
@@ -931,7 +948,10 @@ const minimalInventoryJSON = `{
         }
       ]
     },
-    {"id":"tools","manifest":"tools/go.mod","sum":"tools/go.sum","modules":[]}
+    {"id":"tools","manifest":"tools/go.mod","sum":"tools/go.sum","modules":[]},
+    {"id":"gopls","manifest":"tools/gopls/go.mod","sum":"tools/gopls/go.sum","modules":[]},
+    {"id":"syft","manifest":"tools/syft/go.mod","sum":"tools/syft/go.sum","modules":[]},
+    {"id":"goreleaser","manifest":"tools/goreleaser/qualified.mod","sum":"tools/goreleaser/qualified.sum","modules":[]}
   ],
   "components": []
 }`

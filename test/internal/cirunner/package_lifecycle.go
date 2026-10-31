@@ -2,17 +2,17 @@ package cirunner
 
 import (
 	"context"
+	"debug/buildinfo"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 )
 
 const (
-	// goreleaserModule is the GoReleaser version pinned by the release workflow.
-	goreleaserModule  = "github.com/goreleaser/goreleaser/v2@v2.18.2"
-	goreleaserCommand = "release"
 	// packageTestTag versions locally built packages; it never names a release.
 	packageTestTag          = "v0.0.0"
 	packageLifecycleTag     = "package_lifecycle_testcontainers"
@@ -30,6 +30,12 @@ type PackageOptions struct {
 // without publishing, signing, SBOM or image stages, then the native RPM
 // lifecycle finalization. The packages land in dist/ as version 0.0.0.
 func PackageBuild(ctx context.Context, options PackageOptions) error {
+	return packageBuildWithInfo(ctx, options, buildinfo.Read)
+}
+
+func packageBuildWithInfo(ctx context.Context, options PackageOptions,
+	readBuildInfo func(io.ReaderAt) (*debug.BuildInfo, error),
+) error {
 	if options.Runner == nil {
 		return fmt.Errorf("package build command runner is required: %w", errInvalidConfig)
 	}
@@ -40,24 +46,8 @@ func PackageBuild(ctx context.Context, options PackageOptions) error {
 	if err := verifyPackageUPX(ctx, options, environment); err != nil {
 		return fmt.Errorf("verify package UPX prerequisite: %w", err)
 	}
-	steps := []struct {
-		name string
-		args []string
-	}{
-		{"GoReleaser packages", []string{
-			"run", goreleaserModule, goreleaserCommand, "--clean", "--parallelism=1",
-			"--skip=publish,announce,validate,sign,sbom,docker",
-		}},
-		{"RPM lifecycle finalization", []string{"-C", "tools", "run", "./cmd/packagefinalize"}},
-	}
-	for _, step := range steps {
-		if err := options.Runner.RunCommand(ctx, CommandSpec{
-			Name: "go", Args: step.args, Dir: options.Root, Env: environment,
-		}); err != nil {
-			return fmt.Errorf("build %s: %w", step.name, err)
-		}
-	}
-	return nil
+	options.Environment = environment
+	return packageBuild(ctx, options, readBuildInfo)
 }
 
 func verifyPackageUPX(ctx context.Context, options PackageOptions, environment []string) error {

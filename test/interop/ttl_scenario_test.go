@@ -67,7 +67,7 @@ func signalTTLProbe(ctx context.Context, t *testing.T, peer testcontainers.Conta
 		t.Fatal(err)
 	}
 	output, err := podmanCommand(ctx, "kill", "--signal", "USR2", peer.GetContainerID())
-	writeTimerArtifact(t, name+"-signal", "txt", []byte(fmt.Sprintf("%s\nerror=%v\n", output, err)))
+	writeTimerArtifact(t, name+"-signal", "txt", fmt.Appendf(nil, "%s\nerror=%v\n", output, err))
 	if err != nil {
 		t.Fatal(err)
 	}

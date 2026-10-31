@@ -55,28 +55,14 @@ type SpecRunner interface {
 func (r ExecRunner) RunCommand(ctx context.Context, spec CommandSpec) error {
 	if spec.Name != prebuiltLintPath {
 		switch spec.Name {
-		case "buf", "docker", "gh", "git", "go", "node", "upx", "xz":
+		case "buf", "docker", "gh", "git", "go", goreleaserName, "node", syftName, "upx", "xz":
 		default:
 			return fmt.Errorf("run CI command %q: %w", spec.Name, errCommandNotAllowed)
 		}
 	}
-	executable := spec.Name
-	var extraFiles []*os.File
-	if spec.Executable != nil {
-		if spec.Name != "upx" {
-			return fmt.Errorf("bind executable for CI command %q: %w", spec.Name, errInvalidConfig)
-		}
-		info, err := spec.Executable.Stat()
-		if err != nil {
-			return fmt.Errorf("inspect bound UPX executable: %w", err)
-		}
-		if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
-			return fmt.Errorf("bound UPX executable has mode %s: %w", info.Mode(), errInvalidConfig)
-		}
-		executable = "/proc/self/fd/3"
-		extraFiles = []*os.File{spec.Executable}
-	} else if spec.Name == "upx" {
-		return fmt.Errorf("UPX command requires a bound executable: %w", errInvalidConfig)
+	executable, extraFiles, err := spec.boundExecutable()
+	if err != nil {
+		return err
 	}
 	// #nosec G204 -- the executable is selected from the fixed allowlist above.
 	command := exec.CommandContext(ctx, executable, spec.Args...)
@@ -97,4 +83,26 @@ func (r ExecRunner) RunCommand(ctx context.Context, spec CommandSpec) error {
 		return fmt.Errorf("run %s command: %w", spec.Name, err)
 	}
 	return nil
+}
+
+func (spec CommandSpec) boundExecutable() (string, []*os.File, error) {
+	executable := spec.Name
+	var extraFiles []*os.File
+	if spec.Executable != nil {
+		if spec.Name != "upx" && spec.Name != syftName && spec.Name != goreleaserName {
+			return "", nil, fmt.Errorf("bind executable for CI command %q: %w", spec.Name, errInvalidConfig)
+		}
+		info, err := spec.Executable.Stat()
+		if err != nil {
+			return "", nil, fmt.Errorf("inspect bound %s executable: %w", spec.Name, err)
+		}
+		if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+			return "", nil, fmt.Errorf("bound %s executable has mode %s: %w", spec.Name, info.Mode(), errInvalidConfig)
+		}
+		executable = "/proc/self/fd/3"
+		extraFiles = []*os.File{spec.Executable}
+	} else if spec.Name == "upx" || spec.Name == syftName || spec.Name == goreleaserName {
+		return "", nil, fmt.Errorf("%s command requires a bound executable: %w", spec.Name, errInvalidConfig)
+	}
+	return executable, extraFiles, nil
 }

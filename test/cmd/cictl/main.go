@@ -27,13 +27,14 @@ func main() {
 }
 
 type dependencies struct {
-	getenv     func(string) string
-	getwd      func() (string, error)
-	environ    func() []string
-	now        func() time.Time
-	runner     cirunner.CommandRunner
-	specRunner cirunner.SpecRunner
-	stdout     io.Writer
+	getenv           func(string) string
+	getwd            func() (string, error)
+	environ          func() []string
+	now              func() time.Time
+	runner           cirunner.CommandRunner
+	specRunner       cirunner.SpecRunner
+	stdout           io.Writer
+	preparePublisher func(context.Context, cirunner.GoReleaserOptions) (publisherAuditWorkspace, error)
 }
 
 func run(ctx context.Context, arguments []string, deps dependencies) error {
@@ -61,12 +62,13 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 	if len(arguments) == 0 {
 		return fmt.Errorf(
 			"usage: cictl {build|lint|test-coverage|commit-policy|"+
-				"buf-fetch-base|buf-breaking|sbom|proto-verify|"+
+				"buf-fetch-base|buf-breaking|sbom|proto-verify|publisher-audit|"+
 				"benchmark-run|benchmark-base|benchmark-pair|benchmark-normalize|benchmark-report|"+
 				"release-build|release-test-report|release-benchmarks|release-benchmark-metadata|"+
 				"release-benchmark-comparison|release-reports-archive|release-preflight|release-notes|release-pr-check|"+
-				"release-please-pr|"+
-				"release-upx|release-artifacts|release-assets-upload|release-oci-evidence|release-evidence|release-verify|"+
+				"release-please-pr|release-goreleaser|release-source-tools|"+
+				"release-upx|release-syft|release-artifacts|release-assets-upload|release-oci-evidence|release-evide"+
+				"nce|release-verify|"+
 				"release-promote|release-publish|package-build|package-lifecycle}: %w",
 			flag.ErrHelp,
 		)
@@ -108,6 +110,8 @@ func runCoreCommand(
 		return true, runSBOM(ctx, arguments, deps)
 	case "proto-verify":
 		return true, runProtoVerify(ctx, arguments, deps)
+	case "publisher-audit":
+		return true, runPublisherAudit(ctx, arguments, deps)
 	default:
 		return false, nil
 	}
@@ -138,6 +142,9 @@ func runReleaseCommand(
 	if handled, err := runReleaseReportCommand(ctx, command, arguments, deps); handled {
 		return true, err
 	}
+	if handled, err := runReleasePrerequisiteCommand(ctx, command, arguments, deps); handled {
+		return true, err
+	}
 
 	switch command {
 	case "release-build":
@@ -146,10 +153,6 @@ func runReleaseCommand(
 		return true, runReleasePreflight(ctx, arguments, deps)
 	case "release-pr-check":
 		return true, runReleasePullRequest(ctx, arguments, deps)
-	case "release-please-pr":
-		return true, runReleasePleasePullRequest(ctx, arguments, deps)
-	case "release-upx":
-		return true, runReleaseUPX(ctx, arguments, deps)
 	case "release-artifacts":
 		return true, runReleaseArtifacts(ctx, arguments, deps)
 	case "release-assets-upload":
@@ -164,6 +167,25 @@ func runReleaseCommand(
 		return true, runReleasePromote(ctx, arguments, deps)
 	case "release-publish":
 		return true, runReleasePublish(ctx, arguments, deps)
+	default:
+		return false, nil
+	}
+}
+
+func runReleasePrerequisiteCommand(
+	ctx context.Context, command string, arguments []string, deps dependencies,
+) (bool, error) {
+	switch command {
+	case "release-please-pr":
+		return true, runReleasePleasePullRequest(ctx, arguments, deps)
+	case "release-upx":
+		return true, runReleaseUPX(ctx, arguments, deps)
+	case "release-syft":
+		return true, runReleaseSyft(ctx, arguments, deps)
+	case "release-goreleaser":
+		return true, runReleaseGoReleaser(ctx, arguments, deps)
+	case "release-source-tools":
+		return true, runReleaseSourceTools(ctx, arguments, deps)
 	default:
 		return false, nil
 	}
@@ -347,6 +369,67 @@ func runReleaseUPX(ctx context.Context, arguments []string, deps dependencies) e
 		Environment: deps.environ(), Runner: deps.specRunner,
 	}); err != nil {
 		return fmt.Errorf("verify UPX prerequisite: %w", err)
+	}
+	return nil
+}
+
+func runReleaseSyft(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("release-syft", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	compilerContainer := flags.Bool("compiler-container", false, "build Syft inside the pinned compiler container")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse release-syft flags: %w", err)
+	}
+	root, err := releaseRoot("release-syft", flags.Args(), deps)
+	if err != nil {
+		return err
+	}
+	execute := cirunner.ReleaseSyft
+	if *compilerContainer {
+		execute = cirunner.ReleaseSyftCompiler
+	}
+	if err := execute(ctx, cirunner.ReleaseSyftOptions{
+		Root: root, RunnerTemp: deps.getenv("RUNNER_TEMP"), GitHubPath: deps.getenv("GITHUB_PATH"),
+		Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("verify Syft prerequisite: %w", err)
+	}
+	return nil
+}
+
+func runReleaseGoReleaser(ctx context.Context, arguments []string, deps dependencies) error {
+	root, err := releaseRoot("release-goreleaser", arguments, deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseGoReleaser(ctx, cirunner.ReleaseSyftOptions{
+		Root: root, RunnerTemp: deps.getenv("RUNNER_TEMP"), GitHubPath: deps.getenv("GITHUB_PATH"),
+		Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("verify GoReleaser prerequisite: %w", err)
+	}
+	return nil
+}
+
+func runReleaseSourceTools(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("release-source-tools", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	compilerContainer := flags.Bool("compiler-container", false, "build both source prerequisites in compiler containers")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse source prerequisite flags: %w", err)
+	}
+	if !*compilerContainer {
+		return fmt.Errorf("source prerequisites require --compiler-container: %w", flag.ErrHelp)
+	}
+	root, err := releaseRoot("release-source-tools", flags.Args(), deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseSourceToolsCompiler(ctx, cirunner.ReleaseSyftOptions{
+		Root: root, RunnerTemp: deps.getenv("RUNNER_TEMP"), GitHubPath: deps.getenv("GITHUB_PATH"),
+		Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("verify source prerequisites: %w", err)
 	}
 	return nil
 }
@@ -680,9 +763,13 @@ func runSBOM(ctx context.Context, arguments []string, deps dependencies) error {
 	if flags.NArg() != 0 {
 		return fmt.Errorf("unexpected SBOM arguments: %w", flag.ErrHelp)
 	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve SBOM repository root: %w", err)
+	}
 	if err := cirunner.SBOM(ctx, cirunner.SBOMOptions{
-		ReportDir: *reportDir,
-		Runner:    deps.specRunner,
+		Root: root, Environment: deps.environ(), ReportDir: *reportDir,
+		Runner: deps.specRunner,
 	}); err != nil {
 		return fmt.Errorf("generate CI SBOMs: %w", err)
 	}
