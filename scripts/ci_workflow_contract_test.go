@@ -307,7 +307,8 @@ func TestCIWorkflowReleaseSourcePrerequisitesMatchRelease(t *testing.T) {
           --env GOCACHE=/cache/build --env GOMODCACHE=/cache/mod --env GOPATH=/cache/go
           --env HOME=/cache --env TMPDIR=/tmp --env GOMAXPROCS=2 --env GOMEMLIMIT=2GiB
           ` + toolprofile.CompilerImage + `
-          --signal=TERM --kill-after=5s 600s /usr/local/go/bin/go -C tools test -race -count=1 -mod=readonly -buildvcs=false -p=2 ./cmd/packagefinalize`
+          --signal=TERM --kill-after=5s 600s /usr/local/go/bin/go -C tools
+          test -race -count=1 -mod=readonly -buildvcs=false -p=2 ./cmd/packagefinalize`
 	if strings.TrimRight(job, "\n") != want {
 		t.Error("CI source prerequisites differ from the closed release bootstrap, installer, configuration and RPM checks")
 	}

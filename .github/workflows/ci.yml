@@ -109,7 +109,8 @@ jobs:
           --env GOCACHE=/cache/build --env GOMODCACHE=/cache/mod --env GOPATH=/cache/go
           --env HOME=/cache --env TMPDIR=/tmp --env GOMAXPROCS=2 --env GOMEMLIMIT=2GiB
           docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c
-          --signal=TERM --kill-after=5s 600s /usr/local/go/bin/go -C tools test -race -count=1 -mod=readonly -buildvcs=false -p=2 ./cmd/packagefinalize
+          --signal=TERM --kill-after=5s 600s /usr/local/go/bin/go -C tools
+          test -race -count=1 -mod=readonly -buildvcs=false -p=2 ./cmd/packagefinalize
 
   non-linux-contract:
     name: Non-Linux transport contract
