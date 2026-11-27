@@ -248,6 +248,28 @@ func TestCommandFileOutputExecutesBoundDescriptor(t *testing.T) {
 	}
 }
 
+func TestCommandFileOutputPreservesArgv0ForMulticallBinaries(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS != "linux" {
+		t.Skip("descriptor execution uses Linux procfs")
+	}
+	executable, openErr := os.Open("/bin/sh")
+	if openErr != nil {
+		t.Fatalf("open sh executable: %v", openErr)
+	}
+	output, commandErr := commandFileOutput(context.Background(), executable, []string{"-c", `printf '%s' "$0"`}, nil)
+	if closeErr := executable.Close(); closeErr != nil {
+		t.Fatalf("close sh executable: %v", closeErr)
+	}
+	if commandErr != nil {
+		t.Fatalf("commandFileOutput() error = %v", commandErr)
+	}
+	if output != "/bin/sh" {
+		t.Fatalf("commandFileOutput() argv[0] = %q, want /bin/sh", output)
+	}
+}
+
 type outputInvocation struct {
 	name      string
 	arguments []string

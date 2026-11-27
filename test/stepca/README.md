@@ -12,7 +12,7 @@ The default test suite skips the external-provider fixture unless binary paths a
 | Archive | [step-ca_0.30.2.tar.gz](https://github.com/smallstep/certificates/releases/download/v0.30.2/step-ca_0.30.2.tar.gz) |
 | Archive SHA-256 | 944b205d5ba89f393cbdc09d68ab7ce485f5b44f44c28025d30508af956c1cba |
 | Source license | Apache-2.0; preserve source and license |
-| Compiler | Repository-pinned Go 1.27.3 Debian trixie image |
+| Compiler | Repository-pinned Go 1.27.4 Debian trixie image |
 | Variant metadata | 0.30.2+gobfd.qual.2; build time qualification |
 | qualified.mod SHA-256 | 487f2e84af68c1ef6676612898fa748b97babc04c60626691c12aef5c20b3713 |
 | qualified.sum SHA-256 | 625c21810d2fe9537b3594179b51887b138132283d85a6a7e6c441d734591c05 |

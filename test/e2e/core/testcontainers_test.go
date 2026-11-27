@@ -331,8 +331,8 @@ func prepareBuildContext(t *testing.T, root string) string {
 			t.Fatalf("copy %s into bounded build context: %v", name, err)
 		}
 	}
-	const containerfile = `FROM docker.io/library/golang:1.27.3-trixie@sha256:` +
-		`604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c
+	const containerfile = `FROM docker.io/library/golang:1.27.4-trixie@sha256:` +
+		`430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download && go mod verify
@@ -394,6 +394,7 @@ func buildCoreImage(
 	if err != nil {
 		t.Fatalf("create Podman client for image ownership: %v", err)
 	}
+	//nolint:staticcheck // Retain core ProviderPodman without adding modules/podman.
 	provider, err := testcontainers.ProviderPodman.GetProvider()
 	if err != nil {
 		t.Fatalf("create Podman provider for image build: %v", err)

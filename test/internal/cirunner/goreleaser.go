@@ -371,8 +371,8 @@ func (profile goreleaserProfile) verifyRefmtBuildInfo(dependencies []*debug.Modu
 }
 
 func (profile goreleaserProfile) consumerContentSum() string {
-	return goreleaserSHA256([]byte(fmt.Sprintf("%s  go.mod\n%s  go.sum\n",
-		profile.Manifests.ModSHA256, profile.Manifests.SumSHA256)))
+	return goreleaserSHA256(fmt.Appendf(nil, "%s  go.mod\n%s  go.sum\n",
+		profile.Manifests.ModSHA256, profile.Manifests.SumSHA256))
 }
 
 func (receipt publisherComponentReceipt) validate(profile goreleaserProfile) error {

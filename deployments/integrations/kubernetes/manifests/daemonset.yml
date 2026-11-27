@@ -71,7 +71,7 @@ spec:
               memory: 64Mi
 
         - name: gobgp
-          # GoBGP v4.10.0 built from test/interop/gobgp and imported by integrationctl.
+          # GoBGP v4.11.0 built from test/interop/gobgp and imported by integrationctl.
           image: gobgp:local
           imagePullPolicy: Never
           command: ["gobgpd"]

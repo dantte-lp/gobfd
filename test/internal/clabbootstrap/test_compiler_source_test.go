@@ -17,7 +17,7 @@ func compilerSourceFixture(t *testing.T) string {
 	root := t.TempDir()
 	copyVendorPolicyFixture(t, root)
 	for path, content := range map[string]string{
-		"go.mod":                            "module github.com/dantte-lp/gobfd\n\ngo 1.27\n\ntoolchain go1.27.3\n",
+		"go.mod":                            "module github.com/dantte-lp/gobfd\n\ngo 1.27\n\ntoolchain go1.27.4\n",
 		"go.sum":                            "",
 		"test/interop-clab/clab_test.go":    "package clab_test\n",
 		"test/internal/podmanapi/client.go": "package podmanapi\n",

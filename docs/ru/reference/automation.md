@@ -8,10 +8,10 @@
 
 | Область | Закреплённый инструмент | Привязка |
 |:---|:---|:---|
-| Провайдер Podman Compose | [Compose 5.6.1](https://github.com/docker/compose/releases/tag/v5.6.1) | Проверенный bootstrap и образ разработки |
-| Пакеты выпуска | [GoReleaser 2.19.0](https://github.com/goreleaser/goreleaser/releases/tag/v2.19.0) | Workflow выпуска и локальный `package-build` |
-| SBOM модулей | [Syft 1.55.0](https://github.com/anchore/syft/releases/tag/v1.55.0) | Workflow выпуска и `cictl sbom` |
-| Сканирование файловой системы | [Trivy 0.76.1](https://github.com/aquasecurity/trivy/releases/tag/v0.76.1) | CI завершается с отказом при CRITICAL/HIGH |
+| Провайдер Podman Compose | [Compose 5.8.0](https://github.com/docker/compose/releases/tag/v5.8.0) | Проверенный bootstrap и образ разработки |
+| Пакеты выпуска | [GoReleaser 2.20.3](https://github.com/goreleaser/goreleaser/releases/tag/v2.20.3) | Workflow выпуска и локальный `package-build` |
+| SBOM модулей | [Syft 1.57.2](https://github.com/anchore/syft/releases/tag/v1.57.2) | Workflow выпуска и `cictl sbom` |
+| Сканирование файловой системы | [Trivy 0.76.2](https://github.com/aquasecurity/trivy/releases/tag/v0.76.2) | CI завершается с отказом при CRITICAL/HIGH |
 
 Пересобрать образ разработки после изменения pin Compose. Повторно проверить вывод сканеров, валидацию SBOM и жизненный цикл пакетов перед выпуском; одно обновление версии не квалифицирует результаты.
 
@@ -41,7 +41,7 @@ Runtime-[модуль](../../../go.mod), общий [модуль Go-инстр�
 
 ## Предложение выпуска
 
-Вызывать `cictl release-please-pr` из [workflow предложения](../../../.github/workflows/release-please.yml). Выполнять job в закреплённом образе и устанавливать Go 1.27.3 существующим официальным setup action:
+Вызывать `cictl release-please-pr` из [workflow предложения](../../../.github/workflows/release-please.yml). Выполнять job в закреплённом образе и устанавливать Go 1.27.4 существующим официальным setup action:
 
 ```text
 docker.io/library/node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
@@ -107,7 +107,7 @@ Release Please создаёт только предложение с `skip-githu
 
 Job выпуска компилирует `cictl` внутри закреплённого [образа компилятора](../../../internal/toolprofile/compiler.go) до входа в registry. Host с ненулевым UID запускает `release-source-tools --compiler-container`. Отдельные ограниченные workers собирают Syft и GoReleaser из аутентифицированных исходников. Host проверяет открытые бинарники, происхождение исходников и метаданные версии, удаляет временные файлы и одной транзакцией публикует оба абсолютных каталога бинарников в `GITHUB_PATH`. Установки остаются вне `dist`; сборка пакетов повторно использует привязанный исполняемый файл publisher.
 
-[Профиль publisher](../../../tools/goreleaser/source.json) закрепляет исходные checksum GoReleaser и Refmt, две проверенные миграции import и три пары manifest. Управляемый consumer разрешает только `../source` и `../refmt-local` как локальные модули. Команды инвентаризации и security используют одну проверяемую структуру workspace; отклонять изменённые файлы, посторонние замены и ошибки очистки.
+[Профиль publisher](../../../tools/goreleaser/source.json) закрепляет исходные checksum GoReleaser и Refmt, проверенную миграцию import для Refmt и три пары manifest. Управляемый consumer разрешает только `../source` и `../refmt-local` как локальные модули. Команды инвентаризации и security используют одну проверяемую структуру workspace; отклонять изменённые файлы, посторонние замены и ошибки очистки.
 
 Запускать этот bootstrap только на новой GitHub-hosted Ubuntu VM. Компилятор имеет deadline 600 секунд и 5 секунд до принудительного завершения; job выпуска имеет deadline 60 минут. Удаление hosted VM ограничивает время жизни bootstrap-контейнера, оставшегося до старта при аварийном завершении CLI; очистка временного каталога runner либо удаление VM устраняет оставшийся bootstrap-файл. Постоянный runner требует отдельного владельца жизненного цикла. Эти контракты исходников не подтверждают приёмку hosted-публикации.
 

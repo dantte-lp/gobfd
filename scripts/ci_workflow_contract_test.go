@@ -1,11 +1,59 @@
 package main
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/dantte-lp/gobfd/internal/toolprofile"
 )
+
+func TestWorkflowGoModuleCacheHasOneOwner(t *testing.T) {
+	t.Parallel()
+	paths, err := filepath.Glob("../.github/workflows/*.yml")
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("find workflow cache contracts: paths=%d: %v", len(paths), err)
+	}
+	checked := 0
+	for _, path := range paths {
+		var workflow struct {
+			Jobs map[string]struct {
+				Steps []struct {
+					Uses string `yaml:"uses"`
+					With struct {
+						Cache *bool  `yaml:"cache"`
+						Path  string `yaml:"path"`
+					} `yaml:"with"`
+				} `yaml:"steps"`
+			} `yaml:"jobs"`
+		}
+		if err := yaml.Unmarshal([]byte(readContractFile(t, path)), &workflow); err != nil {
+			t.Fatalf("parse workflow %s: %v", path, err)
+		}
+		for name, job := range workflow.Jobs {
+			var explicitModules, automaticModules bool
+			for _, step := range job.Steps {
+				if strings.HasPrefix(step.Uses, "actions/cache@") && strings.Contains(step.With.Path, "~/go/pkg/mod") {
+					explicitModules = true
+				}
+				if strings.HasPrefix(step.Uses, "actions/setup-go@") && (step.With.Cache == nil || *step.With.Cache) {
+					automaticModules = true
+				}
+			}
+			if explicitModules {
+				checked++
+				if automaticModules {
+					t.Errorf("%s job %s restores Go modules through both setup-go and actions/cache", path, name)
+				}
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no explicit Go module cache contract was checked")
+	}
+}
 
 func TestCIWorkflowBuildStepsDelegateToCICTL(t *testing.T) {
 	t.Parallel()

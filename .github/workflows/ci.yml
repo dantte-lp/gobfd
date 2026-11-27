@@ -19,9 +19,10 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
+          cache: false
 
       - name: Cache Go modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -85,7 +86,7 @@ jobs:
           --env CGO_ENABLED=0 --env GOTOOLCHAIN=local --env GOENV=off --env GOWORK=off
           --env GOCACHE=/cache/build --env GOMODCACHE=/cache/mod --env GOPATH=/cache/go
           --env HOME=/cache --env TMPDIR=/tmp --env GOMAXPROCS=2 --env GOMEMLIMIT=2GiB
-          docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c
+          docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee
           --signal=TERM --kill-after=5s 600s /usr/local/go/bin/go build
           -trimpath -mod=readonly -buildvcs=false
           -o /out/gobfd-cictl-${{ github.run_id }}-${{ github.run_attempt }} ./test/cmd/cictl
@@ -108,7 +109,7 @@ jobs:
           --env CGO_ENABLED=1 --env GOTOOLCHAIN=local --env GOENV=off --env GOWORK=off
           --env GOCACHE=/cache/build --env GOMODCACHE=/cache/mod --env GOPATH=/cache/go
           --env HOME=/cache --env TMPDIR=/tmp --env GOMAXPROCS=2 --env GOMEMLIMIT=2GiB
-          docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c
+          docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee
           --signal=TERM --kill-after=5s 600s /usr/local/go/bin/go -C tools
           test -race -count=1 -mod=readonly -buildvcs=false -p=2 ./cmd/packagefinalize
 
@@ -119,9 +120,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
 
       - name: Test the non-Linux transport boundary
         run: go test ./internal/netio -race -count=1
@@ -141,7 +142,7 @@ jobs:
     name: Lint (Go)
     runs-on: ubuntu-latest
     container:
-      image: docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c
+      image: docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -160,9 +161,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
 
       - name: Markdown policy
         run: go run ./test/cmd/repoquality markdown --root .
@@ -183,9 +184,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
 
       - name: Validate PR title
         env:
@@ -196,7 +197,7 @@ jobs:
     name: Vulnerability audit
     runs-on: ubuntu-latest
     container:
-      image: docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c
+      image: docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -232,12 +233,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
 
       - name: Set up buf
-        uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
+        uses: bufbuild/buf-action@37ac33d8960807670a6e9719080e885197b09cc6 # v1.7.0
         with:
           setup_only: true
 
@@ -267,7 +268,7 @@ jobs:
       BENCH_REGEX: >-
         ^(BenchmarkControlPacket|BenchmarkFSMTransition|BenchmarkApplyJitter|BenchmarkPacketPool|BenchmarkRecvStateToEvent|BenchmarkFullRecvPath|BenchmarkFullRecvPathCodec|BenchmarkFullTxPath|BenchmarkManager(Demux|Lookup)1000Sessions|BenchmarkRecvDecodeLookupEnqueue|BenchmarkRecvDecodeFSM|BenchmarkTxMarshalJitter|BenchmarkSessionRecvPacket|BenchmarkDetectionTimeCalc|BenchmarkCalcTxInterval|BenchmarkDetectionTimeCalcHot|BenchmarkCalcTxIntervalHot|BenchmarkSessionApplyJitter|BenchmarkBuildInnerPacket|BenchmarkStripInnerPacket|BenchmarkVXLANHeader|BenchmarkGeneveHeader)
     container:
-      image: docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c
+      image: docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -349,7 +350,7 @@ jobs:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          version: v0.76.1
+          version: v0.76.2
           scan-type: fs
           scan-ref: .
           severity: CRITICAL,HIGH
@@ -359,7 +360,7 @@ jobs:
           exit-code: "1"
 
       - name: Upload Trivy SARIF
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         if: always()
         with:
           sarif_file: trivy-results.sarif

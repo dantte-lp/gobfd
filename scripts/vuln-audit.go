@@ -52,29 +52,7 @@ type allowEntry struct {
 	ModuleOnly bool
 }
 
-var allowlist = map[string]allowEntry{
-	"GO-2026-4736": {
-		Package: "github.com/osrg/gobgp/v4",
-		Owner:   "@dantte-lp",
-		Expires: "2026-12-31",
-		Reason: "Maintainer decisions 2026-10-13 (gobfd-qj0.8.4) and 2026-10-21 (gobfd-qj0.8.4.1, stable v1): " +
-			"GHSA-4p9m-8gc4-rw2h lists v4.4.0 as patched and upstream fix 583080a7 is in v4.10.0, " +
-			"but the Go vulnerability database lists no fixed v4 version (golang/vulndb#5035, #6562) and " +
-			"limits the advisory to github.com/osrg/gobgp/v4/pkg/server, which GoBFD does not import.",
-		Mitigation: "Import only the GoBGP v4 api package, keep the reachable govulncheck gate enabled, " +
-			"keep GoBGP integration on localhost or a trusted management network, " +
-			"and remove this entry once the Go vulnerability database records a fixed v4 version.",
-		ModuleOnly: true,
-	},
-	"GO-2026-5932": {
-		Package:    "golang.org/x/crypto",
-		Owner:      "maintainers",
-		Expires:    "2026-12-31",
-		Reason:     "The advisory affects the unmaintained openpgp package, which is absent from the build dependency graph.",
-		Mitigation: "Keep the reachable-package govulncheck gate enabled and reject any openpgp import.",
-		ModuleOnly: true,
-	},
-}
+var allowlist = map[string]allowEntry{}
 
 type finding struct {
 	Scanner string
@@ -527,7 +505,7 @@ func publisherEffectiveModule(
 		return module, nil
 	}
 	if module.Replace.Version != "" {
-		if module.Replace.Path != module.Path {
+		if !approvedPublisherModuleAlias(module.Path, module.Replace.Path) {
 			return module, fmt.Errorf("publisher module path alias is unapproved: %w", errPublisherEvidence)
 		}
 		return *module.Replace, nil
@@ -787,8 +765,8 @@ func newGovulnFinding(id string, trace []govulnTrace) finding {
 // The maintainer approved the exact scope on 2026-10-31; runtime/tool entries above
 // remain independent. Any changed version or missing evidence fails this gate.
 const (
-	publisherDispositionExpiry     = "2026-11-30"
-	publisherApprovedProfileSHA256 = "b627d2e3c4a210a119be66a00457d7e486ca27c3e192a86fba2162fee4a8c450"
+	publisherDispositionExpiry     = "2026-12-31"
+	publisherApprovedProfileSHA256 = "6740498fd7d77f561c2e1fc21fcacc9ab53da1f001afb6bc6a8ef8b6b9cddf9d"
 	publisherRefmtVersion          = "v0.90.0"
 	publisherRefmtDirectory        = "../refmt-local"
 	publisherDevelopmentVersion    = "(devel)"
@@ -811,7 +789,6 @@ func publisherDispositions() map[string]publisherDisposition {
 		"GO-2024-2528": {"go.etcd.io/etcd/v3", "v3.7.3", "FIXED_SOURCE_RANGE"},
 		"GO-2024-2529": {"go.etcd.io/etcd/v3", "v3.7.3", "FIXED_SOURCE_RANGE"},
 		"GO-2024-2530": {"go.etcd.io/etcd/v3", "v3.7.3", "FIXED_SOURCE_RANGE"},
-		"GO-2026-5932": {"golang.org/x/crypto", "v0.58.0", "VULNERABLE_CODE_NOT_PRESENT"},
 	}
 }
 
@@ -863,7 +840,7 @@ func classifyPublisherFindings(
 			id = canonical
 		}
 		entry, approved := dispositions[id]
-		if !approved || !publisherFindingMatches(item, id, entry) {
+		if !approved || !publisherFindingMatches(item, entry) {
 			unallowed[item.ID] = append(unallowed[item.ID], item)
 			continue
 		}
@@ -872,17 +849,14 @@ func classifyPublisherFindings(
 	return allowed, unallowed, nil
 }
 
-func publisherFindingMatches(item finding, canonical string, entry publisherDisposition) bool {
+func publisherFindingMatches(item finding, entry publisherDisposition) bool {
 	if item.Package != entry.module || strings.TrimPrefix(item.Version, "v") != strings.TrimPrefix(entry.version, "v") ||
 		item.Reachable {
 		return false
 	}
-	if item.Scanner == osvScannerName {
-		return true
-	}
-	// The other six vulnerable components are absent from the delivered ELF;
-	// their appearance in a binary report invalidates the disposition.
-	return item.Scanner == govulncheckName && canonical == "GO-2026-5932" && item.Source == ""
+	// All remaining disposed modules are absent from the delivered ELF;
+	// any binary govulncheck finding invalidates the disposition.
+	return item.Scanner == osvScannerName
 }
 
 func validatePublisherEvidence(evidence publisherAuditEvidence, now time.Time) error {
@@ -897,7 +871,7 @@ func validatePublisherEvidence(evidence publisherAuditEvidence, now time.Time) e
 		return fmt.Errorf("publisher source profile differs from approval: %w", errPublisherEvidence)
 	}
 	if !validPublisherDigest(evidence.artifactSHA256) || evidence.buildInfo == nil ||
-		evidence.buildInfo.Main.Path != toolprofile.GoReleaserModule || evidence.buildInfo.Main.Version != "v2.19.0" {
+		evidence.buildInfo.Main.Path != toolprofile.GoReleaserModule || evidence.buildInfo.Main.Version != "v2.20.3" {
 		return fmt.Errorf("publisher artifact identity is missing or unapproved: %w", errPublisherEvidence)
 	}
 	selected, err := selectedOSVModules(evidence.selected)
@@ -909,7 +883,7 @@ func validatePublisherEvidence(evidence publisherAuditEvidence, now time.Time) e
 			return fmt.Errorf("publisher selected version for %s is unapproved: %w", disposition.module, errPublisherEvidence)
 		}
 	}
-	if selected[toolprofile.GoReleaserModule] != "v2.19.0" || selected[toolprofile.RefmtModule] != publisherRefmtVersion {
+	if selected[toolprofile.GoReleaserModule] != "v2.20.3" || selected[toolprofile.RefmtModule] != publisherRefmtVersion {
 		return fmt.Errorf("publisher source component versions differ from approval: %w", errPublisherEvidence)
 	}
 	if packageErr := validatePublisherPackages(evidence.packages); packageErr != nil {
@@ -933,8 +907,12 @@ func validatePublisherPackageCoverage(data []byte, modules map[string]string) er
 		if module == "stdlib" {
 			continue
 		}
+		importPrefix := module
+		if module == "github.com/sbomify/ar" {
+			importPrefix = "github.com/blakesmith/ar"
+		}
 		if !slices.ContainsFunc(packages, func(path string) bool {
-			return path == module || strings.HasPrefix(path, module+"/")
+			return path == importPrefix || strings.HasPrefix(path, importPrefix+"/")
 		}) {
 			return fmt.Errorf("publisher package proof omits artifact module %s: %w", module, errPublisherEvidence)
 		}
@@ -998,8 +976,8 @@ func publisherArtifactModules(info *debug.BuildInfo, selected map[string]string)
 		}
 		modules[module.Path] = module.Version
 	}
-	if modules["golang.org/x/crypto"] != "v0.58.0" ||
-		modules["github.com/osscontainertools/docker-credential-acr"] != "v1.0.0" {
+	if modules["golang.org/x/crypto"] != "v0.59.0" ||
+		modules["github.com/osscontainertools/docker-credential-acr"] != "v1.0.1" {
 		return nil, fmt.Errorf("publisher crypto/helper identity differs from approval: %w", errPublisherEvidence)
 	}
 	return modules, nil
@@ -1028,10 +1006,14 @@ func publisherArtifactModule(dependency *debug.Module) (debug.Module, error) {
 	if module.Replace.Version == "" || module.Replace.Version == publisherDevelopmentVersion {
 		return module, fmt.Errorf("publisher has an unapproved local dependency: %w", errPublisherEvidence)
 	}
-	if module.Path != module.Replace.Path {
+	if !approvedPublisherModuleAlias(module.Path, module.Replace.Path) {
 		return module, fmt.Errorf("publisher artifact module path alias: %w", errPublisherEvidence)
 	}
 	return *module.Replace, nil
+}
+
+func approvedPublisherModuleAlias(oldPath, newPath string) bool {
+	return oldPath == newPath || (oldPath == "github.com/blakesmith/ar" && newPath == "github.com/sbomify/ar")
 }
 
 type publisherNativeConfig struct {

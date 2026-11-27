@@ -126,7 +126,7 @@ func (fixture *goreleaserFixture) prepareRefmtAndConsumer() {
 	before, after := `"github.com/go-yaml/yaml"`, `"go.yaml.in/yaml/v2"`
 	source := []byte("package main\nimport " + before + "\n")
 	fixture.refmtContents = map[string][]byte{
-		goModFilename: []byte("module " + toolprofile.RefmtModule + "\n\ngo 1.27.3\n"),
+		goModFilename: []byte("module " + toolprofile.RefmtModule + "\n\ngo 1.27.4\n"),
 		"go.sum":      []byte("original refmt fixture\n"), "cmd/refmt/helper_yaml.go": source,
 	}
 	profile := &refmtSourceProfile{
@@ -149,7 +149,7 @@ func (fixture *goreleaserFixture) prepareRefmtAndConsumer() {
 	profile.Manifests = fixtureManifestHashes(mod, sum)
 	fixture.profile.Refmt = profile
 	fixture.refmtZIP = writePublisherFixtureZIP(fixture.t, profile.sourceProfile(), fixture.refmtContents, nil)
-	consumer := []byte("module " + toolprofile.GoReleaserConsumer + "\n\ngo 1.27.3\n")
+	consumer := []byte("module " + toolprofile.GoReleaserConsumer + "\n\ngo 1.27.4\n")
 	consumerSum := []byte("consumer fixture\n")
 	fixture.profile.Manifests = fixtureManifestHashes(consumer, consumerSum)
 	for name, data := range map[string][]byte{
@@ -178,10 +178,14 @@ func (fixture *goreleaserFixture) manifest() publisherConsumerManifest {
 				Old: publisherModuleVersion{Path: toolprofile.RefmtModule, Version: fixture.profile.Refmt.Version},
 				New: publisherModuleVersion{Path: "../refmt-local"},
 			},
+			{
+				Old: publisherModuleVersion{Path: "github.com/blakesmith/ar"},
+				New: publisherModuleVersion{Path: "github.com/sbomify/ar", Version: "v0.0.0-20261110120314-cac91ea00b05"},
+			},
 		},
 	}
 	for _, module := range []string{
-		"github.com/cilium/ebpf", "github.com/google/cel-go",
+		"github.com/cilium/ebpf", "github.com/google/cel-go", "github.com/gorilla/websocket",
 		"github.com/labstack/echo/v4", "github.com/prometheus/prometheus", "github.com/yuin/goldmark",
 		"go.etcd.io/etcd/client/pkg/v3", "go.etcd.io/etcd/server/v3", "go.etcd.io/etcd/v3",
 	} {

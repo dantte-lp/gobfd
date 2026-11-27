@@ -114,6 +114,7 @@ func contains(values []string, want string) bool {
 func assertNetworkLabel(ctx context.Context, t *testing.T, networkName, key, want string) {
 	t.Helper()
 
+	//nolint:staticcheck // Retain core ProviderPodman without adding modules/podman.
 	provider, err := testcontainers.ProviderPodman.GetProvider()
 	if err != nil {
 		t.Fatalf("create Podman provider for network label verification: %v", err)

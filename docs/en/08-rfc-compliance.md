@@ -17,7 +17,7 @@ BFD means Bidirectional Forwarding Detection; FSM means finite state machine. TX
 | [7419](../rfc/rfc7419.txt) | Common intervals | Helpers and optional alignment implemented | No universal hardware/cloud minimum inferred |
 | [9384](../rfc/rfc9384.txt) | BGP Cease/10 | Not implemented | GoBGP action emits Cease/2 |
 | [9468](../rfc/rfc9468.txt) | Unsolicited BFD | Unsafe default-off preview | Admission limits do not make untrusted exposure safe |
-| [9747](../rfc/rfc9747.txt) | Unaffiliated Echo | Default-off preview | FSM, demux, authentication, pacing and forwarding gaps |
+| [9747](../rfc/rfc9747.txt) | Unaffiliated Echo | Default-off preview | FSM, demux, authentication and forwarding gaps |
 | [7130](../rfc/rfc7130.txt) | Per-member Micro-BFD | Preview; selected actuators | Dedicated member wire/MAC and owner interoperability open |
 | [8971](../rfc/rfc8971.txt) | VXLAN BFD | Incomplete userspace preview | Exact IPv4 profile; owner-specific dataplane integration open |
 | [9521](../rfc/rfc9521.txt) | Geneve BFD | Incomplete userspace preview | IPv4 Format A only; owner-specific integration open |
@@ -72,9 +72,9 @@ IPv6 link-local zones select and must agree with the interface; zones are exclud
 
 ## RFC 5882 Implementation Notes
 
-[GoBGP handler](../../internal/gobgp/handler.go) disables on ordinary remote Down, detection failure or explicit local PathDown. Local or known remote AdminDown does not disable; retained remote AdminDown survives later timeout diagnostics. Up enables only peers disabled by this process. Each action uses `gobgp.action_timeout`.
+[GoBGP handler](../../internal/gobgp/handler.go) disables on ordinary remote Down, detection failure or explicit local PathDown. Local or known remote AdminDown does not disable; retained remote AdminDown survives later timeout diagnostics. Up re-enables peers disabled by this process and, over local Unix IPC, peers carrying a verified speaker-epoch ownership receipt across a controller restart ([ADR-0013](adr/0013-gobgp-restart-disable-ownership.md)); TCP targets and operator-modified or unverified peers stay disabled. Each action uses `gobgp.action_timeout`.
 
-Penalty dampening is implementation policy under §3.1, not an RFC-prescribed algorithm. Generic route withdrawal/restoration is absent; configured `withdraw-routes` fails validation. Watch delivery, external action success and routing convergence need independent receipts. Sources: [integration](../../internal/gobgp), [configuration validation](../../internal/config/config.go), [RFC 5882 §§3.2, 4.2, 10.2](https://www.rfc-editor.org/rfc/rfc5882.html#section-3.2).
+Penalty dampening is implementation policy under §3.1, not an RFC-prescribed algorithm. Generic route withdrawal/restoration is absent; configured `withdraw-routes` fails validation. Watch delivery, external action success and routing convergence need independent receipts. Sources: [integration](../../internal/gobgp), [configuration validation](../../internal/config/config.go), [ADR-0013](adr/0013-gobgp-restart-disable-ownership.md), [RFC 5882 §§3.2, 4.2, 10.2](https://www.rfc-editor.org/rfc/rfc5882.html#section-3.2).
 
 ## RFC 5883 Implementation Notes
 
@@ -106,9 +106,9 @@ The dual-stack/78-lease receipt does not graduate unsafe preview. Do not expose 
 
 ## RFC 9747 Implementation Notes
 
-The [Echo owner](../../internal/bfd/echo.go) and [receiver](../../internal/netio/echo_receiver.go) implement port 3785, standard Control-shaped packets, local timers, Down↔Up, My Discriminator return demux, TX TTL 255/RX exactly 254 and timeout diagnostic 2.
+The [Echo owner](../../internal/bfd/echo.go) and [receiver](../../internal/netio/echo_receiver.go) implement port 3785, standard Control-shaped packets, slow one-second pacing in Down with provisioned TX pacing in Up, local detection timers, Down↔Up, My Discriminator return demux, TX TTL 255/RX exactly 254 and timeout diagnostic 2.
 
-The RFC requires a different bootstrap and subsequent Your Discriminator demux, the base FSM without AdminDown, slow pacing and suitable return validation/authentication. The current send path also does not establish adjacent forwarding-plane traversal. Qualification must close FSM, returned-packet identity/authentication and pacing gaps.
+The RFC requires a different bootstrap and subsequent Your Discriminator demux, the base FSM without AdminDown and suitable return validation/authentication. The current send path also does not establish adjacent forwarding-plane traversal. Qualification must close FSM and returned-packet identity/authentication gaps.
 
 Every Add, including a retry, requires preview enablement and local RX readiness. Compatible principals share a wire under [ADR-0009](adr/0009-echo-principal-claims.md); management ownership does not fix protocol gaps. Owner witnesses and conditional load assessment in [ADR-0012](adr/0012-owner-down-transition-witness.md) do not qualify RFC 9747.
 
@@ -120,7 +120,7 @@ The actuator receives ordered member changes outside Manager locks with a five-s
 
 ## RFC 8971 Implementation Notes
 
-VXLAN preview uses outer UDP/4789, an eight-byte VXLAN header with I flag, Management VXLAN network identifier (VNI) and inner Ethernet/IPv4/UDP/3784/BFD. Inner destination MAC is `00:52:02:00:00:00`; originating local/remote source MACs and full endpoint/VNI/IP tuple must match the configured scope.
+VXLAN preview uses outer UDP/4789, an eight-byte VXLAN header with I flag, Management VXLAN network identifier (VNI) and inner Ethernet/IPv4/UDP/3784/BFD. Inner destination MAC is `00:52:02:00:00:00`; originating local/remote source MACs and full endpoint/VNI/IP tuple must match the configured scope. Validation requires global-unicast inner IPv4 addresses (the VTEP IP option in §§3, 5) and rejects `127.0.0.0/8`.
 
 Only `userspace-udp` is implemented. One listener per local VXLAN tunnel endpoint (VTEP) shares exact scopes and physical source-port ownership. Reserved kernel/OVS/OVN/Cilium/Calico/NSX backends fail closed. A socket owned by another dataplane is outside this profile. Sources: [VXLAN connection](../../internal/netio/vxlan_conn.go), [inner validation](../../internal/netio/overlay_inner.go), [backend admission](../../internal/netio/overlay_backend.go), [overlay ownership](../../cmd/gobfd/overlay_owner.go).
 

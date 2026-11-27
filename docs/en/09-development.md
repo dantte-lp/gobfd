@@ -17,7 +17,7 @@ make dev-project
 make dev-ps
 ```
 
-`go.mod`, `tools/go.mod` and `deployments/docker/Containerfile.dev` pin Go 1.27.3. Build/test/lint commands execute in the dev container. `dev-ensure` validates its `/app` bind mount and can recreate a container whose checkout changed. `make up` can build images; it is not a read-only preflight.
+`go.mod`, `tools/go.mod` and `deployments/docker/Containerfile.dev` pin Go 1.27.4. Build/test/lint commands execute in the dev container. `dev-ensure` validates its `/app` bind mount and can recreate a container whose checkout changed. `make up` can build images; it is not a read-only preflight.
 
 Require access to the selected Podman engine and exclusive ownership of the Compose project before startup. Stop if the project or `/app` mount identifies another checkout. Repeating `dev-ensure` can recreate that selected service; recover only the owned project and preserve working-tree changes and failure artifacts before any separately authorized cleanup. [Makefile](../../Makefile) defines this lifecycle.
 

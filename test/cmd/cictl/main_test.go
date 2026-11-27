@@ -375,7 +375,7 @@ func writeSyftCommandFixture(t *testing.T, spec cirunner.CommandSpec) bool {
 	switch spec.Name + " " + spec.Args[0] {
 	case "go list":
 		if spec.Args[len(spec.Args)-1] == toolprofile.SyftModule {
-			data = map[string]any{"Path": toolprofile.SyftModule, "Version": "v1.55.0", "Sum": toolprofile.SyftSourceSum}
+			data = map[string]any{"Path": toolprofile.SyftModule, "Version": "v1.57.2", "Sum": toolprofile.SyftSourceSum}
 		} else {
 			data = map[string]any{
 				"Path": "github.com/dantte-lp/gobfd/tools/syft", "Main": true, "Dir": spec.Dir,
@@ -394,7 +394,7 @@ func writeSyftCommandFixture(t *testing.T, spec cirunner.CommandSpec) bool {
 		t.Fatal("missing Syft build output")
 	case "syft version":
 		data = map[string]any{
-			"application": "syft", "version": "1.55.0", "gitCommit": toolprofile.SyftSourceCommit, "gitDescription": "v1.55.0",
+			"application": "syft", "version": "1.57.2", "gitCommit": toolprofile.SyftSourceCommit, "gitDescription": "v1.57.2",
 			"goVersion": runtime.Version(), "compiler": runtime.Compiler, "platform": runtime.GOOS + "/" + runtime.GOARCH,
 		}
 	default:

@@ -52,7 +52,7 @@ func loadWorkloadInputs(t *testing.T) workloadInputs {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if build.GoVersion != "go1.27.3" || build.Path != "github.com/dantte-lp/gobfd/test/cmd/bfdload" {
+	if build.GoVersion != "go1.27.4" || build.Path != "github.com/dantte-lp/gobfd/test/cmd/bfdload" {
 		t.Fatalf("unexpected workload executable: Go=%s path=%s", build.GoVersion, build.Path)
 	}
 	file, err := os.Open(inputs.binary)

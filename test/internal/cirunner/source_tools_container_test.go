@@ -178,7 +178,8 @@ func TestSourceToolBatchPublishesBothToolsAfterIndependentWorkers(t *testing.T) 
 	want.WriteString("/existing\n")
 	for _, tool := range []string{syftName, goreleaserName} {
 		bin := filepath.Join(fixture.work, "install", "gobfd-"+tool, "bin")
-		want.WriteString(bin + "\n")
+		want.WriteString(bin)
+		want.WriteByte('\n')
 		if _, err := os.Stat(filepath.Join(bin, tool)); err != nil {
 			t.Fatalf("verified host tool is unavailable: %v", err)
 		}

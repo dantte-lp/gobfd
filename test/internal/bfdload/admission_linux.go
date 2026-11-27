@@ -88,7 +88,7 @@ func readAdmissionChain(ctx context.Context, root *os.Root, member string) ([]Cg
 
 func validateReferenceResources(environment Environment, chain []CgroupSnapshot, tasks uint64) error {
 	r := environment.Runtime
-	if r.Version != "go1.27.3" || r.GOOS != "linux" || r.GOMAXPROCS != referenceCPUs ||
+	if r.Version != "go1.27.4" || r.GOOS != "linux" || r.GOMAXPROCS != referenceCPUs ||
 		r.GCPercent != defaultGCPercentage || environment.Process.ObserverCPUAffinity < referenceCPUs || len(chain) == 0 {
 		return fmt.Errorf("compiler, GOMAXPROCS, GC policy, affinity or ancestors: %w", ErrAdmission)
 	}

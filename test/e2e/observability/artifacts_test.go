@@ -57,6 +57,7 @@ func buildOwnedImage(
 		return "", err
 	}
 	topology.armEvidenceCleanup(ctx, t)
+	//nolint:staticcheck // Retain core ProviderPodman without adding modules/podman.
 	provider, err := testcontainers.ProviderPodman.GetProvider()
 	if err != nil {
 		return "", fmt.Errorf("create explicit Podman image provider: %w", err)

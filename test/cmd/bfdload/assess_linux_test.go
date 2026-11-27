@@ -324,7 +324,7 @@ func assessmentEnvironment(at time.Time, member string, pid int) bfdload.Environ
 		StartedAtUTC: at, ElapsedNS: 1, Cgroup: &group,
 		Process: bfdload.ProcessSnapshot{PID: pid, RSSBytes: 64 << 20, Threads: 16, FDs: 2100, ObserverCPUAffinity: 8},
 		Runtime: bfdload.RuntimeSnapshot{
-			Version: "go1.27.3", GOOS: "linux", GOARCH: "amd64", GOMAXPROCS: 8,
+			Version: "go1.27.4", GOOS: "linux", GOARCH: "amd64", GOMAXPROCS: 8,
 			Goroutines: 2100, GCPercent: 100, MemoryLimitBytes: 6 << 30,
 			SchedulerLatency: bfdload.Histogram{BoundsSeconds: []string{"0", "0.001", "+Inf"}, Counts: []uint64{1000, 0}},
 			GCPauses:         bfdload.Histogram{BoundsSeconds: []string{"0", "0.001", "+Inf"}, Counts: []uint64{100, 0}},

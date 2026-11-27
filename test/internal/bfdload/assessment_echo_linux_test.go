@@ -158,7 +158,7 @@ func TestEchoAssessmentRejectsMoreInputsThanActualOwnerTransmits(t *testing.T) {
 	owner.Final.Delivery = owner.MeasurementFinal.Delivery
 	owner.Final.TerminalPackets = 20
 	environment := Environment{Runtime: RuntimeSnapshot{
-		Version: "go1.27.3", GOOS: "linux", GOARCH: "amd64", GOMAXPROCS: 2,
+		Version: "go1.27.4", GOOS: "linux", GOARCH: "amd64", GOMAXPROCS: 2,
 	}, Process: ProcessSnapshot{PID: 1}, Cgroup: &CgroupSnapshot{MemberPath: "/owner"}}
 	owner.Final.Environment = environment
 	environment.Process.PID, environment.Cgroup = 2, &CgroupSnapshot{MemberPath: "/peers"}

@@ -291,11 +291,18 @@ func (manifest publisherConsumerManifest) validate(profile goreleaserProfile) er
 
 func (manifest publisherConsumerManifest) validateReplacements(profile goreleaserProfile) error {
 	required := map[string]string{
-		profile.Module: "../source", toolprofile.RefmtModule: "../refmt-local",
-		"github.com/cilium/ebpf": "", "github.com/google/cel-go": "",
-		"github.com/labstack/echo/v4": "", "github.com/prometheus/prometheus": "",
-		"github.com/yuin/goldmark": "", "go.etcd.io/etcd/client/pkg/v3": "",
-		"go.etcd.io/etcd/server/v3": "", "go.etcd.io/etcd/v3": "",
+		profile.Module:                     "../source",
+		toolprofile.RefmtModule:            "../refmt-local",
+		"github.com/blakesmith/ar":         "github.com/sbomify/ar",
+		"github.com/cilium/ebpf":           "",
+		"github.com/google/cel-go":         "",
+		"github.com/gorilla/websocket":     "",
+		"github.com/labstack/echo/v4":      "",
+		"github.com/prometheus/prometheus": "",
+		"github.com/yuin/goldmark":         "",
+		"go.etcd.io/etcd/client/pkg/v3":    "",
+		"go.etcd.io/etcd/server/v3":        "",
+		"go.etcd.io/etcd/v3":               "",
 	}
 	if len(manifest.Replace) != len(required) {
 		return fmt.Errorf("publisher consumer replacement set differs from reviewed layout: %w", errInvalidConfig)
@@ -321,6 +328,12 @@ func (replacement publisherConsumerReplacement) validateBinding(version, target 
 	if target == "" {
 		if replacement.Old.Version != "" || replacement.New.Path != replacement.Old.Path || replacement.New.Version == "" {
 			return fmt.Errorf("publisher consumer security replacement changes module identity: %w", errInvalidConfig)
+		}
+		return nil
+	}
+	if target != "../source" && target != "../refmt-local" {
+		if replacement.Old.Version != "" || replacement.New.Path != target || replacement.New.Version == "" {
+			return fmt.Errorf("publisher consumer security module alias is unapproved: %w", errInvalidConfig)
 		}
 		return nil
 	}

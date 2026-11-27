@@ -411,18 +411,23 @@ func applyJitterWithRand(interval time.Duration, detectMult uint8, intN func(int
 	// RFC 5880 Section 6.8.7:
 	//   Normal: reduce by 0-25% (result 75-100%).
 	//   DetectMult == 1: reduce by 10-25% (result 75-90%).
-	var jitterPercent int
+	var reduction int64
 	if detectMult == 1 {
-		// 10 + rand(0..15) = reduction of 10-25%.
-		jitterPercent = 10 + intN(16)
+		// 10 + rand(0..15) = reduction of 10-25%; ceiling at 10% prevents
+		// sub-100ns durations from exceeding 90% at any sampled percentage.
+		jitterPercent := int64(10 + intN(16))
+		q := int64(interval) / 100
+		r := int64(interval) % 100
+		reduction = max(q*jitterPercent+(r*jitterPercent)/100, q*10+(r*10+99)/100)
 	} else {
 		// rand(0..25) = reduction of 0-25%.
-		jitterPercent = intN(26)
+		jitterPercent := int64(intN(26))
+		q := int64(interval) / 100
+		r := int64(interval) % 100
+		reduction = q*jitterPercent + (r*jitterPercent)/100
 	}
 
-	reduction := time.Duration(int64(interval) * int64(jitterPercent) / 100)
-
-	return interval - reduction
+	return interval - time.Duration(reduction)
 }
 
 // applyJitter is the session-local variant of ApplyJitter. It uses

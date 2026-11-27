@@ -542,10 +542,10 @@ clab_created=$$(clab_run timeout --kill-after=5s 60s podman create \
   --env GOMAXPROCS=2 --env GOMEMLIMIT=512MiB \
   --mount "type=bind,src=$$clab_context/src,dst=/src,ro=true" \
   --mount "type=bind,src=$$clab_context/out,dst=/out" \
-  docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c \
+  docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee \
   /usr/bin/timeout --signal=TERM --kill-after=5s 900s /bin/sh -eu -c \
   '"$$@"; go version -m /out/clabbootstrap > /out/build-info; \
-   grep -Fx "/out/clabbootstrap: go1.27.3" /out/build-info > /dev/null; \
+   grep -Fx "/out/clabbootstrap: go1.27.4" /out/build-info > /dev/null; \
    grep -Fx "$$(printf "\tpath\tgithub.com/dantte-lp/gobfd/test/cmd/clabbootstrap")" /out/build-info > /dev/null; \
    grep -Fx "$$(printf "\tbuild\tCGO_ENABLED=0")" /out/build-info > /dev/null; \
    grep -Fx "$$(printf "\tbuild\tGOOS=linux")" /out/build-info > /dev/null; \

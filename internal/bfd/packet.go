@@ -721,8 +721,13 @@ func unmarshalAuthSection(buf []byte, auth *AuthSection) error {
 	auth.Type = AuthType(buf[0])
 	auth.Len = buf[1]
 
+	if auth.Len < 2 {
+		return fmt.Errorf("auth section: len field %d below minimum 2: %w",
+			auth.Len, ErrInvalidLength)
+	}
+
 	// Validate that the auth section length fits in the available data.
-	if int(auth.Len) > len(buf)+HeaderSize {
+	if int(auth.Len) > len(buf) {
 		return fmt.Errorf("auth section: len field %d exceeds available data %d: %w",
 			auth.Len, len(buf), ErrAuthSectionTruncated)
 	}

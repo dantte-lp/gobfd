@@ -27,7 +27,7 @@ func haproxyImageFixture() (string, map[string]string) {
 		"org.opencontainers.image.version":  "fixture", "org.opencontainers.image.licenses": "Apache-2.0",
 		"org.opencontainers.image.title": "fixture", "org.opencontainers.image.description": "fixture",
 		"org.opencontainers.image.base.name":   "docker.io/library/debian:trixie-slim",
-		"org.opencontainers.image.base.digest": "sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad",
+		"org.opencontainers.image.base.digest": "sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0",
 		"io.gobfd.test":                        "haproxy-health-testcontainers",
 		"io.gobfd.run":                         "fixture-run",
 		"io.gobfd.image":                       "owned-child",

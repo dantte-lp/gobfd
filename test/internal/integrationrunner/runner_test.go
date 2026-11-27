@@ -429,7 +429,7 @@ func (f haproxyOwnedFixture) compose() int {
 		return 71
 	}
 	if haproxyFixtureArgument(f.arguments, 1) == "version" {
-		version := "5.6.1\n"
+		version := "5.8.0\n"
 		if os.Getenv("GOBFD_HAP_MODE") == "wrong provider" {
 			version = "5.5.0\n"
 		}

@@ -496,12 +496,25 @@ func TestHandlerRefusesAmbiguousOrOperatorModifiedDisablesAfterRestart(t *testin
 			return d == 1 && loadErr == nil && len(loaded) == 1
 		})
 		stop1()
+		info1, statErr := os.Stat(sockPath)
+		if statErr != nil {
+			t.Fatalf("stat initial speaker socket: %v", statErr)
+		}
+		retiredSock := sockPath + ".retired"
+		if renameErr := os.Rename(sockPath, retiredSock); renameErr != nil {
+			t.Fatalf("retain retired speaker socket inode: %v", renameErr)
+		}
+		t.Cleanup(func() { _ = os.Remove(retiredSock) })
 		stopSpeaker1()
 
 		// Simulated gobgpd restart creates a new socket inode with peer disabled by operator.
 		svc2 := newSimulatedGoBGPServer()
 		svc2.setPeer("198.18.42.11", gobgpapi.PeerState_ADMIN_STATE_DOWN)
 		serveUnixGoBGP(t, sockPath, svc2)
+		info2, statErr := os.Stat(sockPath)
+		if statErr != nil || os.SameFile(info1, info2) {
+			t.Fatalf("recreated speaker socket reused inode or failed stat: err=%v", statErr)
+		}
 
 		events2, stop2 := runHandlerInstance(t, target, stateFile)
 		events2 <- bfd.StateChange{

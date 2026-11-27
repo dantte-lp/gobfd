@@ -186,8 +186,8 @@ func assertLauncherTestCompiler(t *testing.T, state launcherTestState) {
 			continue
 		}
 		args := call.Arguments
-		if !slices.Contains(args, "docker.io/library/golang:1.27.3-trixie@sha256:"+
-			"604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c") ||
+		if !slices.Contains(args, "docker.io/library/golang:1.27.4-trixie@sha256:"+
+			"430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee") ||
 			!slices.Contains(args, "CGO_ENABLED=0") || !slices.Contains(args, "build") ||
 			!slices.Contains(args, "./test/cmd/clabbootstrap") {
 			t.Fatalf("cold compiler lacks pinned native controller build: %v", args)
