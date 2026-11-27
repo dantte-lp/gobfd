@@ -109,6 +109,7 @@ func BenchmarkReport(ctx context.Context, options BenchmarkReportOptions) error 
 		report.comparison.Baseline = release.Baseline
 		report.comparison.Version = release.Version
 		report.comparison.GeneratedAt = release.GeneratedAt.UTC().Format(time.RFC3339)
+		applyCrossMajorReleasePolicy(&report, release)
 	}
 	jsonReport, err := json.MarshalIndent(report.comparison, "", "  ")
 	if err != nil {
@@ -304,6 +305,44 @@ func validateBenchmarkReleaseContext(release *BenchmarkReleaseContext) error {
 		return fmt.Errorf("release benchmark context is invalid: %w", errInvalidConfig)
 	}
 	return nil
+}
+
+func applyCrossMajorReleasePolicy(report *benchmarkReportData, release *BenchmarkReleaseContext) {
+	baselineMajor, baselineOK := majorFromReleaseRef(release.Baseline)
+	currentMajor, currentOK := majorFromReleaseRef(release.Version)
+	if !baselineOK || !currentOK || baselineMajor == currentMajor {
+		return
+	}
+	reclassified := false
+	for index := range report.comparison.ComparisonRows {
+		if report.comparison.ComparisonRows[index].RegressionClassification == "critical" {
+			report.comparison.ComparisonRows[index].RegressionClassification = "reported"
+			reclassified = true
+		}
+	}
+	if !reclassified {
+		return
+	}
+	note := fmt.Sprintf(
+		"cross-major release baseline transition (v%s to v%s): critical sec/op deltas establish the v%s major baseline",
+		baselineMajor, currentMajor, currentMajor,
+	)
+	report.comparison.Notes = append(report.comparison.Notes, note)
+	if len(report.notes) > 0 && !bytes.HasSuffix(report.notes, []byte("\n")) {
+		report.notes = append(report.notes, '\n')
+	}
+	report.notes = append(report.notes, []byte(note+"\n")...)
+}
+
+func majorFromReleaseRef(value string) (string, bool) {
+	if !strings.HasPrefix(value, "v") {
+		value = "v" + value
+	}
+	parsed, ok := parseDeliveryReleaseTag(value)
+	if !ok {
+		return "", false
+	}
+	return parsed.Major, true
 }
 
 func parseBenchmarkCSV(data []byte, notesText string) (benchmarkComparison, error) {
