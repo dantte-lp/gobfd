@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/dantte-lp/gobfd/test/internal/repoquality"
@@ -82,14 +83,41 @@ func attachCodeProfile(report *repoquality.CodeReport, cpu, source string) error
 
 func readCodeArtifact(name string) ([]byte, error) {
 	const maximum = 16 << 20
-	info, err := os.Lstat(name)
+	root, base, pathErr := openCodeArtifactRoot(name)
+	if pathErr != nil {
+		return nil, pathErr
+	}
+	data, readErr := readBoundedRegularFile(root, base, maximum)
+	if err := errors.Join(readErr, root.Close()); err != nil {
+		return nil, fmt.Errorf("load code audit artifact: %w", err)
+	}
+	return data, nil
+}
+
+func openCodeArtifactRoot(name string) (*os.Root, string, error) {
+	if name == "" || strings.HasSuffix(name, "/") {
+		return nil, "", fmt.Errorf("invalid code audit artifact path: %w", os.ErrInvalid)
+	}
+	base := filepath.Base(name)
+	if base == "." || base == ".." || base == string(filepath.Separator) {
+		return nil, "", fmt.Errorf("invalid code audit artifact basename: %w", os.ErrInvalid)
+	}
+	root, err := os.OpenRoot(filepath.Dir(name))
+	if err != nil {
+		return nil, "", fmt.Errorf("open code audit artifact root: %w", err)
+	}
+	return root, base, nil
+}
+
+func readBoundedRegularFile(root *os.Root, base string, maximum int64) ([]byte, error) {
+	info, err := root.Lstat(base)
 	if err != nil {
 		return nil, fmt.Errorf("inspect code audit artifact: %w", err)
 	}
 	if !info.Mode().IsRegular() || info.Size() > maximum {
 		return nil, fmt.Errorf("code audit artifact is nonregular or oversized: %w", os.ErrInvalid)
 	}
-	file, err := os.Open(name)
+	file, err := root.Open(base)
 	if err != nil {
 		return nil, fmt.Errorf("open code audit artifact: %w", err)
 	}
