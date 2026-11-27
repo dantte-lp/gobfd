@@ -36,6 +36,8 @@ func run(ctx context.Context, arguments []string) error {
 		return runCommit(arguments[1:])
 	case "gopls":
 		return runGopls(ctx, arguments[1:])
+	case "code":
+		return runCode(ctx, arguments[1:])
 	default:
 		return fmt.Errorf("unknown repository quality command %q: %w", arguments[0], flag.ErrHelp)
 	}

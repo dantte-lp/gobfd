@@ -541,6 +541,8 @@ func runReleaseBenchmarkComparison(ctx context.Context, arguments []string, deps
 	}
 	if err := cirunner.ReleaseBenchmarkComparison(ctx, cirunner.ReleaseComparisonOptions{
 		Root: root, Version: deps.getenv("GITHUB_REF_NAME"), Runner: deps.specRunner,
+		RunnerTemp: deps.getenv("RUNNER_TEMP"), Repository: deps.getenv("GITHUB_REPOSITORY"),
+		SHA: deps.getenv("GITHUB_SHA"), Environment: deps.environ(),
 	}); err != nil {
 		return fmt.Errorf("compare release benchmarks: %w", err)
 	}

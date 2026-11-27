@@ -156,6 +156,7 @@ func BenchmarkManagerDemux1000Sessions(b *testing.B) {
 	for b.Loop() {
 		_, _ = mgr.Demux(pkt, meta)
 	}
+	reportDemuxDelivery(b, mgr)
 }
 
 // -------------------------------------------------------------------------
@@ -167,8 +168,8 @@ func BenchmarkManagerDemux1000Sessions(b *testing.B) {
 // channel send that Demux includes. This is the FAIR comparison with
 // C benchmarks, which measure only hashmap lookup without IPC.
 //
-// Compare with BenchmarkManagerDemux1000Sessions to isolate the channel
-// send overhead: demux_ns - lookup_ns = channel_send_ns.
+// Use this as a lookup control. Subtraction cannot isolate channel-send cost
+// because Demux also validates transport and accounts for admission outcomes.
 func BenchmarkManagerLookup1000Sessions(b *testing.B) {
 	logger := slog.New(slog.DiscardHandler)
 	sender := &discardSender{}

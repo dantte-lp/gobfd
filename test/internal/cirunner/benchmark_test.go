@@ -465,6 +465,15 @@ func TestBenchmarkOperationsRejectControlCharactersAndEscapingPaths(t *testing.T
 				})
 			},
 		},
+		{
+			name: "release commit is not a PR base branch",
+			run: func() error {
+				return BenchmarkPair(t.Context(), BenchmarkBaseOptions{
+					Root: root, RunnerTemp: t.TempDir(), Ref: strings.Repeat("a", 40),
+					Output: "old.txt", Regex: ".", Runner: runner,
+				}, "new.txt")
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

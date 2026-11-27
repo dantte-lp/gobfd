@@ -104,6 +104,15 @@ func TestListenerRebindFollowsRecreatedVeth(t *testing.T) {
 // rebindLocal to the listener end. It returns the listener end's ifindex.
 func createAddressedVeth(t *testing.T, nl *routeSocket) int {
 	t.Helper()
+	index := createRebindVeth(t, nl)
+	if err := nl.addIPAddress(index, rebindLocal(), rebindPrefixLen); err != nil {
+		t.Fatalf("add %s to %s: %v", rebindLocal(), rebindLinkA, err)
+	}
+	return index
+}
+
+func createRebindVeth(t *testing.T, nl *routeSocket) int {
+	t.Helper()
 	if err := nl.addVethPair(rebindLinkA, rebindLinkB); err != nil {
 		t.Fatalf("add veth pair: %v", err)
 	}
@@ -115,9 +124,6 @@ func createAddressedVeth(t *testing.T, nl *routeSocket) int {
 	iface, err := net.InterfaceByName(rebindLinkA)
 	if err != nil {
 		t.Fatalf("resolve %s: %v", rebindLinkA, err)
-	}
-	if err := nl.addIPAddress(iface.Index, rebindLocal(), rebindPrefixLen); err != nil {
-		t.Fatalf("add %s to %s: %v", rebindLocal(), rebindLinkA, err)
 	}
 	return iface.Index
 }

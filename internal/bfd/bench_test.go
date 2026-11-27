@@ -456,6 +456,49 @@ func BenchmarkRecvDecodeLookupEnqueue(b *testing.B) {
 		// Step 2: Demux (tier-1 discriminator lookup + channel send).
 		_, _ = mgr.Demux(&pkt, meta)
 	}
+	reportDemuxDelivery(b, mgr)
+}
+
+// Outcome fractions describe the overload mix without adding work to the timed loop.
+func reportDemuxDelivery(b *testing.B, mgr *bfd.Manager) {
+	b.Helper()
+	b.StopTimer()
+	mgr.Close()
+	var found, queued, full, closed, committed, abandoned, processed uint64
+	for _, row := range mgr.DeliveryCounters() {
+		if row.Source == bfd.DeliveryDemux && row.Outcome == bfd.DeliveryFound {
+			found = row.Count
+		}
+		if row.Source == bfd.DeliveryPacketAdmission {
+			if row.Outcome == bfd.DeliveryQueued {
+				queued = row.Count
+			}
+			if row.Outcome == bfd.DeliveryQueueFull {
+				full = row.Count
+			}
+			if row.Outcome == bfd.DeliveryClosed {
+				closed = row.Count
+			}
+		}
+		if row.Source == bfd.DeliveryPacketOwner {
+			processed += row.Count
+			if row.Outcome == bfd.DeliveryCommitted {
+				committed = row.Count
+			}
+			if row.Outcome == bfd.DeliveryAbandoned {
+				abandoned = row.Count
+			}
+		}
+	}
+	if found != uint64(b.N) || queued+full+closed != found || processed != queued {
+		b.Fatalf("delivery imbalance: attempts=%d found=%d queued=%d full=%d closed=%d processed=%d",
+			b.N, found, queued, full, closed, processed)
+	}
+	b.ReportMetric(float64(queued)/float64(b.N), "queued/op")
+	b.ReportMetric(float64(full)/float64(b.N), "queue-full/op")
+	b.ReportMetric(float64(closed)/float64(b.N), "closed/op")
+	b.ReportMetric(float64(committed)/float64(b.N), "committed/op")
+	b.ReportMetric(float64(abandoned)/float64(b.N), "abandoned/op")
 }
 
 // -------------------------------------------------------------------------

@@ -27,15 +27,16 @@ func (e *DrainIncompleteError) Error() string {
 }
 func (e *DrainIncompleteError) Unwrap() error { return e.Err }
 
-// Drain reasons that name the peer rather than a local failure.
+// Drain reasons distinguish local constraints from peer constraints.
 const (
-	drainReasonPassivePeerUnknown = "passive peer discriminator unknown"
-	drainReasonPeerSuppressesTX   = "peer suppresses periodic transmission"
+	drainReasonPassivePeerUnknown  = "passive peer discriminator unknown"
+	drainReasonPeerSuppressesTX    = "peer suppresses periodic transmission"
+	drainReasonLocalBindingPending = "local interface binding pending during drain"
 )
 
 // PeerAttributed reports whether the drain ran out of time only because the
 // peer never supplied a discriminator or suppresses periodic transmission
-// (RFC 5880 Section 6.8.7), with no local admission, commit, owner or write
+// (RFC 5880 Section 6.8.7), with no local admission, binding, commit, owner or write
 // failure.
 func (e *DrainIncompleteError) PeerAttributed() bool {
 	if e.SendErr != nil {
@@ -47,17 +48,22 @@ func (e *DrainIncompleteError) PeerAttributed() bool {
 }
 
 type adminDrainProgress struct {
-	firstSent   chan struct{}
-	firstSentAt time.Time
-	maxWindow   time.Duration
-	until       time.Time
-	sendErr     error
+	firstSent         chan struct{}
+	firstSentAt       time.Time
+	maxWindow         time.Duration
+	until             time.Time
+	sendErr           error
+	hadPendingBinding bool // Recovery does not restore peer-only attribution for this drain.
 }
 
 func (s *Session) drainAdminDown(ctx context.Context) error {
 	s.mu.Lock()
 	if s.adminDrain == nil {
-		s.adminDrain = &adminDrainProgress{firstSent: make(chan struct{})}
+		binding := s.receiveBinding.Load()
+		s.adminDrain = &adminDrainProgress{
+			firstSent:         make(chan struct{}),
+			hadPendingBinding: binding != nil && binding.pending,
+		}
 	}
 	progress := s.adminDrain
 	complete := s.adminDrainCompleteLocked()
@@ -131,9 +137,12 @@ func (s *Session) incompleteDrain(stage string, err error) error {
 		return nil
 	}
 	reason := "owner or caller stopped"
-	if s.role == RolePassive && s.remoteDiscr == 0 {
+	switch {
+	case s.adminDrain != nil && s.adminDrain.hadPendingBinding:
+		reason = drainReasonLocalBindingPending
+	case s.role == RolePassive && s.remoteDiscr == 0:
 		reason = drainReasonPassivePeerUnknown
-	} else if s.remoteMinRxInterval == 0 {
+	case s.remoteMinRxInterval == 0:
 		reason = drainReasonPeerSuppressesTX
 	}
 	var sendErr error

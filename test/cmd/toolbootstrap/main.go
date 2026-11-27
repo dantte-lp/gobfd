@@ -22,9 +22,14 @@ func main() {
 
 func run(ctx context.Context, arguments []string) error {
 	if len(arguments) == 0 {
-		return fmt.Errorf("usage: toolbootstrap <compose|podman-runtime|podman-e2e|apparmor-denials>: %w", flag.ErrHelp)
+		return fmt.Errorf("usage: toolbootstrap "+
+			"<compose|image-packages|dev-tools|podman-runtime|podman-e2e|apparmor-denials>: %w", flag.ErrHelp)
 	}
 	switch arguments[0] {
+	case "dev-tools":
+		return runDevelopmentTools(ctx, arguments[1:])
+	case "image-packages":
+		return runImagePackages(ctx, arguments[1:])
 	case "compose":
 		return runCompose(ctx, arguments[1:])
 	case "podman-runtime":
@@ -45,6 +50,26 @@ func run(ctx context.Context, arguments []string) error {
 	default:
 		return fmt.Errorf("unknown tool bootstrap command %q: %w", arguments[0], flag.ErrHelp)
 	}
+}
+
+func runDevelopmentTools(ctx context.Context, arguments []string) error {
+	if len(arguments) != 0 {
+		return fmt.Errorf("unexpected development tool arguments: %w", flag.ErrHelp)
+	}
+	if err := toolbootstrap.InstallDevelopmentTools(ctx, os.Environ()); err != nil {
+		return fmt.Errorf("install development tools: %w", err)
+	}
+	return nil
+}
+
+func runImagePackages(ctx context.Context, arguments []string) error {
+	if len(arguments) != 1 {
+		return fmt.Errorf("expected one image package profile: %w", flag.ErrHelp)
+	}
+	if err := toolbootstrap.InstallImagePackages(ctx, arguments[0]); err != nil {
+		return fmt.Errorf("install image packages: %w", err)
+	}
+	return nil
 }
 
 func runPodmanE2E(ctx context.Context) error {

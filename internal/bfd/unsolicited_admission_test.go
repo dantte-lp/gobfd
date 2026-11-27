@@ -253,7 +253,7 @@ func TestUnsolicitedIngressIndexAllowlist(t *testing.T) {
 	}
 	mgr := NewManager(slog.New(slog.DiscardHandler), WithUnsolicitedPolicy(policy))
 	t.Cleanup(mgr.Close)
-	before := len(mgr.unsolicited.interfaceNames)
+	before := len(*mgr.unsolicited.interfaceNames.Load())
 	for _, index := range []int{-1, 0, 18, 1000} {
 		meta := admissionMeta("192.0.2.10", "192.0.2.1")
 		meta.IfName = ""
@@ -263,7 +263,7 @@ func TestUnsolicitedIngressIndexAllowlist(t *testing.T) {
 			t.Fatalf("ingress index %d: error=%v, want ErrUnsolicitedInterfaceNotEnabled", index, err)
 		}
 	}
-	if after := len(mgr.unsolicited.interfaceNames); after != before {
+	if after := len(*mgr.unsolicited.interfaceNames.Load()); after != before {
 		t.Fatalf("ingress allowlist grew from %d to %d", before, after)
 	}
 	if got := len(mgr.Sessions()); got != 0 {

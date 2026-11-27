@@ -99,7 +99,7 @@ func TestReconcileBindsSingleHopSenderDevice(t *testing.T) {
 	mgr := bfd.NewManager(logger)
 	t.Cleanup(mgr.Close)
 	f := newUDPSenderFactory(config.SocketConfig{})
-	if err := applyBaseSessionCandidates(context.Background(), candidates, mgr, f, logger).Err(); err != nil {
+	if err := applyBaseSessionCandidates(context.Background(), candidates, mgr, f, logger, nil).Err(); err != nil {
 		t.Fatalf("applyBaseSessionCandidates: %v", err)
 	}
 	f.mu.Lock()

@@ -125,6 +125,13 @@ func (s *Session) handleControlCommand(
 		s.handlePathDown(ctx, txTimer, detectTimer)
 	case controlAdminDown:
 		s.handleAdminDown(ctx, cmd.receipt, txTimer, detectTimer)
+	case controlInterfaceBinding:
+		err := cmd.binding.apply(ctx, txTimer, detectTimer)
+		cmd.binding.result <- err
+		if err != nil {
+			s.recordDelivery(DeliveryControlOwner, DeliveryIgnored)
+			return
+		}
 	default:
 		s.logger.Warn("unknown session control command", slog.Int("kind", int(cmd.kind)))
 		s.recordDelivery(DeliveryControlOwner, DeliveryIgnored)
@@ -215,11 +222,10 @@ func (s *Session) periodicTxAllowed() bool {
 // to the configured size. The Length field in the BFD header retains the
 // actual (unpadded) protocol length; padding follows the BFD PDU.
 func (s *Session) sendControl(ctx context.Context) {
-	if !s.unsolicitedTxAllowed() && !s.pendingFinal {
+	if !s.controlSendAllowed() {
 		return
 	}
-	// RFC 5880 Section 6.8.7 also prohibits Final and direct FSM sends.
-	if s.role == RolePassive && s.remoteDiscr == 0 {
+	if !s.unsolicitedTxAllowed() && !s.pendingFinal {
 		return
 	}
 	final := s.pendingFinal
@@ -261,6 +267,12 @@ func (s *Session) sendControl(ctx context.Context) {
 	}
 	s.packetsSent.Add(1)
 	s.metrics.IncPacketsSent(s.peerAddr, s.localAddr)
+}
+
+func (s *Session) controlSendAllowed() bool {
+	binding := s.receiveBinding.Load()
+	// RFC 5880 Section 6.8.7 also gates Final and direct FSM sends.
+	return (binding == nil || !binding.pending) && (s.role != RolePassive || s.remoteDiscr != 0)
 }
 
 // -------------------------------------------------------------------------

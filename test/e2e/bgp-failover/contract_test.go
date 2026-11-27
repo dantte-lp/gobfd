@@ -92,6 +92,24 @@ func TestBGPFailoverGoBGPJSONContract(t *testing.T) {
 	}
 }
 
+func TestBGPFailoverGoBGPRIBRejectsInvalidObservation(t *testing.T) {
+	for _, input := range []string{
+		"null",
+		"[]",
+		`{"10.20.0.0/24":null}`,
+		`{"10.20.0.0/24":[]}`,
+		`{"10.20.0.0/24":[null]}`,
+		`{"10.20.0.0/24":[{"best":true}],"10.20.0.0/24":[]}`,
+	} {
+		t.Run(input, func(t *testing.T) {
+			present, err := parseGoBGPRIB(input, "10.20.0.0/24")
+			if err == nil || present {
+				t.Fatalf("invalid RIB accepted: present=%t error=%v", present, err)
+			}
+		})
+	}
+}
+
 func TestBGPFailoverWaitRejectsReadyWithError(t *testing.T) {
 	topology := new(bgpFailoverTopology)
 	calls := 0

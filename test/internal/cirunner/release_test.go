@@ -250,16 +250,46 @@ RecvDecodeFSM-8,2e-7,1%,2.1e-7,1%,+5.00%,p=0.01 n=6
 `
 	runner := &recordingSpecRunner{afterRun: func(spec CommandSpec) {
 		output := "benchmark comparison\n"
-		if containsArgument(spec.Args, "-format") {
+		switch {
+		case spec.Name == "gh" && containsArgument(spec.Args, "--paginate"):
+			output = `[[{"draft":false,"prerelease":false,"tag_name":"v0.6.1"}]]`
+		case spec.Name == "gh" && containsArgument(spec.Args, "repos/dantte-lp/gobfd/git/ref/tags/v0.6.1"):
+			output = `{"ref":"refs/tags/v0.6.1","object":{"type":"tag","sha":"` + strings.Repeat("c", 40) + `"}}`
+		case spec.Name == "gh":
+			output = `{"sha":"` + strings.Repeat("c", 40) +
+				`","tag":"v0.6.1","object":{"type":"commit","sha":"` + strings.Repeat("a", 40) + `"}}`
+		case spec.Name == "git":
+			var handled bool
+			output, handled = receiveFixtureGitCommand(t, spec)
+			if !handled {
+				output = strings.Repeat("a", 40) + "\n"
+				if spec.Dir == root && containsArgument(spec.Args, "HEAD^{commit}") {
+					output = strings.Repeat("b", 40) + "\n"
+				}
+			}
+		case containsArgument(spec.Args, "GOVERSION"):
+			output = "go1.27.4\n"
+		case containsArgument(spec.Args, "-race"):
+			assertReceiveOverlay(t, spec)
+			output = receiveRaceFixture
+		case containsArgument(spec.Args, "-benchtime=100ms"):
+			assertReceiveOverlay(t, spec)
+			output = requiredBenchmarkFixture
+		case containsArgument(spec.Args, "-format"):
 			output = csv
+		}
+		if spec.Stdout == nil {
+			return
 		}
 		if _, err := io.WriteString(spec.Stdout, output); err != nil {
 			t.Fatalf("write benchstat output: %v", err)
 		}
 	}}
 	generatedAt := time.Date(2026, time.September, 3, 12, 34, 56, 0, time.FixedZone("test", 3*60*60))
+	temporary := t.TempDir()
 	if err := ReleaseBenchmarkComparison(context.Background(), ReleaseComparisonOptions{
 		Root: root, Version: "v0.6.2", Now: func() time.Time { return generatedAt }, Runner: runner,
+		RunnerTemp: temporary, Repository: "dantte-lp/gobfd", SHA: strings.Repeat("b", 40),
 	}); err != nil {
 		t.Fatalf("ReleaseBenchmarkComparison() error = %v", err)
 	}
@@ -271,7 +301,7 @@ RecvDecodeFSM-8,2e-7,1%,2.1e-7,1%,+5.00%,p=0.01 n=6
 		}
 	}
 	htmlReport, err := os.ReadFile(filepath.Join(root, "reports/benchmarks/comparison-vs-baseline.html"))
-	if err != nil || !strings.Contains(string(htmlReport), "baseline vs v0.6.2") ||
+	if err != nil || !strings.Contains(string(htmlReport), "v0.6.1 vs v0.6.2") ||
 		!strings.Contains(string(htmlReport), "2026-09-03T09:34:56Z") {
 		t.Errorf("release comparison HTML lacks version/time context: %q, %v", htmlReport, err)
 	}
@@ -286,9 +316,20 @@ RecvDecodeFSM-8,2e-7,1%,2.1e-7,1%,+5.00%,p=0.01 n=6
 	if structured.Version != "v0.6.2" || structured.GeneratedAt != "2026-09-03T09:34:56Z" {
 		t.Errorf("release comparison context = %#v", structured)
 	}
+	var provenance releaseBenchmarkProvenance
+	if err := json.Unmarshal([]byte(readTestFile(t,
+		filepath.Join(root, "reports/benchmarks/comparison-provenance.json"))), &provenance); err != nil {
+		t.Fatal(err)
+	}
+	if len(provenance.RawSHA256) != 4 || provenance.RawSHA256["pair-baseline-race.txt"] == "" ||
+		provenance.RawSHA256["pair-current-race.txt"] == "" ||
+		provenance.Fixture.Contract != receiveFixtureContract || len(provenance.Fixture.SHA256) != 4 {
+		t.Fatalf("source provenance omitted receive race evidence: %+v", provenance.RawSHA256)
+	}
 	csv = strings.Replace(csv, "2.1e-7,1%,+5.00%", "2.4e-7,1%,+20.00%", 1)
 	if err := ReleaseBenchmarkComparison(t.Context(), ReleaseComparisonOptions{
 		Root: root, Version: "v0.6.2", Now: func() time.Time { return generatedAt }, Runner: runner,
+		RunnerTemp: temporary, Repository: "dantte-lp/gobfd", SHA: strings.Repeat("b", 40),
 	}); err == nil {
 		t.Error("critical release comparison succeeded with nil warning and skipped summary")
 	}
@@ -304,9 +345,33 @@ RecvDecodeFSM-8,2e-7,1%,2.1e-7,1%,+5.00%,p=0.01 n=6
 			t.Errorf("critical release artifact %s missing or empty: %v", name, err)
 		}
 	}
+	beforeDrift := runner.afterRun
+	var driftSamples int
+	runner.afterRun = func(spec CommandSpec) {
+		beforeDrift(spec)
+		if spec.Name == "go" && containsArgument(spec.Args, "-benchtime=100ms") {
+			driftSamples++
+			if driftSamples == 20 {
+				path := filepath.Join(root, receiveFixtureArtifact("baseline", 1))
+				if err := os.WriteFile(path, []byte("changed after race preflight\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+	if err := ReleaseBenchmarkComparison(t.Context(), ReleaseComparisonOptions{
+		Root: root, Version: "v0.6.2", Runner: runner, RunnerTemp: temporary,
+		Repository: "dantte-lp/gobfd", SHA: strings.Repeat("b", 40),
+	}); !errors.Is(err, errInvalidConfig) || !strings.Contains(err.Error(), "fixture evidence changed") {
+		t.Fatalf("fixture changed after race preflight was accepted: %v", err)
+	}
+	artifactInfo, statErr := os.Lstat(filepath.Join(root, "reports/benchmarks/comparison-vs-baseline.json"))
+	if statErr != nil || artifactInfo.Size() != 0 {
+		t.Fatalf("drifted fixture published a comparison: %v: %v", artifactInfo, statErr)
+	}
 }
 
-func TestReleaseBenchmarkComparisonClearsStaleOutputsWithoutBaseline(t *testing.T) {
+func TestReleaseBenchmarkComparisonClearsStaleOutputsWithoutPublishedStable(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -323,10 +388,18 @@ func TestReleaseBenchmarkComparisonClearsStaleOutputsWithoutBaseline(t *testing.
 			t.Fatal(err)
 		}
 	}
+	runner := &recordingSpecRunner{afterRun: func(spec CommandSpec) {
+		if spec.Stdout != nil {
+			if _, err := io.WriteString(spec.Stdout, `[[]]`); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}}
 	if err := ReleaseBenchmarkComparison(context.Background(), ReleaseComparisonOptions{
-		Root: root, Version: "v0.6.2", Runner: &recordingSpecRunner{},
-	}); err != nil {
-		t.Fatalf("ReleaseBenchmarkComparison() error = %v", err)
+		Root: root, Version: "v0.6.2", Runner: runner,
+		RunnerTemp: t.TempDir(), Repository: "dantte-lp/gobfd", SHA: strings.Repeat("b", 40),
+	}); err == nil {
+		t.Fatal("release comparison skipped a missing published stable baseline")
 	}
 	for _, name := range artifacts {
 		data, err := os.ReadFile(filepath.Join(directory, name))
@@ -342,6 +415,8 @@ func TestReleaseReportsArchiveContainsReportsAndBenchmarkEvidence(t *testing.T) 
 	root := t.TempDir()
 	for path, data := range map[string]string{
 		"reports/tests/unit-report.xml":                  "junit\n",
+		"reports/benchmarks/pair-baseline-race.txt":      "WARNING: DATA RACE\n",
+		"reports/benchmarks/pair-current-race.txt":       "",
 		"testdata/benchmarks/v0.6.2/benchmark-bfd.txt":   "bfd\n",
 		"testdata/benchmarks/v0.6.2/benchmark-netio.txt": "netio\n",
 		"testdata/benchmarks/v0.6.2/benchmark.txt":       "combined\n",
@@ -387,6 +462,7 @@ func TestReleaseReportsArchiveContainsReportsAndBenchmarkEvidence(t *testing.T) 
 	}
 	for _, name := range []string{
 		"reports/tests/unit-report.xml", "reports/benchmarks/benchmark-bfd.txt",
+		"reports/benchmarks/pair-baseline-race.txt", "reports/benchmarks/pair-current-race.txt",
 		"reports/benchmarks/benchmark-netio.txt", "reports/benchmarks/benchmark.txt",
 		"reports/benchmarks/meta.json",
 	} {

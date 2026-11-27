@@ -90,6 +90,9 @@ func (s *Session) handleRecvPacket(
 }
 
 func (s *Session) checkReceivedPacket(item recvItem) DeliveryOutcome {
+	if item.binding != nil && item.binding != s.receiveBinding.Load() {
+		return DeliveryAbandoned
+	}
 	pkt := item.pkt
 	// RFC 5880 Section 4.1 reserves zero Desired Min TX; accepting it with
 	// local Required Min RX zero would arm a zero-duration detection timer.

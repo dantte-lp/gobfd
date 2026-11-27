@@ -233,6 +233,9 @@ func (r *runner) runLinux(ctx context.Context) (runErr error) {
 	if err := r.command(ctx, commandTimeout, io.Discard, r.stderr, podmanCommand, "create",
 		"--name", containerName, "--network", "none", "--cap-drop", "ALL", "--cap-add", "NET_ADMIN",
 		"--cap-add", "NET_RAW", "--security-opt", "label=disable", "--workdir", "/report",
+		// The peer shares this isolated namespace; permit its IPv4 source over the veth wire.
+		"--sysctl", "net.ipv4.conf.all.accept_local=1", "--sysctl", "net.ipv4.conf.default.accept_local=1",
+		"--sysctl", "net.ipv4.conf.all.rp_filter=0", "--sysctl", "net.ipv4.conf.default.rp_filter=0",
 		"--cpus", "2", "--memory", "2g", "--memory-swap", "2g", "--pids-limit", "512", "--image-volume", "ignore",
 		"-e", "GOMAXPROCS=2", "-e", "GOMEMLIMIT=1500MiB",
 		"-e", "E2E_LINUX_REPORT_DIR=/report", "-e", "E2E_LINUX_BFD_BINARY=/report/gobfd",

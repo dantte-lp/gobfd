@@ -35,6 +35,7 @@ const (
 	componentControlBindings
 	componentEchoBindings
 	componentMicroBindings
+	componentControlTransport
 	componentCount
 )
 
@@ -58,7 +59,7 @@ func readinessServices() [4]readinessService {
 	return [...]readinessService{
 		{"", allReadinessComponents},
 		{bfdServiceName, 1<<sourceBase | 1<<sourceVXLAN | 1<<sourceGeneve |
-			1<<componentRuntime | 1<<componentControlBindings},
+			1<<componentRuntime | 1<<componentControlBindings | 1<<componentControlTransport},
 		{echoServiceName, echoReadinessComponents},
 		{microBFDServiceName, 1<<sourceMicro | 1<<componentRuntime | 1<<componentMicroBindings},
 	}
@@ -130,6 +131,13 @@ func (r *daemonReadiness) setNotReady(component readinessComponent) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.setLocked(1<<component, false)
+	r.publishLocked()
+}
+
+func (r *daemonReadiness) setControlTransportReady(ready bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.setLocked(1<<componentControlTransport, ready)
 	r.publishLocked()
 }
 

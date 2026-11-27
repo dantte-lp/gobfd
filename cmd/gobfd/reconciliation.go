@@ -167,6 +167,7 @@ type reconciliationCoordinator struct {
 	// Lock order is applyMu then statusMu. Snapshot readers take only
 	// statusMu; health and logging callbacks run after statusMu is released.
 	applyMu              sync.Mutex
+	resourceCheckMu      sync.Mutex
 	retainedCandidate    compiledControlSessionCandidate
 	hasRetainedCandidate bool
 	timerUpdates         []bfd.TimerUpdateRef
@@ -189,7 +190,8 @@ type reconciliationCoordinator struct {
 	// exists, so a non-empty overlay source fails as backend-unavailable.
 	overlays *overlayOwner
 	// checkAddresses is installed with the Linux runtime resource owners.
-	checkAddresses localAddressAvailabilityChecker
+	checkAddresses    localAddressAvailabilityChecker
+	refreshTransports func(func() error) error
 }
 
 func newReconciliationCoordinator(
@@ -290,10 +292,62 @@ func (c *reconciliationCoordinator) withListeners(apply sourceApplyFunc) sourceA
 // checkListenerBindings rebinds listeners of recreated interfaces and
 // re-evaluates the binding readiness.
 func (c *reconciliationCoordinator) checkListenerBindings(interfaces interfaceInventory) error {
-	if c.listeners == nil {
-		return c.readiness.checkBindings(interfaces)
+	c.resourceCheckMu.Lock()
+	defer c.resourceCheckMu.Unlock()
+	var listenerCheckMu sync.Mutex
+	finished := false
+	checkListeners := func() error {
+		listenerCheckMu.Lock()
+		defer listenerCheckMu.Unlock()
+		if finished {
+			return bfd.ErrInterfaceUnresolved
+		}
+		return c.checkControlListeners(interfaces)
 	}
-	return c.listeners.checkBindings(interfaces)
+	var transportErr error
+	if c.refreshTransports != nil {
+		transportErr = c.refreshTransports(checkListeners)
+	}
+	// Join an owner check that outlived refresh cancellation before publishing.
+	listenerCheckMu.Lock()
+	finished = true
+	listenerErr := c.checkControlListeners(interfaces)
+	listenerCheckMu.Unlock()
+	if c.refreshTransports != nil {
+		c.readiness.setControlTransportReady(transportErr == nil && listenerErr == nil)
+	}
+	return errors.Join(transportErr, listenerErr)
+}
+
+func (c *reconciliationCoordinator) checkControlListeners(interfaces interfaceInventory) error {
+	var err error
+	if c.listeners == nil {
+		err = c.readiness.checkBindings(interfaces)
+	} else {
+		err = c.listeners.checkBindings(interfaces)
+	}
+	c.readiness.mu.Lock()
+	ready := c.readiness.ready&(1<<componentControlBindings) != 0
+	c.readiness.mu.Unlock()
+	if !ready {
+		return errors.Join(bfd.ErrInterfaceUnresolved, err)
+	}
+	return err
+}
+
+func (c *reconciliationCoordinator) watchSessionBindings(ctx context.Context, mgr *bfd.Manager) {
+	c.refreshTransports = func(beforeCommit func() error) error {
+		pending, err := mgr.RefreshInterfaceBindings(ctx, func() {
+			c.readiness.setNotReady(componentControlTransport)
+		}, beforeCommit)
+		if pending != 0 || mgr.InterfaceBindingPending() {
+			return errors.Join(bfd.ErrInterfaceUnresolved, err)
+		}
+		if err != nil {
+			return fmt.Errorf("refresh session transports: %w", err)
+		}
+		return nil
+	}
 }
 
 func (c *reconciliationCoordinator) apply(
@@ -705,7 +759,7 @@ func applyCompiledSourceWithInterfaceChecker(
 	switch source {
 	case sourceBase:
 		return sourceResultFromBFD(applyBaseSessionCandidates(
-			ctx, candidate.base, mgr, sf, logger,
+			ctx, candidate.base, mgr, sf, logger, listeners,
 		))
 	case sourceEcho:
 		return sourceResultFromBFD(applyEchoSessionCandidates(

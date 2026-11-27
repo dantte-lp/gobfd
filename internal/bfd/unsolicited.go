@@ -134,7 +134,7 @@ type UnsolicitedSessionDefaults struct {
 // unsolicitedState tracks runtime state for unsolicited session management.
 type unsolicitedState struct {
 	policy         *UnsolicitedPolicy
-	interfaceNames map[int]string
+	interfaceNames atomic.Pointer[map[int]string]
 	sessionCount   atomic.Int32
 
 	// connectedPrefix returns the subnets of every host interface address
@@ -156,13 +156,14 @@ func newUnsolicitedState(policy *UnsolicitedPolicy) *unsolicitedState {
 			names[cfg.IfIndex] = name
 		}
 	}
-	return &unsolicitedState{
+	state := &unsolicitedState{
 		policy:          policy,
-		interfaceNames:  names,
 		connectedPrefix: systemConnectedPrefixes,
 		admitTokens:     unsolicitedAdmissionBurst,
 		admitLast:       time.Now(),
 	}
+	state.interfaceNames.Store(&names)
+	return state
 }
 
 func (us *unsolicitedState) checkInterfacePolicy(srcAddr netip.Addr, ifName string) error {

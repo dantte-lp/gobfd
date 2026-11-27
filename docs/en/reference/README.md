@@ -7,6 +7,7 @@ References state implementation boundaries and source contracts. Procedures are 
 | Reference | Content |
 |:---|:---|
 | [Documentation standard](documentation-standard.md) | Prose, Markdown, diagrams, sources, translation and publication boundaries |
+| [Code quality standard](code-quality-standard.md) | RFC-CQ-0001: naming, idempotency classes, dependency audit and measurement boundaries |
 | [Production contract](production-contract.md) | Normative product scope, ownership, security and scale acceptance |
 | [Timer transactions](timer-transactions.md) | Source contract for bounded configuration-owned timer changes |
 | [Design records](design-records.md) | Dated decisions, historical baselines and their canonical owners |

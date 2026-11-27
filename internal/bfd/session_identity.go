@@ -183,11 +183,10 @@ func canonicalTransportScope(scope TransportScope) TransportScope {
 }
 
 func packetTransportScope(scope TransportScope) TransportScope {
-	scope = canonicalTransportScope(scope)
 	if scope.Kind != TransportScopeVXLAN && scope.Kind != TransportScopeGeneve {
 		return TransportScope{}
 	}
-	return scope
+	return canonicalTransportScope(scope)
 }
 
 func sessionKeyFromConfig(cfg SessionConfig) (SessionKey, error) {

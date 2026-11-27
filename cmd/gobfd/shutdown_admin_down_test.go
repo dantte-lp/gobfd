@@ -148,3 +148,34 @@ func TestGracefulShutdownKeepsLocalDrainErrorBesidePeerWarning(t *testing.T) {
 		}
 	})
 }
+
+func TestLocalDrainErrorsKeepsBindingHistory(t *testing.T) {
+	t.Parallel()
+	for _, withPeer := range []bool{false, true} {
+		t.Run(map[bool]string{false: "local", true: "local and peer"}[withPeer], func(t *testing.T) {
+			t.Parallel()
+			var logs bytes.Buffer
+			logger := slog.New(slog.NewTextHandler(&logs, nil))
+			local := &bfd.DrainIncompleteError{
+				Stage: "notification window", Reason: "local interface binding pending during drain",
+				Err: context.DeadlineExceeded,
+			}
+			peer := &bfd.DrainIncompleteError{
+				Stage: "transmission", Reason: "passive peer discriminator unknown",
+				Err: context.DeadlineExceeded,
+			}
+			var input error = local
+			if withPeer {
+				input = errors.Join(local, peer)
+			}
+			result := localDrainErrors(logger, input)
+			if !errors.Is(result, local) || !errors.Is(result, context.DeadlineExceeded) || errors.Is(result, peer) {
+				t.Fatalf("shutdown classification=%v, want only local binding error", result)
+			}
+			if strings.Contains(logs.String(), local.Reason) ||
+				withPeer && !strings.Contains(logs.String(), peer.Reason) {
+				t.Fatalf("unexpected peer-only warnings: %s", logs.String())
+			}
+		})
+	}
+}

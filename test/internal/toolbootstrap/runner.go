@@ -12,7 +12,10 @@ import (
 	"time"
 )
 
-const commandWaitDelay = 5 * time.Second
+const (
+	commandWaitDelay = 5 * time.Second
+	aptGetCommand    = "apt-get"
+)
 
 var errCommandNotAllowed = errors.New("bootstrap command is not allowlisted")
 
@@ -39,7 +42,7 @@ func verifyJQ(ctx context.Context, runner outputRunner) error {
 
 func commandPath(name string) (string, error) {
 	switch name {
-	case "jq", "podman", "sudo":
+	case "jq", "podman", "sudo", aptGetCommand, "addgroup", "adduser", "go":
 	default:
 		return "", fmt.Errorf("resolve bootstrap command %q: %w", name, errCommandNotAllowed)
 	}

@@ -386,7 +386,7 @@ func TestListenerOwnerRebindsRecreatedInterface(t *testing.T) {
 	owner, _ := newTestListenerOwner(t, coordinator.readiness, opener, inventory)
 	var rebinds int
 	var rebindErr error
-	owner.rebind = func(*netio.Listener) error {
+	owner.rebind = func(*netio.Listener, int) error {
 		rebinds++
 		return rebindErr
 	}

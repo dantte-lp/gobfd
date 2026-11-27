@@ -101,17 +101,7 @@ func buildReleaseNotes(
 	root, owner, repository string,
 	current canonicalReleaseVersion,
 ) (string, error) {
-	response, err := runReleasePreflightCommand(ctx, runner, CommandSpec{
-		Name: "gh",
-		Args: []string{
-			"api", "--paginate", "repos/" + owner + "/" + repository + "/releases?per_page=100", "--slurp",
-		},
-		Dir: root,
-	}, "list published releases for release notes")
-	if err != nil {
-		return "", err
-	}
-	previousTag, err := selectPreviousRelease(response, current.Tag)
+	previousTag, err := previousPublishedRelease(ctx, runner, root, owner, repository, current.Tag, nil)
 	if err != nil {
 		return "", err
 	}
@@ -132,6 +122,20 @@ func buildReleaseNotes(
 		return "", fmt.Errorf("release notes exceed the bounded non-empty contract: %w", errInvalidConfig)
 	}
 	return notes, nil
+}
+
+func previousPublishedRelease(
+	ctx context.Context, runner SpecRunner, root, owner, repository, currentTag string, environment []string,
+) (string, error) {
+	response, err := runReleasePreflightCommand(ctx, runner, CommandSpec{
+		Name: "gh",
+		Args: []string{"api", "--paginate", "repos/" + owner + "/" + repository + "/releases?per_page=100", "--slurp"},
+		Dir:  root, Env: environment,
+	}, "list published releases")
+	if err != nil {
+		return "", err
+	}
+	return selectPreviousRelease(response, currentTag)
 }
 
 func selectPreviousRelease(data []byte, currentTag string) (string, error) {

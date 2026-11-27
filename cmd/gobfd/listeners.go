@@ -100,7 +100,7 @@ type listenerOwner struct {
 	closed    bool
 
 	open           func(netio.ListenerConfig) (*netio.Listener, error)
-	rebind         func(*netio.Listener) error
+	rebind         func(*netio.Listener, int) error
 	interfaces     interfaceInventory
 	readBufferSize int // startup-owned socket.read_buffer_size for API listeners
 
@@ -119,7 +119,7 @@ func newListenerOwner(
 	return &listenerOwner{
 		listeners:      make(map[listenerKey]*ownedListener),
 		open:           netio.NewListener,
-		rebind:         (*netio.Listener).RebindDevice,
+		rebind:         (*netio.Listener).RebindDeviceTo,
 		interfaces:     net.Interfaces,
 		readBufferSize: readBufferSize,
 		delivery:       mgr,
@@ -373,7 +373,7 @@ func (o *listenerOwner) checkBindings(interfaces interfaceInventory) error {
 		if index < 0 || current[index].Index == owned.ifIndex {
 			continue
 		}
-		if err := o.rebind(owned.ln); err != nil {
+		if err := o.rebind(owned.ln, current[index].Index); err != nil {
 			if !owned.rebindFailed {
 				o.logger.Warn("BFD listener rebind failed; binding stays not ready",
 					slog.String("listener", key.String()), slog.String("error", err.Error()))

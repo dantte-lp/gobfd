@@ -2,16 +2,17 @@
 
 [Russian translation](../ru/roadmap.md).
 
-Snapshot: **2026-10-30**. This page records the technical acceptance boundary;
+Snapshot: **2026-11-27**. This page records the technical acceptance boundary;
 it does not authorize publication. Use the documentation at the candidate's
 commit and the applicable release-line contract.
 
 ## Source baseline
 
-Runtime integration baseline:
-[`eae8f0636055de8ac4714199e27ff0c9d18b9859`](https://github.com/dantte-lp/gobfd/commit/eae8f0636055de8ac4714199e27ff0c9d18b9859),
-branch `dev`. All 11 reviewed PRs are merged and their topic branches are
-retired. Stable branches, release tags and backup refs are preserved.
+Release-line integration baseline:
+[`6f0efd108c7a66f291818063e2c447c676ef0dd8`](https://github.com/dantte-lp/gobfd/commit/6f0efd108c7a66f291818063e2c447c676ef0dd8),
+branch `release/v1.0` (incorporating [`eae8f0636055de8ac4714199e27ff0c9d18b9859`](https://github.com/dantte-lp/gobfd/commit/eae8f0636055de8ac4714199e27ff0c9d18b9859)
+from `dev`, Go `1.27.4`, GoBGP `v4.11.0`, ADR-0013 Unix restart ownership, RFC 9747 slow Echo pacing, and reconciled post-`alpha.1` streams).
+Stable branches, release tags and backup refs are preserved.
 No release tag or publication follows from source integration.
 
 ## Stable v1 acceptance
@@ -73,6 +74,7 @@ contracts. Preserve existing v0.6 assets and tags.
 
 The previous accumulated status and exact receipts remain available at
 [the integration baseline](https://github.com/dantte-lp/gobfd/blob/eae8f0636055de8ac4714199e27ff0c9d18b9859/docs/en/roadmap.md).
-Dated audits remain in [the retrospective](audits/2026-10-26-release-retrospective.md)
+Dated audits remain in [the 2026-11-27 retrospective](audits/2026-11-27-release-retrospective.md),
+[the 2026-10-26 retrospective](audits/2026-10-26-release-retrospective.md)
 and [external-audit reconciliation](gist-audit-reconciliation.md). Historical
 results are not fresh measurements of the current candidate.

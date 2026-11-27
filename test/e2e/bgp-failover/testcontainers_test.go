@@ -25,6 +25,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/dantte-lp/gobfd/test/internal/containertest"
+	"github.com/dantte-lp/gobfd/test/internal/interopcheck"
 	"github.com/dantte-lp/gobfd/test/internal/interopproject"
 	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
@@ -682,12 +683,7 @@ func (topology *bgpFailoverTopology) goBGPRouteExists(ctx context.Context) (bool
 }
 
 func parseGoBGPRIB(output, prefix string) (bool, error) {
-	var destinations map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(output), &destinations); err != nil {
-		return false, fmt.Errorf("parse GoBGP v4 RIB JSON: %w", err)
-	}
-	_, exists := destinations[prefix]
-	return exists, nil
+	return interopcheck.GoBGPRouteExists([]byte(output), prefix)
 }
 
 func (topology *bgpFailoverTopology) writeEvidence() error {

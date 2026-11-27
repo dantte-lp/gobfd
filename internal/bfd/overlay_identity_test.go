@@ -123,6 +123,13 @@ func TestOverlayDiscriminatorDemuxValidatesExactTunnelBinding(t *testing.T) {
 	if _, err := mgr.DemuxWithWire(*pkt, meta, nil); err != nil {
 		t.Fatalf("DemuxWithWire(exact tunnel): %v", err)
 	}
+	meta.TransportScope.OuterPeerAddr = netip.MustParseAddr("::ffff:198.51.100.10")
+	meta.TransportScope.OuterLocalAddr = netip.MustParseAddr("::ffff:198.51.100.20")
+	meta.TransportScope.InnerPeerAddr = netip.MustParseAddr("::ffff:192.0.2.10")
+	meta.TransportScope.InnerLocalAddr = netip.MustParseAddr("::ffff:192.0.2.20")
+	if outcome, err := mgr.DemuxWithWire(*pkt, meta, nil); outcome != DeliveryQueued || err != nil {
+		t.Fatalf("DemuxWithWire(mapped tunnel) = %s, %v; want Queued", outcome, err)
+	}
 }
 
 func TestBaseDiscriminatorDemuxRejectsOverlayTransport(t *testing.T) {
@@ -153,6 +160,13 @@ func TestBaseDiscriminatorDemuxRejectsOverlayTransport(t *testing.T) {
 	}
 	if _, err := mgr.DemuxWithWire(*pkt, meta, nil); !errors.Is(err, ErrDemuxNoMatch) {
 		t.Fatalf("DemuxWithWire(overlay transport) error = %v, want ErrDemuxNoMatch", err)
+	}
+	meta.TransportScope.OuterPeerAddr = netip.MustParseAddr("::ffff:198.51.100.10")
+	for _, kind := range []TransportScopeKind{TransportScopeBase, TransportScopeMicroBFD} {
+		meta.TransportScope.Kind = kind
+		if outcome, err := mgr.DemuxWithWire(*pkt, meta, nil); outcome != DeliveryQueued || err != nil {
+			t.Fatalf("DemuxWithWire(non-overlay kind %d) = %s, %v; want Queued", kind, outcome, err)
+		}
 	}
 }
 

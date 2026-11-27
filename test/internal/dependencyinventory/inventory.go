@@ -1892,9 +1892,11 @@ func selectedModuleGraph(ctx context.Context, root string, graph ModuleGraph) ([
 	args = append(args, "-m", "-json", "all")
 	command := exec.CommandContext(ctx, "go", args...)
 	command.Dir = root
-	output, err := command.CombinedOutput()
+	var diagnostics bytes.Buffer
+	command.Stderr = &diagnostics
+	output, err := command.Output()
 	if err != nil {
-		return nil, fmt.Errorf("list %s selected module graph: %w: %s", graph.ID, err, strings.TrimSpace(string(output)))
+		return nil, fmt.Errorf("list %s selected module graph: %w: %s", graph.ID, err, strings.TrimSpace(diagnostics.String()))
 	}
 	return parseSelectedModuleGraph(output, graph.ID)
 }
