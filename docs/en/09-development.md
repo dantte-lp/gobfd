@@ -141,11 +141,11 @@ Build limits are 2 CPU/2 GiB. Runtime limits are 1 CPU/1 GiB, no swap, 1024 PIDs
 | `vulncheck-strict`, `osv-scan-strict` | Raw scans without project exceptions |
 | `proto-gen`, `proto-lint` | Regenerate or lint protobuf definitions |
 | `proto-breaking`, `proto-update` | Compare against local master, or update Buf dependencies |
-| `dependency-inventory`, `dependency-inventory-check` | Generate the selected inventory or check it offline |
+| `dependency-inventory`, `dependency-inventory-check` | Generate the selected inventory or check snapshot agreement |
 | `tidy`, `download` | Tidy or download runtime dependencies |
 | `clean` | Remove daemon/CLI and Go caches; retains bridge binaries |
 
-CI checks protobuf drift and uses the exact fetched PR base commit for breaking checks; local `proto-breaking` uses `master`. `tools/go.mod` owns developer tools. Keep runtime and tools graphs separate. Inventory generation records observations; its offline check proves agreement with the snapshot, not upstream currency, security or release adoption. Advisory exceptions have exact module, scanner, reachability, owner and expiry boundaries; see the [risk register](reference/dependency-risk.md).
+CI checks protobuf drift and uses the exact fetched PR base commit for breaking checks; local `proto-breaking` uses `master`. `tools/go.mod` owns developer tools. Keep runtime and tools graphs separate. Inventory generation records observations; its snapshot check proves agreement with the recorded inventory (downloading uncached Go modules when needed), not upstream currency, security or release adoption. Advisory exceptions have exact module, scanner, reachability, owner and expiry boundaries; see the [risk register](reference/dependency-risk.md).
 
 ## Tool execution boundaries
 
@@ -154,7 +154,7 @@ CI checks protobuf drift and uses the exact fetched PR base commit for breaking 
 | Routine Make targets | Go inside selected dev container |
 | Five E2E aggregates | Socket-free digest-pinned compiler builds ignored `bin/e2ectl`; host runs that exact binary |
 | Five Containerlab launchers | Fresh private controller build without engine socket; separate race-payload compiler and Debian runtime |
-| Retained `interopctl`/integration bootstrap and `benchmark-report` | Direct `go run`; require explicit pinned container execution or the exact pinned host compiler |
+| Local `cictl` wrappers (`dev-ensure`, `benchmark*`) and retained `interopctl`/`integrationctl` bootstrap | Direct `go run`; require explicit pinned container execution or the exact pinned host compiler |
 | `lint-ci` and CI commands | Direct Go entry points intended for the pinned CI container |
 | `semgrep*` | Selected host executable |
 

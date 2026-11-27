@@ -1,6 +1,6 @@
 # ADR-0007: Фазы нагрузки и конечный учёт пакетов
 
-[English original](../../en/adr/0007-workload-phase-accounting.md).
+[Английский оригинал](../../en/adr/0007-workload-phase-accounting.md).
 
 <a id="adr-0007-фазы-workload-и-конечный-учёт-пакетов"></a>
 

@@ -120,7 +120,7 @@ The [importer](../../test/internal/integrationrunner/runner.go) and [containerd 
 The [archive verifier](../../test/internal/integrationrunner/kubernetes_archive.go) requires one Docker manifest with the exact run alias, a config SHA-256 equal to the selected source ID, and ordered uncompressed layer hashes equal to `rootfs.diff_ids`. It rejects duplicate members, ambiguous JSON, unsafe paths, missing data, truncated framing and hybrid OCI layouts. Legacy `layer.tar` links may target only verified physical layers; corresponding `VERSION`, `json` and `repositories` metadata remain supported. Verification streams file contents without extraction. Before import, the runner writes `archive-<source-id>.json` beside `images.json`, recording schema, alias, source ID, whole-archive SHA-256 and byte count without replacing an existing record. Preserve these records after failure. Sources: [export format and legacy links](https://github.com/containers/image/blob/df7e80d2d19872b61f352a8a182ec934dc0c2346/docker/internal/tarfile/writer.go), [uncompressed layer export](https://github.com/containers/image/blob/df7e80d2d19872b61f352a8a182ec934dc0c2346/docker/internal/tarfile/dest.go).
 
 | Archive input | Limit |
-|:---|:---|
+|:---|---:|
 | File size | 4 GiB |
 | Members | 4096 |
 | Manifest JSON | 1 MiB |

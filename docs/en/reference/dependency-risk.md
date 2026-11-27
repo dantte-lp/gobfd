@@ -22,7 +22,7 @@ Inventory success does not establish security. A module finding, imported affect
 
 The repository pin is github.com/osrg/gobgp/v4 v4.11.0; handwritten integration imports only `github.com/osrg/gobgp/v4/api`. The historical `GO-2026-4736` (`CVE-2026-30405` / `GHSA-4p9m-8gc4-rw2h`) module-only exception was retired after upstream fix coverage and the Go vulnerability database update eliminated the inventory finding. Keep GoBGP on loopback/trusted management networks and keep `github.com/osrg/gobgp/v4/pkg/server` excluded from the build graph.
 
-The v0.6 line retains GoBGP v3.37.0 and its separately accepted support boundary until 2026-12-31. Verify delivery on that supported branch separately. Dev acceptance does not transfer to that line. The v3/v4 RPC service contracts differ; use the matching daemon.
+The v0.6 line retains GoBGP v3.37.0 and its separately accepted support boundary until 2026-12-31. Verify delivery on that supported branch separately. Acceptance on `release/v1.0` or `dev` does not transfer to that line. The v3/v4 RPC service contracts differ; use the matching daemon.
 
 ### OpenPGP
 
@@ -41,7 +41,7 @@ Console is a build dependency of the CLI even when noninteractive commands do no
 
 The YAML migration records a historical upstream-path decision. Current archival/release status is not inferred from it. Remove the transitive path only when the final graph permits it; do not vendor another implementation pre-emptively.
 
-The retained x/net update addresses [GO-2026-6860](https://vuln.go.dev/ID/GO-2026-6860) and [GO-2026-6866](https://vuln.go.dev/ID/GO-2026-6866), without an allowlist entry. The separate Smallstep profile also selects v0.62.0. A pin is not proof that current scanner data is unchanged.
+The retained x/net update addresses [GO-2026-6860](https://vuln.go.dev/ID/GO-2026-6860) and [GO-2026-6866](https://vuln.go.dev/ID/GO-2026-6866), without an allowlist entry. The separate Smallstep profile retains v0.62.0. A pin is not proof that current scanner data is unchanged.
 
 ## Validate a candidate
 

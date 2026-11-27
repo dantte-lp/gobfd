@@ -9,7 +9,7 @@ commit and the applicable release-line contract.
 ## Source baseline
 
 Release-line integration baseline:
-[`e4f9c3b885606a9a941d8ac35ab5bcfd1dc2ad88`](https://github.com/dantte-lp/gobfd/commit/e4f9c3b885606a9a941d8ac35ab5bcfd1dc2ad88)
+[`816fc7e04d411c306fbe430a91a167cdb6481e81`](https://github.com/dantte-lp/gobfd/commit/816fc7e04d411c306fbe430a91a167cdb6481e81)
 on branch `release/v1.0` (incorporating
 [`eae8f0636055de8ac4714199e27ff0c9d18b9859`](https://github.com/dantte-lp/gobfd/commit/eae8f0636055de8ac4714199e27ff0c9d18b9859)
 from `dev`, Go `1.27.4`, GoBGP `v4.11.0`, ADR-0013 Unix restart ownership,
@@ -72,6 +72,7 @@ withdrawal command; client reaction is governed separately.
 |:---|:---|
 | `dev` | Next product line; source acceptance does not establish stable delivery |
 | `master` | Latest accepted stable state |
+| `release/v1.0` | Supported v1.0 public and GoBGP v4 dependency contract |
 | `release/v0.6` | Supported v0.6 public and GoBGP v3 dependency contract |
 
 [Release process](10-changelog.md) defines qualification, changelog,

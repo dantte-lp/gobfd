@@ -1,14 +1,18 @@
 # GoBFD
 
+<p align="center">
+  <img src="docs/assets/logo.png" alt="GoBFD mascot logo" width="220" />
+</p>
+
 GoBFD detects forwarding-path failures with Bidirectional Forwarding Detection
 ([RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880)). It exposes session
 state to routing and application integrations. Routing clients own route
 selection and withdrawal; BFD does not route traffic.
 
-This documentation describes `dev`. Use documentation at the deployed
-binary's commit. `master` contains the accepted stable state;
-`release/v0.6` preserves the v0.6 contract. The `dev` implementation has
-unfinished v1 runtime and wire qualification.
+This documentation describes the `release/v1.0` (`v1.0.0`) product line
+coupled to GoBGP `v4.11.0`. Use documentation at the deployed binary's commit.
+`master` contains the latest accepted stable state; `release/v0.6` preserves
+the v0.6 and GoBGP `v3.37.0` contract; `dev` integrates the next product line.
 
 ## Components
 
@@ -44,7 +48,7 @@ and routing clients to that owner; routing clients retain route ownership.
 2. Build the four binaries in the project environment.
 
 ```sh
-git clone --branch dev https://github.com/dantte-lp/gobfd.git
+git clone --branch release/v1.0 https://github.com/dantte-lp/gobfd.git
 cd gobfd
 make up
 make build

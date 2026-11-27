@@ -1,5 +1,7 @@
 # ADR-0010: Value ownership of BFD authentication metadata
 
+[Russian translation](../../ru/adr/0010-bfd-auth-value-ownership.md).
+
 | Field | Value |
 |:---|:---|
 | Status | Superseded by ADR-0011 |

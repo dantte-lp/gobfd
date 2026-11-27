@@ -1,35 +1,39 @@
-# ADR-0010: Владение authentication metadata по значению
+<a id="adr-0010-владение-authentication-metadata-по-значению"></a>
+
+# ADR-0010: Владение метаданными аутентификации BFD по значению
+
+[Английский оригинал](../../en/adr/0010-bfd-auth-value-ownership.md).
 
 | Поле | Значение |
 |:---|:---|
-| Status | Superseded by ADR-0011 |
-| Date | 2026-10-26 |
+| Статус | Заменено ADR-0011 |
+| Дата | 2026-10-26 |
 
 ## Контекст
 
-Allocated authentication metadata добавляет receive allocation. Pointer внутрь повторно используемого packet позволяет следующему decode менять shallow copies. Hash verification с заменой digest в received wire уничтожает input для последующей owner verification.
+Выделяемые в куче метаданные аутентификации добавляют выделение памяти на пути приёма. Указатель внутрь повторно используемого пакета позволяет последующему декодированию менять поверхностные копии. Проверка хеша, подменяющая дайджест в принятых с линии байтах, также разрушает входные данные для последующей проверки владельцем сессии.
 
 ## Решение
 
-Историческое решение использует value `ControlPacket.Auth` и один type-dependent slice `AuthSection.Data`. Полный zero value означает отсутствие; `IsZero` проверяет все поля. Marshal проверяет соответствие A-bit до записи; decode публикует auth после полной shape validation.
+Это историческое решение использует значение `ControlPacket.Auth` и один зависящий от типа срез `AuthSection.Data`. Полное нулевое значение означает отсутствие аутентификации; `IsZero` проверяет все поля. Marshal проверяет согласованность флага A до записи; декодирование публикует аутентификацию только после полной проверки структуры секции.
 
-Read-only `DemuxWithWire` и `Verify` передают packet values; `Sign` сохраняет mutable pointer. Scalar metadata и slice descriptor принадлежат копии; backing bytes остаются borrowed и immutable. Default/overlay receivers копируют полную authenticated datagram и выполняют reparse до возврата pooled input.
+Методы только для чтения `DemuxWithWire` и `Verify` передают значения пакета; `Sign` сохраняет изменяемый указатель. Скалярные метаданные и дескрипторы среза принадлежат каждой копии; базовый массив полезной нагрузки остаётся заимствованным и неизменяемым. Приёмники по умолчанию и приёмники overlay копируют полную аутентифицированную дейтаграмму и разбирают её заново до возврата входного буфера в пул.
 
-Hash verification копирует объявленный BFD Length в local scratch PDU 255 байт перед подстановкой key. Digest должен помещаться в Length, Length — в received wire. Transport padding исключается из hash boundary. Constant-time comparison и изменение replay state только после успеха сохраняются; success/failure не меняют received wire.
+Проверка хеша копирует только объявленную длину BFD Length в локальный временный PDU размером 255 байт перед подстановкой ключа. Дайджест должен помещаться в Length, а Length — в принятые с линии байты. Транспортное дополнение остаётся за пределами области хеширования. Сравнение за постоянное время и обновление состояния защиты от повторов только после успеха остаются обязательными; ни успех, ни отказ не меняют принятые с линии байты.
 
-[ADR-0011](0011-bfd-auth-inline-payload.md) заменяет borrowed slice на owned inline array и удаляет retained-wire reparse. Value transfer, immutable verification и complete-wire retention сохраняются. Current code следует ADR-0011; этот record не задаёт текущий payload representation.
+[ADR-0011](0011-bfd-auth-inline-payload.md) заменяет заимствованное хранилище среза на собственный встроенный массив и убирает повторный разбор сохранённых байтов с линии, сохраняя передачу по значению, неизменяемую проверку и удержание полных байтов с линии. Текущий код следует ADR-0011; эта запись не описывает текущее представление полезной нагрузки.
 
 ## Последствия
 
-Исторические local linux/amd64 samples дают authenticated decode 0 B/op и 0 allocs/op при 200000 iterations в трёх запусках. In-memory unauthenticated RX benchmark меняется с 176 B/2 allocs на 128 B/1 alloc; sockets и owner commit исключены.
+Исторические локальные выборки linux/amd64 показывают декодирование с аутентификацией 0 B/op и 0 allocs/op при 200000 итераций в трёх запусках. Микротест RX в памяти без аутентификации меняется со 176 B/2 allocs на 128 B/1 alloc без учёта сокетов и фиксации владельцем.
 
-Исторический layout: ControlPacket 40→64 байта, AuthSection 64→32 байта. Шестнадцать RX slots добавляют 384 байта queue elements на сессию. Это layout observations, а не per-packet heap либо RSS estimate. Native arm64, scale, latency distributions и release acceptance отдельны.
+Историческая компоновка меняет ControlPacket с 40 на 64 байта и AuthSection с 64 на 32 байта. Шестнадцать слотов RX добавляют 384 байта элементов очереди на сессию. Это наблюдения компоновки структур, а не оценка кучи на пакет или RSS. Нативный arm64, масштаб, распределения задержек и приёмка выпуска учитываются отдельно.
 
-Allocation/lifetime qualification должна включать immutable verification и unsolicited decoded-trigger regression. Документационное изменение не повторяет исторические измерения.
+Квалификация выделений и времени жизни должна включать неизменяемую проверку и регрессионный тест декодированного инициирующего пакета Unsolicited. Изменение документации не повторяет исторические измерения.
 
 ## Источники
 
-- [Текущий codec](../../../internal/bfd/packet.go), [аутентификация](../../../internal/bfd/auth.go).
-- [Ownership regression tests](../../../internal/bfd/packet_auth_storage_test.go).
+- [Текущий кодек](../../../internal/bfd/packet.go), [аутентификация](../../../internal/bfd/auth.go).
+- [Регрессионные тесты владения](../../../internal/bfd/packet_auth_storage_test.go).
 - [RFC 5880 §§4.1–4.4, 6.7](../../rfc/rfc5880.txt).
-- [Performance scope](../14-performance-analysis.md).
+- [Границы производительности](../14-performance-analysis.md).

@@ -21,15 +21,15 @@ The five aggregate launchers build bin/e2ectl in a socket-free pinned compiler a
 | Target | Runtime/input | Evidence/cleanup | Remaining boundary |
 |:---|:---|:---|:---|
 | e2e-routing | Compose base/BGP suites, 172.20/21 networks | Joined suite artifacts and merged PCAP; exact owner snapshots | Omits race and some independent profiles |
-| e2e-rfc | Legacy Compose, 172.22 network | Test JSON/log and best-effort capture/down | Fixed names, uncapped builds, no race |
-| e2e-overlay | Isolated prebuilt race test, network none, 2 CPU/2 GiB | JSON/log, synthetic CSV; best-effort runtime removal | Capture lifecycle and external cleanup readback required |
+| e2e-rfc | Guarded Compose with race, 172.22 network | Test JSON/log, required PCAP/CSV, exact container/image cleanup | Fixed container names; 9384 action path is not Cease/10 |
+| e2e-overlay | Isolated prebuilt race test, network none, 2 CPU/2 GiB/512 PIDs | JSON/log, synthetic CSV, runtime receipts and verified ID removal | Capture lifecycle remains external |
 | e2e-linux | Prebuilt race daemon/tests, isolated netns, 2 CPU/2 GiB/512 PIDs | Link/LAG/pending-lifecycle receipts | Fake sysfs/owner-policy checks do not qualify host integration |
 | e2e-vendor | Shared manifest/policy and image evidence | profiles/images/skip JSON; no NOS topology | Five retained-unavailable NOS profiles never execute |
 | interop-clab | Independently owned FRR-only Containerlab dual stack | Typed state, captured frames, private exact-ID receipts | Native lifecycle/compiler-engine acceptance open |
 
 Routing cleanup uses interopproject.Controller locks, fixed-name/label validation and exact resource snapshots. Its merge container has unique non-Compose ownership. Containerlab retains foreign-collision checks and historic cleanup receipts; cached NOS images do not enter execution discovery.
 
-Overlay cleanup [attempts `podman rm -f`](../internal/e2erunner/runner.go) for the run-named runtime before returning. Failure is logged without failing the target; removal has no post-state readback. Confirm exact run ownership and removal externally before claiming cleanup. The launcher provides no capture startup/readiness/join hook; see [overlay wire qualification](../../docs/en/09-development.md#overlay-wire-qualification).
+Overlay and Linux runtime cleanup in [runtime.go](../internal/e2erunner/runtime.go) verifies `io.gobfd.*` label ownership, records `runtime-plan.json`, `runtime-container.json`, `containers.json` and `containers.log`, removes the exact container ID with `podman rm -f`, verifies absence via `podman container exists` and fails the target on cleanup or readback error. The overlay launcher provides no external capture startup/readiness/join hook; see [overlay wire qualification](../../docs/en/09-development.md#overlay-wire-qualification).
 
 ## Integration examples
 
@@ -39,12 +39,12 @@ Overlay cleanup [attempts `podman rm -f`](../internal/e2erunner/runner.go) for t
 | int-bgp-failover-up/-logs/-down | Operational Compose example, guarded controller | Runtime observations | Requires owned lifecycle |
 | int-haproxy-testcontainers | Assertion-based report gate | Health behavior, capture and cleanup | Selected HAProxy path |
 | int-observability-testcontainers | Assertion-based report gate | Alert firing and recovery | Selected metric/alert path |
-| int-haproxy | Retained Compose demo via host Go runner | Displayed observations | Warning-only checks and obsolete sessions probe |
-| int-observability | Retained Compose demo via host Go runner | Displayed metrics/alerts | Warning-only observations; no S10 report |
+| int-haproxy | Guarded Compose demo via host Go runner | HTTP and `gobfdctl session list` assertions; warning-only capture | No S10 report directory |
+| int-observability | Guarded Compose demo via host Go runner | Displayed metrics/alerts | Warning-only HTTP/capture observations; no S10 report |
 | int-exabgp-anycast | Guarded Compose, host Go runner | Announce/withdraw/restore assertions | Not invoked by e2e-routing; no S10 report directory |
-| int-k8s | Existing k3s, host Go runner and local image import | Kubernetes resources/logs | Local-node import, label/probe gaps remain unqualified |
+| int-k8s | Existing k3s, host Go runner and lease-protected `containerd` gRPC import | Active Ready pod, CLI and `gobfd_gobgp_endpoint_compatible` assertions | Existing local single-node cluster only |
 
-Example -up/-logs/-down variants follow [Makefile](../../Makefile); Kubernetes has -up/-down only. int-k8s-down deletes namespace gobfd while preserving the cluster; require exact ownership and deletion authorization. ExaBGP cleanup retains built images.
+Example -up/-logs/-down variants follow [Makefile](../../Makefile); Kubernetes has -up/-down only. `int-k8s-down` deletes namespace `gobfd` while preserving the cluster; require exact ownership and deletion authorization. Guarded Compose lifecycles, including ExaBGP, remove run-owned service and builder-stage images on cleanup.
 
 ## CI and results
 

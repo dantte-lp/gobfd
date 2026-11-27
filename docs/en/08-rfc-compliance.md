@@ -2,7 +2,7 @@
 
 [Russian translation](../ru/08-rfc-compliance.md).
 
-This matrix describes source behavior on `dev`, not stable-release acceptance. An implemented function, a local fixture, an actual UDP/capture result and acceptance of the final candidate are separate evidence levels. [Interop](05-interop.md) and [performance](14-performance-analysis.md) retain qualification procedures and measurements; final-candidate qualification remains separate.
+This matrix describes source behavior on `release/v1.0`; it does not broaden the qualification boundaries below or substitute for release-acceptance evidence. An implemented function, a local fixture, an actual UDP/capture result and acceptance of the final candidate are separate evidence levels. [Interop](05-interop.md) and [performance](14-performance-analysis.md) retain qualification procedures and measurements; final-candidate qualification remains separate.
 
 BFD means Bidirectional Forwarding Detection; FSM means finite state machine. TX and RX denote transmission and reception. Generalized TTL Security Mechanism (GTSM) constrains received hop counts. PDU means protocol data unit, and MTU means maximum transmission unit. Seamless BFD (S-BFD), MPLS label-switched paths (LSPs), pseudowires (PWs) and Virtual Circuit Connectivity Verification (VCCV) have separate profiles.
 

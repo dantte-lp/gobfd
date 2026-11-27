@@ -1,6 +1,6 @@
 # ADR-0008: Граница экспериментального предварительного выпуска
 
-[English original](../../en/adr/0008-experimental-prerelease-boundary.md).
+[Английский оригинал](../../en/adr/0008-experimental-prerelease-boundary.md).
 
 <a id="adr-0008-граница-экспериментального-prerelease"></a>
 

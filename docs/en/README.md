@@ -1,8 +1,9 @@
 # GoBFD manual
 
 English is canonical. [Russian](../ru/README.md) mirrors the technical
-contract. Use pages from the deployed binary's commit: `dev`, `master` and
-`release/v0.6` have different delivery and compatibility boundaries.
+contract. Use pages from the deployed binary's commit: `release/v1.0`,
+`release/v0.6`, `master` and `dev` have different delivery and compatibility
+boundaries.
 
 ## Operator references
 

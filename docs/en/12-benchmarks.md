@@ -32,10 +32,10 @@ make benchmark-compare OLD=local-baseline NEW=local-candidate
 | `benchmark-compare` | benchstat text and HTML under reports/benchmarks |
 | `profile` | Separate BFD CPU/heap profiles: cpu.prof and mem.prof |
 | `benchmark-cross` | Sequential local C models and Go samples under bench-results |
-| `benchmark-report` | Legacy direct Go report generator; execute in the pinned container |
+| `benchmark-report` | Cross-comparison HTML report generator (`benchreport` in the dev container) |
 | `test-report`, `report-all` | Race JUnit/HTML; optionally snapshot and comparison |
 
-Snapshot files are `benchmark-bfd.txt`, `benchmark-netio.txt`, combined `benchmark.txt` and `meta.json` with version/commit/date/Go/count. Make's collection/comparison pipelines use Bash errexit/pipefail; a failed Go, benchstat or tee command fails the target. A failed rerun can leave older metadata or HTML beside partial samples. A fresh identifier and successful complete run prevent accepting that mixture.
+Snapshot files are `benchmark-bfd.txt`, `benchmark-netio.txt`, combined `benchmark.txt` and `meta.json` with version/commit/date/Go/count. Make's collection and comparison targets delegate to Go-owned `cictl` (`local-benchmark`, `local-benchmark-save`, `local-benchmark-compare`); a failed Go, benchstat or output-file operation fails the target. A failed rerun can leave older metadata or HTML beside partial samples. A fresh identifier and successful complete run prevent accepting that mixture.
 
 Repeating `benchmark-save` with the same identifier overwrites its named sample files; comparison also replaces its fixed report paths. Stop on failed collection or mismatched inputs. Preserve partial and prior evidence outside those output paths, then repeat with unused identifiers under equivalent conditions. No runtime rollback follows from a benchmark; resource cleanup follows the [owned development lifecycle](09-development.md#prepare-a-checkout). Source: [collection and comparison targets](../../Makefile).
 
@@ -83,7 +83,7 @@ This retained historical format shows GOMAXPROCS 8, adaptive iteration count, ti
 | BuildInnerPacketInto | Production caller-buffer inner-packet assembly | Storage allocation |
 | BuildInnerPacket | Allocating compatibility wrapper | Production caller-buffer ownership |
 
-Read the actual bodies in [BFD benchmarks](../../internal/bfd/bench_test.go), [scaling fixtures](../../internal/bfd/bench_scaling_test.go), [Micro-BFD dispatch](../../internal/bfd/manager_micro_bench_test.go) [netio benchmarks](../../internal/netio/bench_test.go) and [real-collector owner benchmarks](../../internal/metrics/receive_timing_test.go). Do not preserve a fixed benchmark count when names evolve.
+Read the actual bodies in [BFD benchmarks](../../internal/bfd/bench_test.go), [scaling fixtures](../../internal/bfd/bench_scaling_test.go), [Micro-BFD dispatch](../../internal/bfd/manager_micro_bench_test.go), [netio benchmarks](../../internal/netio/bench_test.go) and [real-collector owner benchmarks](../../internal/metrics/receive_timing_test.go). Do not preserve a fixed benchmark count when names evolve.
 
 ## Retained allocation measurements
 
@@ -136,7 +136,7 @@ The local receipt `reports/collector-owner-20261022/` records 16 B/op and 2 allo
 
 ## Historical and comparison sources
 
-[v0.4.0 samples](../../testdata/benchmarks/v0.4.0/benchmark.txt) and [metadata](../../testdata/benchmarks/v0.4.0/meta.json) retain Go 1.26.0, six runs, source identifier 48eb954, dated 2026-02-24. These results are not Go 1.27.3 qualification.
+[v0.4.0 samples](../../testdata/benchmarks/v0.4.0/benchmark.txt) and [metadata](../../testdata/benchmarks/v0.4.0/meta.json) retain Go 1.26.0, six runs, source identifier 48eb954, dated 2026-02-24. These results are not Go 1.27.4 qualification.
 
 Use the retained samples only for a historical diagnostic, excluding claims of equivalent compiler/benchmark bodies or current-candidate qualification:
 
@@ -148,6 +148,6 @@ make benchmark-compare OLD=v0.4.0 NEW=local-candidate
 
 ## Regression policy
 
-The [report classifier](../../test/internal/cirunner/benchmark_report.go) labels a positive time/op change of at least 10% critical only for its named critical benchmark set when either base/head is at least 100 ns/op. Other changes at that percentage are report-only when either side reaches 1 ns/op. A critical classification fails `benchmark-report` after publishing its reports and attempting the step summary and warnings. This also applies when the warning writer is absent or the release caller skips the summary. Acceptable, statistically inconclusive and report-only rows do not fail the command. Validate nonempty benchmark records on both sides; malformed records, zero iterations and failed benchstat commands fail the gate. Preserve six-run release inputs and ten-pair CI inputs. Local self-noise controls do not establish a universal noise bound or hosted-runner equivalence. Keep profiles and analysis UIs on loopback and protect operational data.
+The [report classifier](../../test/internal/cirunner/benchmark_report.go) labels a positive time/op change of at least 10% critical only for its named critical benchmark set when either base/head is at least 100 ns/op. Other changes at that percentage are report-only when either side reaches 1 ns/op. A critical classification fails `benchmark-report` after publishing its reports and attempting the step summary and warnings. This also applies when the warning writer is absent or the release caller skips the summary. Under [ADR-0014](adr/0014-v1-gobgp-v4-release-line-baseline.md), cross-major release comparisons (`v0` baseline vs `v1` target) reclassify `critical` `sec/op` deltas as `reported` with a provenance note to establish the new major-line baseline while keeping pull-request and same-major release comparisons fail-closed. Acceptable, statistically inconclusive and report-only rows do not fail the command. Validate nonempty benchmark records on both sides; malformed records, zero iterations and failed benchstat commands fail the gate. Preserve six-run release inputs and ten-pair CI inputs. Local self-noise controls do not establish a universal noise bound or hosted-runner equivalence. Keep profiles and analysis UIs on loopback and protect operational data.
 
 [Root benchmark index](../../BENCHMARKS.md), [runtime measurement](14-performance-analysis.md), [workload accounting](adr/0007-workload-phase-accounting.md).

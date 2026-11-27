@@ -1,6 +1,6 @@
 # ADR-0012: Монотонные данные владельца о переходе в Down
 
-[English original](../../en/adr/0012-owner-down-transition-witness.md).
+[Английский оригинал](../../en/adr/0012-owner-down-transition-witness.md).
 
 <a id="adr-0012-монотонные-данные-owner-о-переходе-в-down"></a>
 

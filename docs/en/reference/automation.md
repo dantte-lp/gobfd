@@ -69,12 +69,12 @@ Go owns orchestration. Node executes upstream npm and the [Release Please CLI](h
 
 ```mermaid
 flowchart LR
-  accTitle: Release proposal, verification and publication
-  accDescr: A reviewed release PR and annotated tag precede draft verification; only stable releases promote aliases.
-    proposal["Reviewed PR<br/>and annotated tag"]:::mgt --> build["Preflight and<br/>complete draft"]:::srv
-    build --> verify["Independent<br/>verification"]:::mgt
-    verify -->|"stable"| aliases["Stable OCI<br/>aliases"]:::srv
-    aliases --> publish["Publish verified<br/>draft"]:::mgt
+    accTitle: Release proposal, verification and publication
+    accDescr: A reviewed release PR and annotated tag precede draft verification; only stable releases promote aliases.
+    proposal["Reviewed PR and annotated tag"]:::mgt --> build["Preflight and complete draft"]:::srv
+    build --> verify["Independent verification"]:::mgt
+    verify -->|"stable"| aliases["Stable OCI aliases"]:::srv
+    aliases --> publish["Publish verified draft"]:::mgt
     verify -->|"alpha"| publish
     classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
     classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000

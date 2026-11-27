@@ -9,7 +9,7 @@
 ## Исходная база
 
 База интеграции релизной линии:
-[`e4f9c3b885606a9a941d8ac35ab5bcfd1dc2ad88`](https://github.com/dantte-lp/gobfd/commit/e4f9c3b885606a9a941d8ac35ab5bcfd1dc2ad88)
+[`816fc7e04d411c306fbe430a91a167cdb6481e81`](https://github.com/dantte-lp/gobfd/commit/816fc7e04d411c306fbe430a91a167cdb6481e81)
 в ветке `release/v1.0` (включая
 [`eae8f0636055de8ac4714199e27ff0c9d18b9859`](https://github.com/dantte-lp/gobfd/commit/eae8f0636055de8ac4714199e27ff0c9d18b9859)
 из `dev`, Go `1.27.4`, GoBGP `v4.11.0`, сохранение владения Unix-сокетом по
@@ -74,6 +74,7 @@ Release Please готовит проверяемый PR выпуска; GoReleas
 |:---|:---|
 | `dev` | Следующая продуктовая линия; приёмка исходников не подтверждает стабильную поставку |
 | `master` | Последнее принятое стабильное состояние |
+| `release/v1.0` | Поддерживаемый публичный контракт v1.0 и зависимость GoBGP v4 |
 | `release/v0.6` | Поддерживаемый публичный контракт v0.6 и зависимость GoBGP v3 |
 
 [Процесс выпуска](10-changelog.md) задаёт квалификацию, changelog, ruleset,

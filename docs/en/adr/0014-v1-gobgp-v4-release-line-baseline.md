@@ -46,7 +46,7 @@ Update [benchmark_report.go](../../../test/internal/cirunner/benchmark_report.go
 
 ## Consequences
 
-- `v1.0.0` compares transparently against `v0.6.4` during its initial `release.yml` run, publishes full `comparison-vs-baseline.*` reports inside `gobfd-1.0.0-reports.tar.gz`, and becomes the strict `critical` baseline automatically for `v1.0.1` and `v1.1.0`.
+- `v1.0.0` compares transparently against `v0.6.4` during its initial `release.yml` run, publishes full `comparison-vs-baseline.*` reports inside `gobfd-v1.0.0-reports.tar.gz`, and becomes the strict `critical` baseline automatically for `v1.0.1` and `v1.1.0`.
 - Stable `v1.0.0` publication promotes GHCR `:latest` and `:debian-trixie` aliases to the GoBGP v4 line; operators on GoBGP v3 must pin `0.6.4` or `release/v0.6`.
 - Extended 24-hour soak and external hardware NOS campaigns remain tracked separately as operational qualification artifacts without blocking `1.0.0` branch publication.
 

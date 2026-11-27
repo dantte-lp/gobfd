@@ -28,7 +28,7 @@
 | Runtime | Linux sockets and interface/backend behavior; see [Deployment](docs/en/06-deployment.md) |
 | Build | Repository-pinned compiler and Podman workflow; see [Development](docs/en/09-development.md) |
 | Equipment | A specific NOS/platform/profile requires evidence; see [Vendor references](docs/en/reference/vendor-bfd.md) |
-| API | Pre-1.0 compatibility and supported release-line contracts remain explicit |
+| API | Supported release-line (`release/v1.0`, `release/v0.6`) and preview contracts remain explicit |
 | Service | No private support SLA or third-party network consulting is provided |
 
 [Contributing](CONTRIBUTING.md) defines change review and checks.

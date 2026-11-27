@@ -20,7 +20,7 @@ The five routing/rfc/overlay/linux/vendor aggregates compile ignored bin/e2ectl 
 
 ## Artifact layout
 
-The root is reports/e2e/TARGET/RUN_ID. Core/BGP/HAProxy/observability use private mode-0700 run.* directories. Linux/overlay/RFC/vendor use UTC second timestamps; routing adds nanoseconds and PID.
+The root is `reports/e2e/TARGET/RUN_ID`. Core, BGP failover, HAProxy, observability, Linux, overlay and routing use private mode-0700 `run.*` directories; RFC and vendor use UTC second timestamps (`YYYYMMDDTHHMMSSZ`).
 
 | Common artifact | Meaning |
 |:---|:---|
@@ -36,9 +36,9 @@ Files can be absent after failed startup. Inspect producer exit and actual nonem
 |:---|:---|
 | core | runtime/gobfd-a.yml, runtime/gobfd-b.yml, captures/bfd.pcapng, containers.err, pcap-summary.tsv, pcap-summary.err, packets.err |
 | routing | interop/ and interop-bgp/ JSON, packet captures and CSV; merged top-level evidence |
-| rfc | Retained packet PCAP/CSV when capture succeeds |
-| overlay | Synthetic packets.csv |
-| linux | link-events.json, lag-backends.json, pending-daemon-ipv4/ipv6 JSON/log |
+| rfc | Required `packets.pcapng` and decoded `packets.csv` |
+| overlay | Synthetic `packets.csv`, `runtime-plan.json`, `runtime-container.json` |
+| linux | `runtime-plan.json`, `runtime-container.json`, `link-events.json`, `lag-backends.json`, `pending-daemon-ipv4/ipv6` JSON/log |
 | vendor | vendor-profiles.json, vendor-images.json, skip-summary.json |
 
 ## Runtime boundaries
@@ -47,7 +47,7 @@ Files can be absent after failed startup. Inspect producer exit and actual nonem
 |:---|:---|:---|
 | core | Podman testcontainers daemon pair, static auth, CLI/API, reload, metrics and capture | Selected daemon scenarios |
 | routing | Ownership-checked Compose base/BGP suites and merged evidence | No race; different filters from independent full gates |
-| rfc | Retained Compose RFC suite | Fixed names, uncapped builds, no race; best-effort capture/cleanup |
+| rfc | Ownership-checked Compose RFC suite with race, capped builds/services, required PCAP/CSV and exact cleanup | Fixed container names; 9384 action path is not Cease/10 |
 | overlay | Prebuilt race tests in network-none runtime, 2 CPU/2 GiB, report mount only | UDP/codec/lifecycle; CSV is synthetic |
 | linux | Prebuilt race daemon/test/test2json in network-none runtime, 2 CPU/2 GiB/512 PIDs, NET_ADMIN/NET_RAW | Disposable netns ownership, not host dataplane acceptance |
 | vendor | Manifest/policy checks and admitted image evidence | Retained NOS profiles never execute |
@@ -63,7 +63,7 @@ Vendor policy is owned by [profiles.json](vendor/profiles.json). Five NOS profil
 | Profile | Selected targets | Artifact |
 |:---|:---|:---|
 | PR-safe | core, interop-testcontainers, interop-bgp-testcontainers, interop-rfc-testcontainers, overlay | e2e-pr-safe |
-| Nightly | routing, legacy rfc, linux, cictl package-build/package-lifecycle | e2e-nightly |
+| Nightly | routing, rfc, linux, cictl release-upx/release-goreleaser/package-build/package-lifecycle | e2e-nightly |
 | Vendor manual | vendor manifest evidence | e2e-vendor |
 
 [Workflow](../../.github/workflows/e2e.yml) selects PR targets master/main/release-v patterns; dev is not a PR trigger. Manual profiles and nightly schedule are separate. Artifacts upload under always(), retain 30 days and warn when missing. Cleanup also runs under always() with continue-on-error: workflow success is not cleanup proof. The hosted runner pin belongs to the workflow.
