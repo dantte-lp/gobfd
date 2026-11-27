@@ -202,7 +202,7 @@ func removeTestRunFiles(projectRoot, runID string) (returnErr error) {
 		return closeErr
 	}
 	journal := filepath.Base(testRunPath(projectRoot))
-	if _, inspectErr := inspectReceiptDestination(root, journal); inspectErr != nil {
+	if inspectErr := inspectReceiptDestination(root, journal); inspectErr != nil {
 		return inspectErr
 	}
 	contextName := filepath.Base(testRunDirectory(projectRoot, runID))
@@ -220,7 +220,7 @@ func removeTestRunFiles(projectRoot, runID string) (returnErr error) {
 		return fmt.Errorf("test-run context remains or cannot be inspected: %w",
 			errors.Join(inspectErr, errLifecycleState))
 	}
-	if _, inspectErr := inspectReceiptDestination(root, journal); inspectErr != nil {
+	if inspectErr := inspectReceiptDestination(root, journal); inspectErr != nil {
 		return inspectErr
 	}
 	if removeErr := root.Remove(journal); removeErr != nil {

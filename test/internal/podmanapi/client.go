@@ -40,6 +40,8 @@ var (
 	errLibpodInspectStatus  = errors.New("libpod container inspect returned non-success status")
 	errImageInspectStatus   = errors.New("image inspect returned non-success status")
 	errImageIDEmpty         = errors.New("image inspect returned empty content ID")
+	errImageListStatus      = errors.New("image list returned non-success status")
+	errStageFilterInvalid   = errors.New("stage image filter requires non-empty run and test kind")
 	errImageRemoveStatus    = errors.New("image remove returned non-success status")
 	errVolumeInspectStatus  = errors.New("volume inspect returned non-success status")
 	errListContainersStatus = errors.New("container list returned non-success status")
@@ -405,6 +407,56 @@ func (c *Client) ImageMetadata(ctx context.Context, image string) (ImageMetadata
 		return ImageMetadata{}, fmt.Errorf("%w: image %s", errImageIDEmpty, image)
 	}
 	return ImageMetadata{ID: inspection.ID, Labels: inspection.Config.Labels}, nil
+}
+
+// StageImages lists intermediate builder images carrying exact stage ownership labels.
+func (c *Client) StageImages(ctx context.Context, runID, testKind string) ([]ImageMetadata, error) {
+	if strings.TrimSpace(runID) == "" || strings.TrimSpace(testKind) == "" {
+		return nil, errStageFilterInvalid
+	}
+	filterJSON, err := json.Marshal(map[string][]string{
+		"label": {
+			"io.gobfd.stage-run=" + runID,
+			"io.gobfd.stage-test=" + testKind,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal stage image filter: %w", err)
+	}
+	resp, reqErr := c.do(ctx, http.MethodGet, "/images/json?all=true&filters="+url.QueryEscape(string(filterJSON)))
+	if reqErr != nil {
+		return nil, fmt.Errorf("list stage images for %s: %w", runID, reqErr)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, readErr := readBody(resp.Body, "stage image list error body")
+		if readErr != nil {
+			return nil, readErr
+		}
+		return nil, fmt.Errorf("%w: status %d: %s", errImageListStatus, resp.StatusCode, body)
+	}
+	var summaries []struct {
+		ID     string            `json:"Id"`     //nolint:tagliatelle // Docker-compatible API field.
+		Labels map[string]string `json:"Labels"` //nolint:tagliatelle // Docker-compatible API field.
+	}
+	if decodeErr := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBodySize)).Decode(&summaries); decodeErr != nil {
+		return nil, fmt.Errorf("decode stage image list for %s: %w", runID, decodeErr)
+	}
+	stages := make([]ImageMetadata, 0, len(summaries))
+	for _, item := range summaries {
+		if strings.TrimSpace(item.ID) == "" {
+			return nil, fmt.Errorf("%w: stage list for %s", errImageIDEmpty, runID)
+		}
+		if item.Labels["io.gobfd.stage-run"] != runID ||
+			item.Labels["io.gobfd.stage-test"] != testKind ||
+			item.Labels["io.gobfd.image"] != "" {
+			continue
+		}
+		id := "sha256:" + strings.TrimPrefix(item.ID, "sha256:")
+		stages = append(stages, ImageMetadata{ID: id, Labels: item.Labels})
+	}
+	slices.SortFunc(stages, func(a, b ImageMetadata) int { return strings.Compare(a.ID, b.ID) })
+	return stages, nil
 }
 
 // RemoveImage removes a test-owned image without forcing removal or pruning parents.

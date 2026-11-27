@@ -18,7 +18,7 @@
 //	go test -tags interop_rfc -v -count=1 -timeout 300s ./test/interop-rfc/
 //
 // Prerequisites:
-//   - podman compose -f test/interop-rfc/compose.yml up --build -d
+//   - make interop-rfc-up (owned Compose topology), then make interop-rfc-test.
 //   - All containers must be running.
 package interop_rfc_test
 

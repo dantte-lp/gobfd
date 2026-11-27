@@ -131,6 +131,10 @@ func TestHAProxyImageFailureCleanup(t *testing.T) {
 			client := haproxyAPIClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				mu.Lock()
 				defer mu.Unlock()
+				if r.Method == http.MethodGet && r.URL.Path == "/v5.0.0/images/json" {
+					_ = json.NewEncoder(w).Encode([]any{})
+					return
+				}
 				reference := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v5.0.0/images/"), "/json")
 				if r.Method == http.MethodDelete {
 					if r.URL.Query().Get("force") != "false" || r.URL.Query().Get("noprune") != "true" {

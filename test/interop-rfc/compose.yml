@@ -13,8 +13,8 @@
 #   - tshark-rfc shares gobfd-rfc's netns → packet capture
 #   - gobgp-rfc shares gobfd-rfc9384's netns → both at 172.22.0.30
 #
-# The live lifecycle is awaiting exact project-ownership migration. Do not
-# invoke Compose directly for this fixed-name topology.
+# Use the owned interop-rfc Make targets; the controller supplies private
+# capture storage and validates exact project ownership.
 
 services:
   # === RFC 7419 + RFC 9468: gobfd-rfc at 172.22.0.10 ===
@@ -55,7 +55,12 @@ services:
       - NET_RAW
       - NET_ADMIN
     volumes:
-      - captures:/captures:z
+      - type: bind
+        source: ${GOBFD_RFC_CAPTURE_DIR:?use the owned RFC controller}
+        target: /captures
+        bind:
+          create_host_path: false
+          selinux: z
 
   # === RFC 7419: FRR BFD-only peer at 172.22.0.20 ===
 
@@ -193,9 +198,6 @@ services:
     networks:
       rfcnet:
         ipv4_address: 172.22.0.50
-
-volumes:
-  captures:
 
 networks:
   rfcnet:

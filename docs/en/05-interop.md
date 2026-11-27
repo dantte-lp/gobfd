@@ -61,6 +61,8 @@ Peer recipes are under [test/interop](../../test/interop/). The source baseline 
 
 The fixed lab uses the private subnet 172.20.0.0/24; the addresses below reproduce the tracked topology rather than a production address plan. Assertions cover handshake, AdminDown, negotiated timers, failure/recovery and captured Control fields. Authentication, padding and crafted procedures have separate profiles. The independent Go peer uses the repository codec; it is not an independent codec implementation.
 
+The [graceful-shutdown gate](../../test/interop/interop_test.go) fails when its initial, total or per-peer AdminDown capture query fails. An unreadable capture cannot establish [RFC 5880 §6.8.16](../rfc/rfc5880.txt) behavior. Failure to read Thoro status also fails the gate; the explicitly detected upstream poll-sequence panic remains a reported exception for that peer. Restore capture access and repeat the topology after a query failure.
+
 ### Crafted peer procedures
 
 TestCraftedPeerTestcontainers starts GoBFD, shared-namespace tshark and the Go peer at 172.20.0.40. The peer uses TTL 255, source port 49152, no authentication and SIGUSR1 phase advance.
@@ -137,6 +139,10 @@ make interop-logs
 ```
 
 After authorized owned cleanup, use interop-down. BGP/RFC families provide matching -up/-test/-logs/-down targets. Capture helpers are interop-capture, interop-pcap and interop-pcap-summary. Routing aggregate base/BGP tests and legacy RFC aggregate omit race detection. Fixed names/subnets can collide across projects.
+
+The [Compose controller](../../test/internal/interopproject/build.go) records unique build aliases before the first build and checkpoints validated image IDs after each build attempt. Built services start by ID with `pull_policy: never`; external service images retain their existing configuration. The private per-project JSON file in the UID's lock directory serves as both ownership receipt and Compose override. It binds the project, topology kind, source directory and selected engine. These source checks do not establish native provider qualification.
+
+For recovery, run the matching `-down` target from the original source directory, with the same UID, lock directory and engine selection. [Cleanup](../../test/internal/interopproject/images.go) validates ownership before removing containers and images, removes images by recorded ID, and preserves a foreign replacement of an alias. On a cleanup error, preserve the receipt and retry after correcting the reported cause. Stop on malformed, unsafe or changed state; do not delete the receipt to bypass verification. Require owned image IDs and the receipt to be absent after successful cleanup.
 
 Require owned lab containers/networks to be absent after cleanup and the recorded unrelated resources to remain. Preserve data volumes and evidence unless their removal is explicitly included in the cleanup scope.
 

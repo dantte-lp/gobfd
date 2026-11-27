@@ -32,6 +32,8 @@ const (
 )
 
 var (
+	// ErrContainerAbsent identifies a missing container, distinct from inspection or ownership failure.
+	ErrContainerAbsent   = errors.New("interop container is absent")
 	projectNamePattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 	buildRevisionPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	errUsage             = errors.New("invalid interopctl usage")
@@ -111,17 +113,22 @@ func (lock *ProjectLock) Close() error {
 
 // Controller owns one exact Compose project.
 type Controller struct {
-	root        string
-	composeFile string
-	projectName string
-	kind        string
-	required    []string
-	optional    []string
-	stdout      io.Writer
-	stderr      io.Writer
-	lock        *ProjectLock
-	mutation    bool
-	keepProject bool
+	root                string
+	composeFile         string
+	projectName         string
+	kind                string
+	required            []string
+	optional            []string
+	stdout              io.Writer
+	stderr              io.Writer
+	lock                *ProjectLock
+	mutation            bool
+	keepProject         bool
+	images              *composeImageState
+	imageStateInfo      os.FileInfo
+	imageStateHash      [32]byte
+	imageStateUncertain bool
+	captureInfo         os.FileInfo
 }
 
 // New constructs a controller from the repository root and environment.
@@ -148,50 +155,15 @@ func NewProject(root, projectName, kind string, stdout, stderr io.Writer) (*Cont
 			projectName,
 		)}
 	}
-
-	var required, optional []string
-	composeFile := filepath.Join(root, "test", "interop", "compose.yml")
-	switch kind {
-	case "", "base":
-		kind = "base"
-		required = []string{
-			"gobfd-interop", "frr-interop", "bird3-interop", "tshark-interop",
-			"holo-interop", "holo-config-interop", "thoro-interop",
-		}
-		optional = []string{"scapy-interop"}
-	case "bgp":
-		composeFile = filepath.Join(root, "test", "interop-bgp", "compose.yml")
-		required = []string{
-			"gobfd-bgp-interop", "gobgp-interop", "tshark-bgp-interop", "frr-bgp-interop",
-			"bird3-bgp-interop", "gobfd-exabgp-interop", "exabgp-interop",
-		}
-	case "bgp-fast-failover":
-		composeFile = filepath.Join(root, "deployments/integrations/bgp-fast-failover/compose.yml")
-		required = []string{
-			"gobfd-bgp-failover", "gobgp-bgp-failover", "frr-bgp-failover", "tshark-bgp-failover",
-		}
-	case "exabgp-anycast":
-		composeFile = filepath.Join(root, "deployments/integrations/exabgp-anycast/compose.yml")
-		required = []string{
-			"gobgp-anycast", "gobfd-receiver-anycast", "gobfd-anycast", "exabgp-anycast", "tshark-anycast",
-		}
-	case "haproxy-health":
-		composeFile = filepath.Join(root, "deployments/integrations/haproxy-health/compose.yml")
-		required = []string{
-			"gobfd-monitor", "haproxy-agent", "haproxy-health", "backend1", "backend1-bfd",
-			"backend2", "backend2-bfd", "tshark-haproxy",
-		}
-	default:
-		return nil, &UsageError{Message: fmt.Sprintf(
-			"invalid INTEROP_PROJECT_KIND %q: use base, bgp, bgp-fast-failover, exabgp-anycast, or haproxy-health", kind,
-		)}
+	normalizedKind, composeFile, required, optional, specErr := projectSpecForKind(root, kind)
+	if specErr != nil {
+		return nil, specErr
 	}
-
 	return &Controller{
 		root:        root,
 		composeFile: composeFile,
 		projectName: projectName,
-		kind:        kind,
+		kind:        normalizedKind,
 		required:    required,
 		optional:    optional,
 		stdout:      stdout,
@@ -199,7 +171,58 @@ func NewProject(root, projectName, kind string, stdout, stderr io.Writer) (*Cont
 	}, nil
 }
 
-// Lifecycle starts, operates, and cleans one exact Compose project while holding its lock.
+func projectSpecForKind(root, kind string) (string, string, []string, []string, error) {
+	composeFile := filepath.Join(root, "test", "interop", "compose.yml")
+	var required, optional []string
+	switch kind {
+	case "", "base":
+		required = []string{
+			"gobfd-interop", "frr-interop", "bird3-interop", "tshark-interop",
+			"holo-interop", "holo-config-interop", "thoro-interop",
+		}
+		optional = []string{"scapy-interop"}
+		return "base", composeFile, required, optional, nil
+	case "bgp":
+		return kind, filepath.Join(root, "test", "interop-bgp", "compose.yml"), []string{
+			"gobfd-bgp-interop", "gobgp-interop", "tshark-bgp-interop", "frr-bgp-interop",
+			"bird3-bgp-interop", "gobfd-exabgp-interop", "exabgp-interop",
+		}, nil, nil
+	case "rfc":
+		return kind, filepath.Join(root, "test", "interop-rfc", "compose.yml"), []string{
+			"gobfd-rfc-interop", "tshark-rfc-interop", "frr-rfc-interop",
+			"gobfd-rfc9384-interop", "gobgp-rfc-interop", "frr-rfc-bgp-interop",
+			"frr-rfc-unsolicited-interop", "echo-reflector-interop",
+		}, nil, nil
+	case "kubernetes-build":
+		return kind, filepath.Join(root, "deployments/integrations/kubernetes/compose.build.yml"), nil, nil, nil
+	case "bgp-fast-failover":
+		return kind, filepath.Join(root, "deployments/integrations/bgp-fast-failover/compose.yml"), []string{
+			"gobfd-bgp-failover", "gobgp-bgp-failover", "frr-bgp-failover", "tshark-bgp-failover",
+		}, nil, nil
+	case "exabgp-anycast":
+		return kind, filepath.Join(root, "deployments/integrations/exabgp-anycast/compose.yml"), []string{
+			"gobgp-anycast", "gobfd-receiver-anycast", "gobfd-anycast", "exabgp-anycast", "tshark-anycast",
+		}, nil, nil
+	case "haproxy-health":
+		return kind, filepath.Join(root, "deployments/integrations/haproxy-health/compose.yml"), []string{
+			"gobfd-monitor", "haproxy-agent", "haproxy-health", "backend1", "backend1-bfd",
+			"backend2", "backend2-bfd", "tshark-haproxy",
+		}, nil, nil
+	case "observability":
+		return kind, filepath.Join(root, "deployments/integrations/observability/compose.yml"), []string{
+			"gobfd-observability", "frr-observability", "prometheus-observability",
+			"grafana-observability", "tshark-observability",
+		}, nil, nil
+	default:
+		return "", "", nil, nil, &UsageError{Message: fmt.Sprintf(
+			"invalid INTEROP_PROJECT_KIND %q: use base, bgp, rfc, kubernetes-build, "+
+				"bgp-fast-failover, exabgp-anycast, haproxy-health, or observability",
+			kind,
+		)}
+	}
+}
+
+// Lifecycle prepares, operates, and cleans one exact project while holding its lock.
 func (c *Controller) Lifecycle(
 	ctx context.Context,
 	operation func(context.Context, *Controller) error,
@@ -242,6 +265,7 @@ func (c *Controller) Run(ctx context.Context, args []string) (runErr error) {
 			runErr = errors.Join(runErr, c.cleanup(cleanupCtx))
 			cancel()
 		}
+		c.mutation, c.keepProject = false, false
 		runErr = errors.Join(runErr, c.releaseLock())
 	}()
 
@@ -282,10 +306,15 @@ func (c *Controller) usage() error {
 	return &UsageError{Message: "usage: interopctl {up|down|logs|capture|pcap|summary|lock-run|dev-exec}"}
 }
 
-//nolint:cyclop // The linear fail-closed provider gate mirrors the lifecycle contract.
 func (c *Controller) start(ctx context.Context) error {
 	if err := c.acquireLock(); err != nil {
 		return err
+	}
+	if err := c.loadImageState(ctx); err != nil {
+		return err
+	}
+	if c.images != nil {
+		return fmt.Errorf("%w: project has an owned image receipt; run down before up", errControl)
 	}
 	resources, err := c.queryProjectResources(ctx)
 	if err != nil {
@@ -301,6 +330,9 @@ func (c *Controller) start(ctx context.Context) error {
 	if opErr := c.build(ctx); opErr != nil {
 		return opErr
 	}
+	if c.kind == "kubernetes-build" {
+		return nil
+	}
 	if c.kind != "base" {
 		if opErr := c.compose(ctx, commandTimeout, "up", "-d", "--no-build"); opErr != nil {
 			return opErr
@@ -308,6 +340,10 @@ func (c *Controller) start(ctx context.Context) error {
 		c.keepProject = true
 		return nil
 	}
+	return c.startBaseTopology(ctx)
+}
+
+func (c *Controller) startBaseTopology(ctx context.Context) error {
 	if opErr := c.compose(ctx, commandTimeout, "up", "-d", "--no-build", "holo", "holo-config"); opErr != nil {
 		return opErr
 	}
@@ -329,8 +365,8 @@ func (c *Controller) start(ctx context.Context) error {
 		return fmt.Errorf("%w: holo-config provider gate failed: wait=%s inspect=%s", errControl,
 			strings.TrimSpace(waitStatus), strings.TrimSpace(inspectStatus))
 	}
-	if err := c.verifyHoloConfiguration(ctx, loaderID); err != nil {
-		return err
+	if verifyErr := c.verifyHoloConfiguration(ctx, loaderID); verifyErr != nil {
+		return verifyErr
 	}
 	if opErr := c.compose(
 		ctx, commandTimeout, "up", "-d", "--no-build", "--no-deps", "gobfd", "frr", "bird3", "tshark", "thoro",
@@ -463,7 +499,15 @@ func (c *Controller) tshark(ctx context.Context, mode string) error {
 }
 
 func (c *Controller) compose(ctx context.Context, timeout time.Duration, args ...string) error {
-	full := append([]string{"compose", "-p", c.projectName, "-f", c.composeFile}, args...)
+	full := []string{"compose", "-p", c.projectName, "-f", c.composeFile}
+	if len(args) != 0 && args[0] == "up" {
+		override, err := c.readyImageOverride(ctx)
+		if err != nil {
+			return err
+		}
+		full = append(full, "-f", override)
+	}
+	full = append(full, args...)
 	return c.podmanStream(ctx, timeout, full...)
 }
 
@@ -473,7 +517,7 @@ func (c *Controller) podmanText(ctx context.Context, timeout time.Duration, args
 	// #nosec G204 G702 -- Fixed podman executes controller-built argv directly without shell expansion.
 	cmd := exec.CommandContext(commandCtx, "podman", args...)
 	cmd.Dir = c.root
-	cmd.Env = append(os.Environ(), ComposeEnvironment()...)
+	cmd.Env = c.commandEnvironment()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -491,7 +535,7 @@ func (c *Controller) podmanStream(ctx context.Context, timeout time.Duration, ar
 	// #nosec G204 -- The executable is fixed podman; the controller selects subcommands and passes separate arguments.
 	cmd := exec.CommandContext(commandCtx, "podman", args...)
 	cmd.Dir = c.root
-	cmd.Env = append(os.Environ(), ComposeEnvironment()...)
+	cmd.Env = c.commandEnvironment()
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = c.stdout
 	cmd.Stderr = c.stderr
@@ -546,7 +590,7 @@ func lockDirectory() (string, error) {
 	if err := os.Mkdir(lockDir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
 		return "", fmt.Errorf("create interop lock directory %s: %w", lockDir, err)
 	}
-	if err := validateOwnedDirectory(lockDir, uid, 0o700); err != nil {
+	if err := validateOwnedDirectory(lockDir, uid); err != nil {
 		return "", fmt.Errorf("unsafe interop lock directory %s: %w", lockDir, err)
 	}
 	return lockDir, nil
@@ -556,7 +600,7 @@ func validatePreferredBase(path string, uid int) error {
 	if path == "" {
 		return fmt.Errorf("%w: preferred lock base is empty", errControl)
 	}
-	return validateOwnedDirectory(path, uid, 0o700)
+	return validateOwnedDirectory(path, uid)
 }
 
 func validateFallbackBase(path string, uid int) error {
@@ -582,13 +626,15 @@ func validateFallbackBase(path string, uid int) error {
 	)
 }
 
-func validateOwnedDirectory(path string, uid int, mode os.FileMode) error {
+func validateOwnedDirectory(path string, uid int) error {
+	const privateDirMode os.FileMode = 0o700
 	info, stat, err := lstatInfo(path)
 	if err != nil {
 		return err
 	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || int(stat.Uid) != uid || info.Mode().Perm() != mode {
-		return fmt.Errorf("%w: require owned non-symlink directory mode %o", errControl, mode)
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 ||
+		int(stat.Uid) != uid || info.Mode().Perm() != privateDirMode {
+		return fmt.Errorf("%w: require owned non-symlink directory mode %o", errControl, privateDirMode)
 	}
 	return nil
 }
@@ -749,7 +795,7 @@ func (c *Controller) resolveContainerID(ctx context.Context, name string) (strin
 		return "", err
 	}
 	if !exists {
-		return "", fmt.Errorf("%w: container %s does not exist", errControl, name)
+		return "", fmt.Errorf("%w: container %s does not exist: %w", errControl, name, ErrContainerAbsent)
 	}
 	details, err := c.podmanText(ctx, commandTimeout, "inspect", "--type", "container", "--format",
 		`{{.ID}}|{{ index .Config.Labels "com.docker.compose.project" }}`, name)
@@ -785,11 +831,16 @@ func (c *Controller) resolveServiceContainerID(ctx context.Context, projectName,
 }
 
 func (c *Controller) containerExists(ctx context.Context, name string) (bool, error) {
+	return c.objectExists(ctx, "container", name)
+}
+
+func (c *Controller) objectExists(ctx context.Context, kind, name string) (bool, error) {
 	commandCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 	// #nosec G204 -- podman container exists only probes the selected container name as one argument; no shell is used.
-	cmd := exec.CommandContext(commandCtx, "podman", "container", "exists", name)
+	cmd := exec.CommandContext(commandCtx, "podman", kind, "exists", name)
 	cmd.Dir = c.root
+	cmd.Env = c.commandEnvironment()
 	err := cmd.Run()
 	if err == nil {
 		return true, nil
@@ -798,10 +849,13 @@ func (c *Controller) containerExists(ctx context.Context, name string) (bool, er
 	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 		return false, nil
 	}
-	return false, fmt.Errorf("podman container exists %s: %w", name, err)
+	return false, fmt.Errorf("podman %s exists %s: %w", kind, name, err)
 }
 
 func (c *Controller) cleanup(ctx context.Context) error {
+	if err := c.preflightOwnedImages(ctx); err != nil {
+		return err
+	}
 	resources, err := c.queryProjectResources(ctx)
 	if err != nil {
 		return err
@@ -831,7 +885,7 @@ func (c *Controller) cleanup(ctx context.Context) error {
 		return fmt.Errorf("%w: owned-resource leak for Compose project %s:\n%s",
 			errControl, c.projectName, remaining.String())
 	}
-	return nil
+	return c.cleanupOwnedImages(ctx)
 }
 
 func (c *Controller) validateContainerSnapshot(ctx context.Context, ids []string) error {

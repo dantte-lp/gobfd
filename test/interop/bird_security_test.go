@@ -4,7 +4,7 @@ package interop_test
 
 import (
 	"context"
-	"fmt"
+	"crypto/rand"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -26,7 +26,7 @@ func TestBIRDFlowSpecValidation(t *testing.T) {
 		t.Cleanup(cancel)
 		root := fourPeerRepositoryRoot(t)
 		image := buildFourPeerImage(ctx, t, endpoint, filepath.Join(root, "test/interop/bird3"),
-			fmt.Sprintf("localhost/bird3-security-test:%d", time.Now().UnixNano()), resources)
+			"localhost/bird3-security-test:"+strings.ToLower(rand.Text()), resources)
 		peer := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
 			Image:      image,
 			Entrypoint: []string{"bird"},
