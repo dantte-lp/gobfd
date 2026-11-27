@@ -65,11 +65,8 @@ func (b *OVSDBLAGBackend) RemoveMember(
 	lagInterface string,
 	memberInterface string,
 ) error {
-	if err := validateLAGInterfaceName(lagInterface); err != nil {
-		return fmt.Errorf("lag interface %q: %w", lagInterface, err)
-	}
-	if err := validateLAGInterfaceName(memberInterface); err != nil {
-		return fmt.Errorf("member interface %q: %w", memberInterface, err)
+	if err := validateLAGMemberInterfaces(lagInterface, memberInterface); err != nil {
+		return err
 	}
 	if err := b.client.RemoveBondInterface(ctx, lagInterface, memberInterface); err != nil {
 		return fmt.Errorf("ovsdb lag backend: %w", err)
@@ -83,11 +80,8 @@ func (b *OVSDBLAGBackend) AddMember(
 	lagInterface string,
 	memberInterface string,
 ) error {
-	if err := validateLAGInterfaceName(lagInterface); err != nil {
-		return fmt.Errorf("lag interface %q: %w", lagInterface, err)
-	}
-	if err := validateLAGInterfaceName(memberInterface); err != nil {
-		return fmt.Errorf("member interface %q: %w", memberInterface, err)
+	if err := validateLAGMemberInterfaces(lagInterface, memberInterface); err != nil {
+		return err
 	}
 	if err := b.client.AddBondInterface(ctx, lagInterface, memberInterface); err != nil {
 		return fmt.Errorf("ovsdb lag backend: %w", err)

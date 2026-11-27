@@ -5,19 +5,46 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
 )
 
+func startAdminDownCall(parent context.Context, t *testing.T, s *Session) (<-chan error, func() error) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(parent)
+	raw := make(chan error, 1)
+	ready := make(chan struct{})
+	var err error
+	go func() {
+		err = s.SetAdminDown(ctx)
+		raw <- err
+		close(ready)
+	}()
+	var join sync.Once
+	wait := func() error {
+		join.Do(func() {
+			<-ready
+		})
+		return err
+	}
+	t.Cleanup(func() {
+		cancel()
+		_ = wait()
+	})
+	return raw, wait
+}
+
 func TestSessionAdminDownBeforeRun(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		sender := &lifecycleBlockingSender{entered: make(chan struct{}), release: make(chan struct{})}
+		var releaseOnce sync.Once
+		releaseSender := func() { releaseOnce.Do(func() { close(sender.release) }) }
 		s := newAdminDownTestSession(t, sender, 41)
 		requestCtx, cancelRequest := context.WithTimeout(t.Context(), time.Minute)
 		defer cancelRequest()
-		result := make(chan error, 1)
-		go func() { result <- s.SetAdminDown(requestCtx) }()
+		result, waitAdmin := startAdminDownCall(requestCtx, t, s)
 		synctest.Wait()
 		if s.State() != StateDown || s.LocalDiag() != DiagNone {
 			t.Error("request changed state/diagnostic without an owner")
@@ -27,12 +54,25 @@ func TestSessionAdminDownBeforeRun(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan struct{})
-		go func() { s.Run(ctx); close(done) }()
+		go func() {
+			defer close(done)
+			s.Run(ctx)
+		}()
+		var stopOnce sync.Once
+		stopSession := func() {
+			stopOnce.Do(func() {
+				cancel()
+				releaseSender()
+				<-done
+			})
+		}
+		t.Cleanup(stopSession)
+
 		<-sender.entered
 		synctest.Wait()
 		if len(result) != 1 {
 			t.Error("commit acknowledgement blocked on SendPacket")
-		} else if err := <-result; err != nil {
+		} else if err := waitAdmin(); err != nil {
 			t.Errorf("AdminDown: %v", err)
 		}
 		if s.State() != StateAdminDown || s.LocalDiag() != DiagAdminDown || s.cachedState != StateAdminDown {
@@ -45,9 +85,7 @@ func TestSessionAdminDownBeforeRun(t *testing.T) {
 		if pkt.State != StateAdminDown || pkt.Diag != DiagAdminDown {
 			t.Errorf("first packet = %s/%s, want AdminDown/7", pkt.State, pkt.Diag)
 		}
-		cancel()
-		close(sender.release)
-		<-done
+		stopSession()
 	})
 }
 
@@ -61,14 +99,13 @@ func TestSessionAdminDownQueueDeadline(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 		defer cancel()
-		result := make(chan error, 1)
-		go func() { result <- s.SetAdminDown(ctx) }()
+		result, waitAdmin := startAdminDownCall(ctx, t, s)
 		synctest.Wait()
 		if len(result) != 0 || s.State() != StateDown || s.LocalDiag() != DiagNone {
 			t.Error("full queue caused early completion or outside-owner mutation")
 		}
 		synctest.Sleep(time.Second)
-		if err := <-result; !errors.Is(err, context.DeadlineExceeded) {
+		if err := waitAdmin(); !errors.Is(err, context.DeadlineExceeded) {
 			t.Errorf("full queue error = %v, want deadline", err)
 		}
 		if len(s.ctrlCh) != cap(s.ctrlCh) || s.State() != StateDown || s.LocalDiag() != DiagNone {
@@ -80,13 +117,18 @@ func TestSessionAdminDownQueueDeadline(t *testing.T) {
 func TestSessionRunSingleOwner(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		s := newAdminDownTestSession(t, senderLeaseTestSender{}, 43)
-		ctx, cancel := context.WithCancel(t.Context())
-		firstDone := make(chan struct{})
-		go func() { s.Run(ctx); close(firstDone) }()
+		stopFirst := startSessionWorker(t, s)
 		synctest.Wait()
 		secondCtx, cancelSecond := context.WithCancel(t.Context())
 		secondDone := make(chan struct{})
-		go func() { s.Run(secondCtx); close(secondDone) }()
+		go func() {
+			defer close(secondDone)
+			s.Run(secondCtx)
+		}()
+		t.Cleanup(func() {
+			cancelSecond()
+			<-secondDone
+		})
 		synctest.Wait()
 		select {
 		case <-secondDone:
@@ -95,11 +137,17 @@ func TestSessionRunSingleOwner(t *testing.T) {
 		}
 		cancelSecond()
 		<-secondDone
-		cancel()
-		<-firstDone
+		stopFirst()
 		restartCtx, cancelRestart := context.WithCancel(t.Context())
 		restartDone := make(chan struct{})
-		go func() { s.Run(restartCtx); close(restartDone) }()
+		go func() {
+			defer close(restartDone)
+			s.Run(restartCtx)
+		}()
+		t.Cleanup(func() {
+			cancelRestart()
+			<-restartDone
+		})
 		synctest.Wait()
 		select {
 		case <-restartDone:
@@ -133,14 +181,11 @@ func TestSessionAdminDownStartupTransmission(t *testing.T) {
 				s := newAdminDownTestSession(t, sender, 44)
 				s.role, s.remoteDiscr = tc.role, tc.remoteDiscr
 				s.remoteMinRxInterval, s.pendingFinal = tc.remoteMinRX, tc.pendingFinal
-				result := make(chan error, 1)
-				go func() { result <- s.SetAdminDown(t.Context()) }()
+				_, waitAdmin := startAdminDownCall(t.Context(), t, s)
 				synctest.Wait()
-				ctx, cancel := context.WithCancel(t.Context())
-				done := make(chan struct{})
-				go func() { s.Run(ctx); close(done) }()
+				stopSession := startSessionWorker(t, s)
 				synctest.Wait()
-				if err := <-result; err != nil {
+				if err := waitAdmin(); err != nil {
 					t.Errorf("AdminDown: %v", err)
 				}
 				if sender.attempts != tc.wantAttempts {
@@ -155,8 +200,7 @@ func TestSessionAdminDownStartupTransmission(t *testing.T) {
 						t.Errorf("startup packet = %+v", pkt)
 					}
 				}
-				cancel()
-				<-done
+				stopSession()
 			})
 		})
 	}
@@ -173,15 +217,12 @@ func TestSessionAdminDownAdmittedTimeout(t *testing.T) {
 		if len(s.ctrlCh) != 1 || s.State() != StateDown {
 			t.Error("admitted intent disappeared or committed without owner")
 		}
-		ctx, cancel := context.WithCancel(t.Context())
-		done := make(chan struct{})
-		go func() { s.Run(ctx); close(done) }()
+		stopSession := startSessionWorker(t, s)
 		synctest.Wait()
 		if s.State() != StateAdminDown || s.LocalDiag() != DiagAdminDown {
 			t.Error("admitted intent was rolled back after caller timeout")
 		}
-		cancel()
-		<-done
+		stopSession()
 	})
 }
 
@@ -189,9 +230,7 @@ func TestSessionAdminDownRepeated(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		sender := &retryCachedPacketSender{}
 		s := newAdminDownTestSession(t, sender, 46)
-		ctx, cancel := context.WithCancel(t.Context())
-		done := make(chan struct{})
-		go func() { s.Run(ctx); close(done) }()
+		stopSession := startSessionWorker(t, s)
 		if err := s.SetAdminDown(t.Context()); err != nil {
 			t.Fatal(err)
 		}
@@ -205,8 +244,7 @@ func TestSessionAdminDownRepeated(t *testing.T) {
 		if s.stateTransitions.Load() != 1 || sender.attempts != 1 {
 			t.Errorf("repeated commits: transitions=%d, TX=%d", s.stateTransitions.Load(), sender.attempts)
 		}
-		cancel()
-		<-done
+		stopSession()
 	})
 }
 
@@ -223,13 +261,12 @@ func TestSessionAdminDownStoppedOwner(t *testing.T) {
 						}
 					}
 				}
-				result := make(chan error, 1)
-				go func() { result <- s.SetAdminDown(t.Context()) }()
+				_, waitAdmin := startAdminDownCall(t.Context(), t, s)
 				synctest.Wait()
 				ctx, cancel := context.WithCancel(t.Context())
 				cancel()
 				s.Run(ctx)
-				if err := <-result; !errors.Is(err, ErrSessionStopped) {
+				if err := waitAdmin(); !errors.Is(err, ErrSessionStopped) {
 					t.Errorf("owner exit error = %v, want stopped", err)
 				}
 				queued := len(s.ctrlCh)

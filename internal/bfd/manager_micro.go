@@ -7,12 +7,54 @@ import (
 	"log/slog"
 	"maps"
 	"net/netip"
+	"slices"
 	"time"
 )
 
 // microBFDActuatorTimeout bounds one RFC 7130 Section 5 actuator call.
 // Fixed bound; make it configurable when a backend needs longer.
-const microBFDActuatorTimeout = 5 * time.Second
+const (
+	microBFDActuatorTimeout      = 5 * time.Second
+	microBFDActuatorRetryInitial = 50 * time.Millisecond
+	microBFDActuatorRetryMax     = 5 * time.Second
+	microBFDActuatorRetryFactor  = 2
+)
+
+type microActuatorRetryTimer struct {
+	timer *time.Timer
+	ch    <-chan time.Time
+	delay time.Duration
+}
+
+func (r *microActuatorRetryTimer) stop() {
+	if r.timer != nil {
+		r.timer.Stop()
+	}
+	r.ch = nil
+	r.delay = 0
+}
+
+func (r *microActuatorRetryTimer) sync(failed, fired bool) {
+	if !failed {
+		r.stop()
+		return
+	}
+	if r.ch != nil && !fired {
+		return
+	}
+	if r.delay == 0 {
+		r.delay = microBFDActuatorRetryInitial
+	} else if fired {
+		r.delay = min(r.delay*microBFDActuatorRetryFactor, microBFDActuatorRetryMax)
+	}
+	if r.timer == nil {
+		r.timer = time.NewTimer(r.delay)
+	} else {
+		r.timer.Stop()
+		r.timer.Reset(r.delay)
+	}
+	r.ch = r.timer.C
+}
 
 // microMemberKey identifies a member link session: RFC 7130 Section 2 runs
 // one micro-BFD session per member link and address family.
@@ -144,26 +186,29 @@ func (m *Manager) DestroyMicroBFDGroupAs(lagInterface string, owner SessionOwner
 
 func (m *Manager) destroyMicroBFDGroup(lagInterface string, owner SessionOwner) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	group, exists := m.microGroups[lagInterface]
 	if !exists {
+		m.mu.Unlock()
 		return fmt.Errorf(
 			"destroy micro-BFD group %q: %w",
 			lagInterface, ErrMicroBFDGroupNotFound,
 		)
 	}
 	if _, owned := group.owners[owner]; !owned {
+		m.mu.Unlock()
 		return fmt.Errorf("destroy micro-BFD group %q for owner %+v: %w",
 			lagInterface, owner, ErrMicroBFDGroupOwnerClaimNotFound)
 	}
 	delete(group.owners, owner)
 	if len(group.owners) > 0 {
+		m.mu.Unlock()
 		return nil
 	}
 
 	m.unregisterMicroBFDGroupLocked(group)
+	m.mu.Unlock()
 
+	m.syncMicroActuatorStatus(nil)
 	m.logger.Info("micro-BFD group destroyed",
 		slog.String("lag", lagInterface),
 	)
@@ -186,6 +231,7 @@ func (m *Manager) registerMicroBFDGroupLocked(group *MicroBFDGroup) {
 // whose session stays Up enters the LAG (RFC 7130 Section 3). The caller
 // holds Manager.mu for writing.
 func (m *Manager) seedMicroBFDGroupLocked(group *MicroBFDGroup) {
+	hasActuator := m.microActuator != nil
 	for _, member := range group.MemberNames() {
 		key, err := sessionKeyFromConfig(SessionConfig{
 			PeerAddr: group.PeerAddr(), LocalAddr: group.LocalAddr(),
@@ -198,16 +244,32 @@ func (m *Manager) seedMicroBFDGroupLocked(group *MicroBFDGroup) {
 		if !exists {
 			continue
 		}
-		state := entry.session.State()
-		if _, err := group.UpdateMemberState(member, state, entry.session.LocalDiscriminator()); err != nil ||
-			state != StateUp || m.microActuator == nil {
+		obs := entry.session.Observation()
+		discr := entry.session.LocalDiscriminator()
+		ref := entry.session.Ref()
+		group.mu.Lock()
+		memberStateEntry, ok := group.members[member]
+		if ok {
+			memberStateEntry.sessionRef = ref
+			memberStateEntry.observationVersion = obs.ObservationVersion
+			group.applyMemberStateLocked(memberStateEntry, obs.State, discr)
+			if obs.State == StateUp && hasActuator {
+				group.markMemberActuationPendingLocked(memberStateEntry, StateDown, StateUp)
+			}
+		}
+		group.mu.Unlock()
+		if !ok || obs.State != StateUp || !hasActuator {
 			continue
 		}
 		m.microResync = append(m.microResync, microResync{group: group, member: member})
-		select {
-		case m.microResyncWake <- struct{}{}:
-		default:
-		}
+		m.signalMicroResyncWake()
+	}
+}
+
+func (m *Manager) signalMicroResyncWake() {
+	select {
+	case m.microResyncWake <- struct{}{}:
+	default:
 	}
 }
 
@@ -217,29 +279,140 @@ type microResync struct {
 	member string
 }
 
-// dispatchMicroResync reports seeded members that are still registered and
-// Up. It runs in the dispatch goroutine, so it keeps the actuator order of
-// member transitions; a later transition reports the newer state.
-func (m *Manager) dispatchMicroResync(ctx context.Context) {
-	m.mu.Lock()
-	pending := m.microResync
-	m.microResync = nil
-	events := make([]MicroBFDMemberEvent, 0, len(pending))
-	for _, p := range pending {
-		state, discr, ok := p.group.memberState(p.member)
-		if !ok || state != StateUp || m.microGroups[p.group.LAGInterface()] != p.group {
-			continue
+// microActuationWork binds one member transition event to the exact
+// MicroBFDGroup instance that owned the member when the event was scheduled.
+type microActuationWork struct {
+	group *MicroBFDGroup
+	event MicroBFDMemberEvent
+}
+
+// resyncMicroBFDGroups reconciles every registered Micro-BFD group and pending
+// or failed member actuation against live SessionTypeMicroBFD sessions without
+// mutating owner claims or stale generations.
+func (m *Manager) resyncMicroBFDGroups(ctx context.Context) {
+	m.mu.RLock()
+	empty := len(m.microGroups) == 0 && len(m.microResync) == 0
+	wasFailed := m.microActuatorFailed.Load()
+	m.mu.RUnlock()
+	if empty {
+		if wasFailed {
+			m.mu.Lock()
+			m.recomputeMicroActuatorFailedLocked()
+			m.mu.Unlock()
+			m.syncMicroActuatorStatus(nil)
 		}
-		events = append(events, MicroBFDMemberEvent{
-			LAGInterface: p.group.LAGInterface(), MemberInterface: p.member,
-			OldState: StateDown, NewState: StateUp, LocalDiscr: discr,
-			AggregateUp: p.group.IsUp(),
-		})
+		return
 	}
-	m.mu.Unlock()
-	for _, ev := range events {
-		m.handleMicroBFDActuator(ctx, ev)
+
+	works := m.collectMicroBFDResyncWork()
+	m.syncMicroActuatorStatus(nil)
+	for _, work := range works {
+		if ctx.Err() != nil {
+			return
+		}
+		m.executeMicroBFDActuation(ctx, work)
 	}
+}
+
+func (m *Manager) collectMicroBFDResyncWork() []microActuationWork {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.microResync = nil
+	lagNames := make([]string, 0, len(m.microGroups))
+	for lag := range m.microGroups {
+		lagNames = append(lagNames, lag)
+	}
+	slices.Sort(lagNames)
+
+	hasActuator := m.microActuator != nil
+	works := make([]microActuationWork, 0, len(m.microMembers))
+	for _, lag := range lagNames {
+		group := m.microGroups[lag]
+		works = append(works, m.resyncOneMicroBFDGroupLocked(group, hasActuator)...)
+	}
+	m.recomputeMicroActuatorFailedLocked()
+	return works
+}
+
+//nolint:contextcheck,nolintlint // Background matches Info; contextcheck consumes the directive before nolintlint.
+func (m *Manager) resyncOneMicroBFDGroupLocked(
+	group *MicroBFDGroup,
+	hasActuator bool,
+) []microActuationWork {
+	members := group.MemberNames()
+	slices.Sort(members)
+	works := make([]microActuationWork, 0, len(members))
+	for _, member := range members {
+		ev, ok := m.resyncMicroBFDMemberLocked(group, member, hasActuator)
+		if ev.AggregateChanged {
+			m.logger.LogAttrs(context.Background(), slog.LevelInfo, "micro-BFD aggregate state changed",
+				slog.String("lag", group.LAGInterface()),
+				slog.Bool("aggregate_up", ev.AggregateUp),
+				slog.Int("up_count", group.UpCount()),
+			)
+		}
+		if ok {
+			works = append(works, microActuationWork{group: group, event: ev})
+		}
+	}
+	return works
+}
+
+func (m *Manager) resyncMicroBFDMemberLocked(
+	group *MicroBFDGroup,
+	member string,
+	hasActuator bool,
+) (MicroBFDMemberEvent, bool) {
+	key, err := sessionKeyFromConfig(SessionConfig{
+		PeerAddr: group.PeerAddr(), LocalAddr: group.LocalAddr(),
+		Interface: member, Type: SessionTypeMicroBFD,
+	})
+	if err != nil {
+		return MicroBFDMemberEvent{}, false
+	}
+	sessEntry, exists := m.sessionsByKey[key]
+
+	group.mu.Lock()
+	defer group.mu.Unlock()
+
+	entry, ok := group.members[member]
+	if !ok {
+		return MicroBFDMemberEvent{}, false
+	}
+	oldState := entry.state
+	desiredState, discr := oldState, entry.localDiscr
+	if exists {
+		obs := sessEntry.session.Observation()
+		desiredState = obs.State
+		discr = sessEntry.session.LocalDiscriminator()
+		entry.sessionRef = sessEntry.session.Ref()
+		entry.observationVersion = obs.ObservationVersion
+	} else if entry.sessionRef != (SessionRef{}) {
+		desiredState = StateDown
+		discr = 0
+		entry.sessionRef = SessionRef{}
+		entry.observationVersion = 0
+	}
+
+	changed := group.applyMemberStateLocked(entry, desiredState, discr)
+	if oldState != desiredState && hasActuator {
+		group.markMemberActuationPendingLocked(entry, oldState, desiredState)
+	}
+	evOldState := oldState
+	if entry.actuationPending || entry.actuationFailed {
+		evOldState = entry.pendingOldState
+	}
+	actuate := hasActuator && (oldState != desiredState || entry.actuationPending || entry.actuationFailed)
+	return MicroBFDMemberEvent{
+		LAGInterface:     group.LAGInterface(),
+		MemberInterface:  member,
+		OldState:         evOldState,
+		NewState:         desiredState,
+		LocalDiscr:       discr,
+		AggregateUp:      group.aggregateUp,
+		AggregateChanged: changed,
+	}, actuate
 }
 
 func (m *Manager) indexMicroBFDGroupLocked(group *MicroBFDGroup, replace bool) {
@@ -261,6 +434,24 @@ func (m *Manager) unregisterMicroBFDGroupLocked(group *MicroBFDGroup) {
 			delete(m.microMembers, key)
 		}
 	}
+	if m.recomputeMicroActuatorFailedLocked() {
+		m.signalMicroResyncWake()
+	}
+}
+
+func (m *Manager) recomputeMicroActuatorFailedLocked() bool {
+	nowFailed := m.anyMicroGroupFailedLocked()
+	wasFailed := m.microActuatorFailed.Swap(nowFailed)
+	return wasFailed != nowFailed
+}
+
+func (m *Manager) anyMicroGroupFailedLocked() bool {
+	for _, group := range m.microGroups {
+		if group.hasFailedActuation() {
+			return true
+		}
+	}
+	return false
 }
 
 // microMemberOwnerLocked returns the group owning member in either address
@@ -302,54 +493,128 @@ func (m *Manager) LookupMicroBFDGroup(lagInterface string) (*MicroBFDGroup, bool
 // releases the lock.
 //
 //nolint:contextcheck,nolintlint // Background matches Info/Warn; contextcheck consumes the directive before nolintlint.
-func (m *Manager) dispatchMicroBFD(sc StateChange) (MicroBFDMemberEvent, bool) {
+func (m *Manager) dispatchMicroBFD(sc StateChange) (microActuationWork, bool) {
 	group, ok := m.microMembers[microMemberKeyOf(sc.Interface, sc.PeerAddr)]
 	if !ok {
-		return MicroBFDMemberEvent{}, false
+		return microActuationWork{}, false
 	}
-	changed, err := group.UpdateMemberState(sc.Interface, sc.NewState, sc.LocalDiscr)
-	if err != nil {
+	hasActuator := m.microActuator != nil
+	group.mu.Lock()
+	entry, memberOK := group.members[sc.Interface]
+	if !memberOK {
+		group.mu.Unlock()
 		m.logger.LogAttrs(context.Background(), slog.LevelWarn, "micro-BFD dispatch error",
 			slog.String("lag", group.LAGInterface()),
 			slog.String("member", sc.Interface),
-			slog.String("error", err.Error()),
+			slog.String("error", ErrMicroBFDMemberNotFound.Error()),
 		)
-		return MicroBFDMemberEvent{}, false
+		return microActuationWork{}, false
 	}
+	if entry.alreadyObserved(sc) {
+		group.mu.Unlock()
+		return microActuationWork{}, false
+	}
+	if sc.Ref != (SessionRef{}) {
+		entry.sessionRef = sc.Ref
+	}
+	if sc.ObservationVersion != 0 {
+		entry.observationVersion = sc.ObservationVersion
+	}
+	prevState := entry.state
+	changed := group.applyMemberStateLocked(entry, sc.NewState, sc.LocalDiscr)
+	if hasActuator {
+		oldForPending := sc.OldState
+		if prevState == StateUp && sc.NewState != StateUp {
+			oldForPending = StateUp
+		}
+		group.markMemberActuationPendingLocked(entry, oldForPending, sc.NewState)
+	}
+	aggregateUp := group.aggregateUp
+	upCount := group.upCount
+	group.mu.Unlock()
 
-	aggregateUp := group.IsUp()
 	if changed {
 		m.logger.LogAttrs(context.Background(), slog.LevelInfo, "micro-BFD aggregate state changed",
 			slog.String("lag", group.LAGInterface()),
 			slog.Bool("aggregate_up", aggregateUp),
-			slog.Int("up_count", group.UpCount()),
+			slog.Int("up_count", upCount),
 		)
 	}
-	return MicroBFDMemberEvent{
-		LAGInterface:     group.LAGInterface(),
-		MemberInterface:  sc.Interface,
-		OldState:         sc.OldState,
-		NewState:         sc.NewState,
-		LocalDiscr:       sc.LocalDiscr,
-		AggregateUp:      aggregateUp,
-		AggregateChanged: changed,
-	}, m.microActuator != nil
+	return microActuationWork{
+		group: group,
+		event: MicroBFDMemberEvent{
+			LAGInterface:     group.LAGInterface(),
+			MemberInterface:  sc.Interface,
+			OldState:         sc.OldState,
+			NewState:         sc.NewState,
+			LocalDiscr:       sc.LocalDiscr,
+			AggregateUp:      aggregateUp,
+			AggregateChanged: changed,
+		},
+	}, hasActuator
 }
 
 // handleMicroBFDActuator runs one bounded actuator call without Manager locks.
 func (m *Manager) handleMicroBFDActuator(ctx context.Context, ev MicroBFDMemberEvent) {
-	ctx, cancel := context.WithTimeout(ctx, microBFDActuatorTimeout)
+	m.executeMicroBFDActuation(ctx, microActuationWork{event: ev})
+}
+
+func (m *Manager) executeMicroBFDActuation(ctx context.Context, work microActuationWork) {
+	ev := work.event
+	actCtx, cancel := context.WithTimeout(ctx, microBFDActuatorTimeout)
 	defer cancel()
-	if err := m.microActuator.HandleMicroBFDMemberEvent(ctx, ev); err != nil {
+	if err := m.microActuator.HandleMicroBFDMemberEvent(actCtx, ev); err != nil {
 		//nolint:contextcheck // Failure logging retains Warn's background context after the actuator context is canceled.
 		m.logger.LogAttrs(context.Background(), slog.LevelWarn, "micro-BFD actuator failed",
 			slog.String("lag", ev.LAGInterface),
 			slog.String("member", ev.MemberInterface),
 			slog.String("new_state", ev.NewState.String()),
-			slog.Bool("deadline_exceeded", errors.Is(ctx.Err(), context.DeadlineExceeded)),
+			slog.Bool("deadline_exceeded", errors.Is(actCtx.Err(), context.DeadlineExceeded)),
 			slog.String("error", err.Error()),
 		)
+		m.recordMicroBFDActuationResult(work, err)
+		return
 	}
+	m.recordMicroBFDActuationResult(work, nil)
+}
+
+func (m *Manager) recordMicroBFDActuationResult(work microActuationWork, actErr error) {
+	if actErr == nil && !m.microActuatorFailed.Load() {
+		m.mu.RLock()
+		if work.group != nil && m.microGroups[work.event.LAGInterface] == work.group {
+			work.group.recordActuationResult(work.event, nil)
+		}
+		m.mu.RUnlock()
+		return
+	}
+
+	m.mu.Lock()
+	if work.group != nil && m.microGroups[work.event.LAGInterface] == work.group {
+		work.group.recordActuationResult(work.event, actErr)
+	}
+	m.recomputeMicroActuatorFailedLocked()
+	m.mu.Unlock()
+
+	m.syncMicroActuatorStatus(actErr)
+}
+
+func (m *Manager) syncMicroActuatorStatus(lastErr error) {
+	fnPtr := m.microActuatorStatus.Load()
+	if fnPtr == nil || *fnPtr == nil {
+		return
+	}
+	m.microStatusMu.Lock()
+	defer m.microStatusMu.Unlock()
+	failed := m.microActuatorFailed.Load()
+	if failed == m.microStatusReportedFailed {
+		return
+	}
+	m.microStatusReportedFailed = failed
+	if failed {
+		(*fnPtr)(false, lastErr)
+		return
+	}
+	(*fnPtr)(true, nil)
 }
 
 // -------------------------------------------------------------------------
@@ -565,7 +830,6 @@ func (m *Manager) releaseRemovedMicroBFDGroups(
 	owner SessionOwner,
 ) microBFDGroupCounts {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	var counts microBFDGroupCounts
 	for key, group := range current {
 		_, want := desired[key]
@@ -583,6 +847,10 @@ func (m *Manager) releaseRemovedMicroBFDGroups(
 		)
 		m.unregisterMicroBFDGroupLocked(group)
 		counts.destroyed++
+	}
+	m.mu.Unlock()
+	if counts.destroyed > 0 {
+		m.syncMicroActuatorStatus(nil)
 	}
 	return counts
 }

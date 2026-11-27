@@ -222,9 +222,23 @@ type MicroBFDGroup struct {
 
 // memberEntry holds the state for a single LAG member link.
 type memberEntry struct {
-	ifName     string
-	state      State
-	localDiscr uint32
+	ifName             string
+	state              State
+	localDiscr         uint32
+	sessionRef         SessionRef
+	observationVersion uint64
+	actuatedUp         bool
+	actuationPending   bool
+	actuationFailed    bool
+	pendingOldState    State
+}
+
+func (e *memberEntry) alreadyObserved(sc StateChange) bool {
+	if sc.ObservationVersion == 0 || e.sessionRef != sc.Ref {
+		return false
+	}
+	return sc.ObservationVersion < e.observationVersion ||
+		(sc.ObservationVersion == e.observationVersion && e.state == sc.NewState)
 }
 
 // NewMicroBFDGroup creates a new Micro-BFD group for the given configuration.
@@ -430,8 +444,6 @@ func (g *MicroBFDGroup) RemoveMember(ifName string) (bool, error) {
 //
 // This method is called by the Manager when a per-member BFD session
 // transitions state (via StateChange notifications).
-//
-//nolint:contextcheck,nolintlint // Background matches Info/Warn; contextcheck consumes the directive before nolintlint.
 func (g *MicroBFDGroup) UpdateMemberState(ifName string, newState State, localDiscr uint32) (bool, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -441,16 +453,20 @@ func (g *MicroBFDGroup) UpdateMemberState(ifName string, newState State, localDi
 		return false, fmt.Errorf("micro-BFD group %q: member %q: %w",
 			g.lagInterface, ifName, ErrMicroBFDMemberNotFound)
 	}
+	return g.applyMemberStateLocked(entry, newState, localDiscr), nil
+}
 
+//nolint:contextcheck,nolintlint // Background matches Info/Warn; contextcheck consumes the directive before nolintlint.
+func (g *MicroBFDGroup) applyMemberStateLocked(entry *memberEntry, newState State, localDiscr uint32) bool {
 	oldState := entry.state
 	if oldState == newState {
-		return false, nil
+		entry.localDiscr = localDiscr
+		return false
 	}
 
 	entry.state = newState
 	entry.localDiscr = localDiscr
 
-	// Update the Up count.
 	if oldState == StateUp && newState != StateUp {
 		g.upCount--
 	} else if oldState != StateUp && newState == StateUp {
@@ -458,32 +474,71 @@ func (g *MicroBFDGroup) UpdateMemberState(ifName string, newState State, localDi
 	}
 
 	g.logger.LogAttrs(context.Background(), slog.LevelInfo, "member link state changed",
-		slog.String("member", ifName),
+		slog.String("member", entry.ifName),
 		slog.String("old_state", oldState.String()),
 		slog.String("new_state", newState.String()),
 		slog.Int("up_count", g.upCount),
 		slog.Int("min_active", g.minActive),
 	)
 
-	// Check aggregate state change.
 	oldAggUp := g.aggregateUp
 	g.aggregateUp = g.upCount >= g.minActive
-
-	if oldAggUp != g.aggregateUp {
-		if g.aggregateUp {
-			g.logger.LogAttrs(context.Background(), slog.LevelInfo, "LAG aggregate state: Up",
-				slog.Int("up_count", g.upCount),
-			)
-		} else {
-			g.logger.LogAttrs(context.Background(), slog.LevelWarn, "LAG aggregate state: Down",
-				slog.Int("up_count", g.upCount),
-				slog.Int("min_active", g.minActive),
-			)
-		}
-		return true, nil
+	if oldAggUp == g.aggregateUp {
+		return false
 	}
+	if g.aggregateUp {
+		g.logger.LogAttrs(context.Background(), slog.LevelInfo, "LAG aggregate state: Up",
+			slog.Int("up_count", g.upCount),
+		)
+	} else {
+		g.logger.LogAttrs(context.Background(), slog.LevelWarn, "LAG aggregate state: Down",
+			slog.Int("up_count", g.upCount),
+			slog.Int("min_active", g.minActive),
+		)
+	}
+	return true
+}
 
-	return false, nil
+func (g *MicroBFDGroup) markMemberActuationPendingLocked(entry *memberEntry, oldState, newState State) {
+	if newState == StateUp {
+		entry.actuationPending = true
+		entry.pendingOldState = StateDown
+		return
+	}
+	if oldState == StateUp || entry.actuatedUp {
+		entry.actuationPending = true
+		entry.pendingOldState = StateUp
+	}
+}
+
+func (g *MicroBFDGroup) hasFailedActuation() bool {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	for _, entry := range g.members {
+		if entry.actuationFailed {
+			return true
+		}
+	}
+	return false
+}
+
+func (g *MicroBFDGroup) recordActuationResult(ev MicroBFDMemberEvent, actErr error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	entry, ok := g.members[ev.MemberInterface]
+	if !ok {
+		return
+	}
+	if actErr != nil {
+		entry.actuationFailed = true
+		g.markMemberActuationPendingLocked(entry, ev.OldState, ev.NewState)
+		return
+	}
+	entry.actuatedUp = ev.NewState == StateUp
+	entry.actuationFailed = false
+	if (entry.state == StateUp) == (ev.NewState == StateUp) {
+		entry.actuationPending = false
+	}
 }
 
 // -------------------------------------------------------------------------
@@ -558,17 +613,6 @@ func (g *MicroBFDGroup) matchesReconcileConfig(cfg MicroBFDConfig) bool {
 		}
 	}
 	return true
-}
-
-// memberState returns the recorded state of one member link.
-func (g *MicroBFDGroup) memberState(ifName string) (State, uint32, bool) {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	entry, ok := g.members[ifName]
-	if !ok {
-		return StateDown, 0, false
-	}
-	return entry.state, entry.localDiscr, true
 }
 
 // MemberStates returns a snapshot of all member link states.

@@ -404,3 +404,84 @@ func TestUnsolicitedCleanupPreservesReplacementDuringDueRetirement(t *testing.T)
 		}
 	})
 }
+
+func TestUnsolicitedCleanupSharedOwnerDownWithoutStop(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		policy := admissionPolicy(1)
+		policy.CleanupTimeout = time.Second
+		mgr := NewManager(
+			slog.New(slog.DiscardHandler),
+			WithUnsolicitedPolicy(policy),
+			WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
+			WithUnsolicitedSessionSender(nonOwningSessionSender(ownershipNoopSender{})),
+		)
+		defer mgr.Close()
+
+		meta := admissionMeta("192.0.2.215", "192.0.2.254")
+		cfg := unsolicitedSessionConfig(meta, policy)
+		sess, err := mgr.CreateSession(t.Context(), cfg, ownershipSenderLeaseFactory())
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+		synctest.Wait()
+
+		// Admit an unsolicited peer AdminDown packet onto the shared Down session:
+		// local state remains StateDown without stopping unsolicited setup, so
+		// unsolicitedStopped == false && !unsolicitedOnly && observation.State == StateDown.
+		pkt := ownershipDownPacket(105)
+		pkt.State = StateAdminDown
+		outcome, err := mgr.tryCreateUnsolicited(pkt, meta, nil)
+		if err != nil || outcome != DeliveryQueued {
+			t.Fatalf("tryCreateUnsolicited = (%s, %v), want (queued, nil)", outcome, err)
+		}
+		synctest.Wait()
+
+		if mgr.unsolicited.sessionCount.Load() != 1 {
+			t.Fatalf("unsolicited quota before cleanup = %d, want 1", mgr.unsolicited.sessionCount.Load())
+		}
+		sess.mu.RLock()
+		attempt := sess.unsolicitedAttempt
+		stopped := sess.unsolicitedStopped
+		only := sess.unsolicitedOnly
+		obsState := sess.observation.State
+		allowed := sess.unsolicitedCleanupAllowedLocked(attempt)
+		sess.mu.RUnlock()
+		if attempt == 0 || stopped || only || obsState != StateDown || !allowed {
+			t.Fatalf(
+				"unexpected shared Down-without-stop state: attempt=%d stopped=%t only=%t state=%s allowed=%t",
+				attempt, stopped, only, obsState, allowed,
+			)
+		}
+
+		dispatchCtx, cancelDispatch := context.WithCancel(t.Context())
+		dispatchDone := make(chan struct{})
+		go func() {
+			defer close(dispatchDone)
+			mgr.RunDispatch(dispatchCtx)
+		}()
+		defer func() {
+			cancelDispatch()
+			<-dispatchDone
+		}()
+		synctest.Wait()
+
+		synctest.Sleep(policy.CleanupTimeout - time.Nanosecond)
+		if mgr.unsolicited.sessionCount.Load() != 1 {
+			t.Fatal("shared unsolicited claim retired before CleanupTimeout elapsed")
+		}
+
+		synctest.Sleep(time.Nanosecond)
+		if mgr.unsolicited.sessionCount.Load() != 0 {
+			t.Fatalf("unsolicited quota after CleanupTimeout = %d, want 0", mgr.unsolicited.sessionCount.Load())
+		}
+		current, ok := mgr.LookupByDiscriminator(sess.LocalDiscriminator())
+		if !ok || current != sess {
+			t.Fatal("shared configured session was destroyed when unsolicited claim retired")
+		}
+		snaps := mgr.Sessions()
+		if len(snaps) != 1 || snaps[0].Unsolicited {
+			t.Fatalf("session snapshot after shared unsolicited cleanup = %+v, want Unsolicited=false", snaps)
+		}
+	})
+}

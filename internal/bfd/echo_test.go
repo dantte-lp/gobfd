@@ -150,13 +150,30 @@ func TestNewEchoSessionInvalidPeerAddr(t *testing.T) {
 // EchoSession State Transition Tests (synctest — deterministic timers)
 // -------------------------------------------------------------------------
 
+func startEchoWorker(t *testing.T, es *bfd.EchoSession) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		es.Run(ctx)
+	}()
+	var once sync.Once
+	t.Cleanup(func() {
+		once.Do(func() {
+			cancel()
+			<-done
+		})
+	})
+}
+
 func TestEchoSessionDownToUpOnRecv(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		es := createTestEchoSession(t)
 		notifyCh := make(chan bfd.StateChange, 8)
 
 		es2 := createTestEchoSessionWithNotify(t, notifyCh)
-		go es2.Run(t.Context())
+		startEchoWorker(t, es2)
 
 		// Wait for session to start, then send echo return.
 		time.Sleep(10 * time.Millisecond)
@@ -199,7 +216,7 @@ func TestEchoSessionUpToDownOnTimeout(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		go es.Run(t.Context())
+		startEchoWorker(t, es)
 
 		// First, transition to Up by sending an echo return.
 		time.Sleep(10 * time.Millisecond)
@@ -249,7 +266,7 @@ func TestEchoSessionStaysUpWithEchoes(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		go es.Run(t.Context())
+		startEchoWorker(t, es)
 
 		// Transition to Up.
 		time.Sleep(10 * time.Millisecond)
@@ -301,7 +318,7 @@ func TestEchoSessionUpPacketUsesNonzeroYourDiscriminator(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		go es.Run(t.Context())
+		startEchoWorker(t, es)
 
 		synctest.Sleep(time.Second)
 		first := sender.last(t)
@@ -342,7 +359,7 @@ func TestEchoSessionCounters(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		go es.Run(t.Context())
+		startEchoWorker(t, es)
 
 		// Let it send a slow-rate Down echo packet.
 		synctest.Sleep(time.Second)
@@ -378,7 +395,7 @@ func TestEchoSessionSlowRatePacingInDownAndFastInUp(t *testing.T) {
 			t.Fatalf("NewEchoSession: %v", err)
 		}
 
-		go es.Run(t.Context())
+		startEchoWorker(t, es)
 		synctest.Wait()
 
 		// RFC 9747 Section 2: slow transmission in Down uses 1s floor with 0-25% jitter ([750ms, 1s]).
@@ -547,13 +564,17 @@ func TestEchoSessionShutdown(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan struct{})
 
 		go func() {
+			defer close(done)
 			es.Run(ctx)
-			close(done)
 		}()
+		t.Cleanup(func() {
+			cancel()
+			<-done
+		})
 
 		time.Sleep(50 * time.Millisecond)
 		cancel()
