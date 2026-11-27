@@ -56,9 +56,19 @@ func TestMain(m *testing.M) {
 		if mode == "graceful-shutdown" && filepath.Base(os.Args[0]) != "podman" {
 			os.Exit(m.Run())
 		}
-		os.Exit(runInteropFakeCommand(mode, filepath.Base(os.Args[0]), os.Args[1:]))
+		exitFakeCommand(runInteropFakeCommand(mode, filepath.Base(os.Args[0]), os.Args[1:]))
 	}
 	os.Exit(m.Run())
+}
+
+func exitFakeCommand(code int) {
+	// Test-only packages have no instrumented statements under -coverprofile, so
+	// internal/coverage/cfile.emitMetaData writes "program not built with -cover"
+	// to stderr during os.Exit when TestMain exits as a fake CLI without m.Run().
+	_ = os.Stdout.Sync()
+	_ = os.Stderr.Sync()
+	_ = os.Stderr.Close()
+	os.Exit(code)
 }
 
 func TestProjectControlHoloSemanticGate(t *testing.T) {
