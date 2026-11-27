@@ -26,6 +26,7 @@ operational procedures imperative.
 | `dev` | Integrate the next product line; never tag it as a stable release |
 | `master` | Preserve the latest accepted stable state |
 | `release/vMAJOR.MINOR` | Maintain a supported product line |
+| `release/v1.0` | Maintain the v1.0 product line coupled to GoBGP v4 under [ADR-0014](docs/en/adr/0014-v1-gobgp-v4-release-line-baseline.md) |
 | `release/v0.6` | Retain v0.6 public contracts and GoBGP v3 dependency boundary |
 
 Review source and target contracts before integration. Preserve published
@@ -41,27 +42,28 @@ not establish delivery to a supported release line.
 2. Curate both changelogs and review the release commit. Verify identity,
    source retention, required checks and independent review evidence.
 3. Confirm the release-branch ruleset before creating a matching branch;
-   confirm the tag ruleset before creating a matching tag, including `v0.6.2`.
+   confirm the tag ruleset before creating a matching tag.
 4. Authorize publication by pushing the exact reviewed annotated SemVer tag.
-   Preserve existing `v0.1.0` through `v0.6.1` tags. Never move, reuse or
-   delete a release tag.
+   Preserve existing `v0.1.0` through `v0.6.4` and `v1.0.0-alpha.1` tags. Never
+   move, reuse or delete a release tag.
 5. Let the [release workflow](.github/workflows/release.yml) create a draft,
    verify complete assets and evidence, then publish as its final mutation.
 6. Bring the accepted stable history and both changelogs to `master` before
    closeout. Assess forward-ports to `dev` separately; record inapplicability.
 
-The maintainer authorizes the experimental `v1.0.0-alpha.N` channel on
-2026-10-30 under [ADR-0008](docs/en/adr/0008-experimental-prerelease-boundary.md).
-Use a reviewed `release/v1.0` HEAD and positive canonical ordinal. Release
-Please creates the release PR only; curate both changelogs and the version
-manifest in that PR. After merge and required checks, push its immutable
-annotated tag. The release workflow verifies the merged PR, exact candidate,
-fresh critical/security/package checks and complete draft evidence before
-publishing a GitHub prerelease with `latest=false`. Preserve stable GitHub
-latest, OCI aliases and `master`. Alpha does not establish stable readiness;
-strict CPU, native A/B, calibrated reference/24-hour and final wire acceptance
-remain required for stable v1. Policy acceptance does not certify those
-checks or a publication result.
+On 2026-10-30 under [ADR-0008](docs/en/adr/0008-experimental-prerelease-boundary.md),
+the maintainer authorized the historical `v1.0.0-alpha.N` prerelease channel
+(`latest=false`, preserving stable OCI aliases and `master`). On 2026-11-27
+under [ADR-0014](docs/en/adr/0014-v1-gobgp-v4-release-line-baseline.md), the
+maintainer graduated `release/v1.0` to stable `1.0.0` proposals coupled to
+GoBGP `v4.11.0`, keeping preview and experimental BFD extensions bounded by the
+[RFC coverage matrix](docs/en/08-rfc-compliance.md) and tracking long-horizon
+24-hour soak, native Control/Echo scale campaigns and external hardware NOS
+runs as post-1.0 operational qualification evidence rather than `1.0.0` branch
+publication blockers. Release Please creates the release PR only; curate both
+changelogs and verify the version manifest in that PR before merge and tag
+creation. Policy acceptance does not certify workflow checks or a publication
+result.
 
 ## Standards
 

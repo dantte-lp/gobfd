@@ -272,6 +272,6 @@ Sender recovery retains source port 49152 and new ifindex; it is not a zero-allo
 
 Current Control/Echo owners run in goroutines without permanent per-session OS-thread pins. The old pinned baseline cannot satisfy 48 threads at 1000 owners. Matched native A/B, thread/RSS distributions, timer p99.9, false-Down and final 24-hour/wire gates remain required. Source integration does not supply them.
 
-Do not infer RSS/session, startup time or GC pauses from construction B/op. The daemon has no project-wide GOMAXPROCS override. Keep default GOGC; qualify GOMEMLIMIT with deployment measurements. CPU quota does not reserve execution time. No network.dscp configuration field exists; qualify host QoS separately.
+Do not infer RSS/session, startup time or GC pauses from construction B/op. The daemon has no project-wide GOMAXPROCS override. Keep default GOGC; qualify GOMEMLIMIT with deployment measurements. CPU quota does not reserve execution time. Ordinary sender QoS is configured under `socket` (`ipv4_dscp`, `ipv6_traffic_class`, `priority`, `mark`; [configuration](03-configuration.md#udp-buffers-and-sender-qos)), not `network.dscp`; qualify host and network QoS treatment separately.
 
 [Comparison method](13-competitive-analysis.md), [monitoring](07-monitoring.md), [RFC coverage](08-rfc-compliance.md).

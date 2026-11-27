@@ -5,16 +5,18 @@
 | English — canonical | [Operator and developer manual](en/README.md) |
 | Русский — перевод | [Руководство оператора и разработчика](ru/README.md) |
 
-Use documentation from the binary's commit. These pages describe `dev`;
-the accepted stable line has its own configuration and compatibility
-contract. Consult the [RFC matrix](en/08-rfc-compliance.md) before selecting
+Use documentation from the binary's commit. These pages describe the
+`release/v1.0` (`v1.0.0`, GoBGP `v4.11.0`) product line; `release/v0.6`
+(GoBGP `v3.37.0`) and `dev` have separate configuration and compatibility
+contracts. Consult the [RFC matrix](en/08-rfc-compliance.md) before selecting
 a profile and the [vendor reference guide](en/reference/vendor-bfd.md)
 before configuring an equipment peer.
 
 Использовать документацию commit развёрнутого бинарника. Эти страницы описывают
-`dev`; принятая стабильная линия имеет собственный контракт конфигурации и
-совместимости. Выбрать профиль по [матрице RFC](ru/08-rfc-compliance.md),
-параметры оборудования — по [документам производителей](ru/reference/vendor-bfd.md).
+ветку `release/v1.0` (`v1.0.0`, GoBGP `v4.11.0`); `release/v0.6` (GoBGP
+`v3.37.0`) и `dev` имеют отдельные контракты конфигурации и совместимости.
+Выбрать профиль по [матрице RFC](ru/08-rfc-compliance.md), параметры
+оборудования — по [документам производителей](ru/reference/vendor-bfd.md).
 
 ## Sources and records
 

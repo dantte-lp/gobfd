@@ -10,10 +10,10 @@ flowchart LR
   accDescr: GoBFD and GoBGP share a network namespace, FRR is the BFD and eBGP peer, and tshark observes traffic; GoBFD state drives the separate GoBGP actuator.
   subgraph local["Shared network namespace"]
     bfd["GoBFD"]:::srv
-    bgp["GoBGP<br/>AS 65001"]:::brt
+    bgp["GoBGP (AS 65001)"]:::brt
     cap["tshark"]:::mgt
   end
-  frr["FRR<br/>AS 65002"]:::brt
+  frr["FRR (AS 65002)"]:::brt
   bfd -->|"UDP 3784"| frr
   bgp -.->|"eBGP"| frr
   bfd -.-> bgp

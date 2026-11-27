@@ -29,21 +29,21 @@ qualification; their presence alone does not establish security acceptance.
 
 ## Dependency exceptions
 
-The executable allowlist is [scripts/vuln-audit.go](scripts/vuln-audit.go).
-These entries record scoped maintainer decisions, not a live statement about
-an external advisory database. Run the final-candidate audit before acceptance.
+The executable audit policy is [scripts/vuln-audit.go](scripts/vuln-audit.go)
+and [dependency risk](docs/en/reference/dependency-risk.md). On `release/v1.0`
+(`github.com/osrg/gobgp/v4` `v4.11.0`, `golang.org/x/crypto` `v0.59.0`),
+`scripts/vuln-audit.go` carries zero runtime, tools, `gopls` or Syft allowlist
+entries (`GO-2026-4736` and `GO-2026-5932` are retired) and fails if
+`github.com/osrg/gobgp/v4/pkg/server`, `golang.org/x/crypto/openpgp`,
+`github.com/docker/distribution` or `rsc.io/pdf` enters a selected package
+graph.
 
-| Advisory | Exact module | Allowed scope | Review expiry |
-|:---|:---|:---|:---|
-| [GO-2026-4736](https://pkg.go.dev/vuln/GO-2026-4736) | `github.com/osrg/gobgp/v4` | Module-only; affected server package is outside the accepted import graph | 2026-12-31 |
-| [GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932) | `golang.org/x/crypto` | Module-only; `openpgp` remains absent from runtime and tools build graphs | 2026-12-31 |
-
-The GoBGP decision records the upstream fix and the vulnerability-database
-version discrepancy. Stable v1 also requires fresh GHSA/OSV fixed-version
-and final-candidate reachability evidence.
-The `release/v0.6` GoBGP v3 risk has a separate maintainer decision and
-undelivered stable-line disposition; the `dev` v4
-exception does not complete that work.
+The separately audited GoReleaser `v2.20.3` publisher binary retains bounded
+`COMPONENT_NOT_PRESENT` and `FIXED_SOURCE_RANGE` dispositions through
+`2026-12-31` verified against its compiled ELF `BuildInfo` and binary
+`govulncheck` SBOM. The `release/v0.6` GoBGP `v3.37.0` line retains a separate
+maintainer disposition; `release/v1.0` does not alter `release/v0.6`. Run a
+fresh candidate audit before release acceptance.
 
 Reject reachable affected symbols, disallowed package findings, unexpected
 modules, unknown scanners, expired entries and stale entries without a
@@ -65,6 +65,7 @@ handling. A TTL/Hop Limit check does not authenticate an on-link sender.
 ## Supported lines
 
 Use the latest published release unless its line has a separately documented
-support boundary. `release/v0.6` retains its public and dependency contracts.
-`dev` and experimental profiles do not inherit stable-release acceptance.
+support boundary. `release/v1.0` couples to GoBGP `v4.11.0` and the v1 public
+contracts; `release/v0.6` retains GoBGP `v3.37.0` and its v0.6 contracts.
+`dev` and preview profiles do not inherit stable-release acceptance.
 Consult [release governance](GOVERNANCE.md) and the [dated status](docs/en/roadmap.md).

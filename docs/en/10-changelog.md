@@ -21,7 +21,7 @@ The layout follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/): new
 |:---|:---|
 | `dev` | Next product line; never a stable tag target |
 | `master` | Latest accepted stable state |
-| `release/vMAJOR.MINOR` | Release line (`release/v1.0` targets GoBGP v4 under ADR-0014; `release/v0.6` targets GoBGP v3.37.0) |
+| `release/vMAJOR.MINOR` | Release line (`release/v1.0` targets GoBGP v4 under [ADR-0014](adr/0014-v1-gobgp-v4-release-line-baseline.md); `release/v0.6` targets GoBGP v3.37.0) |
 | `fix/vMAJOR.MINOR-*` | Fix targeting the corresponding supported line |
 
 The v0.6 line preserves GoBGP v3.37.0 and its public contracts. Acceptance on `dev` does not deliver a fix to a stable line.
@@ -36,7 +36,7 @@ The v0.6 line preserves GoBGP v3.37.0 and its public contracts. Acceptance on `d
 6. Follow the separately authorized release workflow. Verify complete draft assets before immutable publication.
 7. Read back published assets, release flags, notes and OCI identities. Deliver accepted stable history and both changelogs to `master` for stable releases; alpha leaves the accepted stable state unchanged. Assess forward-port to `dev` separately.
 
-Existing `v0.1.0` through `v0.6.1` tags remain unchanged. The executable process lives in [.github/workflows/release.yml](../../.github/workflows/release.yml) and [Go-owned automation](reference/automation.md). A workflow definition is not evidence of a successful release. This guide does not authorize push, tag, draft, promotion or publication.
+Existing `v0.1.0` through `v0.6.4` and `v1.0.0-alpha.1` tags remain unchanged. The executable process lives in [.github/workflows/release.yml](../../.github/workflows/release.yml) and [Go-owned automation](reference/automation.md). A workflow definition is not evidence of a successful release. This guide does not authorize push, tag, draft, promotion or publication.
 
 Treat publication steps as state changes, not repeatable checks. After a failure, read back the exact tag, draft, assets and OCI aliases before selecting a recovery or retry. Preserve accepted tags and published history; the [automation contract](reference/automation.md#release-sequence) limits alias rollback and keeps postpublication verification separate.
 
@@ -50,9 +50,9 @@ After verifying the published release and its assets, replace the release PR's `
 
 ## Prerelease boundary
 
-[ADR-0008](adr/0008-experimental-prerelease-boundary.md) accepts an experimental `v1.0.0-alpha.N` channel, where `N` is a positive decimal integer without leading zeroes. Use `release/v1.0`; never tag `dev` or `master` for this channel. Other prerelease spellings are rejected deliberately.
+[ADR-0008](adr/0008-experimental-prerelease-boundary.md) defines the historical experimental `v1.0.0-alpha.N` channel, where `N` is a positive decimal integer without leading zeroes; [ADR-0014](adr/0014-v1-gobgp-v4-release-line-baseline.md) graduates `release/v1.0` to stable `1.0.x` proposals (`versioning: default` in `release-please-config.json`). Use `release/v1.0`; never tag `dev` or `master` for this channel. Other prerelease spellings are rejected deliberately.
 
-The Go-owned `cictl release-please-pr` command invokes upstream Release Please 17.11.2 in manifest mode with `skip-github-release: true` and `skip-changelog: true`. Its isolated consumer lock, pinned Node image, verified npm bootstrap, script-disabled installation, pre-token input/audit checks and temporary token file follow the [proposal contract](reference/automation.md#release-proposal). The upstream Action bundle is not the proposal dependency source. Curate both root changelogs in that same PR using `## [1.0.0-alpha.1] - YYYY-MM-DD` with the actual release date. The manifest version and both version headings must agree. Release Please neither creates the tag nor publishes the draft. The [release-please workflow](../../.github/workflows/release-please.yml) proposes releases on `release/v1.0` pushes. Manual dispatch is available only after GitHub registers the workflow from the default branch; the release-line push remains the initial trigger.
+The Go-owned `cictl release-please-pr` command invokes upstream Release Please 17.11.2 in manifest mode with `skip-github-release: true` and `skip-changelog: true`. Its isolated consumer lock, pinned Node image, verified npm bootstrap, script-disabled installation, pre-token input/audit checks and temporary token file follow the [proposal contract](reference/automation.md#release-proposal). The upstream Action bundle is not the proposal dependency source. Curate both root changelogs in that same PR using `## [1.0.0] - YYYY-MM-DD` (or `## [1.0.0-alpha.N] - YYYY-MM-DD` for the historical alpha channel) with the actual release date. The manifest version and both version headings must agree. Release Please neither creates the tag nor publishes the draft. The [release-please workflow](../../.github/workflows/release-please.yml) proposes releases on `release/v1.0` pushes. Manual dispatch is available only after GitHub registers the workflow from the default branch; the release-line push remains the initial trigger.
 
 Commit the curated English/Russian sections to the release PR source branch using the maintainer identity. Confirm that all required PR checks run and pass; approve workflow runs when GitHub requires it. Do not merge an automation-created PR without those checks.
 

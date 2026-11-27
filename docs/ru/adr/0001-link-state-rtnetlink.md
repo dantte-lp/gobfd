@@ -51,14 +51,14 @@
 flowchart LR
     accTitle: Пересоздание интерфейса и восстановление удержанной привязки сессии
     accDescr: Изменение инвентаризации переводит подтверждённую привязку в pending, запускает PathDown и проверку sender/listener и публикует readiness после фиксации live entry.
-    A["Подтверждённая привязка"]:::leaf --> B["Изменение инвентаризации"]:::mgt
-    B --> C["Pending: блокировать RX и TX"]:::brt
-    C --> D["PathDown владельца и rebind sender"]:::srv
-    D --> F["Проверить привязку listener"]:::srv
-    F --> E["Проверить live entry и зафиксировать RX binding"]:::leaf
-    E --> G["Опубликовать readiness"]:::mgt
-    D -->|ошибка| C
-    F -->|ошибка| C
+    confirmed["Подтверждённая привязка"]:::leaf --> inventory["Изменение инвентаризации"]:::mgt
+    inventory --> pending["Pending: блокировать RX и TX"]:::brt
+    pending --> rebind["PathDown владельца и rebind sender"]:::srv
+    rebind --> listener["Проверить привязку listener"]:::srv
+    listener --> commit["Проверить live entry и зафиксировать RX binding"]:::leaf
+    commit --> ready["Опубликовать readiness"]:::mgt
+    rebind -->|"ошибка"| pending
+    listener -->|"ошибка"| pending
     classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
     classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
     classDef leaf fill:#e3f2fd,stroke:#1976d2,color:#000

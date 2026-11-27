@@ -1,6 +1,6 @@
 # ADR-0005: Внешняя Smallstep CA для продления сертификатов управления
 
-[English original](../../en/adr/0005-smallstep-management-certificates.md).
+[Английский оригинал](../../en/adr/0005-smallstep-management-certificates.md).
 
 <a id="adr-0005-внешняя-smallstep-ca-для-renewal-сертификатов-управления"></a>
 

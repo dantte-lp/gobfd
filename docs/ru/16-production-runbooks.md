@@ -146,15 +146,15 @@ gobfdctl session list
 ## 6. Краткий справочник команд
 
 ```sh
-# Read current session state.
+# Проверить текущее состояние сессий.
 gobfdctl session list
-# Read preview maturity and local readiness.
+# Проверить зрелость preview-профилей и локальную готовность.
 gobfdctl capabilities
-# Request reload of reloadable YAML.
+# Запросить перечитывание перечитываемых полей YAML.
 systemctl reload gobfd
-# Inspect daemon acceptance/rejection.
+# Проверить принятие или отклонение конфигурации демоном.
 journalctl -u gobfd --since '-2 min' --no-pager
-# Read service process state.
+# Проверить состояние процесса службы.
 systemctl show gobfd -p ActiveState -p MainPID -p NRestarts
 ```
 

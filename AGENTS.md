@@ -163,13 +163,13 @@ an upstream image name alone is not an exception.
 - Stable releases are prepared and published only after development and final
   qualification are complete. Continue implementation in `dev`; do not create
   release tags, drafts, or release artifacts during intermediate tasks.
-- Exception: the maintainer authorizes the experimental `v1.0.0-alpha.N`
-  channel on 2026-10-30 under ADR-0008. Use positive canonical ordinals, a
-  reviewed `release/v1.0` HEAD, an immutable annotated tag, a merged release
-  PR, fresh critical/security/package checks and complete verified draft
-  assets. Release Please creates the PR only; GoReleaser and the Go-owned
-  verifier publish the prerelease with `latest=false`. Never promote stable
-  OCI aliases or close stable qualification from alpha delivery.
+- Historical alpha exception: on 2026-10-30 under ADR-0008, `release/v1.0`
+  used experimental `v1.0.0-alpha.N` proposals (`latest=false`, no stable OCI
+  alias promotion). On 2026-11-27 under ADR-0014, the maintainer graduated
+  `release/v1.0` to stable `1.0.x` proposals coupled to GoBGP `v4.11.0`,
+  preserving the immutable `v1.0.0-alpha.1` tag and preview RFC boundaries.
+  Release Please creates the PR only; GoReleaser and the Go-owned verifier
+  publish verified drafts.
 - `dev` integrates the next product line and is never tagged for a stable
   release.
 - Acceptance records name the branch, commit, and evidence; closed `dev` tasks
@@ -177,7 +177,8 @@ an upstream image name alone is not an exception.
   source-supported inapplicability before release closeout.
 - `master` is the default branch and contains the latest accepted stable state.
 - Supported product lines use branches named `release/vMAJOR.MINOR`.
-- `release/v0.6` retains GoBGP v3.37.0 and the v0.6 public contracts.
+- `release/v1.0` couples to GoBGP v4.11.0 and the v1 public contracts;
+  `release/v0.6` retains GoBGP v3.37.0 and the v0.6 public contracts.
 - Fixes use `fix/vMAJOR.MINOR-*`, enter the supported line through reviewed
   pull requests, and are forward-ported separately when applicable.
 - After a supported patch is published, its accepted stable history and both
@@ -185,10 +186,10 @@ an upstream image name alone is not an exception.
   are forward-ported to `dev` separately.
 - The release-branch ruleset must be active before each new matching release
   branch is created. The tag ruleset must be active before each new matching
-  tag is created, specifically before `v0.6.2`.
+  tag is created.
 - A release tag points to the exact reviewed release-branch commit and is
-  never moved, deleted, or reused. Existing `v0.1.0` through `v0.6.1` tags are
-  preserved unchanged.
+  never moved, deleted, or reused. Existing `v0.1.0` through `v0.6.4` and
+  `v1.0.0-alpha.1` tags are preserved unchanged.
 - GitHub Release assets must be complete and verified while the release is a
   draft, before immutable publication.
 - GitHub Release notes cover every maintenance section since the previous

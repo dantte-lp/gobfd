@@ -51,14 +51,14 @@ The [isolated launcher](../../../test/internal/e2erunner/runner.go) enables IPv4
 flowchart LR
     accTitle: Interface recreation and retained session binding recovery
     accDescr: Inventory changes move a confirmed binding to pending, trigger PathDown and sender/listener verification, and republish readiness only after live entry commit.
-    A["Confirmed binding"]:::leaf --> B["Inventory change"]:::mgt
-    B --> C["Pending: block RX and TX"]:::brt
-    C --> D["Owner PathDown and sender rebind"]:::srv
-    D --> F["Verify listener binding"]:::srv
-    F --> E["Verify live entry and commit RX binding"]:::leaf
-    E --> G["Publish readiness"]:::mgt
-    D -->|failure| C
-    F -->|failure| C
+    confirmed["Confirmed binding"]:::leaf --> inventory["Inventory change"]:::mgt
+    inventory --> pending["Pending: block RX and TX"]:::brt
+    pending --> rebind["Owner PathDown and sender rebind"]:::srv
+    rebind --> listener["Verify listener binding"]:::srv
+    listener --> commit["Verify live entry and commit RX binding"]:::leaf
+    commit --> ready["Publish readiness"]:::mgt
+    rebind -->|"failure"| pending
+    listener -->|"failure"| pending
     classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
     classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
     classDef leaf fill:#e3f2fd,stroke:#1976d2,color:#000

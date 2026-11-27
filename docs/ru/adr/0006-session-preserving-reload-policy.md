@@ -1,6 +1,6 @@
 # ADR-0006: Политика перечитывания с сохранением сессии
 
-[English original](../../en/adr/0006-session-preserving-reload-policy.md).
+[Английский оригинал](../../en/adr/0006-session-preserving-reload-policy.md).
 
 <a id="adr-0006-политика-reload-с-сохранением-сессии"></a>
 

@@ -54,7 +54,7 @@ Control supports Simple Password, keyed/meticulous MD5 and keyed/meticulous SHA1
 
 ## Routing and actuator credentials
 
-GoBGP actuation requires compatible v4 API and one BFD owner per neighbor. `gobgp.tls.enabled` enables server-authenticated TLS; configured CA roots/name verify the endpoint. The GoBGP client has no client-certificate configuration. Non-loopback plaintext logs a warning; this warning is not an access-control boundary. Keep the API loopback or protect remote access with explicit TLS/network controls. Sources: [client](../../internal/gobgp/client.go), [startup handler](../../cmd/gobfd/handlers.go).
+GoBGP actuation requires compatible v4 API and one BFD owner per neighbor. `gobgp.tls.enabled` enables server-authenticated TLS; configured CA roots/name verify the endpoint. The GoBGP client has no client-certificate configuration. Plaintext TCP outside loopback logs a warning (`unix:///path` and `unix:/path` local sockets are classified as local IPC); this warning is not an access-control boundary. Keep the API on a local Unix socket (with protected `0600` `gobgp.state_file` receipts) or loopback TCP, or protect remote TCP access with explicit TLS/network controls. Sources: [client](../../internal/gobgp/client.go), [startup handler](../../cmd/gobfd/handlers.go).
 
 Micro-BFD enforcement changes native member state. Disabled/dry-run modes do not qualify enforcement. Select the real kernel/OVS/NetworkManager owner and reviewed permissions before enabling `enforce`. The optional kernel-bond systemd drop-in adds broad `CAP_DAC_OVERRIDE` and retains native-host qualification gaps. Source: [drop-in](../../deployments/systemd/gobfd-kernel-bond.conf).
 
