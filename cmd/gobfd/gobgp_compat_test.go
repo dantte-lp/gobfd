@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -19,6 +21,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
+	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
 	"github.com/dantte-lp/gobfd/internal/gobgp"
 )
@@ -208,5 +211,130 @@ func TestGoBGPManagedPeersUsesSessionPeers(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("goBGPManagedPeers() = %v, want %v", got, want)
+	}
+}
+
+type compatibleUnixGoBGP struct {
+	gobgpapi.UnimplementedGoBgpServiceServer
+}
+
+func (compatibleUnixGoBGP) GetBgp(context.Context, *gobgpapi.GetBgpRequest) (*gobgpapi.GetBgpResponse, error) {
+	return &gobgpapi.GetBgpResponse{Global: &gobgpapi.Global{Asn: 65001, RouterId: "192.0.2.10"}}, nil
+}
+
+func (compatibleUnixGoBGP) ListPeer(
+	_ *gobgpapi.ListPeerRequest, _ grpc.ServerStreamingServer[gobgpapi.ListPeerResponse],
+) error {
+	return nil
+}
+
+func TestStartGoBGPHandlerUnixSocketOmitsPlaintextWarning(t *testing.T) {
+	t.Parallel()
+
+	sockPath := filepath.Join(t.TempDir(), "speaker.sock")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", sockPath)
+	if err != nil {
+		t.Fatalf("listen unix: %v", err)
+	}
+	server := grpc.NewServer()
+	gobgpapi.RegisterGoBgpServiceServer(server, compatibleUnixGoBGP{})
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(listener) }()
+	t.Cleanup(func() {
+		server.Stop()
+		if serveErr := <-served; serveErr != nil {
+			t.Errorf("serve: %v", serveErr)
+		}
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	var g errgroup.Group
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+
+	client, err := startGoBGPHandler(
+		ctx,
+		&g,
+		config.GoBGPConfig{
+			Enabled:       true,
+			Addr:          "unix://" + sockPath,
+			Strategy:      "disable-peer",
+			ActionTimeout: 5 * time.Second,
+		},
+		nil,
+		mgr,
+		nil,
+		logger,
+	)
+	if err != nil {
+		cancel()
+		t.Fatalf("startGoBGPHandler: %v", err)
+	}
+	cancel()
+	if waitErr := g.Wait(); waitErr != nil {
+		t.Fatalf("handler errgroup: %v", waitErr)
+	}
+	if client != nil {
+		if closeErr := client.Close(); closeErr != nil {
+			t.Fatalf("close client: %v", closeErr)
+		}
+	}
+
+	out := logs.String()
+	if strings.Contains(out, "gobgp plaintext grpc configured for non-loopback address") {
+		t.Fatalf("unexpected non-loopback warning for Unix IPC socket:\n%s", out)
+	}
+	if !strings.Contains(out, "gobgp compatibility preflight passed") {
+		t.Fatalf("missing compatibility preflight passed log:\n%s", out)
+	}
+}
+
+func TestStartGoBGPHandlerFailsClosedOnCorruptStateFile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	sockPath := filepath.Join(dir, "speaker.sock")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", sockPath)
+	if err != nil {
+		t.Fatalf("listen unix: %v", err)
+	}
+	server := grpc.NewServer()
+	gobgpapi.RegisterGoBgpServiceServer(server, compatibleUnixGoBGP{})
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		_ = server.Serve(listener)
+	}()
+	t.Cleanup(func() {
+		server.Stop()
+		<-served
+	})
+
+	stateFile := filepath.Join(dir, "corrupt-ownership.json")
+	if writeErr := os.WriteFile(stateFile, []byte(`{"version":1,"receipts":`), 0o600); writeErr != nil {
+		t.Fatalf("WriteFile: %v", writeErr)
+	}
+
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	_, err = startGoBGPHandler(
+		t.Context(),
+		new(errgroup.Group),
+		config.GoBGPConfig{
+			Enabled:       true,
+			Addr:          "unix://" + sockPath,
+			Strategy:      "disable-peer",
+			StateFile:     stateFile,
+			ActionTimeout: 5 * time.Second,
+		},
+		nil,
+		mgr,
+		nil,
+		slog.New(slog.DiscardHandler),
+	)
+	if err == nil {
+		t.Fatal("startGoBGPHandler succeeded with corrupt state file, want fail-closed error")
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/netip"
 	"os"
 	"sync"
@@ -19,6 +20,8 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+
+	"github.com/dantte-lp/gobfd/internal/gobgp/endpoint"
 )
 
 // -------------------------------------------------------------------------
@@ -41,6 +44,36 @@ type Client interface {
 
 	// Close releases the underlying gRPC connection.
 	Close() error
+}
+
+// PeerAdminState represents the operational GoBGP administrative state of a neighbor.
+type PeerAdminState uint8
+
+const (
+	// PeerAdminStateUnspecified indicates GoBGP reported no recognized admin state.
+	PeerAdminStateUnspecified PeerAdminState = iota
+	// PeerAdminStateUp indicates the neighbor is administratively enabled.
+	PeerAdminStateUp
+	// PeerAdminStateDown indicates the neighbor is administratively disabled.
+	PeerAdminStateDown
+	// PeerAdminStatePrefixLimit indicates the neighbor was shut down by prefix limit.
+	PeerAdminStatePrefixLimit
+)
+
+// PeerInspection captures a neighbor's administrative configuration, operational
+// state, and connected GoBGP speaker epoch identity.
+type PeerInspection struct {
+	AdminState    PeerAdminState
+	ConfAdminDown bool
+	Speaker       SpeakerIdentity
+}
+
+// OwnershipClient is an optional Client extension implemented by GRPCClient to
+// verify speaker-epoch disable ownership across restarts and observe external
+// peer administrative recoveries.
+type OwnershipClient interface {
+	InspectPeer(ctx context.Context, addr string) (PeerInspection, error)
+	WatchPeerAdminUp(ctx context.Context, onAdminUp func(addr string)) error
 }
 
 // -------------------------------------------------------------------------
@@ -73,12 +106,17 @@ var (
 // remains supported for local deployments where GoBGP listens only on loopback
 // or another trusted management network.
 type GRPCClient struct {
+	target string
 	conn   *grpc.ClientConn
 	api    gobgpapi.GoBgpServiceClient
 	logger *slog.Logger
 
 	mu     sync.RWMutex
 	closed bool
+
+	peerMu   sync.RWMutex
+	unixPeer unixTransportIdentity
+	hasUnix  bool
 }
 
 // GRPCClientConfig holds connection parameters for the GoBGP gRPC client.
@@ -122,24 +160,29 @@ func NewGRPCClient(cfg GRPCClientConfig, logger *slog.Logger) (*GRPCClient, erro
 		return nil, fmt.Errorf("create gobgp client to %s: %w: %w", cfg.Addr, ErrDialFailed, err)
 	}
 
-	conn, err := grpc.NewClient(
-		cfg.Addr,
-		// transportCreds is TLS when gobgp.tls.enabled is true; plaintext fallback is limited to trusted deployments.
-		// nosemgrep: go.grpc.tls.grpc-client-new-insecure-connection.grpc-client-new-insecure-connection
-		grpc.WithTransportCredentials(transportCreds),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create gobgp client to %s: %w: %w", cfg.Addr, ErrDialFailed, err)
-	}
-
 	client := &GRPCClient{
-		conn: conn,
-		api:  gobgpapi.NewGoBgpServiceClient(conn),
+		target: cfg.Addr,
 		logger: logger.With(
 			slog.String("component", "gobgp.client"),
 			slog.String("addr", cfg.Addr),
 		),
 	}
+
+	opts := []grpc.DialOption{
+		// transportCreds is TLS when gobgp.tls.enabled is true; plaintext fallback is limited to trusted deployments.
+		// nosemgrep: go.grpc.tls.grpc-client-new-insecure-connection.grpc-client-new-insecure-connection
+		grpc.WithTransportCredentials(transportCreds),
+	}
+	if socketPath, ok := endpoint.LocalUnixSocketPath(cfg.Addr); ok && !cfg.TLS.Enabled {
+		opts = append(opts, grpc.WithContextDialer(client.unixContextDialer(socketPath)))
+	}
+
+	conn, err := grpc.NewClient(cfg.Addr, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("create gobgp client to %s: %w: %w", cfg.Addr, ErrDialFailed, err)
+	}
+	client.conn = conn
+	client.api = gobgpapi.NewGoBgpServiceClient(conn)
 
 	client.logger.Info("gobgp gRPC client created",
 		slog.String("target", cfg.Addr),
@@ -255,20 +298,176 @@ func (c *GRPCClient) PeerAdminDown(ctx context.Context, addr string) (bool, erro
 	}
 	c.mu.RUnlock()
 
-	stream, err := c.api.ListPeer(ctx, &gobgpapi.ListPeerRequest{Address: addr})
+	peer, err := c.readPeer(ctx, addr)
 	if err != nil {
 		return false, fmt.Errorf("read gobgp peer %s admin state: %w", addr, err)
+	}
+	return peer.GetState().GetAdminState() == gobgpapi.PeerState_ADMIN_STATE_DOWN, nil
+}
+
+func (c *GRPCClient) unixContextDialer(socketPath string) func(context.Context, string) (net.Conn, error) {
+	return func(ctx context.Context, _ string) (net.Conn, error) {
+		conn, err := (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+		if err != nil {
+			c.clearUnixIdentity()
+			return nil, fmt.Errorf("dial gobgp unix socket %s: %w", socketPath, err)
+		}
+		id, ok := captureUnixTransportIdentity(conn, socketPath)
+		c.peerMu.Lock()
+		c.unixPeer = id
+		c.hasUnix = ok
+		c.peerMu.Unlock()
+		return conn, nil
+	}
+}
+
+func (c *GRPCClient) clearUnixIdentity() {
+	c.peerMu.Lock()
+	c.unixPeer = unixTransportIdentity{}
+	c.hasUnix = false
+	c.peerMu.Unlock()
+}
+
+func (c *GRPCClient) readPeer(ctx context.Context, addr string) (*gobgpapi.Peer, error) {
+	stream, err := c.api.ListPeer(ctx, &gobgpapi.ListPeerRequest{Address: addr})
+	if err != nil {
+		return nil, fmt.Errorf("list gobgp peer %s: %w", addr, err)
 	}
 	for {
 		resp, recvErr := stream.Recv()
 		if errors.Is(recvErr, io.EOF) {
-			return false, fmt.Errorf("read gobgp peer %s admin state: %w", addr, errPeerNotFound)
+			return nil, errPeerNotFound
 		}
 		if recvErr != nil {
-			return false, fmt.Errorf("read gobgp peer %s admin state: %w", addr, recvErr)
+			return nil, fmt.Errorf("receive gobgp peer %s: %w", addr, recvErr)
 		}
 		if resp.GetPeer().GetConf().GetNeighborAddress() == addr {
-			return resp.GetPeer().GetState().GetAdminState() == gobgpapi.PeerState_ADMIN_STATE_DOWN, nil
+			return resp.GetPeer(), nil
+		}
+	}
+}
+
+// InspectPeer reads a neighbor's operational and configured admin state along
+// with the live speaker identity on the active transport.
+func (c *GRPCClient) InspectPeer(ctx context.Context, addr string) (PeerInspection, error) {
+	c.mu.RLock()
+	if c.closed {
+		c.mu.RUnlock()
+		return PeerInspection{}, fmt.Errorf("inspect gobgp peer %s: %w", addr, ErrClientClosed)
+	}
+	c.mu.RUnlock()
+
+	bgpResp, err := c.api.GetBgp(ctx, &gobgpapi.GetBgpRequest{})
+	if err != nil {
+		return PeerInspection{}, fmt.Errorf("inspect gobgp global state for %s: %w", addr, err)
+	}
+	peer, err := c.readPeer(ctx, addr)
+	if err != nil {
+		return PeerInspection{}, fmt.Errorf("inspect gobgp peer %s: %w", addr, err)
+	}
+
+	var admin PeerAdminState
+	switch peer.GetState().GetAdminState() {
+	case gobgpapi.PeerState_ADMIN_STATE_UP:
+		admin = PeerAdminStateUp
+	case gobgpapi.PeerState_ADMIN_STATE_DOWN:
+		admin = PeerAdminStateDown
+	case gobgpapi.PeerState_ADMIN_STATE_PFX_CT:
+		admin = PeerAdminStatePrefixLimit
+	default:
+		admin = PeerAdminStateUnspecified
+	}
+
+	speaker := SpeakerIdentity{
+		Target:   c.target,
+		ASN:      bgpResp.GetGlobal().GetAsn(),
+		RouterID: bgpResp.GetGlobal().GetRouterId(),
+	}
+	c.peerMu.RLock()
+	if c.hasUnix {
+		speaker.PeerPID = c.unixPeer.peerPID
+		speaker.PeerUID = c.unixPeer.peerUID
+		speaker.SocketDev = c.unixPeer.socketDev
+		speaker.SocketIno = c.unixPeer.socketIno
+		speaker.BootID = c.unixPeer.bootID
+		speaker.ProcStartTime = c.unixPeer.procStartTime
+	}
+	c.peerMu.RUnlock()
+
+	return PeerInspection{
+		AdminState:    admin,
+		ConfAdminDown: peer.GetConf().GetAdminDown(),
+		Speaker:       speaker,
+	}, nil
+}
+
+const (
+	watchRetryInitial = 100 * time.Millisecond
+	watchRetryMax     = 5 * time.Second
+)
+
+// WatchPeerAdminUp subscribes to GoBGP peer events and invokes onAdminUp whenever
+// a neighbor is observed in ADMIN_STATE_UP. It reconnects on transient stream
+// errors until ctx is cancelled or the client is closed.
+func (c *GRPCClient) WatchPeerAdminUp(ctx context.Context, onAdminUp func(addr string)) error {
+	backoff := watchRetryInitial
+	timer := time.NewTimer(backoff)
+	timer.Stop()
+	defer timer.Stop()
+
+	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+		c.mu.RLock()
+		closed := c.closed
+		c.mu.RUnlock()
+		if closed {
+			return nil
+		}
+
+		err := c.consumePeerEventsOnce(ctx, onAdminUp)
+		if err == nil || ctx.Err() != nil {
+			return nil
+		}
+		timer.Reset(backoff)
+		backoff = min(2*backoff, watchRetryMax)
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-timer.C:
+		}
+	}
+}
+
+func (c *GRPCClient) consumePeerEventsOnce(ctx context.Context, onAdminUp func(addr string)) error {
+	stream, err := c.api.WatchEvent(ctx, &gobgpapi.WatchEventRequest{
+		Peer: &gobgpapi.WatchEventRequest_Peer{},
+	})
+	if err != nil {
+		if status.Code(err) == codes.Unimplemented {
+			return nil
+		}
+		return fmt.Errorf("open gobgp peer watch stream: %w", err)
+	}
+	for {
+		resp, recvErr := stream.Recv()
+		if recvErr != nil {
+			if status.Code(recvErr) == codes.Unimplemented {
+				return nil
+			}
+			return fmt.Errorf("receive gobgp peer watch event: %w", recvErr)
+		}
+		peerEv := resp.GetPeer().GetPeer()
+		if peerEv == nil || peerEv.GetState().GetAdminState() != gobgpapi.PeerState_ADMIN_STATE_UP {
+			continue
+		}
+		rawAddr := peerEv.GetState().GetNeighborAddress()
+		if rawAddr == "" {
+			rawAddr = peerEv.GetConf().GetNeighborAddress()
+		}
+		if parsed, parseErr := netip.ParseAddr(rawAddr); parseErr == nil {
+			onAdminUp(parsed.Unmap().String())
 		}
 	}
 }

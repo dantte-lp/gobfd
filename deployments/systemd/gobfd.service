@@ -20,11 +20,13 @@ Group=gobfd
 SupplementaryGroups=gobfd-admin
 RuntimeDirectory=gobfd
 RuntimeDirectoryMode=0755
+StateDirectory=gobfd
+StateDirectoryMode=0700
 UMask=0077
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
 NoNewPrivileges=true
-# The only writable state is RuntimeDirectory= and the private /tmp.
+# The only writable state is RuntimeDirectory=, StateDirectory= and the private /tmp.
 ProtectSystem=strict
 ProtectHome=true
 ReadOnlyPaths=/etc/gobfd

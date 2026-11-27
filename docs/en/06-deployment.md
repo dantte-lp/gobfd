@@ -39,9 +39,10 @@ The shipped service starts `/usr/local/bin/gobfd -config /etc/gobfd/gobfd.yml`. 
 | Control | Shipped value | Consequence |
 |:---|:---|:---|
 | Runtime directory | `/run/gobfd`, mode `0755` | Socket lifecycle is service-owned |
+| State directory | `/var/lib/gobfd`, mode `0700` | Preserves Unix GoBGP disable ownership receipts across restarts |
 | UMask | `UMask=0077` | Restrict newly created files |
 | Capabilities | `CAP_NET_RAW CAP_NET_ADMIN` | Networking privileges without full privileged execution |
-| Filesystem | `ProtectSystem=strict`, config read-only, private tmp | Runtime directory/private tmp remain writable |
+| Filesystem | `ProtectSystem=strict`, config read-only, private tmp | Runtime, state and private tmp directories remain writable |
 | Kernel | `ProtectKernelTunables=true`, `ProtectKernelModules=true`, `ProtectControlGroups=true` | Kernel configuration and control groups remain protected |
 | Processes | `ProtectProc=invisible`, `ProcSubset=pid`, `LockPersonality=true` | Restricted process visibility; optional actuators need explicit integration review |
 | System calls | `SystemCallArchitectures=native`, `SystemCallFilter=@system-service`, `SystemCallErrorNumber=EPERM` | Qualify additional actuators against this filter |

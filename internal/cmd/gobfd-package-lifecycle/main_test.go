@@ -134,7 +134,7 @@ func TestSystemdDeclarativeInputs(t *testing.T) {
 		{
 			name: "tmpfiles",
 			path: "deployments/systemd/gobfd.tmpfiles",
-			want: "d /etc/gobfd 0750 root gobfd - -\n",
+			want: "d /etc/gobfd 0750 root gobfd - -\nd /var/lib/gobfd 0700 gobfd" + " gobfd - -\n",
 		},
 	}
 

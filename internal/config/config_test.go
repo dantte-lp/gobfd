@@ -1024,6 +1024,126 @@ func TestGoBGPPlaintextNonLoopback(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "unix triple-slash absolute socket",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:///node/speaker.sock",
+			},
+			want: false,
+		},
+		{
+			name: "unix single-slash absolute socket",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:/run/gobgp/gobgpd.sock",
+			},
+			want: false,
+		},
+		{
+			name: "unix non-empty authority",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix://node/speaker.sock",
+			},
+			want: true,
+		},
+		{
+			name: "unix root directory",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:///",
+			},
+			want: true,
+		},
+		{
+			name: "unix trailing slash directory",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:///node/speaker/",
+			},
+			want: true,
+		},
+		{
+			name: "unix empty opaque",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:",
+			},
+			want: true,
+		},
+		{
+			name: "unix relative path",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:speaker.sock",
+			},
+			want: true,
+		},
+		{
+			name: "unix abstract scheme",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix-abstract:gobgp",
+			},
+			want: true,
+		},
+		{
+			name: "unix abstract at-prefix",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:@gobgp",
+			},
+			want: true,
+		},
+		{
+			name: "unix query parameter",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:///node/speaker.sock?x=1",
+			},
+			want: true,
+		},
+		{
+			name: "unix fragment",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:///node/speaker.sock#frag",
+			},
+			want: true,
+		},
+		{
+			name: "unix percent-encoded nul",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:///node/speaker%00.sock",
+			},
+			want: true,
+		},
+		{
+			name: "unix padded whitespace",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    " unix:///node/speaker.sock ",
+			},
+			want: true,
+		},
+		{
+			name: "unrecognized scheme",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "http://127.0.0.1:50051",
+			},
+			want: true,
+		},
+		{
+			name: "malformed target",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "bogus",
+			},
+			want: true,
+		},
+		{
 			name: "remote ipv4",
 			cfg: config.GoBGPConfig{
 				Enabled: true,
@@ -1063,6 +1183,45 @@ func TestGoBGPPlaintextNonLoopback(t *testing.T) {
 			got := config.GoBGPPlaintextNonLoopback(tt.cfg)
 			if got != tt.want {
 				t.Fatalf("GoBGPPlaintextNonLoopback() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGoBGPStateFileConfigAndValidation(t *testing.T) {
+	t.Parallel()
+
+	defaults := config.DefaultConfig()
+	if defaults.GoBGP.StateFile != config.DefaultGoBGPStateFile {
+		t.Fatalf("default gobgp.state_file = %q, want %q", defaults.GoBGP.StateFile, config.DefaultGoBGPStateFile)
+	}
+
+	for _, tc := range []struct {
+		name      string
+		stateFile string
+		wantErr   bool
+	}{
+		{name: "default path", stateFile: config.DefaultGoBGPStateFile, wantErr: false},
+		{name: "empty disables persistence", stateFile: "", wantErr: false},
+		{name: "custom clean absolute path", stateFile: "/run/gobfd/gobgp-state.json", wantErr: false},
+		{name: "relative path rejected", stateFile: "gobgp-state.json", wantErr: true},
+		{name: "root slash rejected", stateFile: "/", wantErr: true},
+		{name: "trailing slash rejected", stateFile: "/var/lib/gobfd/", wantErr: true},
+		{name: "dot traversal rejected", stateFile: "/var/lib/gobfd/../state.json", wantErr: true},
+		{name: "nul byte rejected", stateFile: "/var/lib/gobfd/state\x00.json", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := config.DefaultConfig()
+			cfg.GoBGP.Enabled = true
+			cfg.GoBGP.StateFile = tc.stateFile
+			err := config.Validate(cfg)
+			if tc.wantErr && !errors.Is(err, config.ErrInvalidGoBGPStateFile) {
+				t.Fatalf("Validate(state_file=%q) = %v, want ErrInvalidGoBGPStateFile", tc.stateFile, err)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("Validate(state_file=%q) = %v, want nil", tc.stateFile, err)
 			}
 		})
 	}

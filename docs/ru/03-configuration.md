@@ -170,16 +170,17 @@ Echo использует UDP 3785 без настройки аутентифи�
 | Ключ `gobgp` | Значение | Условие |
 |:---|:---|:---|
 | `enabled` | `false` | Управление соседями |
-| `addr` | `127.0.0.1:50051` | Конечная точка API |
+| `addr` | `127.0.0.1:50051` | Loopback/удалённый TCP `host:port` либо локальный файловый `unix:///abs/path` (`unix:/abs/path`) |
 | `strategy` | `disable-peer` | Единственная реализованная стратегия; `withdraw-routes` отклоняется |
+| `state_file` | `/var/lib/gobfd/gobgp-ownership.json` | Нормализованный абсолютный путь квитанций владения для Unix-спикера; пустое значение отключает запись на диск |
 | `action_timeout` | `5s` | Срок одного действия |
-| `tls.enabled` | `false` | TLS с проверкой сервера |
+| `tls.enabled` | `false` | TLS с проверкой сервера для удалённых TCP-адресов |
 | `tls.ca_file`, `tls.server_name` | пусто | Набор CA (системные корни при пустом), замена имени |
 | `dampening.enabled` | `false` | Удержание восстановления; Down применяется сразу |
 | `dampening.suppress_threshold`, `dampening.reuse_threshold` | `3`, `2` | Пороги подавления/возврата |
 | `dampening.max_suppress_time`, `dampening.half_life` | `60s`, `15s` | Максимальное удержание и полураспад штрафа |
 
-Реализация `dev` требует GoBGP v4 API и отклоняет конфликт с нативным владельцем BFD. Несколько базовых сессий к одному BGP-адресу исключают однозначное управление. Административный переход не означает отказ пути. Источники: [предварительная проверка и выбор](../../cmd/gobfd/handlers.go), [применение](../../internal/gobgp/handler.go), [RFC 5882 раздел 10.2](https://www.rfc-editor.org/rfc/rfc5882.html#section-10.2).
+Реализация требует GoBGP v4 API и отклоняет конфликт с нативным владельцем BFD. Локальные файловые Unix-сокеты (`unix:///abs/path` и `unix:/abs/path`) классифицируются как локальный IPC и не вызывают предупреждение о незашифрованном адресе вне loopback, тогда как незашифрованный удалённый TCP, `unix-abstract:` и некорректные цели формируют предупреждение при запуске. При подключении через локальный Unix-сокет подтверждённое владение `DisablePeer` сохраняется в `gobgp.state_file` с привязкой к эпохе спикера GoBGP ([ADR-0013](adr/0013-gobgp-restart-disable-ownership.md)). Несколько базовых сессий к одному BGP-адресу исключают однозначное управление. Административный переход не означает отказ пути. Источники: [предварительная проверка и выбор](../../cmd/gobfd/handlers.go), [применение](../../internal/gobgp/handler.go), [RFC 5882 раздел 10.2](https://www.rfc-editor.org/rfc/rfc5882.html#section-10.2).
 
 ## Переменные среды
 
@@ -192,7 +193,7 @@ Echo использует UDP 3785 без настройки аутентифи�
 | `LOG_LEVEL`, `LOG_FORMAT` | `log.level`, `log.format` |
 | `UNSOLICITED_ENABLED`, `ECHO_ENABLED`, `MICRO_BFD_ENABLED` | `.enabled` профиля |
 | `VXLAN_ENABLED`, `VXLAN_BACKEND`, `GENEVE_ENABLED`, `GENEVE_BACKEND` | `.enabled`/`.backend` профиля |
-| `GOBGP_ENABLED`, `GOBGP_ADDR`, `GOBGP_STRATEGY` | Соответствующие поля `gobgp` |
+| `GOBGP_ENABLED`, `GOBGP_ADDR`, `GOBGP_STRATEGY`, `GOBGP_STATE_FILE` | Соответствующие поля `gobgp` |
 | `GOBGP_TLS_ENABLED`, `GOBGP_DAMPENING_ENABLED` | `gobgp.tls.enabled`, `gobgp.dampening.enabled` |
 | `SOCKET_READ_BUFFER_SIZE`, `SOCKET_WRITE_BUFFER_SIZE` | Буферы `socket` |
 | `SOCKET_IPV4_DSCP`, `SOCKET_IPV6_TRAFFIC_CLASS` | Маркировка `socket` |

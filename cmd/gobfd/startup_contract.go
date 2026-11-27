@@ -57,6 +57,7 @@ const (
 	startupFieldSocketMark
 	startupFieldSocketPriorityRequired
 	startupFieldSocketMarkRequired
+	startupFieldGoBGPStateFile
 )
 
 func (f startupFieldID) String() string {
@@ -103,6 +104,7 @@ func (f startupFieldID) String() string {
 		"socket.mark",
 		"socket.priority_required",
 		"socket.mark_required",
+		"gobgp.state_file",
 	}
 	if int(f) >= len(paths) {
 		return "unknown"
@@ -190,6 +192,19 @@ func (c startupRuntimeContract) appendUnsolicitedChanges(
 	appendChanged(startupFieldUnsolicitedAuth, c.unsolicited.Auth != cfg.Auth)
 }
 
+func (c startupRuntimeContract) appendGoBGPChanges(
+	got config.GoBGPConfig,
+	appendChanged func(startupFieldID, bool),
+) {
+	appendChanged(startupFieldGoBGPEnabled, c.gobgp.Enabled != got.Enabled)
+	appendChanged(startupFieldGoBGPAddr, c.gobgp.Addr != got.Addr)
+	appendChanged(startupFieldGoBGPStrategy, c.gobgp.Strategy != got.Strategy)
+	appendChanged(startupFieldGoBGPStateFile, c.gobgp.StateFile != got.StateFile)
+	appendChanged(startupFieldGoBGPActionTimeout, c.gobgp.ActionTimeout != got.ActionTimeout)
+	appendChanged(startupFieldGoBGPTLS, c.gobgp.TLS != got.TLS)
+	appendChanged(startupFieldGoBGPDampening, c.gobgp.Dampening != got.Dampening)
+}
+
 func (c startupRuntimeContract) changedFields(cfg *config.Config) []startupFieldID {
 	changed := make([]startupFieldID, 0, 8)
 	appendChanged := func(field startupFieldID, condition bool) {
@@ -225,12 +240,7 @@ func (c startupRuntimeContract) changedFields(cfg *config.Config) []startupField
 	appendChanged(startupFieldMicroActuatorOwnerPolicy, c.actuator.OwnerPolicy != cfg.MicroBFD.Actuator.OwnerPolicy)
 	appendChanged(startupFieldMicroActuatorDownAction, c.actuator.DownAction != cfg.MicroBFD.Actuator.DownAction)
 	appendChanged(startupFieldMicroActuatorUpAction, c.actuator.UpAction != cfg.MicroBFD.Actuator.UpAction)
-	appendChanged(startupFieldGoBGPEnabled, c.gobgp.Enabled != cfg.GoBGP.Enabled)
-	appendChanged(startupFieldGoBGPAddr, c.gobgp.Addr != cfg.GoBGP.Addr)
-	appendChanged(startupFieldGoBGPStrategy, c.gobgp.Strategy != cfg.GoBGP.Strategy)
-	appendChanged(startupFieldGoBGPActionTimeout, c.gobgp.ActionTimeout != cfg.GoBGP.ActionTimeout)
-	appendChanged(startupFieldGoBGPTLS, c.gobgp.TLS != cfg.GoBGP.TLS)
-	appendChanged(startupFieldGoBGPDampening, c.gobgp.Dampening != cfg.GoBGP.Dampening)
+	c.appendGoBGPChanges(cfg.GoBGP, appendChanged)
 	appendChanged(startupFieldVXLANBackend, c.vxlanBackend != cfg.VXLAN.Backend)
 	appendChanged(startupFieldVXLANManagementVNI, c.vxlanManagementVNI != cfg.VXLAN.ManagementVNI)
 	appendChanged(startupFieldGeneveBackend, c.geneveBackend != cfg.Geneve.Backend)

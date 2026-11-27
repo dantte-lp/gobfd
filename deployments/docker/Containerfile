@@ -4,7 +4,8 @@ ENV GOTOOLCHAIN=local GOMAXPROCS=2 GOMEMLIMIT=1500MiB GOFLAGS=-p=1
 
 RUN groupadd -r gobfd && groupadd -r gobfd-admin \
     && useradd -r -g gobfd -G gobfd-admin -s /sbin/nologin gobfd \
-    && install -d -o gobfd -g gobfd -m 0755 /run/gobfd
+    && install -d -o gobfd -g gobfd -m 0755 /run/gobfd \
+    && install -d -o gobfd -g gobfd -m 0700 /var/lib/gobfd
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -33,8 +34,9 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /etc/passwd /etc/passwd
 COPY --from=builder /etc/group /etc/group
 COPY --from=builder /bin/gobfd /bin/gobfdctl /bin/
-# Directory of the default management socket /run/gobfd/gobfd.sock.
+# Directory of the default management socket /run/gobfd/gobfd.sock and state /var/lib/gobfd.
 COPY --from=builder --chown=gobfd:gobfd /run/gobfd /run/gobfd
+COPY --from=builder --chown=gobfd:gobfd /var/lib/gobfd /var/lib/gobfd
 
 USER gobfd:gobfd
 
