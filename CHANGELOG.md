@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-27
+
+Initial release of the `release/v1.0` product line coupled to GoBGP v4 (`v4.11.0`, `/api.GoBgpService`). Operators requiring GoBGP v3 (`v3.37.0`, `/apipb.GobgpApi`) remain on `release/v0.6` (`0.6.4`). The immutable `v1.0.0-alpha.1` tag (`310c62b61254f702fbbbe84496b3dea7967dcf63`), which failed at benchmark baseline comparison before draft or asset creation, is preserved and superseded by `1.0.0`. Echo (RFC 9747) and Micro-BFD (RFC 7130) remain default-off preview/experimental capabilities; Unsolicited BFD (RFC 9468), VXLAN BFD (RFC 8971) and Geneve BFD (RFC 9521) remain preview/experimental. See [ADR-0014](docs/en/adr/0014-v1-gobgp-v4-release-line-baseline.md) and the [RFC coverage matrix](docs/en/08-rfc-compliance.md).
+
+### Added
+
+- Speaker-epoch GoBGP v4 disable ownership receipts persisted across GoBFD restarts over local Unix IPC (`SO_PEERCRED`, `/proc/sys/kernel/random/boot_id`, process start time and speaker `GetBgp` identity), plus `StateDirectory=gobfd` (`0700`) provisioning in systemd and container images. [#133](https://github.com/dantte-lp/gobfd/pull/133)
+- Bounded inactive per-peer Prometheus metric retention (`4096` series default) with `O(1)` eviction and `gobfd_bfd_evicted_peer_series_total`, preventing unbounded cardinality under peer churn. [#136](https://github.com/dantte-lp/gobfd/pull/136)
+- Non-blocking recursive-safe `(*Manager).InitiateClose()` and `(*SenderLease).StartClose()` teardown preserving `sender -> discriminator -> metrics` release order. [#136](https://github.com/dantte-lp/gobfd/pull/136)
+- Cross-major release benchmark baseline policy (`ADR-0014`) recording `v0` to `v1` `sec/op` transitions as `reported` with provenance notes while keeping pull-request and same-major comparisons fail-closed, plus reconciled bilingual `v1.0` documentation, unified Mermaid diagrams and the GoBFD mascot logo. [#138](https://github.com/dantte-lp/gobfd/pull/138), [#139](https://github.com/dantte-lp/gobfd/pull/139)
+
+### Changed
+
+- Upgrade toolchain and runtime stack to Go `1.27.4`, GoBGP `v4.11.0`, Buf `v1.75.0`, Trivy `v0.76.2`, CodeQL Action `v4.39.4`, ExaBGP `5.0.15`, Compose `5.8.0`, GoReleaser `2.20.3`, Syft `1.57.2` and refreshed `debian:trixie-slim` digests; graduate `release/v1.0` Release Please configuration to stable `1.0.x` proposals. [#133](https://github.com/dantte-lp/gobfd/pull/133), [#138](https://github.com/dantte-lp/gobfd/pull/138)
+- Migrate `Containerfile.gobfd`, `Containerfile.dev`, `Containerfile.debug` and `Makefile` to shell-free exec-form and Go-owned `cictl`/`toolbootstrap` orchestration; consolidate canonical Grafana provisioning under `deployments/compose/configs/grafana`. [#135](https://github.com/dantte-lp/gobfd/pull/135), [#137](https://github.com/dantte-lp/gobfd/pull/137)
+
+### Fixed
+
+- Classify `unix:///path` and `unix:/path` GoBGP endpoints as local filesystem IPC without emitting false remote-TCP plaintext warnings. [#133](https://github.com/dantte-lp/gobfd/pull/133)
+- Enforce slow `>= 1s` Echo TX pacing while base BFD is `Down`/`AdminDown` (RFC 9747 §3.2) and preserve RFC 5880 §6.8.6 Poll/Final diagnostics and sticky `AdminDown` binding attribution across interface recreation and shared receive-lease transitions. [#133](https://github.com/dantte-lp/gobfd/pull/133), [#135](https://github.com/dantte-lp/gobfd/pull/135)
+- Resynchronize Micro-BFD member actuation after notification-queue loss (`publicLossWake`) with bounded `50ms..5s` retry backoff, bind in-flight actuation to the group instance, and report `NOT_SERVING` on `bfd.v1.MicroBFDService` in `enforce` mode while reconciliation is degraded. [#136](https://github.com/dantte-lp/gobfd/pull/136)
+- Apply paired `decode-packet-per-iteration-v1` release benchmark overlays with `120s` sample deadlines, run-owned Compose/builder-stage image cleanup, and lease-protected `containerd` gRPC Kubernetes image imports. [#135](https://github.com/dantte-lp/gobfd/pull/135), [#137](https://github.com/dantte-lp/gobfd/pull/137)
+
+### Security
+
+- Enforce byte-exact Linux `dev_valid_name` validation in `netio.ValidateInterfaceName` (rejecting empty names, `>= 16` octets, `.`, `..`, `/`, `:`, `NUL`, ASCII whitespace and `0xa0`) and root repository artifact reads through `os.OpenRoot`. [#135](https://github.com/dantte-lp/gobfd/pull/135), [#136](https://github.com/dantte-lp/gobfd/pull/136)
+
 ## [1.0.0-alpha.1] - 2026-10-31
 
 This is an experimental prerelease. The qualification load generator fails its
@@ -661,7 +688,8 @@ backends remain previews. See the [RFC coverage matrix](docs/en/08-rfc-complianc
 - CI pipeline: build, test, lint, govulncheck, buf lint/breaking.
 - Bilingual documentation (English and Russian).
 
-[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v1.0.0-alpha.1...release/v1.0
+[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v1.0.0...release/v1.0
+[1.0.0]: https://github.com/dantte-lp/gobfd/compare/v1.0.0-alpha.1...v1.0.0
 [1.0.0-alpha.1]: https://github.com/dantte-lp/gobfd/compare/v0.6.4...v1.0.0-alpha.1
 [0.6.4]: https://github.com/dantte-lp/gobfd/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...v0.6.3
