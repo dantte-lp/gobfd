@@ -19,7 +19,7 @@ import (
 const composeImageKind = "interop-compose"
 
 func (c *Controller) inspectOwnedImage(ctx context.Context, reference string) (podmanapi.ImageMetadata, error) {
-	const format = `{"id":{{json .Id}},"labels":{{json .Labels}}}`
+	const format = `{"id":{{json .ID}},"labels":{{json .Labels}}}`
 	output, err := c.podmanText(ctx, commandTimeout, "image", "inspect", "--format", format, reference)
 	if err != nil {
 		return podmanapi.ImageMetadata{}, err

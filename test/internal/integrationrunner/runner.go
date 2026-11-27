@@ -341,7 +341,7 @@ func (output *kubernetesOutput) Write(data []byte) (int, error) {
 func (r *runner) kubernetesImageID(ctx context.Context, image string) (string, error) {
 	output := kubernetesOutput{maxBytes: maxImageIDOutput}
 	if err := r.command(ctx, commandTimeout, &output, r.stderr,
-		"podman", "image", "inspect", "--format", "{{.Id}}", "--", image); err != nil {
+		"podman", "image", "inspect", "--format", "{{.ID}}", "--", image); err != nil {
 		return "", errors.Join(errKubernetesImageIdentity, fmt.Errorf("inspect Kubernetes source image: %w", err))
 	}
 	id := "sha256:" + strings.TrimPrefix(strings.TrimSpace(output.String()), "sha256:")

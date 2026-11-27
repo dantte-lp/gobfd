@@ -171,7 +171,7 @@ func handleFakeComposeImageSubcommand(
 		}
 		return 0
 	case "inspect":
-		if key == "" {
+		if key == "" || strings.Contains(strings.Join(args, " "), ".Id") {
 			return 1
 		}
 		if encErr := json.NewEncoder(os.Stdout).Encode(image); encErr != nil {

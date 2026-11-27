@@ -218,7 +218,10 @@ func inspectKubernetesFixtureImage(
 	if !exists {
 		return 1
 	}
-	if slices.Contains(args, "{{.Id}}") {
+	if strings.Contains(strings.Join(args, " "), ".Id") {
+		return 125
+	}
+	if slices.Contains(args, "{{.ID}}") {
 		if mode == "replaced source alias" && strings.Contains(reference, "-gobfd:") {
 			original := image
 			original.Alias = ""

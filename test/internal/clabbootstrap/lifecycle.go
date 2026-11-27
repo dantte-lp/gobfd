@@ -94,7 +94,7 @@ afi-safi-name = %q
 		`{{ index .Config.Labels "containerlab" }}|` +
 		`{{ index .Config.Labels "io.gobfd.interop-clab.owner" }}|` +
 		`{{ index .Config.Labels "io.gobfd.interop-clab.run" }}`
-	inspectImageOwnershipFormat = `{{.Id}}|` +
+	inspectImageOwnershipFormat = `{{.ID}}|` +
 		`{{ index .Labels "io.gobfd.interop-clab.owner" }}|` +
 		`{{ index .Labels "io.gobfd.interop-clab.run" }}`
 )

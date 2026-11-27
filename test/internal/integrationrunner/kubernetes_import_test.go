@@ -339,7 +339,7 @@ func runKubernetesImportFixture() int {
 		return 125
 	}
 	if len(args) == 6 &&
-		strings.Join(args[:5], " ") == "image inspect --format {{.Id}} --" &&
+		strings.Join(args[:5], " ") == "image inspect --format {{.ID}} --" &&
 		args[5] == "fixture:owned" {
 		return runPodmanInspectFixture(mode, expectedID)
 	}

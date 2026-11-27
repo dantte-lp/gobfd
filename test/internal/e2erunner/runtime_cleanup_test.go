@@ -441,6 +441,9 @@ func runRuntimeInspectFixture(arguments []string, state []runtimeFixtureContaine
 		return 0
 	}
 	if slices.Contains(arguments, "--format") {
+		if strings.Contains(strings.Join(arguments, " "), ".Id") {
+			return 125
+		}
 		response := runtimeInspectResponse{ID: state[index].ID, Labels: state[index].Labels}
 		encoded, err := json.Marshal(response)
 		if err != nil {

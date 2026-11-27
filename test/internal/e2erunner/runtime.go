@@ -86,7 +86,7 @@ func (r *runner) runtimeExists(ctx context.Context, reference string) (bool, err
 func (r *runner) bindRuntime(ctx context.Context, owned *ownedRuntime, reference string) error {
 	output, err := r.commandText(
 		ctx, podmanCommand, "inspect", "--type", "container", "--format",
-		`{"id":{{json .Id}},"labels":{{json .Config.Labels}}}`, reference,
+		`{"id":{{json .ID}},"labels":{{json .Config.Labels}}}`, reference,
 	)
 	if err != nil {
 		return err
