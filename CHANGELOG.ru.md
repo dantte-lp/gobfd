@@ -7,6 +7,33 @@
 
 ## [Не выпущено]
 
+## [1.0.0] - 2026-11-27
+
+Первый выпуск продуктовой линии `release/v1.0` с зависимостью от GoBGP v4 (`v4.11.0`, `/api.GoBgpService`). Пользователи, которым требуется GoBGP v3 (`v3.37.0`, `/apipb.GobgpApi`), остаются на ветке `release/v0.6` (`0.6.4`). Неизменяемый тег `v1.0.0-alpha.1` (`310c62b61254f702fbbbe84496b3dea7967dcf63`), завершившийся отказом на шаге сравнения с базой бенчмарков до создания черновика и артефактов, сохранён и заменён выпуском `1.0.0`. Echo (RFC 9747) и Micro-BFD (RFC 7130) остаются выключенными по умолчанию preview/experimental возможностями; Unsolicited BFD (RFC 9468), VXLAN BFD (RFC 8971) и Geneve BFD (RFC 9521) сохраняют статус preview/experimental. См. [ADR-0014](docs/ru/adr/0014-v1-gobgp-v4-release-line-baseline.md) и [матрицу покрытия RFC](docs/ru/08-rfc-compliance.md).
+
+### Добавлено
+
+- Долговременные квитанции владения отключением соседей GoBGP v4 между перезапусками GoBFD по локальному Unix IPC с проверкой эпохи спикера (`SO_PEERCRED`, `/proc/sys/kernel/random/boot_id`, время старта процесса и идентичность `GetBgp`), а также `StateDirectory=gobfd` (`0700`) в systemd и контейнерных образах. [#133](https://github.com/dantte-lp/gobfd/pull/133)
+- Ограничение удержания неактивных per-peer метрик Prometheus (`4096` серий по умолчанию) с `O(1)`-вытеснением и счётчиком `gobfd_bfd_evicted_peer_series_total`, исключающее неограниченный рост кардинальности при смене пиров. [#136](https://github.com/dantte-lp/gobfd/pull/136)
+- Неблокирующее идемпотентное завершение `(*Manager).InitiateClose()` и `(*SenderLease).StartClose()` с сохранением порядка освобождения `sender -> discriminator -> metrics`. [#136](https://github.com/dantte-lp/gobfd/pull/136)
+- Политика межмажорного сравнения бенчмарков выпуска (`ADR-0014`), фиксирующая изменения `sec/op` на границе `v0` -> `v1` как `reported` с записью provenance при сохранении строгого отказа в pull request и внутри одной мажорной линии, а также актуализация двуязычной документации `v1.0`, унификация диаграмм Mermaid и логотип проекта с маскотом. [#138](https://github.com/dantte-lp/gobfd/pull/138), [#139](https://github.com/dantte-lp/gobfd/pull/139)
+
+### Изменено
+
+- Стек компилятора и зависимостей обновлён до Go `1.27.4`, GoBGP `v4.11.0`, Buf `v1.75.0`, Trivy `v0.76.2`, CodeQL Action `v4.39.4`, ExaBGP `5.0.15`, Compose `5.8.0`, GoReleaser `2.20.3`, Syft `1.57.2` и актуальных digest `debian:trixie-slim`; конфигурация Release Please в `release/v1.0` переведена на стабильные выпуски `1.0.x`. [#133](https://github.com/dantte-lp/gobfd/pull/133), [#138](https://github.com/dantte-lp/gobfd/pull/138)
+- `Containerfile.gobfd`, `Containerfile.dev`, `Containerfile.debug` и `Makefile` переведены на exec-form и Go-оркестрацию `cictl`/`toolbootstrap` без вызовов Bash; канонические ресурсы Grafana объединены в `deployments/compose/configs/grafana`. [#135](https://github.com/dantte-lp/gobfd/pull/135), [#137](https://github.com/dantte-lp/gobfd/pull/137)
+
+### Исправлено
+
+- Адреса GoBGP вида `unix:///path` и `unix:/path` классифицируются как локальный файловый IPC без ложного предупреждения о незашифрованном удалённом TCP. [#133](https://github.com/dantte-lp/gobfd/pull/133)
+- Обеспечен медленный интервал передачи Echo `>= 1s` в состояниях `Down`/`AdminDown` базовой сессии (RFC 9747 §3.2), а также сохранение диагностик Poll/Final по RFC 5880 §6.8.6 и атрибуции `AdminDown` при пересоздании интерфейса и общих receive-lease. [#133](https://github.com/dantte-lp/gobfd/pull/133), [#135](https://github.com/dantte-lp/gobfd/pull/135)
+- Добавлена пересинхронизация участников Micro-BFD после переполнения очереди уведомлений (`publicLossWake`) с ограниченным backoff `50ms..5s`, привязкой in-flight активации к экземпляру группы и переводом `bfd.v1.MicroBFDService` в `NOT_SERVING` в режиме `enforce` при деградации сверки. [#136](https://github.com/dantte-lp/gobfd/pull/136)
+- Внедрён парный overlay `decode-packet-per-iteration-v1` с лимитом `120s` на образец бенчмарка, очистка run-owned и stage-образов Compose/testcontainers и прямой импорт образов Kubernetes в `containerd` по gRPC с защитой lease. [#135](https://github.com/dantte-lp/gobfd/pull/135), [#137](https://github.com/dantte-lp/gobfd/pull/137)
+
+### Безопасность
+
+- Добавлена побайтовая проверка имён интерфейсов по контракту ядра Linux `dev_valid_name` в `netio.ValidateInterfaceName` (отклонение пустых имён, длины `>= 16` байт, `.`, `..`, `/`, `:`, `NUL`, ASCII-пробелов и `0xa0`) и изоляция чтения файловых артефактов через `os.OpenRoot`. [#135](https://github.com/dantte-lp/gobfd/pull/135), [#136](https://github.com/dantte-lp/gobfd/pull/136)
+
 ## [1.0.0-alpha.1] - 2026-10-31
 
 Экспериментальный предварительный выпуск. Генератор квалификационной нагрузки
@@ -654,7 +681,8 @@ unsolicited BFD и VXLAN/Geneve backends остаются preview.
 - CI-пайплайн: сборка, тесты, линтер, govulncheck, buf lint/breaking.
 - Двуязычная документация (английский и русский).
 
-[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v1.0.0-alpha.1...release/v1.0
+[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v1.0.0...release/v1.0
+[1.0.0]: https://github.com/dantte-lp/gobfd/compare/v1.0.0-alpha.1...v1.0.0
 [1.0.0-alpha.1]: https://github.com/dantte-lp/gobfd/compare/v0.6.4...v1.0.0-alpha.1
 [0.6.4]: https://github.com/dantte-lp/gobfd/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...v0.6.3
