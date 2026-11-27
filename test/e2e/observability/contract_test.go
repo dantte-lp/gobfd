@@ -76,8 +76,25 @@ func TestObservabilityCompatibilityGateContract(t *testing.T) {
 
 	derived := readContractFile(t, deriveGrafanaDatasource(t, contract.grafanaDatasource, contract.prometheusIP))
 	if !strings.Contains(derived, "http://172.25.0.30:9090") ||
-		strings.Contains(derived, "http://prometheus-observability:9090") {
+		strings.Contains(derived, "${PROMETHEUS_URL}") {
 		t.Fatalf("minimally derived Grafana datasource has unexpected URL: %q", derived)
+	}
+
+	duplicateGrafana := filepath.Join(root, "deployments/integrations/observability/configs/grafana")
+	if _, err := os.Stat(duplicateGrafana); !os.IsNotExist(err) {
+		t.Fatalf("duplicate observability Grafana directory still exists: %v", err)
+	}
+	dashboardBytes := []byte(readContractFile(t, contract.grafanaDashboard))
+	if err := preflightStrictJSON(dashboardBytes); err != nil {
+		t.Fatalf("validate canonical Grafana dashboard JSON: %v", err)
+	}
+	var dashboard struct {
+		UID    string            `json:"uid"`
+		Panels []json.RawMessage `json:"panels"`
+	}
+	if err := json.Unmarshal(dashboardBytes, &dashboard); err != nil ||
+		dashboard.UID != "gobfd-bfd-sessions" || len(dashboard.Panels) == 0 {
+		t.Fatalf("canonical Grafana dashboard = uid %q panels %d, err %v", dashboard.UID, len(dashboard.Panels), err)
 	}
 }
 

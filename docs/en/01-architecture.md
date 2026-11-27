@@ -111,7 +111,7 @@ Sources: [coordinator](../../cmd/gobfd/reconciliation.go), [listener owner](../.
 
 Linux link/address notifications and resync request bounded, generation-scoped retries. Only typed unavailable-interface/address errors become resource pending; other failures remain failed. A shared two-second availability check covers all five sources. Inventory errors require a new explicit SIGHUP. The non-Linux monitor supplies no automatic recovery.
 
-Aggregate health is `NOT_SERVING` before first convergence, while desired differs from applied, or when required runtime/listener state is lost. Named BFD/Echo/Micro-BFD health describes each source. Unexpected receiver or dispatch loss is fail-stop. `READY=1` is process/listener readiness and does not imply configuration convergence. Sources: [interface events](../../cmd/gobfd/interface_events.go), [readiness](../../cmd/gobfd/readiness.go), [ADR-0001](adr/0001-link-state-rtnetlink.md).
+Aggregate health is `NOT_SERVING` before first convergence, while desired differs from applied, or when required runtime/listener state is lost. Named BFD/Echo/Micro-BFD health describes each source. In `enforce` mode, `bfd.v1.MicroBFDService` and aggregate health report `NOT_SERVING` while a live Micro-BFD group actuation is failing (retrying with `50ms..5s` backoff). Unexpected receiver or dispatch loss is fail-stop. `READY=1` is process/listener readiness and does not imply configuration convergence. Sources: [interface events](../../cmd/gobfd/interface_events.go), [readiness](../../cmd/gobfd/readiness.go), [ADR-0001](adr/0001-link-state-rtnetlink.md).
 
 ## Three-Way Handshake
 

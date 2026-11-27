@@ -11,7 +11,7 @@
 #   :3000 — Grafana (admin/admin)
 #
 # Usage:
-#   podman compose up --build -d
+#   make int-observability-up
 #   open http://localhost:3000  (Grafana, admin/admin)
 #   open http://localhost:9090  (Prometheus)
 
@@ -59,12 +59,15 @@ services:
       context: ../../../test/interop/prometheus
       dockerfile: Containerfile
     container_name: prometheus-observability
+    user: "65534:65534"
     restart: unless-stopped
     ports:
       - "9090:9090"
     volumes:
       - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
       - ./configs/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro,z
+    tmpfs:
+      - /prometheus:rw,nosuid,nodev,noexec,size=1g,uid=65534,gid=65534,mode=0700
     networks:
       observability-net:
 
@@ -81,9 +84,10 @@ services:
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      - PROMETHEUS_URL=http://prometheus-observability:9090
     volumes:
-      - ./configs/grafana/provisioning:/etc/grafana/provisioning:ro,z
-      - ./configs/grafana/dashboards:/var/lib/grafana/dashboards:ro,z
+      - ../../compose/configs/grafana/provisioning:/etc/grafana/provisioning:ro,z
+      - ../../compose/configs/grafana/dashboards:/var/lib/grafana/dashboards:ro,z
     networks:
       observability-net:
 
@@ -101,10 +105,12 @@ services:
       - NET_RAW
       - NET_ADMIN
     volumes:
-      - captures:/captures:z
-
-volumes:
-  captures:
+      - type: bind
+        source: ${GOBFD_OBSERVABILITY_CAPTURE_DIR:?use the owned observability controller}
+        target: /captures
+        bind:
+          create_host_path: false
+          selinux: z
 
 networks:
   observability-net:

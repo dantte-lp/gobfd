@@ -102,7 +102,7 @@ func ReleaseBenchmarks(ctx context.Context, root, version string, output io.Writ
 		output = io.Discard
 	}
 	targets := []releaseBenchmarkTarget{
-		{file: "benchmark-bfd.txt", pkg: "./internal/bfd/"},
+		{file: "benchmark-bfd.txt", pkg: bfdBenchmarkPackage},
 		{file: "benchmark-netio.txt", pkg: "./internal/netio/"},
 	}
 	paths, err := prepareReleaseBenchmarkTargets(root, version, targets)
@@ -119,8 +119,8 @@ func ReleaseBenchmarks(ctx context.Context, root, version string, output io.Writ
 		runErr := runner.RunCommand(ctx, CommandSpec{
 			Name: "go",
 			Args: []string{
-				"test", buildVCSDisabledFlag, "-bench=.", "-benchmem", "-count=6",
-				"-run=^$", "-timeout=120s", targets[index].pkg,
+				"test", buildVCSDisabledFlag, "-bench=.", benchMemFlag, "-count=6",
+				noUnitTestsFlag, "-timeout=120s", targets[index].pkg,
 			},
 			Dir: root, Stdout: io.MultiWriter(output, artifact, &captured),
 		})

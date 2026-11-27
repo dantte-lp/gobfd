@@ -6,18 +6,21 @@ FROM docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dc
 
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download && go mod verify
+RUN ["go", "mod", "download"]
+RUN ["go", "mod", "verify"]
 COPY . .
+ENV CGO_ENABLED=0
 
 ARG VERSION=dev
 ARG GIT_COMMIT=unknown
 ARG BUILD_DATE=unknown
-RUN CGO_ENABLED=0 go build -trimpath \
-    -ldflags="-s -w \
-      -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
-      -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
-      -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
-    -o /bin/gobfd-exabgp-bridge ./cmd/gobfd-exabgp-bridge
+ENV GOFLAGS="'-ldflags=-s -w -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}'"
+RUN ["go", "build", "-trimpath", "-o", "/bin/gobfd-exabgp-bridge", "./cmd/gobfd-exabgp-bridge"]
+
+ARG GOBFD_IMAGE_RUN=""
+ARG GOBFD_IMAGE_TEST=""
+LABEL io.gobfd.stage-run="${GOBFD_IMAGE_RUN}" \
+      io.gobfd.stage-test="${GOBFD_IMAGE_TEST}"
 
 FROM scratch AS source
 # ExaBGP 5.0.15, peeled upstream tag commit and archive checksum.

@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const podmanName = "podman"
+
 var errCommandNotAllowed = errors.New("CI command is not allowlisted")
 
 // CommandSpec describes one direct child process invocation.
@@ -55,7 +57,7 @@ type SpecRunner interface {
 func (r ExecRunner) RunCommand(ctx context.Context, spec CommandSpec) error {
 	if spec.Name != prebuiltLintPath {
 		switch spec.Name {
-		case "buf", "docker", "gh", "git", "go", goreleaserName, "node", syftName, "upx", "xz":
+		case "buf", "docker", "gh", "git", "go", goreleaserName, "node", podmanName, syftName, "upx", "xz":
 		default:
 			return fmt.Errorf("run CI command %q: %w", spec.Name, errCommandNotAllowed)
 		}
@@ -105,4 +107,34 @@ func (spec CommandSpec) boundExecutable() (string, []*os.File, error) {
 		return "", nil, fmt.Errorf("%s command requires a bound executable: %w", spec.Name, errInvalidConfig)
 	}
 	return executable, extraFiles, nil
+}
+
+// PrefixRunner executes an explicit direct command vector without a shell.
+type PrefixRunner interface {
+	RunPrefix(ctx context.Context, spec CommandSpec) error
+}
+
+// RunPrefix executes a direct command vector without a shell for local Make targets.
+func (r ExecRunner) RunPrefix(ctx context.Context, spec CommandSpec) error {
+	if spec.Name == "" || hasControl(spec.Name) {
+		return fmt.Errorf("run prefix command %q: %w", spec.Name, errInvalidConfig)
+	}
+	// #nosec G204 G702 -- Local Makefile recipes pass explicit direct command vectors without invoking a shell.
+	command := exec.CommandContext(ctx, spec.Name, spec.Args...)
+	command.Dir = spec.Dir
+	command.Env = spec.Env
+	command.Stdin = spec.Stdin
+	command.WaitDelay = spec.WaitDelay
+	command.Stdout = r.Stdout
+	if spec.Stdout != nil {
+		command.Stdout = spec.Stdout
+	}
+	command.Stderr = r.Stderr
+	if spec.Stderr != nil {
+		command.Stderr = spec.Stderr
+	}
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("run %s command: %w", spec.Name, err)
+	}
+	return nil
 }

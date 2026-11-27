@@ -114,7 +114,11 @@ func (topology *observabilityTopology) imageBuildRequest(
 ) *testcontainers.ContainerRequest {
 	return &testcontainers.ContainerRequest{
 		Context: buildContext, Dockerfile: "Containerfile", Repo: repository, Tag: tag, KeepImage: true,
-		BuildArgs: map[string]*string{"VCS_REF": &topology.revision, "BUILD_DATE": &topology.buildDate},
+		BuildArgs: containertest.StageBuildArgs(
+			map[string]*string{"VCS_REF": &topology.revision, "BUILD_DATE": &topology.buildDate},
+			topology.runID,
+			"observability",
+		),
 		BuildOptionsModifier: func(options *client.ImageBuildOptions) {
 			options.CPUPeriod = 100000
 			options.CPUQuota = 200000

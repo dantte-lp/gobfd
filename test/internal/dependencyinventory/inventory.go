@@ -789,10 +789,6 @@ func exactOCILicense(reference string) (ociLicenseOverride, bool) {
 			SourceRepository: "holo-routing/holo", SourceCommit: "947daeb2811b0cb90f457458f35c3b1a3c989b6b",
 			LicenseFile: licenseFileName, SPDX: "MIT", LicenseHash: "eba69e1d2e51315c7bb27f9cad585e6b03829aa2d1ac38d75d1747c939443e9a",
 		},
-		"quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68": {
-			SourceRepository: "FRRouting/frr", SourceCommit: "87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef",
-			LicenseFile: "COPYING", SPDX: "GPL-2.0-or-later", LicenseHash: "7bf053957d6c38e39a06a112c60ff35b228d3bd03edbe8c9a03508b051128d16",
-		},
 	}
 	license, ok := licenses[reference]
 	return license, ok

@@ -128,8 +128,8 @@ func runInterleavedSamples(
 				// Keep stdout behind io.Writer so os/exec must copy through the budget check.
 				Stdout: benchmarkOutputWriter{file: target.output},
 				Args: []string{
-					goTestSubcommand, buildVCSDisabledFlag, "-bench=" + options.Regex, "-benchmem", singleTestRunFlag,
-					"-benchtime=100ms", "-run=^$", "-timeout=120s", "./internal/bfd/", "./internal/netio/",
+					goTestSubcommand, buildVCSDisabledFlag, "-bench=" + options.Regex, benchMemFlag, singleTestRunFlag,
+					"-benchtime=100ms", noUnitTestsFlag, "-timeout=120s", bfdBenchmarkPackage, "./internal/netio/",
 				},
 			})
 			cancelSample()

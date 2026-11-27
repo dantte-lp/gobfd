@@ -36,6 +36,7 @@ services:
     network_mode: host
     environment:
       GF_SERVER_HTTP_ADDR: "127.0.0.1"
+      PROMETHEUS_URL: "http://127.0.0.1:9090"
     volumes:
       - ./configs/grafana/provisioning:/etc/grafana/provisioning:ro,z
       - ./configs/grafana/dashboards:/var/lib/grafana/dashboards:ro,z

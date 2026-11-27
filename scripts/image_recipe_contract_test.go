@@ -11,6 +11,7 @@ func TestDiagnosticImagesUseExecBuildSteps(t *testing.T) {
 	for _, path := range []string{
 		"../deployments/docker/Containerfile.debug",
 		"../deployments/docker/Containerfile.dev",
+		"../deployments/docker/Containerfile.exabgp",
 		"../test/interop-clab/Containerfile.gobfd",
 	} {
 		t.Run(path, func(t *testing.T) {

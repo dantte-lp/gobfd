@@ -77,6 +77,7 @@ type LintOptions struct {
 	Environment   []string
 	Runner        SpecRunner
 	Containerized func() bool
+	PrebuiltStat  func(string) (os.FileInfo, error)
 }
 
 // Lint runs the complete bounded lint profile without shell orchestration.
@@ -120,7 +121,11 @@ func prepareLintExecution(options LintOptions) (lintExecution, error) {
 	}
 	environment = append(withoutEnvironmentKeys(environment, "GOMAXPROCS", "GOMEMLIMIT"),
 		"GOMAXPROCS=2", "GOMEMLIMIT=1500MiB")
-	linter, err := resolveLintCommand(environment)
+	prebuiltStat := options.PrebuiltStat
+	if prebuiltStat == nil {
+		prebuiltStat = os.Lstat
+	}
+	linter, err := resolveLintCommand(environment, prebuiltStat)
 	if err != nil {
 		return lintExecution{}, err
 	}
@@ -218,16 +223,29 @@ func runningInContainer() bool {
 	return false
 }
 
-func resolveLintCommand(environment []string) (lintCommand, error) {
+func resolveLintCommand(environment []string, statPrebuilt func(string) (os.FileInfo, error)) (lintCommand, error) {
 	configured := ""
+	explicit := false
 	for _, entry := range environment {
 		name, value, found := strings.Cut(entry, "=")
 		if found && name == "GOLANGCI_LINT" {
 			configured = value
+			explicit = true
 		}
+	}
+	if strings.Contains(configured, "/") && !prebuiltBinaryExecutable(configured, statPrebuilt) {
+		if configured != prebuiltLintPath {
+			return lintCommand{}, fmt.Errorf("unsupported GOLANGCI_LINT path %q: %w", configured, errInvalidConfig)
+		}
+		return lintCommand{}, fmt.Errorf(
+			"GOLANGCI_LINT %q is not an executable regular file: %w", configured, errInvalidConfig,
+		)
 	}
 	switch configured {
 	case "":
+		if !explicit && prebuiltBinaryExecutable(prebuiltLintPath, statPrebuilt) {
+			return lintCommand{name: prebuiltLintPath}, nil
+		}
 		return lintCommand{name: "go", arguments: []string{
 			goToolSubcommand, toolsModuleFlag, "golangci-lint",
 		}}, nil
@@ -236,6 +254,14 @@ func resolveLintCommand(environment []string) (lintCommand, error) {
 	default:
 		return lintCommand{}, fmt.Errorf("unsupported GOLANGCI_LINT path %q: %w", configured, errInvalidConfig)
 	}
+}
+
+func prebuiltBinaryExecutable(path string, statPrebuilt func(string) (os.FileInfo, error)) bool {
+	if path == "" || statPrebuilt == nil {
+		return false
+	}
+	info, err := statPrebuilt(path)
+	return err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0
 }
 
 func (execution lintExecution) runLinter(ctx context.Context, arguments ...string) error {

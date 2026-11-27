@@ -8,7 +8,7 @@ BFD means Bidirectional Forwarding Detection. RX and TX denote reception and tra
 
 ## Signal boundaries
 
-`gobfd_bfd_sessions` counts registered Control and Echo sessions, including Micro-BFD, VXLAN and Geneve Control types. A registered session need not be Up. Echo registers its own `session_type` series and contributes packet/transition increments to shared families. Peer/local packet counters have no discriminator, interface or type dimension: identical address pairs aggregate across wires. Use API snapshots to identify individual sessions. Sources: [Echo registration](../../internal/bfd/manager_echo.go), [direct collector wiring](../../cmd/gobfd/factory.go).
+`gobfd_bfd_sessions` counts registered Control and Echo sessions, including Micro-BFD, VXLAN and Geneve Control types. A registered session need not be Up. Echo registers its own `session_type` series and contributes packet/transition increments to shared families. Peer/local packet counters have no discriminator, interface or type dimension: identical address pairs aggregate across wires. Unregistered `(peer_addr, local_addr)` series are retained in FIFO/LRU order up to `4096` inactive entries (`DefaultMaxInactivePeerSeries`) before eviction. Use API snapshots to identify individual sessions. Sources: [Echo registration](../../internal/bfd/manager_echo.go), [direct collector wiring](../../cmd/gobfd/factory.go), [packet metrics](../../internal/metrics/packet_metrics.go).
 
 ```mermaid
 flowchart LR
@@ -38,6 +38,7 @@ flowchart LR
 | `gobfd_bfd_packets_dropped_total` | counter | `peer_addr,local_addr` | Admitted-identity refusals/abandonment |
 | `gobfd_bfd_state_transitions_total` | counter | `peer_addr,local_addr,from_state,to_state` | FSM changes |
 | `gobfd_bfd_auth_failures_total` | counter | `peer_addr,local_addr` | Authentication refusal subset |
+| `gobfd_bfd_evicted_peer_series_total` | counter | none | Evicted inactive peer/local packet series |
 | `gobfd_bfd_delivery_outcomes_total` | counter | `source,outcome` | Fixed pipeline/notification decisions |
 | `gobfd_bfd_control_rx_timing_total` | counter | `outcome` | Owner commits by clock validity |
 | `gobfd_bfd_control_rx_commit_seconds` | histogram | none | Kernel software RX to completed owner processing |
@@ -53,7 +54,7 @@ flowchart LR
 | `gobfd_gobgp_pending_action` | gauge | `peer_addr,action` | Unapplied `up`/`down` intent |
 | `gobfd_gobgp_pending_action_deadline_seconds` | gauge | `peer_addr,action` | Next retry/recheck deadline, Unix seconds; otherwise 0 |
 
-Sources: [base metrics](../../internal/metrics/collector.go), [Control validation/counting](../../internal/bfd/session_packet.go), [accepted Echo returns](../../internal/bfd/echo.go), [timing](../../internal/metrics/receive_timing.go), [timers](../../internal/metrics/timer.go), [socket drops](../../internal/metrics/socket_drops.go), [GoBGP](../../internal/metrics/gobgp.go).
+Sources: [base metrics](../../internal/metrics/collector.go), [packet metrics](../../internal/metrics/packet_metrics.go), [Control validation/counting](../../internal/bfd/session_packet.go), [accepted Echo returns](../../internal/bfd/echo.go), [timing](../../internal/metrics/receive_timing.go), [timers](../../internal/metrics/timer.go), [socket drops](../../internal/metrics/socket_drops.go), [GoBGP](../../internal/metrics/gobgp.go).
 
 ### Delivery ledger
 
@@ -103,7 +104,7 @@ The first query measures registrations, not Up sessions. Shipped [alert rules](.
 | `BFDAuthFailures` | Positive failure rate over 5 minutes | `30s` |
 | `BFDPacketDrops` | Positive admitted-peer drop rate over 5 minutes | `1m` |
 
-An exporter with no sessions differs from an unreachable exporter. `BFDNoActiveSessions` evaluates all positive registration series, including Echo, although its shipped annotation says “Control sessions”; it is not a Control-only or Up-state test. A transition alert does not prove current Down state. Dashboard source: [Grafana JSON](../../deployments/integrations/observability/configs/grafana/dashboards/bfd.json).
+An exporter with no sessions differs from an unreachable exporter. `BFDNoActiveSessions` evaluates all positive registration series, including Echo, although its shipped annotation says “Control sessions”; it is not a Control-only or Up-state test. A transition alert does not prove current Down state. Dashboard source: [Grafana JSON](../../deployments/compose/configs/grafana/dashboards/bfd.json).
 
 ### Prometheus readback
 

@@ -20,6 +20,9 @@ const (
 	benchmarkRegexLimit   = 16 << 10
 	goTestSubcommand      = "test"
 	singleTestRunFlag     = "-count=1"
+	benchMemFlag          = "-benchmem"
+	noUnitTestsFlag       = "-run=^$"
+	bfdBenchmarkPackage   = "./internal/bfd/"
 )
 
 // BenchmarkRunOptions configures one head benchmark run.
@@ -182,8 +185,8 @@ func runBenchmarkCommand(ctx context.Context, workDir, output, regex string, run
 	spec := CommandSpec{
 		Name: "go",
 		Args: []string{
-			"test", buildVCSDisabledFlag, "-bench=" + regex, "-benchmem", "-count=6",
-			"-run=^$", "-timeout=120s", "./internal/bfd/", "./internal/netio/",
+			"test", buildVCSDisabledFlag, "-bench=" + regex, benchMemFlag, "-count=6",
+			noUnitTestsFlag, "-timeout=120s", bfdBenchmarkPackage, "./internal/netio/",
 		},
 		Dir:    workDir,
 		Stdout: artifact,
