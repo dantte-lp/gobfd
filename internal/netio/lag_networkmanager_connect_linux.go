@@ -60,9 +60,20 @@ func networkManagerSystemBusAddress() (string, error) {
 	if address := os.Getenv("DBUS_SYSTEM_BUS_ADDRESS"); address != "" {
 		return address, nil
 	}
-	for _, path := range []string{"/var/run/dbus/system_bus_socket", "/run/dbus/system_bus_socket"} {
-		if _, err := os.Stat(path); err == nil {
+	return networkManagerSystemBusSocketAddress([]string{
+		"/var/run/dbus/system_bus_socket",
+		"/run/dbus/system_bus_socket",
+	})
+}
+
+func networkManagerSystemBusSocketAddress(paths []string) (string, error) {
+	for _, path := range paths {
+		_, err := os.Stat(path)
+		if err == nil {
 			return "unix:path=" + path, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("stat system-bus socket %q: %w", path, err)
 		}
 	}
 	return "", fmt.Errorf("%w: system bus not found", errNetworkManagerBusAddress)

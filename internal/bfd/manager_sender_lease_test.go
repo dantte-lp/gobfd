@@ -343,3 +343,186 @@ func senderLeaseTestConfig(peer string) SessionConfig {
 		DetectMultiplier:      3,
 	}
 }
+
+type releaseOrderMetrics struct {
+	noopMetrics
+
+	unregistered chan netip.Addr
+}
+
+func (r *releaseOrderMetrics) UnregisterSession(peer, _ netip.Addr, _ string) {
+	r.unregistered <- peer
+}
+
+func TestManagerInitiateCloseFromSenderReleaseCallbackAndConcurrentClose(t *testing.T) {
+	t.Parallel()
+
+	t.Run("during_manager_close", func(t *testing.T) {
+		t.Parallel()
+		metrics := &releaseOrderMetrics{unregistered: make(chan netip.Addr, 4)}
+		mgr := NewManager(slog.New(slog.DiscardHandler), WithManagerMetrics(metrics))
+		entered := make(chan struct{})
+		allowReturn := make(chan struct{})
+		var lease *SenderLease
+		var discr uint32
+		lease = NewSenderLease(senderLeaseTestSender{}, func() error {
+			// Verify exact sender -> discriminator -> metrics order while inside release().
+			if !mgr.discriminators.IsAllocated(discr) {
+				t.Error("discriminator was released before sender lease callback completed")
+			}
+			if len(metrics.unregistered) != 0 {
+				t.Error("metrics UnregisterSession fired before sender lease callback completed")
+			}
+			closeDone := mgr.InitiateClose()
+			leaseDone := lease.StartClose()
+			select {
+			case <-closeDone:
+				t.Error("Manager closeDone closed before active sender callback returned")
+			case <-leaseDone:
+				t.Error("SenderLease closeDone closed before active sender callback returned")
+			default:
+			}
+			close(entered)
+			<-allowReturn
+			return nil
+		})
+		sess, err := mgr.CreateSession(t.Context(), senderLeaseTestConfig("192.0.2.210"),
+			func() (*SenderLease, error) { return lease, nil })
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+		discr = sess.LocalDiscriminator()
+
+		primaryDone := make(chan struct{})
+		go func() {
+			mgr.Close()
+			close(primaryDone)
+		}()
+		<-entered
+
+		// Ordinary concurrent Close caller MUST block until release finishes.
+		concurrentDone := make(chan struct{})
+		go func() {
+			mgr.Close()
+			close(concurrentDone)
+		}()
+		select {
+		case <-concurrentDone:
+			t.Fatal("concurrent Manager.Close returned while sender release was still running")
+		case <-time.After(20 * time.Millisecond):
+		}
+
+		close(allowReturn)
+		<-primaryDone
+		<-concurrentDone
+		if mgr.discriminators.IsAllocated(discr) {
+			t.Fatal("discriminator remained allocated after Manager.Close completed")
+		}
+		if len(metrics.unregistered) != 1 {
+			t.Fatalf("metrics UnregisterSession count = %d, want 1", len(metrics.unregistered))
+		}
+	})
+
+	t.Run("during_destroy_session", func(t *testing.T) {
+		t.Parallel()
+		metrics := &releaseOrderMetrics{unregistered: make(chan netip.Addr, 4)}
+		mgr := NewManager(slog.New(slog.DiscardHandler), WithManagerMetrics(metrics))
+		var firstDiscr, secondDiscr uint32
+		var asyncDone <-chan struct{}
+		first, err := mgr.CreateSession(t.Context(), senderLeaseTestConfig("192.0.2.211"),
+			func() (*SenderLease, error) {
+				return NewSenderLease(senderLeaseTestSender{}, func() error {
+					if !mgr.discriminators.IsAllocated(firstDiscr) || len(metrics.unregistered) != 0 {
+						t.Error("DestroySession violated sender -> discriminator -> metrics release order")
+					}
+					asyncDone = mgr.InitiateClose()
+					if _, createErr := mgr.CreateSession(
+						context.Background(), senderLeaseTestConfig("192.0.2.213"),
+						NonOwningSenderLeaseFactory(senderLeaseTestSender{}),
+					); !errors.Is(createErr, ErrManagerClosing) {
+						t.Errorf("mutation after InitiateClose err = %v, want ErrManagerClosing", createErr)
+					}
+					return nil
+				}), nil
+			})
+		if err != nil {
+			t.Fatalf("CreateSession first: %v", err)
+		}
+		firstDiscr = first.LocalDiscriminator()
+
+		second, err := mgr.CreateSession(t.Context(), senderLeaseTestConfig("192.0.2.212"),
+			func() (*SenderLease, error) {
+				return NewSenderLease(senderLeaseTestSender{}, func() error {
+					if !mgr.discriminators.IsAllocated(secondDiscr) {
+						t.Error("second session discriminator released before sender lease")
+					}
+					return nil
+				}), nil
+			})
+		if err != nil {
+			t.Fatalf("CreateSession second: %v", err)
+		}
+		secondDiscr = second.LocalDiscriminator()
+
+		if err := mgr.DestroySession(t.Context(), firstDiscr); err != nil {
+			t.Fatalf("DestroySession: %v", err)
+		}
+		<-asyncDone
+		mgr.Close()
+		if mgr.discriminators.IsAllocated(firstDiscr) || mgr.discriminators.IsAllocated(secondDiscr) {
+			t.Fatal("discriminators remained allocated after InitiateClose completed")
+		}
+		if len(metrics.unregistered) != 2 {
+			t.Fatalf("metrics UnregisterSession count = %d, want 2", len(metrics.unregistered))
+		}
+	})
+}
+
+func TestSenderLeaseStartCloseReentrantAndIdempotent(t *testing.T) {
+	t.Parallel()
+
+	var nilLease *SenderLease
+	select {
+	case <-nilLease.StartClose():
+	default:
+		t.Fatal("nil SenderLease.StartClose did not return closed channel")
+	}
+
+	wantErr := errors.New("sender close failed")
+	entered := make(chan struct{})
+	unblock := make(chan struct{})
+	var lease *SenderLease
+	lease = NewSenderLease(senderLeaseTestSender{}, func() error {
+		done := lease.StartClose()
+		select {
+		case <-done:
+			t.Error("StartClose reported completion while release was still running")
+		default:
+		}
+		close(entered)
+		<-unblock
+		return wantErr
+	})
+
+	done := lease.StartClose()
+	<-entered
+
+	waiterErr := make(chan error, 1)
+	go func() {
+		waiterErr <- lease.Close()
+	}()
+	select {
+	case err := <-waiterErr:
+		t.Fatalf("concurrent Close returned early with %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(unblock)
+	<-done
+	if err := <-waiterErr; !errors.Is(err, wantErr) {
+		t.Fatalf("concurrent Close err = %v, want %v", err, wantErr)
+	}
+	if err := lease.Close(); !errors.Is(err, wantErr) {
+		t.Fatalf("idempotent Close err = %v, want %v", err, wantErr)
+	}
+}

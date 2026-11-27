@@ -152,6 +152,27 @@ func TestNetworkManagerConnectCanceledDialAndMissingBus(t *testing.T) {
 			t.Errorf("missing bus returned %v, %v", client, err)
 		}
 	})
+	t.Run("stat failure fails closed", func(t *testing.T) {
+		dir := t.TempDir()
+		notDir := filepath.Join(dir, "regular-file")
+		if err := os.WriteFile(notDir, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		fallback := filepath.Join(dir, "valid-socket")
+		if err := os.WriteFile(fallback, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := networkManagerSystemBusSocketAddress([]string{
+			filepath.Join(notDir, "system_bus_socket"),
+			fallback,
+		})
+		if err == nil || got != "" {
+			t.Fatalf("stat failure fell back instead of failing closed: got=%q err=%v", got, err)
+		}
+		if errors.Is(err, errNetworkManagerBusAddress) {
+			t.Fatalf("stat failure masked as missing bus address: %v", err)
+		}
+	})
 }
 
 func TestNetworkManagerBusAddressOptions(t *testing.T) {

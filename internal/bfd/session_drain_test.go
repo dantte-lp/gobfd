@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/netip"
 	"strings"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -32,19 +33,60 @@ func (s *adminDrainSender) SendPacket(_ context.Context, buf []byte, _ netip.Add
 	return nil
 }
 
+func startSessionWorker(t *testing.T, s *Session) func() {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.Run(ctx)
+	}()
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			cancel()
+			<-done
+		})
+	}
+	t.Cleanup(stop)
+	return stop
+}
+
+func startDrainWorker(parent context.Context, t *testing.T, mgr *Manager) (<-chan error, func() error) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(parent)
+	raw := make(chan error, 1)
+	ready := make(chan struct{})
+	var err error
+	go func() {
+		err = mgr.DrainAllSessions(ctx)
+		raw <- err
+		close(ready)
+	}()
+	var join sync.Once
+	wait := func() error {
+		join.Do(func() {
+			<-ready
+		})
+		return err
+	}
+	t.Cleanup(func() {
+		cancel()
+		_ = wait()
+	})
+	return raw, wait
+}
+
 func TestManagerDrainWaitsAfterSuccessfulRetry(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		sender := &adminDrainSender{attempts: make(chan time.Time, 64), successful: make(chan time.Time, 64), fail: true}
 		s := newAdminDownTestSession(t, sender, 61)
 		mgr := NewManager(s.logger)
 		mgr.sessions[61] = &sessionEntry{session: s}
-		ctx, cancel := context.WithCancel(t.Context())
-		done := make(chan struct{})
-		go func() { s.Run(ctx); close(done) }()
+		stopSession := startSessionWorker(t, s)
 		drainCtx, cancelDrain := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancelDrain()
-		result := make(chan error, 1)
-		go func() { result <- mgr.DrainAllSessions(drainCtx) }()
+		result, waitDrain := startDrainWorker(drainCtx, t, mgr)
 		synctest.Wait()
 		if len(result) != 0 {
 			t.Error("drain completed after commit without successful write and DT window")
@@ -55,14 +97,13 @@ func TestManagerDrainWaitsAfterSuccessfulRetry(t *testing.T) {
 			t.Error("drain ended before three-second AdminDown floor from first successful write")
 		}
 		synctest.Sleep(time.Nanosecond)
-		if err := <-result; err != nil {
+		if err := waitDrain(); err != nil {
 			t.Error(err)
 		}
 		if time.Since(first) < 3*time.Second {
 			t.Error("notification window shorter than DT")
 		}
-		cancel()
-		<-done
+		stopSession()
 	})
 }
 
@@ -74,14 +115,10 @@ func TestManagerDrainBoundOnlyExtends(t *testing.T) {
 				s := newAdminDownTestSession(t, sender, 63)
 				mgr := NewManager(s.logger)
 				mgr.sessions[63] = &sessionEntry{session: s}
-				ctx, cancel := context.WithCancel(t.Context())
-				defer cancel()
-				done := make(chan struct{})
-				go func() { s.Run(ctx); close(done) }()
+				stopSession := startSessionWorker(t, s)
 				drainCtx, stop := context.WithTimeout(t.Context(), 15*time.Second)
 				defer stop()
-				result := make(chan error, 1)
-				go func() { result <- mgr.DrainAllSessions(drainCtx) }()
+				result, waitDrain := startDrainWorker(drainCtx, t, mgr)
 				<-sender.successful
 				synctest.Sleep(2 * time.Second)
 				pkt := ControlPacket{
@@ -114,11 +151,10 @@ func TestManagerDrainBoundOnlyExtends(t *testing.T) {
 				s.recvCh <- recvItem{pkt: pkt2}
 				synctest.Wait()
 				synctest.Sleep(time.Nanosecond)
-				if err := <-result; err != nil {
+				if err := waitDrain(); err != nil {
 					t.Error(err)
 				}
-				cancel()
-				<-done
+				stopSession()
 			})
 		})
 	}
@@ -130,30 +166,25 @@ func TestManagerDrainConcurrentAlreadyAdminDown(t *testing.T) {
 		s := newAdminDownTestSession(t, sender, 64)
 		mgr := NewManager(s.logger)
 		mgr.sessions[64] = &sessionEntry{session: s}
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-		done := make(chan struct{})
-		go func() { s.Run(ctx); close(done) }()
+		stopSession := startSessionWorker(t, s)
 		if err := s.SetAdminDown(t.Context()); err != nil {
 			t.Fatal(err)
 		}
 		<-sender.successful
 		synctest.Wait() // Finish the initial write before starting a new drain.
-		results := make(chan error, 2)
-		for range 2 {
-			go func() { results <- mgr.DrainAllSessions(t.Context()) }()
-		}
+		firstRaw, waitFirst := startDrainWorker(t.Context(), t, mgr)
+		secondRaw, waitSecond := startDrainWorker(t.Context(), t, mgr)
 		synctest.Wait()
 		if len(sender.successful) == 0 {
 			t.Error("already AdminDown drain did not attempt confirmation write")
 		}
 		synctest.Sleep(3*time.Second - time.Nanosecond)
-		if len(results) != 0 {
+		if len(firstRaw) != 0 || len(secondRaw) != 0 {
 			t.Error("concurrent drain completed early")
 		}
 		synctest.Sleep(time.Nanosecond)
-		for range 2 {
-			if err := <-results; err != nil {
+		for _, wait := range []func() error{waitFirst, waitSecond} {
+			if err := wait(); err != nil {
 				t.Error(err)
 			}
 		}
@@ -162,8 +193,7 @@ func TestManagerDrainConcurrentAlreadyAdminDown(t *testing.T) {
 		if err := mgr.DrainAllSessions(canceled); err != nil {
 			t.Errorf("completed drain lost precedence: %v", err)
 		}
-		cancel()
-		<-done
+		stopSession()
 	})
 }
 
@@ -175,9 +205,6 @@ func TestManagerDrainIncompleteStages(t *testing.T) {
 				s := newAdminDownTestSession(t, sender, 65)
 				mgr := NewManager(s.logger)
 				mgr.sessions[65] = &sessionEntry{session: s}
-				ctx, cancel := context.WithCancel(t.Context())
-				defer cancel()
-				done := make(chan struct{})
 				switch kind {
 				case "admission":
 					for range cap(s.ctrlCh) {
@@ -192,12 +219,14 @@ func TestManagerDrainIncompleteStages(t *testing.T) {
 					// ends before the Section 6.8.18 reset after one Detection Time.
 					s.remoteMinRxInterval = 0
 				case "stopped":
-					cancel()
-					s.Run(ctx)
+					stoppedCtx, cancelStopped := context.WithCancel(t.Context())
+					cancelStopped()
+					s.Run(stoppedCtx)
 				}
+				var stopSession func()
 				running := kind == "passive" || kind == "remote-zero" || kind == "window"
 				if running {
-					go func() { s.Run(ctx); close(done) }()
+					stopSession = startSessionWorker(t, s)
 				}
 				budget, stop := context.WithTimeout(t.Context(), time.Second)
 				defer stop()
@@ -215,9 +244,8 @@ func TestManagerDrainIncompleteStages(t *testing.T) {
 				if (kind == "passive" || kind == "remote-zero") && len(sender.attempts) != 0 {
 					t.Error("drain bypassed RFC transmission suppression")
 				}
-				cancel()
 				if running {
-					<-done
+					stopSession()
 				}
 			})
 		})
@@ -231,14 +259,10 @@ func TestManagerDrainKnownPassiveFinalWithZeroRX(t *testing.T) {
 		s.role = RolePassive
 		mgr := NewManager(s.logger)
 		mgr.sessions[66] = &sessionEntry{session: s}
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-		done := make(chan struct{})
-		go func() { s.Run(ctx); close(done) }()
+		stopSession := startSessionWorker(t, s)
 		budget, stop := context.WithTimeout(t.Context(), 5*time.Second)
 		defer stop()
-		result := make(chan error, 1)
-		go func() { result <- mgr.DrainAllSessions(budget) }()
+		result, waitDrain := startDrainWorker(budget, t, mgr)
 		synctest.Sleep(time.Second / 2)
 		if len(sender.attempts) != 0 {
 			t.Error("unknown passive drain attempted write")
@@ -254,14 +278,13 @@ func TestManagerDrainKnownPassiveFinalWithZeroRX(t *testing.T) {
 			t.Error("Final confirmation drain ended early")
 		}
 		synctest.Sleep(time.Nanosecond)
-		if err := <-result; err != nil {
+		if err := waitDrain(); err != nil {
 			t.Error(err)
 		}
 		if len(sender.attempts) != 1 {
 			t.Errorf("zero RX allowed periodic write: attempts=%d", len(sender.attempts))
 		}
-		cancel()
-		<-done
+		stopSession()
 	})
 }
 
@@ -271,16 +294,12 @@ func TestManagerDrainStoppedWindowCannotBecomeComplete(t *testing.T) {
 		s := newAdminDownTestSession(t, sender, 67)
 		mgr := NewManager(s.logger)
 		mgr.sessions[67] = &sessionEntry{session: s}
-		ctx, cancel := context.WithCancel(t.Context())
-		done := make(chan struct{})
-		go func() { s.Run(ctx); close(done) }()
-		result := make(chan error, 1)
-		go func() { result <- mgr.DrainAllSessions(t.Context()) }()
+		stopSession := startSessionWorker(t, s)
+		_, waitDrain := startDrainWorker(t.Context(), t, mgr)
 		<-sender.successful
 		synctest.Sleep(time.Second)
-		cancel()
-		<-done
-		if err := <-result; !errors.Is(err, ErrSessionStopped) {
+		stopSession()
+		if err := waitDrain(); !errors.Is(err, ErrSessionStopped) {
 			t.Errorf("early owner exit=%v", err)
 		}
 		synctest.Sleep(3 * time.Second)
@@ -316,14 +335,28 @@ func TestManagerDrainSharedCompletionWinsQueuedRequestDeadline(t *testing.T) {
 		t.Run(map[bool]string{false: "commit", true: "admission"}[full], func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				sender := &laterBlockedAdminSender{blocked: make(chan struct{}, 1), release: make(chan struct{})}
+				var unblockSender sync.Once
+				releaseSender := func() { unblockSender.Do(func() { close(sender.release) }) }
 				s := newAdminDownTestSession(t, sender, 68)
 				mgr := NewManager(s.logger)
 				mgr.sessions[68] = &sessionEntry{session: s}
 				ctx, cancel := context.WithCancel(t.Context())
 				done := make(chan struct{})
-				go func() { s.Run(ctx); close(done) }()
-				first := make(chan error, 1)
-				go func() { first <- mgr.DrainAllSessions(t.Context()) }()
+				go func() {
+					defer close(done)
+					s.Run(ctx)
+				}()
+				var stopOnce sync.Once
+				stopSession := func() {
+					stopOnce.Do(func() {
+						cancel()
+						releaseSender()
+						<-done
+					})
+				}
+				t.Cleanup(stopSession)
+
+				_, waitFirst := startDrainWorker(t.Context(), t, mgr)
 				<-sender.blocked
 				if full {
 					for range cap(s.ctrlCh) {
@@ -332,17 +365,14 @@ func TestManagerDrainSharedCompletionWinsQueuedRequestDeadline(t *testing.T) {
 				}
 				budget, stop := context.WithTimeout(t.Context(), 4*time.Second)
 				defer stop()
-				second := make(chan error, 1)
-				go func() { second <- mgr.DrainAllSessions(budget) }()
-				if err := <-first; err != nil {
+				_, waitSecond := startDrainWorker(budget, t, mgr)
+				if err := waitFirst(); err != nil {
 					t.Error(err)
 				}
-				if err := <-second; err != nil {
+				if err := waitSecond(); err != nil {
 					t.Errorf("shared completed window lost to queued request deadline: %v", err)
 				}
-				cancel()
-				close(sender.release)
-				<-done
+				stopSession()
 			})
 		})
 	}
@@ -405,21 +435,17 @@ func TestManagerDrainSendFailureIsNotPeerAttributed(t *testing.T) {
 		s.role = RolePassive
 		mgr := NewManager(s.logger)
 		mgr.sessions[68] = &sessionEntry{session: s}
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-		done := make(chan struct{})
-		go func() { s.Run(ctx); close(done) }()
+		stopSession := startSessionWorker(t, s)
 		budget, stop := context.WithTimeout(t.Context(), 5*time.Second)
 		defer stop()
-		result := make(chan error, 1)
-		go func() { result <- mgr.DrainAllSessions(budget) }()
+		_, waitDrain := startDrainWorker(budget, t, mgr)
 		synctest.Sleep(time.Second / 2)
 		s.recvCh <- recvItem{pkt: ControlPacket{
 			Version: 1, State: StateDown, Poll: true, DetectMult: 3,
 			MyDiscriminator: 7, DesiredMinTxInterval: 1000000,
 		}}
 		<-sender.attempts
-		err := <-result
+		err := waitDrain()
 		incomplete, ok := errors.AsType[*DrainIncompleteError](err)
 		if !ok {
 			t.Fatalf("drain error = %v, want DrainIncompleteError", err)
@@ -430,7 +456,6 @@ func TestManagerDrainSendFailureIsNotPeerAttributed(t *testing.T) {
 		if !strings.Contains(err.Error(), "injected local AdminDown write failure") {
 			t.Errorf("drain error hides the send failure: %v", err)
 		}
-		cancel()
-		<-done
+		stopSession()
 	})
 }

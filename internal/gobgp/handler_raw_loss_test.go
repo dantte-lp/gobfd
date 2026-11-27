@@ -3,6 +3,7 @@ package gobgp_test
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -41,6 +42,20 @@ func TestHandlerRawLossResyncRejectsQueuedOldUp(t *testing.T) {
 	events := make(chan bfd.StateChange, 4)
 	done := make(chan error, 1)
 	go func() { done <- handler.Run(ctx, events) }()
+	var joinHandler sync.Once
+	var handlerErr error
+	stopHandler := func() {
+		joinHandler.Do(func() {
+			cancel()
+			select {
+			case handlerErr = <-done:
+			case <-time.After(time.Second):
+				t.Error("handler did not stop after cancellation")
+			}
+		})
+	}
+	defer stopHandler()
+
 	events <- bfd.StateChange{Gap: true, Revision: mgr.Revision()}
 	select {
 	case <-snapshotted:
@@ -71,7 +86,29 @@ func TestHandlerRawLossResyncRejectsQueuedOldUp(t *testing.T) {
 			}
 		}
 	}()
-	go mgr.RunDispatch(ctx)
+	var joinForward sync.Once
+	stopForward := func() {
+		joinForward.Do(func() {
+			cancel()
+			select {
+			case <-forwardDone:
+			case <-time.After(time.Second):
+				t.Error("handler event forwarder did not stop after cancellation")
+			}
+		})
+	}
+	defer stopForward()
+
+	dispatchDone := make(chan struct{})
+	go func() {
+		defer close(dispatchDone)
+		mgr.RunDispatch(ctx)
+	}()
+	defer func() {
+		cancel()
+		<-dispatchDone
+	}()
+
 	testutil.Wait(ctx, t, func() bool {
 		return testutil.DeliveryCount(mgr, bfd.DeliveryNotificationDispatch, bfd.DeliveryAccepted) == 1 &&
 			testutil.DeliveryCount(mgr, bfd.DeliveryNotificationDispatch, bfd.DeliveryStale) == 63
@@ -98,18 +135,9 @@ func TestHandlerRawLossResyncRejectsQueuedOldUp(t *testing.T) {
 	if testutil.DeliveryCount(mgr, bfd.DeliveryWatchRecipient, bfd.DeliveryGapped) != 0 {
 		t.Fatal("handler converged through subscriber overflow instead of raw loss")
 	}
-	cancel()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("handler shutdown: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("handler did not stop after cancellation")
+	stopHandler()
+	if handlerErr != nil {
+		t.Fatalf("handler shutdown: %v", handlerErr)
 	}
-	select {
-	case <-forwardDone:
-	case <-time.After(time.Second):
-		t.Fatal("handler event forwarder did not stop after cancellation")
-	}
+	stopForward()
 }

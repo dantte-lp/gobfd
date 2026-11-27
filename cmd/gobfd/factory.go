@@ -330,6 +330,24 @@ func configMicroBFDActuatorToNetio(cfg config.MicroBFDActuatorConfig) netio.LAGA
 	}
 }
 
+func bindMicroActuatorReadiness(
+	cfg config.MicroBFDActuatorConfig,
+	mgr *bfd.Manager,
+	readiness *daemonReadiness,
+) {
+	if mgr == nil || readiness == nil {
+		return
+	}
+	if netio.LAGActuatorMode(cfg.Mode) != netio.LAGActuatorModeEnforce {
+		mgr.SetMicroActuatorStatusFunc(nil)
+		readiness.SetMicroActuatorReady(true)
+		return
+	}
+	mgr.SetMicroActuatorStatusFunc(func(healthy bool, _ error) {
+		readiness.SetMicroActuatorReady(healthy)
+	})
+}
+
 // buildUnsolicitedPolicy converts config.UnsolicitedConfig to bfd.UnsolicitedPolicy.
 func buildUnsolicitedPolicy(cfg config.UnsolicitedConfig) (*bfd.UnsolicitedPolicy, error) {
 	interfaces := make(map[string]bfd.UnsolicitedInterfaceConfig, len(cfg.Interfaces))

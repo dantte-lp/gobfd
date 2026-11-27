@@ -13,7 +13,6 @@ import (
 const (
 	defaultKernelBondSysfsRoot = "/sys/class/net"
 	defaultOVSVSCTLCommand     = "ovs-vsctl"
-	maxLinuxInterfaceNameLen   = 15
 )
 
 var (
@@ -120,11 +119,8 @@ func (b *KernelBondLAGBackend) writeSlaveCommand(
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("write Linux bond membership canceled: %w", err)
 	}
-	if err := validateLAGInterfaceName(lagInterface); err != nil {
-		return fmt.Errorf("lag interface %q: %w", lagInterface, err)
-	}
-	if err := validateLAGInterfaceName(memberInterface); err != nil {
-		return fmt.Errorf("member interface %q: %w", memberInterface, err)
+	if err := validateLAGMemberInterfaces(lagInterface, memberInterface); err != nil {
+		return err
 	}
 
 	path := filepath.Join(b.sysfsRoot, lagInterface, "bonding", "slaves")
@@ -224,11 +220,8 @@ func (b *OVSLAGBackend) runBondIfaceCommand(
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("run OVS bond member command canceled: %w", err)
 	}
-	if err := validateLAGInterfaceName(lagInterface); err != nil {
-		return fmt.Errorf("lag interface %q: %w", lagInterface, err)
-	}
-	if err := validateLAGInterfaceName(memberInterface); err != nil {
-		return fmt.Errorf("member interface %q: %w", memberInterface, err)
+	if err := validateLAGMemberInterfaces(lagInterface, memberInterface); err != nil {
+		return err
 	}
 
 	if err := b.runner.Run(ctx, b.command,
@@ -238,13 +231,12 @@ func (b *OVSLAGBackend) runBondIfaceCommand(
 	return nil
 }
 
-func validateLAGInterfaceName(name string) error {
-	if name == "" ||
-		name == "." ||
-		name == ".." ||
-		len(name) > maxLinuxInterfaceNameLen ||
-		strings.ContainsAny(name, "/\x00") {
-		return ErrInvalidLAGInterfaceName
+func validateLAGMemberInterfaces(lagInterface, memberInterface string) error {
+	if err := ValidateInterfaceName(lagInterface); err != nil {
+		return fmt.Errorf("lag interface %q: %w: %w", lagInterface, ErrInvalidLAGInterfaceName, err)
+	}
+	if err := ValidateInterfaceName(memberInterface); err != nil {
+		return fmt.Errorf("member interface %q: %w: %w", memberInterface, ErrInvalidLAGInterfaceName, err)
 	}
 	return nil
 }

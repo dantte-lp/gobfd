@@ -195,6 +195,7 @@ func attachReceiveOwners(
 	coordinator.overlays = newOverlayOwner(cfg, sf, mgr, coordinator.readiness, logger)
 	coordinator.checkAddresses = netio.CheckLocalAddressesAvailable
 	coordinator.readiness.checkAddresses = netio.CheckLocalAddressesAvailable
+	bindMicroActuatorReadiness(cfg.MicroBFD.Actuator, mgr, coordinator.readiness)
 	return coordinator.listeners, coordinator.overlays
 }
 

@@ -6,9 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strings"
-
-	"golang.org/x/sys/unix"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 )
@@ -41,9 +38,9 @@ func checkInterfacesAvailable(ifNames []string, inventory interfaceInventory) (i
 			continue
 		}
 		namedClaims++
-		if !validAvailabilityInterfaceName(ifName) {
+		if err := ValidateInterfaceName(ifName); err != nil {
 			validationErrors = append(validationErrors,
-				fmt.Errorf("validate interface %q availability: %w", ifName, ErrInvalidInterfaceName))
+				fmt.Errorf("validate interface %q availability: %w", ifName, err))
 		}
 	}
 	if err := errors.Join(validationErrors...); err != nil {
@@ -79,9 +76,4 @@ func checkInterfacesAvailable(ifNames []string, inventory interfaceInventory) (i
 			fmt.Errorf("check interface %q availability: %w", ifName, resourceErr))
 	}
 	return len(unavailableErrors), errors.Join(unavailableErrors...)
-}
-
-func validAvailabilityInterfaceName(ifName string) bool {
-	return ifName != "." && ifName != ".." &&
-		len(ifName) < unix.IFNAMSIZ && !strings.ContainsAny(ifName, "/:\x00 \t\n\v\f\r")
 }

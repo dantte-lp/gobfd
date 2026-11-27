@@ -30,7 +30,8 @@ func (c *reconciliationCoordinator) CapabilitySnapshot() server.CapabilitySnapsh
 	snapshot.Unsolicited = r.capabilityReadyLocked(
 		snapshot.Unsolicited, sourceBase, 1<<componentControlBindings, unsolicited)
 	snapshot.Echo = r.capabilityReadyLocked(snapshot.Echo, sourceEcho, 1<<componentEchoBindings, echo)
-	snapshot.MicroBFD = r.capabilityReadyLocked(snapshot.MicroBFD, sourceMicro, 1<<componentMicroBindings, micro)
+	snapshot.MicroBFD = r.capabilityReadyLocked(
+		snapshot.MicroBFD, sourceMicro, 1<<componentMicroBindings|1<<componentMicroActuator, micro)
 	snapshot.VXLAN = r.capabilityReadyLocked(snapshot.VXLAN, sourceVXLAN, 0, vxlan)
 	snapshot.Geneve = r.capabilityReadyLocked(snapshot.Geneve, sourceGeneve, 0, geneve)
 	return snapshot

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -38,6 +39,20 @@ func TestExaBGPRawLossWithdrawsWithoutReconnect(t *testing.T) {
 	output := make(commandOutput, 16)
 	done := make(chan error, 1)
 	go func() { done <- watchAndAnnounce(ctx, srv.URL, selector, testPrefixAddr, output, logger) }()
+	var joinWatch sync.Once
+	var watchErr error
+	stopWatch := func() {
+		joinWatch.Do(func() {
+			cancel()
+			select {
+			case watchErr = <-done:
+			case <-time.After(time.Second):
+				t.Error("route Watch did not stop")
+			}
+		})
+	}
+	defer stopWatch()
+
 	expect := func(verb string) {
 		t.Helper()
 		select {
@@ -52,7 +67,16 @@ func TestExaBGPRawLossWithdrawsWithoutReconnect(t *testing.T) {
 	expect("withdraw")
 	expect("announce")
 	testutil.LoseFinalDown(ctx, t, mgr, session)
-	go mgr.RunDispatch(ctx)
+	dispatchDone := make(chan struct{})
+	go func() {
+		defer close(dispatchDone)
+		mgr.RunDispatch(ctx)
+	}()
+	defer func() {
+		cancel()
+		<-dispatchDone
+	}()
+
 	expect("withdraw")
 	testutil.Wait(ctx, t, func() bool {
 		return testutil.DeliveryCount(mgr, bfd.DeliveryNotificationDispatch, bfd.DeliveryAccepted) == 1 &&
@@ -61,14 +85,9 @@ func TestExaBGPRawLossWithdrawsWithoutReconnect(t *testing.T) {
 	if testutil.DeliveryCount(mgr, bfd.DeliveryWatchRecipient, bfd.DeliveryGapped) != 0 {
 		t.Fatal("route recovered through subscriber overflow instead of raw loss")
 	}
-	cancel()
-	select {
-	case watchErr := <-done:
-		if !errors.Is(watchErr, context.Canceled) {
-			t.Fatal(watchErr)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("route Watch did not stop")
+	stopWatch()
+	if !errors.Is(watchErr, context.Canceled) {
+		t.Fatal(watchErr)
 	}
 	select {
 	case command := <-output:

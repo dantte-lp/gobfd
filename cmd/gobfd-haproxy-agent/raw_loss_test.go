@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -43,9 +44,32 @@ func TestHAProxyRawLossConvergesWithoutReconnect(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() { done <- watchEvents(ctx, client, states, logger) }()
+	var joinWatch sync.Once
+	var watchErr error
+	stopWatch := func() {
+		joinWatch.Do(func() {
+			cancel()
+			select {
+			case watchErr = <-done:
+			case <-time.After(time.Second):
+				t.Error("backend Watch did not stop")
+			}
+		})
+	}
+	defer stopWatch()
+
 	testutil.Wait(ctx, t, func() bool { return states.get(peer) == bfdv1.SessionState_SESSION_STATE_UP })
 	testutil.LoseFinalDown(ctx, t, mgr, session)
-	go mgr.RunDispatch(ctx)
+	dispatchDone := make(chan struct{})
+	go func() {
+		defer close(dispatchDone)
+		mgr.RunDispatch(ctx)
+	}()
+	defer func() {
+		cancel()
+		<-dispatchDone
+	}()
+
 	testutil.Wait(ctx, t, func() bool {
 		return states.get(peer) == bfdv1.SessionState_SESSION_STATE_DOWN &&
 			testutil.DeliveryCount(mgr, bfd.DeliveryNotificationDispatch, bfd.DeliveryAccepted) == 1 &&
@@ -54,13 +78,8 @@ func TestHAProxyRawLossConvergesWithoutReconnect(t *testing.T) {
 	if testutil.DeliveryCount(mgr, bfd.DeliveryWatchRecipient, bfd.DeliveryGapped) != 0 {
 		t.Fatal("backend health recovered through subscriber overflow instead of the raw loss hint")
 	}
-	cancel()
-	select {
-	case watchErr := <-done:
-		if !errors.Is(watchErr, context.Canceled) {
-			t.Fatal(watchErr)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("backend Watch did not stop")
+	stopWatch()
+	if !errors.Is(watchErr, context.Canceled) {
+		t.Fatal(watchErr)
 	}
 }

@@ -36,6 +36,7 @@ const (
 	componentEchoBindings
 	componentMicroBindings
 	componentControlTransport
+	componentMicroActuator
 	componentCount
 )
 
@@ -61,7 +62,8 @@ func readinessServices() [4]readinessService {
 		{bfdServiceName, 1<<sourceBase | 1<<sourceVXLAN | 1<<sourceGeneve |
 			1<<componentRuntime | 1<<componentControlBindings | 1<<componentControlTransport},
 		{echoServiceName, echoReadinessComponents},
-		{microBFDServiceName, 1<<sourceMicro | 1<<componentRuntime | 1<<componentMicroBindings},
+		{microBFDServiceName, 1<<sourceMicro | 1<<componentRuntime |
+			1<<componentMicroBindings | 1<<componentMicroActuator},
 	}
 }
 
@@ -138,6 +140,14 @@ func (r *daemonReadiness) setControlTransportReady(ready bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.setLocked(1<<componentControlTransport, ready)
+	r.publishLocked()
+}
+
+// SetMicroActuatorReady updates the RFC 7130 enforce-mode LAG actuator component.
+func (r *daemonReadiness) SetMicroActuatorReady(ready bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.setLocked(1<<componentMicroActuator, ready)
 	r.publishLocked()
 }
 

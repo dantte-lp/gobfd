@@ -271,6 +271,120 @@ func TestRequiredDispatchStopFailsStopAndReportsNotServing(t *testing.T) {
 	assertReadiness(t, checker, readinessWant{notServing, notServing, notServing, notServing})
 }
 
+type flakyEnforceLAGBackend struct {
+	mu        sync.Mutex
+	failCount int
+}
+
+func (b *flakyEnforceLAGBackend) RemoveMember(context.Context, string, string) error {
+	return b.step()
+}
+
+func (b *flakyEnforceLAGBackend) AddMember(context.Context, string, string) error {
+	return b.step()
+}
+
+func (b *flakyEnforceLAGBackend) step() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.failCount > 0 {
+		b.failCount--
+		return errors.New("backend unavailable")
+	}
+	return nil
+}
+
+func TestDaemonReadinessMicroActuatorEnforceMode(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		coordinator, checker := newConvergedReadinessCoordinator(t)
+		backend := &flakyEnforceLAGBackend{failCount: 1}
+		actuator, err := netio.NewLAGActuator(netio.LAGActuatorConfig{
+			Mode:        netio.LAGActuatorModeEnforce,
+			Backend:     netio.LAGActuatorBackendKernelBond,
+			OwnerPolicy: netio.LAGOwnerPolicyAllowExternal,
+		}, backend, slog.New(slog.DiscardHandler))
+		if err != nil {
+			t.Fatalf("NewLAGActuator: %v", err)
+		}
+		mgr := bfd.NewManager(slog.New(slog.DiscardHandler), bfd.WithMicroBFDActuator(actuator))
+		defer mgr.Close()
+
+		// Non-enforce mode leaves MicroBFDService readiness unaffected.
+		bindMicroActuatorReadiness(
+			config.MicroBFDActuatorConfig{Mode: config.MicroBFDActuatorModeDryRun},
+			mgr, coordinator.readiness,
+		)
+		assertReadiness(t, checker, readinessAllServing())
+
+		// Enforce mode binds MicroBFDService health to actuator convergence.
+		bindMicroActuatorReadiness(
+			config.MicroBFDActuatorConfig{Mode: config.MicroBFDActuatorModeEnforce},
+			mgr, coordinator.readiness,
+		)
+		groupCfg := bfd.MicroBFDConfig{
+			LAGInterface:          "bond0",
+			MemberLinks:           []string{"eth0"},
+			PeerAddr:              netip.MustParseAddr("192.0.2.41"),
+			LocalAddr:             netip.MustParseAddr("192.0.2.42"),
+			DesiredMinTxInterval:  time.Hour,
+			RequiredMinRxInterval: time.Hour,
+			DetectMultiplier:      3,
+			MinActiveLinks:        1,
+		}
+		if _, groupErr := mgr.CreateMicroBFDGroup(groupCfg); groupErr != nil {
+			t.Fatalf("CreateMicroBFDGroup: %v", groupErr)
+		}
+		sess, err := mgr.CreateSession(t.Context(), bfd.SessionConfig{
+			PeerAddr:              groupCfg.PeerAddr,
+			LocalAddr:             groupCfg.LocalAddr,
+			Interface:             "eth0",
+			Type:                  bfd.SessionTypeMicroBFD,
+			Role:                  bfd.RolePassive,
+			DesiredMinTxInterval:  time.Hour,
+			RequiredMinRxInterval: time.Hour,
+			DetectMultiplier:      3,
+		}, bfd.NonOwningSenderLeaseFactory(noopDeclarativeSender{}))
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+
+		dispatchCtx, cancelDispatch := context.WithCancel(t.Context())
+		dispatchDone := make(chan struct{})
+		go func() {
+			defer close(dispatchDone)
+			mgr.RunDispatch(dispatchCtx)
+		}()
+		defer func() {
+			cancelDispatch()
+			<-dispatchDone
+		}()
+
+		pkt := bfd.ControlPacket{
+			Version: 1, State: bfd.StateInit, DetectMult: 3,
+			MyDiscriminator: 55, YourDiscriminator: sess.LocalDiscriminator(),
+			DesiredMinTxInterval: 3600000000, RequiredMinRxInterval: 3600000000,
+		}
+		if sess.RecvPacket(&pkt) != bfd.DeliveryQueued {
+			t.Fatal("RecvPacket refused")
+		}
+		synctest.Wait()
+
+		notServing, serving := grpchealth.StatusNotServing, grpchealth.StatusServing
+		assertReadiness(t, checker, readinessWant{notServing, serving, serving, notServing})
+		assertHealthStatus(t, checker, grpchealth.HealthV1ServiceName, serving)
+
+		// Advance past the initial 50ms actuator retry backoff; actuation succeeds and restores SERVING.
+		synctest.Sleep(60 * time.Millisecond)
+		assertReadiness(t, checker, readinessAllServing())
+		assertHealthStatus(t, checker, grpchealth.HealthV1ServiceName, serving)
+	})
+}
+
+type noopDeclarativeSender struct{}
+
+func (noopDeclarativeSender) SendPacket(context.Context, []byte, netip.Addr) error { return nil }
+
 // fakeListenerConn blocks reads until Close, as a real socket does.
 type fakeListenerConn struct {
 	reading   chan struct{}

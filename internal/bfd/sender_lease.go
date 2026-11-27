@@ -9,13 +9,24 @@ import (
 
 type writeInterrupter interface{ InterruptWrite() error }
 
+func closedSenderLeaseDone() <-chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}
+
 // SenderLease couples a session's packet sender with the resource release
-// operation that owns its lifetime. Close is idempotent and returns the same
-// result to every caller.
+// operation that owns its lifetime. Close is idempotent, blocks concurrent
+// callers until teardown completes, and returns the same result to every
+// caller. Synchronous release callbacks must use StartClose (and
+// Manager.InitiateClose when requesting Manager shutdown) instead of
+// recursively calling Close.
 type SenderLease struct {
 	sender        PacketSender
 	release       func() error
-	once          sync.Once
+	closeMu       sync.Mutex
+	closing       bool
+	closeDone     chan struct{}
 	err           error
 	interruptStop func() bool
 	interruptDone chan struct{}
@@ -66,18 +77,57 @@ func (l *SenderLease) Sender() PacketSender {
 	return l.sender
 }
 
-// Close releases the sender resources at most once.
+func (l *SenderLease) beginClose() (bool, <-chan struct{}) {
+	l.closeMu.Lock()
+	defer l.closeMu.Unlock()
+	if l.closeDone == nil {
+		l.closeDone = make(chan struct{})
+	}
+	if l.closing {
+		return false, l.closeDone
+	}
+	l.closing = true
+	return true, l.closeDone
+}
+
+func (l *SenderLease) runClose() {
+	defer close(l.closeDone)
+	l.stopInterrupt()
+	err := l.interruptErr
+	if l.release != nil {
+		err = errors.Join(err, l.release())
+	}
+	l.err = err
+}
+
+// StartClose initiates sender release asynchronously if it has not already
+// begun and returns a channel closed once teardown finishes. Unlike Close,
+// StartClose never blocks and is safe to call from inside the lease's own
+// synchronous release callback.
+func (l *SenderLease) StartClose() <-chan struct{} {
+	if l == nil {
+		return closedSenderLeaseDone()
+	}
+	first, done := l.beginClose()
+	if first {
+		go l.runClose()
+	}
+	return done
+}
+
+// Close releases the sender resources at most once, blocking until completion
+// and returning the same error to every caller. Do not call Close recursively
+// from inside the lease's synchronous release callback; use StartClose instead.
 func (l *SenderLease) Close() error {
 	if l == nil {
 		return nil
 	}
-	l.once.Do(func() {
-		l.stopInterrupt()
-		l.err = l.interruptErr
-		if l.release != nil {
-			l.err = errors.Join(l.err, l.release())
-		}
-	})
+	first, done := l.beginClose()
+	if first {
+		l.runClose()
+	} else {
+		<-done
+	}
 	return l.err
 }
 

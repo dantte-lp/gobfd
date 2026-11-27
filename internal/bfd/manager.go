@@ -348,7 +348,11 @@ type Manager struct {
 
 	// microActuator receives RFC 7130 member state transitions after the
 	// Manager updates its MicroBFDGroup aggregate state.
-	microActuator MicroBFDActuator
+	microActuator             MicroBFDActuator
+	microActuatorStatus       atomic.Pointer[func(bool, error)]
+	microActuatorFailed       atomic.Bool
+	microStatusMu             sync.Mutex
+	microStatusReportedFailed bool
 
 	// rawNotifyCh receives state changes from all sessions.
 	// The Manager's dispatch goroutine reads from this channel,
@@ -557,6 +561,28 @@ func WithMicroBFDActuator(actuator MicroBFDActuator) ManagerOption {
 	}
 }
 
+// WithMicroActuatorStatusFunc sets an optional health callback invoked when
+// Micro-BFD actuation succeeds (true, nil) or fails (false, err).
+func WithMicroActuatorStatusFunc(fn func(healthy bool, err error)) ManagerOption {
+	return func(m *Manager) {
+		m.SetMicroActuatorStatusFunc(fn)
+	}
+}
+
+// SetMicroActuatorStatusFunc installs or clears the callback invoked after
+// Micro-BFD member actuation or recovery resync.
+func (m *Manager) SetMicroActuatorStatusFunc(fn func(healthy bool, err error)) {
+	m.microStatusMu.Lock()
+	defer m.microStatusMu.Unlock()
+	m.microStatusReportedFailed = false
+	if fn == nil {
+		m.microActuatorStatus.Store(nil)
+		return
+	}
+	cb := fn
+	m.microActuatorStatus.Store(&cb)
+}
+
 // NewManager creates a new BFD session manager.
 //
 // The manager allocates local discriminators (RFC 5880 Section 6.8.1),
@@ -631,31 +657,53 @@ func (m *Manager) RunDispatch(ctx context.Context) {
 	}
 	m.scanUnsolicitedCleanup(ctx)
 
+	var retry microActuatorRetryTimer
+	defer retry.stop()
+
 	for {
-		select {
-		case <-m.publicLossWake:
-			m.invalidateStateChanges()
-		default:
-		}
-		select {
-		case <-m.cleanupWake:
-			m.scanUnsolicitedCleanup(ctx)
-		default:
-		}
+		m.drainPriorityDispatchSignals(ctx, &retry)
 		select {
 		case <-ctx.Done():
 			return
 		case <-m.shutdownCh:
 			return
 		case <-m.publicLossWake:
-			m.invalidateStateChanges()
+			m.handlePublicLossWake(ctx, &retry)
 		case <-m.cleanupWake:
 			m.scanUnsolicitedCleanup(ctx)
 		case <-m.microResyncWake:
-			m.dispatchMicroResync(ctx)
+			m.resyncMicroBFDGroups(ctx)
+			retry.sync(m.microActuatorFailed.Load(), false)
+		case <-retry.ch:
+			m.resyncMicroBFDGroups(ctx)
+			retry.sync(m.microActuatorFailed.Load(), true)
 		case sc := <-m.rawNotifyCh:
 			m.dispatchStateChange(ctx, sc)
+			if m.microActuator != nil && sc.Type == SessionTypeMicroBFD {
+				retry.sync(m.microActuatorFailed.Load(), false)
+			}
 		}
+	}
+}
+
+func (m *Manager) drainPriorityDispatchSignals(ctx context.Context, retry *microActuatorRetryTimer) {
+	select {
+	case <-m.publicLossWake:
+		m.handlePublicLossWake(ctx, retry)
+	default:
+	}
+	select {
+	case <-m.cleanupWake:
+		m.scanUnsolicitedCleanup(ctx)
+	default:
+	}
+}
+
+func (m *Manager) handlePublicLossWake(ctx context.Context, retry *microActuatorRetryTimer) {
+	m.invalidateStateChanges()
+	m.resyncMicroBFDGroups(ctx)
+	if m.microActuator != nil {
+		retry.sync(m.microActuatorFailed.Load(), false)
 	}
 }
 
@@ -672,17 +720,17 @@ func (m *Manager) dispatchStateChange(ctx context.Context, sc StateChange) {
 		m.scheduleUnsolicitedCleanup(ctx, sc)
 		return
 	}
-	var memberEvent MicroBFDMemberEvent
+	var work microActuationWork
 	var actuate bool
 	if sc.Type == SessionTypeMicroBFD && sc.Interface != "" {
-		memberEvent, actuate = m.dispatchMicroBFD(sc)
+		work, actuate = m.dispatchMicroBFD(sc)
 	}
 	counts := m.broadcastStateChange(sc)
 	m.mu.RUnlock()
 	m.RecordDelivery(DeliveryNotificationDispatch, DeliveryAccepted)
 	m.reportFanoutDelivery(counts)
 	if actuate {
-		m.handleMicroBFDActuator(ctx, memberEvent)
+		m.executeMicroBFDActuation(ctx, work)
 	}
 	if sc.NewState == StateDown {
 		m.scheduleUnsolicitedCleanup(ctx, sc)
@@ -921,14 +969,41 @@ func (m *Manager) DrainAllSessions(ctx context.Context) error {
 
 // Close cancels all Manager-owned goroutines and releases resources.
 // After Close returns, new mutations are rejected and StateChanges has reached
-// EOF. Close is safe to call concurrently and more than once.
+// EOF. Close is safe to call concurrently and more than once, blocking every
+// caller until teardown completes.
+//
 // Sender release callbacks run without Manager locks and may reenter Manager
-// read or mutation APIs, but must not recursively call this blocking method.
+// read APIs or call InitiateClose to request asynchronous shutdown, but must
+// not recursively call this blocking Close method.
 func (m *Manager) Close() {
 	if !m.beginClose() {
 		return
 	}
+	m.runClose()
+}
 
+func (m *Manager) beginClose() bool {
+	first, done := m.tryBeginClose()
+	if !first {
+		<-done
+	}
+	return first
+}
+
+// InitiateClose transitions the Manager into its closing state without blocking
+// and returns a channel closed when shutdown completes. Ordinary callers should
+// prefer Close; synchronous SenderLease release callbacks that need to trigger
+// Manager shutdown must call InitiateClose instead of Close to avoid waiting on
+// their own in-flight teardown operation.
+func (m *Manager) InitiateClose() <-chan struct{} {
+	first, done := m.tryBeginClose()
+	if first {
+		go m.runClose()
+	}
+	return done
+}
+
+func (m *Manager) runClose() {
 	if m.shutdownNotificationDrain {
 		m.stopAndDrainNotifications()
 	}
@@ -941,19 +1016,14 @@ func (m *Manager) Close() {
 	m.logger.Info("manager closed")
 }
 
-func (m *Manager) beginClose() bool {
+func (m *Manager) tryBeginClose() (bool, <-chan struct{}) {
 	m.lifecycleMu.Lock()
-	switch m.lifecycleState {
-	case managerClosing, managerClosed:
-		done := m.closeDone
-		m.lifecycleMu.Unlock()
-		<-done
-		return false
-	case managerOpen:
-		m.lifecycleState = managerClosing
+	defer m.lifecycleMu.Unlock()
+	if m.lifecycleState != managerOpen {
+		return false, m.closeDone
 	}
-	m.lifecycleMu.Unlock()
-	return true
+	m.lifecycleState = managerClosing
+	return true, m.closeDone
 }
 
 func (m *Manager) detachCloseResources() (
@@ -979,6 +1049,7 @@ func (m *Manager) detachCloseResources() (
 	m.microGroups = make(map[string]*MicroBFDGroup)
 	m.microMembers = make(map[microMemberKey]*MicroBFDGroup)
 	m.microResync = nil
+	m.microActuatorFailed.Store(false)
 	m.mu.Unlock()
 	m.ownershipMu.Unlock()
 	return retired, retiredEcho
