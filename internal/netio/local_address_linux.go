@@ -30,6 +30,14 @@ type localAddressAssignment struct {
 // CheckLocalAddressesAvailable inspects bind dependencies in one Linux address
 // dump. Tentative and DAD-failed addresses cannot satisfy a dependency.
 func CheckLocalAddressesAvailable(claims []LocalAddress) (int, error) {
+	return CheckLocalAddressesAvailableContext(context.Background(), claims)
+}
+
+// CheckLocalAddressesAvailableContext cancels local bind probes with the caller.
+func CheckLocalAddressesAvailableContext(ctx context.Context, claims []LocalAddress) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, fmt.Errorf("inspect local addresses: %w", err)
+	}
 	needed := false
 	for _, claim := range claims {
 		if claim.Addr.IsValid() && !claim.Addr.IsUnspecified() {
@@ -58,7 +66,7 @@ func CheckLocalAddressesAvailable(claims []LocalAddress) (int, error) {
 			continue
 		}
 		// A kernel-local route may permit binding an address absent from GETADDR.
-		bindErr := probeLocalAddress(claim)
+		bindErr := probeLocalAddress(ctx, claim)
 		if bindErr != nil {
 			if errors.Is(bindErr, unix.EADDRNOTAVAIL) {
 				continue
@@ -71,7 +79,7 @@ func CheckLocalAddressesAvailable(claims []LocalAddress) (int, error) {
 	return checkLocalAddresses(claims, assigned, interfaces)
 }
 
-func probeLocalAddress(claim LocalAddress) error {
+func probeLocalAddress(ctx context.Context, claim LocalAddress) error {
 	addr := claim.Addr.Unmap()
 	network := "udp4"
 	if addr.Is6() {
@@ -93,7 +101,7 @@ func probeLocalAddress(claim LocalAddress) error {
 		}
 		return nil
 	}}
-	conn, err := lc.ListenPacket(context.Background(), network, netip.AddrPortFrom(addr, 0).String())
+	conn, err := lc.ListenPacket(ctx, network, netip.AddrPortFrom(addr, 0).String())
 	if err != nil {
 		return fmt.Errorf("bind local address probe: %w", err)
 	}

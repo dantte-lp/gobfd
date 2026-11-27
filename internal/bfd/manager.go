@@ -343,7 +343,8 @@ type Manager struct {
 
 	// resolveIfIndex returns the receive interface index of a new single-hop
 	// session from its local address or interface name. Nil disables it.
-	resolveIfIndex func(local netip.Addr, ifName string) (int, error)
+	resolveIfIndex   func(local netip.Addr, ifName string) (int, error)
+	interfaceRefresh chan struct{}
 
 	// microActuator receives RFC 7130 member state transitions after the
 	// Manager updates its MicroBFDGroup aggregate state.
@@ -572,6 +573,7 @@ func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 		microGroups:          make(map[string]*MicroBFDGroup),
 		microMembers:         make(map[microMemberKey]*MicroBFDGroup),
 		microResyncWake:      make(chan struct{}, 1),
+		interfaceRefresh:     make(chan struct{}, 1),
 		discriminators:       NewDiscriminatorAllocator(),
 		metrics:              noopMetrics{},
 		notificationCapacity: notifyChSize,

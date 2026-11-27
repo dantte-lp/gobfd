@@ -427,9 +427,8 @@ type Session struct {
 	localAddr   netip.Addr
 	ifName      string
 
-	// ifIndex is the required receive interface index of a single-hop
-	// session; zero disables the check (RFC 5881 Section 3).
-	ifIndex int
+	// receiveBinding publishes confirmed RX scope or a pending owner barrier.
+	receiveBinding atomic.Pointer[receiveBinding]
 	// minTTL is the multihop hop-policy floor, 255 - MultiHopMaxHops.
 	minTTL uint8
 
@@ -489,7 +488,7 @@ type Session struct {
 	sender         PacketSender
 	metrics        MetricsReporter
 	timerEvent     timerObservation
-	delivery       DeliveryReporter
+	delivery       *Manager
 	cleanupWake    chan<- struct{}
 	publicLossWake chan<- struct{}
 	logger         *slog.Logger
@@ -504,9 +503,10 @@ type Session struct {
 // recvItem carries a received BFD Control packet along with the raw
 // wire bytes needed for authentication verification (RFC 5880 Section 6.7).
 type recvItem struct {
-	pkt    ControlPacket
-	wire   []byte // raw wire bytes for auth digest verification
-	timing ReceiveTiming
+	pkt     ControlPacket
+	wire    []byte // raw wire bytes for auth digest verification
+	timing  ReceiveTiming
+	binding *receiveBinding
 }
 
 type sessionControlKind uint8
@@ -514,11 +514,13 @@ type sessionControlKind uint8
 const (
 	controlPathDown sessionControlKind = iota + 1
 	controlAdminDown
+	controlInterfaceBinding
 )
 
 type sessionControl struct {
 	kind    sessionControlKind
 	receipt chan struct{}
+	binding *interfaceBindingRequest
 }
 
 // -------------------------------------------------------------------------
@@ -561,7 +563,6 @@ func NewSession(
 		peerAddr:              cfg.PeerAddr,
 		localAddr:             cfg.LocalAddr,
 		ifName:                cfg.Interface,
-		ifIndex:               cfg.IfIndex,
 		minTTL:                multiHopMinTTL(cfg),
 		auth:                  cfg.Auth,
 		authKeys:              cfg.AuthKeys,
@@ -583,6 +584,7 @@ func NewSession(
 		),
 	}
 
+	s.receiveBinding.Store(&receiveBinding{ifIndex: cfg.IfIndex})
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -830,11 +832,18 @@ func (s *Session) Type() SessionType { return s.sessionType }
 // DeliveryScopeMismatch or DeliveryTTLRejected. The multihop floor is sampled
 // under mu; the remaining transport identity is immutable.
 func (s *Session) transportOutcome(meta PacketMeta) DeliveryOutcome {
+	return s.transportOutcomeAt(meta, s.receiveBinding.Load())
+}
+
+func (s *Session) transportOutcomeAt(meta PacketMeta, binding *receiveBinding) DeliveryOutcome {
 	if (s.sessionType == SessionTypeMultiHop) != meta.MultiHop {
 		return DeliveryScopeMismatch
 	}
 	switch s.sessionType {
 	case SessionTypeSingleHop:
+		if binding != nil && binding.pending {
+			return DeliveryScopeMismatch
+		}
 		// RFC 5881 Section 5; the 3784 listener pre-filters the same rule.
 		if meta.TTL != singleHopTTL {
 			return DeliveryTTLRejected
@@ -843,7 +852,7 @@ func (s *Session) transportOutcome(meta PacketMeta) DeliveryOutcome {
 		if s.ifName != "" && meta.IfName != "" && meta.IfName != s.ifName {
 			return DeliveryScopeMismatch
 		}
-		if s.ifIndex != 0 && meta.IfIndex != s.ifIndex {
+		if binding != nil && binding.ifIndex != 0 && meta.IfIndex != binding.ifIndex {
 			return DeliveryScopeMismatch
 		}
 	case SessionTypeMultiHop:
@@ -949,15 +958,17 @@ func (s *Session) RecvPacket(pkt *ControlPacket, wire ...[]byte) DeliveryOutcome
 	if len(wire) > 0 {
 		w = wire[0]
 	}
-	return s.recvPacket(pkt, w, ReceiveTiming{})
+	return s.recvPacket(pkt, w, ReceiveTiming{}, s.receiveBinding.Load())
 }
 
-func (s *Session) recvPacket(pkt *ControlPacket, wire []byte, timing ReceiveTiming) DeliveryOutcome {
+func (s *Session) recvPacket(
+	pkt *ControlPacket, wire []byte, timing ReceiveTiming, binding *receiveBinding,
+) DeliveryOutcome {
 	s.mu.Lock()
 	outcome := DeliveryClosed
-	if !s.updateClosed {
+	if !s.updateClosed && s.receiveBinding.Load() == binding && (binding == nil || !binding.pending) {
 		select {
-		case s.recvCh <- recvItem{pkt: *pkt, wire: wire, timing: timing}:
+		case s.recvCh <- recvItem{pkt: *pkt, wire: wire, timing: timing, binding: binding}:
 			outcome = DeliveryQueued
 		default:
 			outcome = DeliveryQueueFull

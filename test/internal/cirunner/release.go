@@ -247,13 +247,17 @@ func ReleaseBenchmarkMetadata(ctx context.Context, options ReleaseMetadataOption
 
 // ReleaseComparisonOptions supplies release-versus-baseline report inputs.
 type ReleaseComparisonOptions struct {
-	Root    string
-	Version string
-	Now     func() time.Time
-	Runner  SpecRunner
+	Root        string
+	RunnerTemp  string
+	Repository  string
+	SHA         string
+	Environment []string
+	Version     string
+	Now         func() time.Time
+	Runner      SpecRunner
 }
 
-// ReleaseBenchmarkComparison writes text, HTML, and structured baseline comparisons when a baseline exists.
+// ReleaseBenchmarkComparison measures a published stable/current pair and retains its reports.
 func ReleaseBenchmarkComparison(ctx context.Context, options ReleaseComparisonOptions) error {
 	root, err := validateAbsoluteExistingDirectory(options.Root, "repository root")
 	if err != nil {
@@ -279,23 +283,22 @@ func ReleaseBenchmarkComparison(ctx context.Context, options ReleaseComparisonOp
 		}
 	}
 	for _, path := range comparisonPaths {
-		if err := resetArtifact(path, "release benchmark comparison"); err != nil {
-			return err
+		if resetErr := resetArtifact(path, "release benchmark comparison"); resetErr != nil {
+			return resetErr
 		}
 	}
-	baseline := filepath.Join(root, "testdata", "benchmarks", "baseline.txt")
-	if _, err := os.Lstat(baseline); errors.Is(err, os.ErrNotExist) {
-		return nil
-	} else if err != nil {
-		return fmt.Errorf("inspect release benchmark baseline: %w", err)
+	options.Root, options.Version = root, version
+	baseline, runner, err := collectReleaseBenchmarkPair(ctx, options)
+	if err != nil {
+		return err
 	}
 	now := time.Now
 	if options.Now != nil {
 		now = options.Now
 	}
 	return BenchmarkReport(ctx, BenchmarkReportOptions{
-		Root: root, Old: "testdata/benchmarks/baseline.txt",
-		New:             "testdata/benchmarks/" + version + "/benchmark.txt",
+		Root: root, Old: "reports/benchmarks/pair-baseline.txt",
+		New:             "reports/benchmarks/pair-current.txt",
 		Text:            "reports/benchmarks/comparison-vs-baseline.txt",
 		Markdown:        "reports/benchmarks/comparison-vs-baseline.md",
 		HTML:            "reports/benchmarks/comparison-vs-baseline.html",
@@ -304,9 +307,9 @@ func ReleaseBenchmarkComparison(ctx context.Context, options ReleaseComparisonOp
 		Notes:           "reports/benchmarks/comparison-vs-baseline-notes.txt",
 		SkipStepSummary: true,
 		ReleaseContext: &BenchmarkReleaseContext{
-			Baseline: "baseline", Version: version, GeneratedAt: now().UTC(),
+			Baseline: baseline, Version: version, GeneratedAt: now().UTC(),
 		},
-		Runner: options.Runner,
+		Runner: runner,
 	})
 }
 

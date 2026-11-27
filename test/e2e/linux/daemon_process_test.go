@@ -43,16 +43,18 @@ type daemonReceipt struct {
 }
 
 type daemonObservation struct {
-	Phase        string              `json:"phase"`
-	Receipt      daemonReceipt       `json:"receipt"`
-	ReceiptCount int                 `json:"receipt_count"`
-	Rejected     int                 `json:"rejected_candidates"`
-	Serving      bool                `json:"serving"`
-	Sessions     map[string]uint32   `json:"sessions"`
-	UDPSockets   []string            `json:"owned_udp_sockets"`
-	Addresses    map[string][]string `json:"interface_addresses"`
-	FDs          int                 `json:"fds"`
-	Threads      int                 `json:"threads"`
+	Phase        string                        `json:"phase"`
+	Receipt      daemonReceipt                 `json:"receipt"`
+	ReceiptCount int                           `json:"receipt_count"`
+	Rejected     int                           `json:"rejected_candidates"`
+	Serving      bool                          `json:"serving"`
+	Sessions     map[string]uint32             `json:"sessions"`
+	Received     map[string]uint64             `json:"received_packets"`
+	States       map[string]bfdv1.SessionState `json:"local_states"`
+	UDPSockets   []string                      `json:"owned_udp_sockets"`
+	Addresses    map[string][]string           `json:"interface_addresses"`
+	FDs          int                           `json:"fds"`
+	Threads      int                           `json:"threads"`
 }
 
 type pendingDaemon struct {
@@ -188,11 +190,15 @@ func (d *pendingDaemon) observe(parent context.Context) (daemonObservation, erro
 		return result, err
 	}
 	result.Sessions = make(map[string]uint32)
+	result.Received = make(map[string]uint64)
+	result.States = make(map[string]bfdv1.SessionState)
 	for _, session := range response.GetSessions() {
 		if session.GetLocalDiscriminator() == 0 {
 			return result, errors.New("zero discriminator")
 		}
 		result.Sessions[session.GetPeerAddress()] = session.GetLocalDiscriminator()
+		result.Received[session.GetPeerAddress()] = session.GetCounters().GetPacketsReceived()
+		result.States[session.GetPeerAddress()] = session.GetLocalState()
 	}
 	if len(result.Sessions) != len(response.GetSessions()) {
 		return result, errors.New("duplicate physical session")

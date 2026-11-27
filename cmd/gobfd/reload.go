@@ -117,7 +117,7 @@ func reconcileSessions(
 		return
 	}
 
-	result := applyBaseSessionCandidates(ctx, candidates, mgr, sf, logger)
+	result := applyBaseSessionCandidates(ctx, candidates, mgr, sf, logger, nil)
 	if err := result.Err(); err != nil {
 		logger.Error("session reconciliation had errors",
 			slog.String("error", err.Error()),
@@ -144,16 +144,29 @@ func applyBaseSessionCandidates(
 	mgr *bfd.Manager,
 	sf declarativeSenderFactory,
 	logger *slog.Logger,
+	listeners *listenerOwner,
 ) bfd.ReconcileResult {
 	desired := baseReconcileConfigs(candidates)
 	for i, candidate := range candidates {
-		desired[i].SenderLeaseFactory = declarativeSenderLeaseFactoryFor(
+		factory := declarativeSenderLeaseFactoryFor(
 			sf,
 			candidate.senderLocal,
 			candidate.multiHop,
 			logger,
 			candidate.senderOpts...,
 		)
+		if listeners != nil {
+			listener := netio.ListenerConfig{
+				Addr: candidate.config.LocalAddr, IfName: candidate.config.Interface,
+				Port: netio.PortSingleHop, MultiHop: candidate.multiHop,
+			}
+			if candidate.multiHop {
+				listener.Port = netio.PortMultiHop
+			}
+			//nolint:contextcheck // The physical session retains RX across configuration withdrawal.
+			factory = receiveSenderLeaseFactory(listeners, listener, factory)
+		}
+		desired[i].SenderLeaseFactory = factory
 	}
 
 	return mgr.ReconcileSessionsForOwnerDetailed(
@@ -335,7 +348,10 @@ func applyEchoSessionCandidates(
 		factory := declarativeSenderLeaseFactoryFor(sf, local, false, logger, opts...)
 		if listeners != nil {
 			//nolint:contextcheck // Receivers are owner-scoped, not bound to one reconciliation pass.
-			factory = echoReceiveSenderLeaseFactory(listeners, candidate.config, factory)
+			factory = receiveSenderLeaseFactory(listeners, netio.ListenerConfig{
+				Addr: candidate.config.LocalAddr, IfName: candidate.config.Interface,
+				Port: netio.PortEcho, ExpectedTTL: netio.TTLEchoLoopback,
+			}, factory)
 		}
 		desired = append(desired, bfd.EchoReconcileConfig{
 			Key: candidate.key, EchoSessionConfig: candidate.config, SenderLeaseFactory: factory,
@@ -346,15 +362,13 @@ func applyEchoSessionCandidates(
 }
 
 // The physical wire retains RX when its original config claim is withdrawn.
-func echoReceiveSenderLeaseFactory(
-	listeners *listenerOwner, cfg bfd.EchoSessionConfig, factory bfd.SenderLeaseFactory,
+func receiveSenderLeaseFactory(
+	listeners *listenerOwner, cfg netio.ListenerConfig, factory bfd.SenderLeaseFactory,
 ) bfd.SenderLeaseFactory {
 	return func() (*bfd.SenderLease, error) {
-		key, err := listeners.claimAPI(netio.ListenerConfig{
-			Addr: cfg.LocalAddr, IfName: cfg.Interface, Port: netio.PortEcho, ExpectedTTL: netio.TTLEchoLoopback,
-		})
+		key, err := listeners.claimAPI(cfg)
 		if err != nil {
-			return nil, fmt.Errorf("claim Echo runtime receive listener: %w", err)
+			return nil, fmt.Errorf("claim runtime receive listener: %w", err)
 		}
 		lease, err := factory()
 		if err != nil {
@@ -365,7 +379,7 @@ func echoReceiveSenderLeaseFactory(
 			closeErr := lease.Close()
 			listeners.releaseAPI(key)
 			if closeErr != nil {
-				return fmt.Errorf("close Echo runtime sender: %w", closeErr)
+				return fmt.Errorf("close runtime sender: %w", closeErr)
 			}
 			return nil
 		}), nil

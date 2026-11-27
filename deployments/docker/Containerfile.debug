@@ -2,36 +2,17 @@ FROM docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dc
 
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download && go mod verify
+RUN ["go", "mod", "download"]
+RUN ["go", "mod", "verify"]
 COPY . .
+ENV CGO_ENABLED=0
+RUN ["go", "build", "-trimpath", "-o", "/out/toolbootstrap", "./test/cmd/toolbootstrap"]
 
 ARG VERSION=dev
 ARG GIT_COMMIT=unknown
 ARG BUILD_DATE=unknown
-RUN CGO_ENABLED=0 go build -trimpath \
-    -ldflags="-s -w \
-      -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
-      -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
-      -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
-    -o /bin/gobfd ./cmd/gobfd
-RUN CGO_ENABLED=0 go build -trimpath \
-    -ldflags="-s -w \
-      -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
-      -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
-      -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
-    -o /bin/gobfdctl ./cmd/gobfdctl
-RUN CGO_ENABLED=0 go build -trimpath \
-    -ldflags="-s -w \
-      -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
-      -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
-      -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
-    -o /bin/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
-RUN CGO_ENABLED=0 go build -trimpath \
-    -ldflags="-s -w \
-      -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
-      -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
-      -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
-    -o /bin/gobfd-exabgp-bridge ./cmd/gobfd-exabgp-bridge
+ENV GOFLAGS="'-ldflags=-s -w -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}'"
+RUN ["go", "build", "-trimpath", "-o", "/bin/", "./cmd/gobfd", "./cmd/gobfdctl", "./cmd/gobfd-haproxy-agent", "./cmd/gobfd-exabgp-bridge"]
 
 FROM docker.io/library/debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0 AS debug
 
@@ -39,19 +20,8 @@ FROM docker.io/library/debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91
 #   tcpdump   - capture BFD packets (UDP 3784/4784)
 #   iproute2  - ip link, ip addr, ip route inspection
 #   dnsutils   - dig/nslookup for DNS debugging
-#   bash      - interactive debugging shell
 #   strace    - system call tracing for socket issues
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        adduser \
-        bash \
-        dnsutils \
-        iproute2 \
-        strace \
-        tcpdump \
-    && addgroup --system gobfd \
-    && adduser --system --ingroup gobfd --shell /usr/sbin/nologin --no-create-home gobfd \
-    && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=bind,from=builder,source=/out/toolbootstrap,target=/bootstrap ["/bootstrap", "image-packages", "debug"]
 
 COPY --from=builder /bin/gobfd /bin/gobfdctl /bin/gobfd-haproxy-agent /bin/gobfd-exabgp-bridge /usr/local/bin/
 

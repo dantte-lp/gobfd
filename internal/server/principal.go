@@ -75,13 +75,6 @@ func transportPrincipalFromContext(ctx context.Context) (transportPrincipal, boo
 	return tlsPrincipal(info.TLS())
 }
 
-// PrincipalFromRequest returns the principal of a plain HTTP request on the
-// management server: the Unix peer UID or the verified mTLS identity.
-func PrincipalFromRequest(r *http.Request) (string, bool) {
-	principal, ok := transportPrincipalFromRequest(r)
-	return principal.display(), ok
-}
-
 func transportPrincipalFromRequest(r *http.Request) (transportPrincipal, bool) {
 	if principal, ok := r.Context().Value(principalKey{}).(transportPrincipal); ok {
 		return principal, true

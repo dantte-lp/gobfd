@@ -72,7 +72,9 @@ func TestCompileBaseSessionCandidatesBindsSingleHopInterface(t *testing.T) {
 			sf := &tupleRecordingSenderFactory{nthFailureDeclarativeSenderFactory: newNthFailureDeclarativeSenderFactory(0)}
 			mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 			t.Cleanup(mgr.Close)
-			result := applyBaseSessionCandidates(context.Background(), candidates, mgr, sf, slog.New(slog.DiscardHandler))
+			result := applyBaseSessionCandidates(
+				context.Background(), candidates, mgr, sf, slog.New(slog.DiscardHandler), nil,
+			)
 			if err := result.Err(); err != nil {
 				t.Fatalf("applyBaseSessionCandidates: %v", err)
 			}
@@ -145,7 +147,9 @@ func TestDaemonReconcileResolvesSingleHopInterface(t *testing.T) {
 			}
 			t.Cleanup(mgr.Close)
 			sf := &tupleRecordingSenderFactory{nthFailureDeclarativeSenderFactory: newNthFailureDeclarativeSenderFactory(0)}
-			err = applyBaseSessionCandidates(context.Background(), candidates, mgr, sf, slog.New(slog.DiscardHandler)).Err()
+			err = applyBaseSessionCandidates(
+				context.Background(), candidates, mgr, sf, slog.New(slog.DiscardHandler), nil,
+			).Err()
 			if !tc.wantErr {
 				if err != nil || len(mgr.Sessions()) != 1 {
 					t.Fatalf("reconcile = %v, sessions %d; want one session", err, len(mgr.Sessions()))

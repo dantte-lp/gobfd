@@ -62,6 +62,14 @@ Disruptive replacement requires separate explicit identity/transition and client
 
 Sources: [replacement](../../../internal/bfd/manager_replace.go), [reconciliation](../../../cmd/gobfd/reconciliation.go), [RFC 5880 §6.8.16](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.16), [RFC 5882 §§3.2, 4.3](https://www.rfc-editor.org/rfc/rfc5882.html#section-3.2).
 
+### Receive resource ownership
+
+Every physical base SingleHop/MultiHop or Echo sender lease holds one claim on its matching receive listener, independently of configuration-source claims. Acquire that claim only when the lazy sender factory runs. Adding a matching owner or repeating desired configuration preserves the same physical sender, source port and receive claim. Removing one owner preserves RX and TX until the last owner releases the physical session. This ownership policy supports the shared-session model in [RFC 5882 §2](https://www.rfc-editor.org/rfc/rfc5882.html#section-2).
+
+On sender acquisition failure, release the prepared receive claim and return any partial sender lease to Manager cleanup. On physical teardown, close the sender before releasing its receive claim. Repeated close retains the error and releases neither resource twice; other source claims remain intact. Sources: [shared receive lease](../../../cmd/gobfd/reload.go), [listener accounting](../../../cmd/gobfd/listeners.go), [base ownership regressions](../../../cmd/gobfd/base_principal_test.go), [Echo ownership regression](../../../cmd/gobfd/echo_principal_test.go). These component regressions do not replace actual-wire qualification.
+
+The [Linux receive-lifetime regression](../../../cmd/gobfd/base_replacement_linux_test.go) uses real IPv4/IPv6 loopback sockets to check both base type directions, failed sender preparation and retry, RX retention through AdminDown drain, new-type RX and repeated Close. It removes source bits to verify physical receive claims independently. Local and peer addresses coincide; this qualifies socket/lease lifecycle, not independent-peer interoperability.
+
 ### Overlay resource ownership
 
 Pure preflight covers a complete VXLAN or Geneve source before backend open/`SetScopes`. Duplicate desired wire identities are invalid. Unequal scopes sharing a live/draining wire identity, including VXLAN local-MAC changes, require separate removal/recreation. An unused never-committed preparation may be superseded.

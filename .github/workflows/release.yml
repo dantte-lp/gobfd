@@ -79,6 +79,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
@@ -105,12 +106,17 @@ jobs:
         run: go run ./test/cmd/cictl release-benchmark-metadata
 
       - name: Compare with baseline
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOTOOLCHAIN: local
         run: go run ./test/cmd/cictl release-benchmark-comparison
 
       - name: Create reports archive
+        if: always()
         run: go run ./test/cmd/cictl release-reports-archive
 
       - name: Upload reports archive
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-reports

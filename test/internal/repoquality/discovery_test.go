@@ -71,7 +71,7 @@ func TestCheckMarkdownTreeFailsClosed(t *testing.T) {
 			t.Fatalf("create symlink: %v", err)
 		}
 		_, err := CheckMarkdownTree(context.Background(), root)
-		if !errors.Is(err, errMarkdownNonRegular) {
+		if !errors.Is(err, errSourceNonRegular) {
 			t.Fatalf("CheckMarkdownTree() error = %v, want non-regular error", err)
 		}
 	})
@@ -82,7 +82,7 @@ func TestCheckMarkdownTreeFailsClosed(t *testing.T) {
 		root := t.TempDir()
 		writeMarkdownFixture(t, root, "large.md", strings.Repeat("x", maxMarkdownBytes+1))
 		_, err := CheckMarkdownTree(context.Background(), root)
-		if !errors.Is(err, errMarkdownTooLarge) {
+		if !errors.Is(err, errSourceTooLarge) {
 			t.Fatalf("CheckMarkdownTree() error = %v, want size error", err)
 		}
 	})

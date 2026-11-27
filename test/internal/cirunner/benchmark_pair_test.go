@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -66,6 +67,160 @@ func TestBenchmarkPairCollectsTenSamplesWithBalancedOrder(t *testing.T) {
 	}
 	if len(runner.calls) != 23 || !slices.Contains(runner.calls[22].args, "remove") {
 		t.Fatalf("base worktree was not created once and cleaned after twenty samples: %#v", runner.calls)
+	}
+}
+
+func TestBenchmarkPairBoundsAndCancelsEverySample(t *testing.T) {
+	t.Parallel()
+	parent, cancel := context.WithTimeout(t.Context(), 10*time.Minute)
+	defer cancel()
+	var samples []context.Context
+	runner := benchmarkGateRunnerFunc(func(ctx context.Context, spec CommandSpec) error {
+		if len(samples) > 0 && !errors.Is(samples[len(samples)-1].Err(), context.Canceled) {
+			t.Error("previous sample context was not canceled before the next command")
+		}
+		if spec.Name != "go" {
+			return nil
+		}
+		deadline, bounded := ctx.Deadline()
+		if !bounded || time.Until(deadline) > 120*time.Second || ctx.Err() != nil {
+			t.Errorf("sample context lacks its own active 120-second bound: deadline=%v bounded=%t", deadline, bounded)
+		}
+		samples = append(samples, ctx)
+		if _, err := io.WriteString(spec.Stdout, requiredBenchmarkFixture); err != nil {
+			t.Fatal(err)
+		}
+		return nil
+	})
+	if err := BenchmarkPair(parent, BenchmarkBaseOptions{
+		Root: t.TempDir(), RunnerTemp: t.TempDir(), Ref: "origin/main", Output: "old.txt",
+		Regex: ".", Runner: runner,
+	}, "new.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 20 {
+		t.Fatalf("bounded sample contexts = %d, want 20", len(samples))
+	}
+	for index, sample := range samples {
+		if !errors.Is(sample.Err(), context.Canceled) {
+			t.Errorf("sample %d context was not canceled after command completion", index)
+		}
+	}
+	if parent.Err() != nil {
+		t.Fatalf("sample cancellation canceled the parent: %v", parent.Err())
+	}
+}
+
+func TestBenchmarkPairDeadlineStopsSamplesAndCleansUp(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		var samples int
+		var cleaned bool
+		runner := benchmarkGateRunnerFunc(func(ctx context.Context, spec CommandSpec) error {
+			if spec.Name == "go" {
+				samples++
+				<-ctx.Done()
+				return ctx.Err()
+			}
+			if slices.Contains(spec.Args, "remove") {
+				deadline, bounded := ctx.Deadline()
+				if ctx.Err() != nil || !bounded || !deadline.After(time.Now()) ||
+					time.Until(deadline) > 30*time.Second {
+					t.Error("expired sample did not receive live bounded cleanup context")
+				}
+				cleaned = true
+			}
+			return nil
+		})
+		err := BenchmarkPair(t.Context(), BenchmarkBaseOptions{
+			Root: t.TempDir(), RunnerTemp: t.TempDir(), Ref: "origin/main", Output: "old.txt",
+			Regex: ".", Runner: runner,
+		}, "new.txt")
+		if !errors.Is(err, context.DeadlineExceeded) || samples != 1 || !cleaned {
+			t.Fatalf("expired sample = %v, attempts=%d cleanup=%t; want DeadlineExceeded, 1, true", err, samples, cleaned)
+		}
+	})
+}
+
+func TestReleaseBenchmarkPairRejectsWrongFrozenSource(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, ref, frozen string
+		cleanup           bool
+	}{
+		{name: "malformed", ref: "invalid", frozen: "invalid"},
+		{name: "different_ref", ref: strings.Repeat("b", 40), frozen: strings.Repeat("a", 40)},
+		{name: "wrong_checkout", ref: strings.Repeat("a", 40), frozen: strings.Repeat("a", 40), cleanup: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runner := &recordingSpecRunner{afterRun: func(spec CommandSpec) {
+				if spec.Name == "go" {
+					t.Error("unverified frozen source executed a benchmark")
+				}
+				if spec.Stdout != nil {
+					if _, err := io.WriteString(spec.Stdout, strings.Repeat("b", 40)+"\n"); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}}
+			if err := collectBenchmarkBase(t.Context(), BenchmarkBaseOptions{
+				Root: t.TempDir(), RunnerTemp: t.TempDir(), Ref: tc.ref,
+				Output: "old.txt", Regex: ".", Runner: runner,
+			}, "new.txt", tc.frozen); err == nil {
+				t.Fatal("invalid frozen source was accepted")
+			}
+			if tc.cleanup {
+				if len(runner.calls) != 3 || !slices.Contains(runner.calls[2].args, "remove") {
+					t.Fatalf("unverified worktree was not cleaned: %+v", runner.calls)
+				}
+			} else if len(runner.calls) != 0 {
+				t.Fatalf("invalid frozen ref executed commands: %+v", runner.calls)
+			}
+		})
+	}
+}
+
+func TestReleaseBenchmarkPairRejectsDriftAfterCollection(t *testing.T) {
+	t.Parallel()
+	frozen := strings.Repeat("a", 40)
+	var samples, checks int
+	runner := &recordingSpecRunner{afterRun: func(spec CommandSpec) {
+		var output string
+		switch {
+		case spec.Name == "git" && slices.Contains(spec.Args, "show"):
+			output = receiveSourceFixture
+		case spec.Name == "git" && slices.Contains(spec.Args, "add"):
+			receiveFixtureGitCommand(t, spec)
+		case spec.Name == "go" && slices.Contains(spec.Args, "-race"):
+			assertReceiveOverlay(t, spec)
+			output = receiveRaceFixture
+		case spec.Name == "go":
+			assertReceiveOverlay(t, spec)
+			samples++
+			output = requiredBenchmarkFixture
+		case spec.Name == "git" && slices.Contains(spec.Args, "HEAD^{commit}"):
+			checks++
+			output = frozen + "\n"
+			if samples == 20 {
+				output = strings.Repeat("b", 40) + "\n"
+			}
+		}
+		if spec.Stdout != nil {
+			if _, err := io.WriteString(spec.Stdout, output); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}}
+	err := collectBenchmarkBase(t.Context(), BenchmarkBaseOptions{
+		Root: t.TempDir(), RunnerTemp: t.TempDir(), Ref: frozen,
+		Output: "old.txt", Regex: ".", Runner: runner,
+	}, "new.txt", frozen)
+	if !errors.Is(err, errInvalidConfig) || samples != 20 || checks != 2 {
+		t.Fatalf("post-collection source drift accepted: samples=%d checks=%d error=%v", samples, checks, err)
+	}
+	if len(runner.calls) != 28 || !slices.Contains(runner.calls[27].args, "remove") {
+		t.Fatalf("source drift did not clean its worktree: %+v", runner.calls)
 	}
 }
 

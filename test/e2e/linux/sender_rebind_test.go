@@ -39,12 +39,26 @@ func testSenderRecreation(t *testing.T, peer netip.Addr, family string, deny boo
 	nl := newRouteSocket(t)
 	defer nl.close(t)
 	defer nl.deleteLinkByName(rebindLinkA)
+	destination := peer
+	if peer.Is6() && !peer.IsLinkLocalUnicast() {
+		// Exercise the peer end rather than IPv6 delivery to the sender's own address.
+		destination = peer.Next()
+	}
 
 	createPair := func() int {
 		t.Helper()
 		index := createAddressedVeth(t, nl)
 		if peer.Is6() {
 			if addrErr := nl.addIPAddress(index, peer.WithZone(""), 64); addrErr != nil {
+				t.Fatal(addrErr)
+			}
+		}
+		if destination != peer {
+			remote, resolveErr := net.InterfaceByName(rebindLinkB)
+			if resolveErr != nil {
+				t.Fatal(resolveErr)
+			}
+			if addrErr := nl.addIPAddress(remote.Index, destination, 64); addrErr != nil {
 				t.Fatal(addrErr)
 			}
 		}
@@ -64,6 +78,9 @@ func testSenderRecreation(t *testing.T, peer netip.Addr, family string, deny boo
 	openReceiver := func(index int, port uint16) *net.UDPConn {
 		t.Helper()
 		listenAddr := localAt(index)
+		if destination != peer {
+			listenAddr = destination
+		}
 		if peer.Zone() != "" {
 			// An unscoped receiver must not refresh the sender's stale Go zone cache.
 			listenAddr = netip.IPv6Unspecified()
@@ -100,7 +117,7 @@ func testSenderRecreation(t *testing.T, peer netip.Addr, family string, deny boo
 	checkPacket := func(phase string) {
 		t.Helper()
 		payload := []byte(phase)
-		if sendErr := sender.SendPacket(t.Context(), payload, peer); sendErr != nil {
+		if sendErr := sender.SendPacket(t.Context(), payload, destination); sendErr != nil {
 			t.Fatalf("%s send: %v", phase, sendErr)
 		}
 		if deadlineErr := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); deadlineErr != nil {
@@ -133,7 +150,7 @@ func testSenderRecreation(t *testing.T, peer netip.Addr, family string, deny boo
 	for range 2 {
 		closeReceiver()
 		nl.deleteLinkByName(rebindLinkA)
-		if absentErr := sender.SendPacket(t.Context(), []byte("absent"), peer); absentErr == nil {
+		if absentErr := sender.SendPacket(t.Context(), []byte("absent"), destination); absentErr == nil {
 			t.Fatal("sender succeeded with its device absent")
 		}
 		index := createPair()
@@ -144,7 +161,7 @@ func testSenderRecreation(t *testing.T, peer netip.Addr, family string, deny boo
 		conn = openReceiver(index, port)
 		if deny {
 			withoutNetRaw(t, func() {
-				if sendErr := sender.SendPacket(t.Context(), []byte("denied"), peer); !errors.Is(sendErr, unix.EPERM) {
+				if sendErr := sender.SendPacket(t.Context(), []byte("denied"), destination); !errors.Is(sendErr, unix.EPERM) {
 					t.Errorf("rebind without CAP_NET_RAW = %v, want EPERM", sendErr)
 				}
 			})
@@ -176,6 +193,7 @@ func testSenderRecreation(t *testing.T, peer netip.Addr, family string, deny boo
 	writeJSONArtifact(t, "sender-rebind-"+family+".json", map[string]any{
 		"if_indexes": indexes, "source_port": sender.SrcPort(), "received_packets": received,
 		"packet_loop_allocations": packetAllocs,
+		"source_address":          peer.String(), "destination_address": destination.String(),
 	})
 }
 

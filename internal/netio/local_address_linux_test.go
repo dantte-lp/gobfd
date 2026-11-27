@@ -3,6 +3,7 @@
 package netio
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"net"
@@ -14,6 +15,16 @@ import (
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 )
+
+func TestLocalAddressAvailabilityHonorsCanceledContext(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	pending, err := CheckLocalAddressesAvailableContext(ctx, []LocalAddress{{Addr: netip.MustParseAddr("127.0.0.1")}})
+	if pending != 0 || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled availability: pending=%d error=%v", pending, err)
+	}
+}
 
 func TestLocalAddressInventoryRejectsUnusableAddresses(t *testing.T) {
 	t.Parallel()

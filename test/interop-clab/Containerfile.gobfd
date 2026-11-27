@@ -5,13 +5,13 @@ ARG BUILD_DATE
 ENV GOTOOLCHAIN=local GOMAXPROCS=2 GOMEMLIMIT=1500MiB GOFLAGS=-p=1
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download && go mod verify
+RUN ["go", "mod", "download"]
+RUN ["go", "mod", "verify"]
 COPY . .
-
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${VCS_REF} -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
-    -o /bin/gobfd ./cmd/gobfd
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${VCS_REF} -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
-    -o /bin/gobfdctl ./cmd/gobfdctl
+ENV CGO_ENABLED=0
+RUN ["go", "build", "-trimpath", "-o", "/out/toolbootstrap", "./test/cmd/toolbootstrap"]
+ENV GOFLAGS="-p=1 '-ldflags=-s -w -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${VCS_REF} -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}'"
+RUN ["go", "build", "-trimpath", "-o", "/bin/", "./cmd/gobfd", "./cmd/gobfdctl"]
 
 # GoBGP v4.11.0 from the same immutable source pin as test/interop/gobgp;
 # the topology contract test keeps both pins identical.
@@ -40,9 +40,7 @@ LABEL org.opencontainers.image.source="https://github.com/dantte-lp/gobfd" \
       org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
       org.opencontainers.image.base.digest="sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0"
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends bash ethtool iproute2 tcpdump \
-    && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=bind,from=builder,source=/out/toolbootstrap,target=/bootstrap ["/bootstrap", "image-packages", "containerlab"]
 
 COPY --from=builder /bin/gobfd /bin/gobfdctl /bin/
 COPY --from=gobgp /out/gobgpd /out/gobgp /usr/local/bin/

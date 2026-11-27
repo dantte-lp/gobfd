@@ -18,6 +18,8 @@ const (
 	benchmarkInputLimit   = 64 << 20
 	benchmarkRefLimit     = 1024
 	benchmarkRegexLimit   = 16 << 10
+	goTestSubcommand      = "test"
+	singleTestRunFlag     = "-count=1"
 )
 
 // BenchmarkRunOptions configures one head benchmark run.
@@ -63,29 +65,24 @@ func BenchmarkBase(ctx context.Context, options BenchmarkBaseOptions) error {
 }
 
 func benchmarkBase(ctx context.Context, options BenchmarkBaseOptions, headOutput string) error {
-	root, rootErr := validateAbsoluteExistingDirectory(options.Root, "repository root")
-	if rootErr != nil {
-		return rootErr
-	}
-	runnerTemp, runnerTempErr := validateAbsoluteExistingDirectory(options.RunnerTemp, "RUNNER_TEMP")
-	if runnerTempErr != nil {
-		return runnerTempErr
-	}
-	if err := validateBenchmarkRef(options.Ref); err != nil {
+	return collectBenchmarkBase(ctx, options, headOutput, "")
+}
+
+func collectBenchmarkBase(ctx context.Context, options BenchmarkBaseOptions, headOutput, frozenCommit string) error {
+	if err := validateBenchmarkFrozenRef(options.Ref, frozenCommit); err != nil {
 		return err
 	}
-	if err := validateBenchmarkRegex(options.Regex); err != nil {
+	options, err := validateBenchmarkBaseOptions(options)
+	if err != nil {
 		return err
 	}
-	if options.Runner == nil {
-		return fmt.Errorf("benchmark command runner is required: %w", errInvalidConfig)
-	}
+	root := options.Root
 	output, headPath, outputErr := prepareBenchmarkCollectionOutputs(root, options.Output, headOutput)
 	if outputErr != nil {
 		return outputErr
 	}
 
-	worktree := filepath.Join(runnerTemp, "gobfd-benchmark-base")
+	worktree := filepath.Join(options.RunnerTemp, "gobfd-benchmark-base")
 	if _, statErr := os.Lstat(worktree); !errors.Is(statErr, os.ErrNotExist) {
 		if statErr != nil {
 			return fmt.Errorf("inspect benchmark worktree %s: %w", worktree, statErr)
@@ -93,11 +90,13 @@ func benchmarkBase(ctx context.Context, options BenchmarkBaseOptions, headOutput
 		return fmt.Errorf("benchmark worktree already exists at %s: %w", worktree, errInvalidConfig)
 	}
 	gitPrefix := []string{"-c", "safe.directory=" + root}
-	if err := options.Runner.RunCommand(ctx, CommandSpec{
-		Name: "git", Dir: root,
-		Args: append(append([]string(nil), gitPrefix...), "check-ref-format", "--branch", options.Ref),
-	}); err != nil {
-		return fmt.Errorf("validate benchmark base ref: %w", err)
+	if frozenCommit == "" {
+		if err := options.Runner.RunCommand(ctx, CommandSpec{
+			Name: "git", Dir: root,
+			Args: append(append([]string(nil), gitPrefix...), "check-ref-format", "--branch", options.Ref),
+		}); err != nil {
+			return fmt.Errorf("validate benchmark base ref: %w", err)
+		}
 	}
 	addErr := options.Runner.RunCommand(ctx, CommandSpec{
 		Name: "git", Dir: root,
@@ -112,13 +111,47 @@ func benchmarkBase(ctx context.Context, options BenchmarkBaseOptions, headOutput
 	}
 
 	options.Root = root
-	runErr := runBenchmarkCollection(ctx, options, worktree, output, headPath)
+	var runErr error
+	if frozenCommit == "" {
+		runErr = runBenchmarkCollection(ctx, options, worktree, output, headPath)
+	} else {
+		runErr = runFrozenBenchmarkCollection(ctx, options, worktree, output, headPath, frozenCommit)
+	}
 	cleanupErr := removeBenchmarkWorktree(ctx, root, worktree, gitPrefix, options.Runner)
-	if runErr != nil || cleanupErr != nil {
-		return errors.Join(
-			wrapOptional("run base benchmarks", runErr),
-			wrapOptional("remove benchmark base worktree", cleanupErr),
-		)
+	return errors.Join(
+		wrapOptional("run base benchmarks", runErr),
+		wrapOptional("remove benchmark base worktree", cleanupErr),
+	)
+}
+
+func validateBenchmarkBaseOptions(options BenchmarkBaseOptions) (BenchmarkBaseOptions, error) {
+	var err error
+	options.Root, err = validateAbsoluteExistingDirectory(options.Root, "repository root")
+	if err != nil {
+		return options, err
+	}
+	options.RunnerTemp, err = validateAbsoluteExistingDirectory(options.RunnerTemp, "RUNNER_TEMP")
+	if err != nil {
+		return options, err
+	}
+	if err := validateBenchmarkRegex(options.Regex); err != nil {
+		return options, err
+	}
+	if options.Runner == nil {
+		return options, fmt.Errorf("benchmark command runner is required: %w", errInvalidConfig)
+	}
+	return options, nil
+}
+
+func validateBenchmarkFrozenRef(ref, frozenCommit string) error {
+	if frozenCommit == "" {
+		return validateBenchmarkRef(ref)
+	}
+	if _, err := validateFullCommitSHA(frozenCommit, "frozen release benchmark commit"); err != nil {
+		return err
+	}
+	if ref != frozenCommit {
+		return fmt.Errorf("release benchmark ref differs from frozen commit: %w", errInvalidConfig)
 	}
 	return nil
 }

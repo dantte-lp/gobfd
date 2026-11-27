@@ -441,8 +441,8 @@ func ensurePodman(ctx context.Context) error {
 		return nil
 	}
 	for _, arguments := range [][]string{
-		{"apt-get", "-o", "Acquire::Retries=3", "update"},
-		{"apt-get", "-o", "Acquire::Retries=3", "install", "-y", "--no-install-recommends", "podman"},
+		{aptGetCommand, "-o", "Acquire::Retries=3", "update"},
+		{aptGetCommand, "-o", "Acquire::Retries=3", "install", "-y", "--no-install-recommends", "podman"},
 	} {
 		if err := runStreaming(ctx, "sudo", arguments, nil); err != nil {
 			return fmt.Errorf("install Podman runtime: %w", err)

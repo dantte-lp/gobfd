@@ -7,7 +7,7 @@ Micro-benchmarks measure one named operation. They do not establish packet throu
 ## Collect a snapshot
 
 1. Prepare the [pinned development environment](09-development.md).
-2. Select the baseline revision. Choose unused snapshot identifiers and preserve previous raw samples. Require identical benchmark bodies, compiler, architecture, resource limits and environment for both revisions.
+2. Select the baseline revision. Choose unused snapshot identifiers and preserve previous raw samples. Require identical benchmark bodies, compiler, architecture, resource limits and environment for both revisions. For cross-release API adaptation, source comparison must establish that the timed body still performs the same operations and identify untimed setup changes, as described below.
 3. Collect a fresh baseline:
 
 ```sh
@@ -43,6 +43,16 @@ Repeating `benchmark-save` with the same identifier overwrites its named sample 
 
 CI `cictl benchmark-pair --old old.txt --new new.txt` uses ten alternating base/head and head/base pairs. Each Go invocation produces one 100 ms non-race sample; every package/name needs exactly ten valid records per side. Invalid/empty/incomplete output fails before reporting. A single detached base worktree has bounded cancellation-safe cleanup. BENCH_REGEX, GITHUB_BASE_REF and RUNNER_TEMP retain their source contracts in [automation](reference/automation.md).
 
+Release comparison uses the same ten-pair collector for the previous published stable's verified frozen commit and current release source on one runner/compiler. Each invocation retains inclusive `-bench=.` selection and its 120-second timeout. Raw pairs, normalized copies and tag/commit/compiler/hash provenance remain under `reports/benchmarks`; six-run snapshots and their count-six metadata remain separate. Historical Manager1000 fixtures can create over 1000 owner threads: admit their actual resources separately; these microbenchmarks do not establish supported daemon scale.
+
+Before release timing collection, [the producer](../../test/internal/cirunner/release_benchmark.go) runs the ManagerDemux1000Sessions and RecvDecodeLookupEnqueue fixtures with the race detector, 100000 iterations each, first at the baseline and then at the candidate. The historical FullRecvPath alias is accepted. A failed command, malformed record or missing fixture stops collection. Both bounded stdout/stderr logs remain in `reports/benchmarks/pair-{baseline,current}-race.txt`; successful comparison provenance includes their SHA256 hashes. Race timings never enter the non-race comparison. Passing this bounded preflight does not prove the absence of every race.
+
+Release collection applies the explicit `decode-packet-per-iteration-v1` test-fixture contract to both sources through [Go's file overlay](https://github.com/golang/go/blob/go1.27.4/src/cmd/go/alldocs.go). Decode storage belongs to each loop iteration: the historical asynchronous queue retains its packet pointer. The producer verifies each original `bench_test.go` against its committed Git blob, moves only the packet declaration inside the recognized decode benchmark loop and passes the same overlay to race and timed commands. Unknown fixture shapes fail before execution. Product files, tags, ManagerDemux1000Sessions and comparison thresholds remain unchanged.
+
+Retain `pair-{baseline,current}-fixture-{original,owned}.go.txt` and `pair-fixture-provenance.json` with all four SHA256 hashes. Recheck those hashes before comparison and include the fixture contract in `comparison-provenance.json`; drift fails without publishing a comparison. The temporary overlay map is removed on success or failure. This creates a new ownership-safe series; retain the original race failure separately. Do not reinterpret the original timings as valid. Per-iteration allocation in a pointer-retaining baseline is part of its safe cost. Queue-full attempt cost, outcome fractions and useful packet throughput are separate measurements.
+
+Require equivalent timed operation boundaries across release sources. For v0.6.4 comparison, RecvDecodeFSM and TxMarshalJitter retain their timed bodies; RecvDecodeLookupEnqueue and ManagerDemux1000Sessions discard the additional Demux return value while retaining one production invocation. Sender-lease factory adaptation occurs before timing; ManagerLookup1000Sessions changes only that untimed setup. Netio benchmark bodies are unchanged. Product costs remain measured. New or unmatched rows and changed authentication setup do not acquire equivalence from matching names alone. This controlled microbenchmark comparison is separate from native workload A/B and stable acceptance.
+
 Six-run Make/release snapshots and standalone benchmark-run/base remain non-interleaved diagnostics. Keep the fixed sampling budget; do not repeat until a preferred statistical result appears.
 
 ## Interpret one result
@@ -54,6 +64,8 @@ BenchmarkControlPacketMarshal-8    195605820    5.869 ns/op    0 B/op    0 alloc
 This retained historical format shows GOMAXPROCS 8, adaptive iteration count, time/op and heap allocation/op. The number is not a current performance promise. [Go testing](https://pkg.go.dev/testing#hdr-Benchmarks) defines the measurement interface. Construction B/op is not retained RSS; zero allocs/op applies only inside the benchmark boundary. Profiling and race tests are separate workloads.
 
 ## Operation boundaries
+
+`ManagerDemux1000Sessions` and `RecvDecodeLookupEnqueue` report queued, queue-full, closed, committed and abandoned outcomes per attempted operation. Counters are sampled after timing stops and Manager shutdown joins the owners. The benchmark requires every attempt to reach admission and every queued item to reach an owner outcome. Shutdown abandonment is included; these fractions do not measure owner latency or sustained throughput. Compare the outcome mix alongside time/op: a faster owner can change the fraction of costly enqueues versus queue-full refusals. Subtracting lookup time from Demux time does not isolate channel-send cost.
 
 | Family | Included work | Excluded work |
 |:---|:---|:---|

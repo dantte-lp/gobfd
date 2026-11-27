@@ -12,6 +12,7 @@ import (
 
 type adminDrainSender struct {
 	attempts, successful chan time.Time
+	packets              chan []byte
 	fail                 bool
 }
 
@@ -25,6 +26,9 @@ func (s *adminDrainSender) SendPacket(_ context.Context, buf []byte, _ netip.Add
 		return errors.New("injected AdminDown write failure")
 	}
 	s.successful <- time.Now()
+	if s.packets != nil {
+		s.packets <- append([]byte(nil), buf...)
+	}
 	return nil
 }
 

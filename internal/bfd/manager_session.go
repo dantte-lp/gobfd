@@ -89,6 +89,9 @@ func (m *Manager) claimSession(
 	if err = ctx.Err(); err != nil {
 		return nil, false, lease, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
 	}
+	if err = m.verifySessionInterface(cfg); err != nil {
+		return nil, false, lease, err
+	}
 
 	discr, sess, err := m.allocateAndBuild(cfg, lease.Sender())
 	if err != nil {
@@ -112,14 +115,8 @@ func (m *Manager) claimSession(
 	return registered, false, lease, nil
 }
 
-// resolveSessionIfIndex binds a new single-hop session to its receive
-// interface once, at creation (RFC 5881 Section 3).
-//
-// Known limitations: a recreated interface gets a new index and needs the
-// session recreated. The resolver runs under ownershipMu, so one interface
-// inventory read (net.Interfaces plus per-interface addresses) serializes
-// with other ownership changes; this bounds creation throughput, not packet
-// delivery, and a cached inventory is the upgrade if creation bursts matter.
+// resolveSessionIfIndex resolves the initial receive interface (RFC 5881 Section 3).
+// RefreshInterfaceBindings restores retained sessions after interface recreation.
 func (m *Manager) resolveSessionIfIndex(cfg SessionConfig) (SessionConfig, error) {
 	if cfg.Type != SessionTypeSingleHop || cfg.IfIndex != 0 || m.resolveIfIndex == nil {
 		return cfg, nil
@@ -131,6 +128,18 @@ func (m *Manager) resolveSessionIfIndex(cfg SessionConfig) (SessionConfig, error
 	}
 	cfg.IfIndex = ifIndex
 	return cfg, nil
+}
+
+func (m *Manager) verifySessionInterface(cfg SessionConfig) error {
+	if cfg.Type != SessionTypeSingleHop || cfg.IfIndex == 0 || m.resolveIfIndex == nil {
+		return nil
+	}
+	index, err := m.resolveIfIndex(cfg.LocalAddr, cfg.Interface)
+	if err != nil || index != cfg.IfIndex {
+		return fmt.Errorf("verify receive interface after sender acquisition: %w",
+			errors.Join(ErrInterfaceUnresolved, err))
+	}
+	return nil
 }
 
 func acquireSenderLease(factory SenderLeaseFactory) (*SenderLease, error) {
@@ -250,6 +259,10 @@ func (m *Manager) registerAndStart(
 	if err := ctx.Err(); err != nil {
 		m.mu.Unlock()
 		return nil, false, fmt.Errorf("register session: %w", err)
+	}
+	if owner.Source == SessionOwnerSourceUnsolicited && !m.unsolicitedIngressCurrent(cfg.Interface, cfg.IfIndex) {
+		m.mu.Unlock()
+		return nil, false, fmt.Errorf("register unsolicited receive interface: %w", ErrInterfaceUnresolved)
 	}
 	if _, retiring := m.retiringSessions[key]; retiring {
 		m.mu.Unlock()
@@ -581,10 +594,11 @@ func (m *Manager) Demux(pkt *ControlPacket, meta PacketMeta) (DeliveryOutcome, e
 		return DeliveryUnknownSession, fmt.Errorf("demux: peer %s -> %s (iface=%s): %w",
 			meta.SrcAddr, meta.DstAddr, meta.IfName, ErrDemuxNoMatch)
 	}
-	if outcome, err := m.checkSessionTransport(sess, meta); err != nil {
+	outcome, binding, err := m.checkSessionTransport(sess, meta)
+	if err != nil {
 		return outcome, err
 	}
-	return admitControlPacket(sess, pkt, nil, meta.ReceiveTiming)
+	return admitControlPacket(sess, pkt, nil, meta.ReceiveTiming, binding)
 }
 
 // DemuxWithWire returns Queued only for admission, never owner commit. A
@@ -605,15 +619,16 @@ func (m *Manager) demuxByDiscr(pkt *ControlPacket, meta PacketMeta, wire []byte)
 		return DeliveryUnknownSession, fmt.Errorf("demux: your discriminator %d not found: %w",
 			pkt.YourDiscriminator, ErrDemuxNoMatch)
 	}
-	if packetTransportScope(entry.key.TransportScope) != packetTransportScope(meta.TransportScope) {
+	if entry.demuxKey.transportScope != packetTransportScope(meta.TransportScope) {
 		m.RecordDelivery(DeliveryDemux, DeliveryScopeMismatch)
 		return DeliveryScopeMismatch, fmt.Errorf("demux: discriminator %d transport scope mismatch: %w",
 			pkt.YourDiscriminator, ErrDemuxNoMatch)
 	}
-	if outcome, err := m.checkSessionTransport(entry.session, meta); err != nil {
+	outcome, binding, err := m.checkSessionTransport(entry.session, meta)
+	if err != nil {
 		return outcome, err
 	}
-	return admitControlPacket(entry.session, pkt, wire, meta.ReceiveTiming)
+	return admitControlPacket(entry.session, pkt, wire, meta.ReceiveTiming, binding)
 }
 
 func (m *Manager) demuxByPeer(pkt *ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
@@ -621,17 +636,20 @@ func (m *Manager) demuxByPeer(pkt *ControlPacket, meta PacketMeta, wire []byte) 
 	sess, ok := m.LookupByPeer(key)
 	// A configured address listener can have no interface binding.
 	if !ok && m.unsolicited != nil && meta.IfName == "" && !meta.MultiHop {
-		meta.IfName = m.unsolicited.interfaceNames[meta.IfIndex]
+		if names := m.unsolicited.interfaceNames.Load(); names != nil {
+			meta.IfName = (*names)[meta.IfIndex]
+		}
 		if meta.IfName != "" {
 			key.ifName = meta.IfName
 			sess, ok = m.LookupByPeer(key)
 		}
 	}
 	if ok {
-		if outcome, err := m.checkSessionTransport(sess, meta); err != nil {
+		outcome, binding, err := m.checkSessionTransport(sess, meta)
+		if err != nil {
 			return outcome, err
 		}
-		return admitControlPacket(sess, pkt, wire, meta.ReceiveTiming)
+		return admitControlPacket(sess, pkt, wire, meta.ReceiveTiming, binding)
 	}
 	m.RecordDelivery(DeliveryDemux, DeliveryUnknownSession)
 	if m.unsolicited != nil {
@@ -646,23 +664,26 @@ func (m *Manager) demuxByPeer(pkt *ControlPacket, meta PacketMeta, wire []byte) 
 // a single-hop session and vice versa (RFC 5881 Section 5); a single-hop
 // session accepts only its bound interface (RFC 5881 Section 3); a multihop
 // session applies its hop policy per session (RFC 5082 Section 3).
-func (m *Manager) checkSessionTransport(sess *Session, meta PacketMeta) (DeliveryOutcome, error) {
-	outcome := sess.transportOutcome(meta)
+func (m *Manager) checkSessionTransport(sess *Session, meta PacketMeta) (DeliveryOutcome, *receiveBinding, error) {
+	binding := sess.receiveBinding.Load()
+	outcome := sess.transportOutcomeAt(meta, binding)
 	m.RecordDelivery(DeliveryDemux, outcome)
 	if outcome == DeliveryScopeMismatch {
-		return outcome, fmt.Errorf("demux: session %d transport class or interface mismatch "+
+		return outcome, binding, fmt.Errorf("demux: session %d transport class or interface mismatch "+
 			"(multihop=%t iface=%s ifindex=%d): %w",
 			sess.LocalDiscriminator(), meta.MultiHop, meta.IfName, meta.IfIndex, ErrDemuxNoMatch)
 	}
 	if outcome == DeliveryTTLRejected {
-		return outcome, fmt.Errorf("demux: session %d TTL %d outside its hop policy: %w",
+		return outcome, binding, fmt.Errorf("demux: session %d TTL %d outside its hop policy: %w",
 			sess.LocalDiscriminator(), meta.TTL, ErrDemuxTTLRejected)
 	}
-	return outcome, nil
+	return outcome, binding, nil
 }
 
-func admitControlPacket(sess *Session, pkt *ControlPacket, wire []byte, timing ReceiveTiming) (DeliveryOutcome, error) {
-	outcome := sess.recvPacket(pkt, wire, timing)
+func admitControlPacket(
+	sess *Session, pkt *ControlPacket, wire []byte, timing ReceiveTiming, binding *receiveBinding,
+) (DeliveryOutcome, error) {
+	outcome := sess.recvPacket(pkt, wire, timing, binding)
 	switch outcome {
 	case DeliveryQueued:
 		return outcome, nil
@@ -708,10 +729,12 @@ func (m *Manager) tryCreateUnsolicited(pkt *ControlPacket, meta PacketMeta, wire
 		return DeliveryCreateFailed, fmt.Errorf("unsolicited: create session for peer %s: %w", meta.SrcAddr, err)
 	}
 	m.markSessionUnsolicited(sess.LocalDiscriminator())
-	m.RecordDelivery(DeliveryUnsolicitedAdmission, DeliveryAccepted)
-	outcome, admissionErr := m.activateUnsolicitedSession(sess, pkt, meta, wire)
+	outcome, retired, admissionErr := m.activateUnsolicitedClaim(sess, pkt, meta, wire)
 	m.ownershipMu.Unlock()
 	op.unlockMutation()
+	if retired != nil {
+		admissionErr = errors.Join(admissionErr, m.finishSessionDestroyError(retired.localDiscr, retired.entry))
+	}
 	if closeErr := closeSenderLeaseError(unusedLease); closeErr != nil {
 		return outcome, errors.Join(admissionErr,
 			fmt.Errorf("unsolicited: close unused sender for peer %s: %w", meta.SrcAddr, closeErr))
@@ -764,13 +787,36 @@ func (m *Manager) activateUnsolicitedSession(
 	meta PacketMeta,
 	wire []byte,
 ) (DeliveryOutcome, error) {
+	binding := sess.receiveBinding.Load()
+	m.mu.RLock()
+	if !m.unsolicitedIngressCurrent(meta.IfName, meta.IfIndex) ||
+		sess.transportOutcomeAt(meta, binding) != DeliveryFound {
+		m.mu.RUnlock()
+		m.RecordDelivery(DeliveryUnsolicitedAdmission, DeliveryScopeMismatch)
+		return DeliveryScopeMismatch, fmt.Errorf("activate unsolicited receive interface: %w", ErrInterfaceUnresolved)
+	}
+	outcome, err := admitControlPacket(sess, pkt, wire, meta.ReceiveTiming, binding)
+	m.mu.RUnlock()
 	m.logger.Info("unsolicited session created (RFC 9468)",
 		slog.String("peer", meta.SrcAddr.String()),
 		slog.String("local", meta.DstAddr.String()),
 		slog.String("interface", meta.IfName),
 		slog.Uint64("local_discr", uint64(sess.LocalDiscriminator())),
 	)
-	return admitControlPacket(sess, pkt, wire, meta.ReceiveTiming)
+	return outcome, err
+}
+
+// Caller holds ownershipMu; discard only this admission's claim on rejection.
+func (m *Manager) activateUnsolicitedClaim(
+	sess *Session, pkt *ControlPacket, meta PacketMeta, wire []byte,
+) (DeliveryOutcome, *retiredSession, error) {
+	outcome, err := m.activateUnsolicitedSession(sess, pkt, meta, wire)
+	if outcome == DeliveryScopeMismatch || outcome == DeliveryClosed {
+		_, retired, detachErr := m.detachSessionClaimByDiscriminator(sess.LocalDiscriminator(), unsolicitedSessionOwner())
+		return outcome, retired, errors.Join(err, detachErr)
+	}
+	m.RecordDelivery(DeliveryUnsolicitedAdmission, DeliveryAccepted)
+	return outcome, nil, err
 }
 
 func (m *Manager) markSessionUnsolicited(localDiscr uint32) {

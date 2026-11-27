@@ -310,6 +310,7 @@ func startInterfaceMonitor(
 	coordinator *reconciliationCoordinator,
 	logger *slog.Logger,
 ) {
+	coordinator.watchSessionBindings(ctx, mgr)
 	applySource := coordinator.withListeners(func(
 		ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate,
 	) sourceApplyResult {

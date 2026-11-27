@@ -15,10 +15,9 @@ WORKDIR /src
 COPY go.mod go.sum ./
 COPY test/cmd/toolbootstrap ./test/cmd/toolbootstrap
 COPY test/internal/toolbootstrap ./test/internal/toolbootstrap
-RUN go build -trimpath -o /out/toolbootstrap ./test/cmd/toolbootstrap \
-    && /out/toolbootstrap compose \
-        --install-dir /out/provider \
-        --version "${DOCKER_COMPOSE_VERSION}"
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOENV=off GOWORK=off
+RUN ["go", "build", "-trimpath", "-mod=readonly", "-buildvcs=false", "-o", "/out/toolbootstrap", "./test/cmd/toolbootstrap"]
+RUN ["/out/toolbootstrap", "compose", "--install-dir", "/out/provider"]
 
 FROM go-toolchain AS dev
 
@@ -28,8 +27,14 @@ ARG PROTOC_GEN_CONNECT_GO_VERSION
 ARG BENCHSTAT_VERSION
 ARG GOTESTSUM_VERSION
 ARG DOCKER_COMPOSE_VERSION
+ARG GOPROXY=off
 
-ENV GOFLAGS="-buildvcs=false" \
+ENV GOPROXY=${GOPROXY} GOSUMDB=sum.golang.org \
+    GOTOOLCHAIN=local GOENV=off GOWORK=off \
+    BUF_VERSION=${BUF_VERSION} PROTOC_GEN_GO_VERSION=${PROTOC_GEN_GO_VERSION} \
+    PROTOC_GEN_CONNECT_GO_VERSION=${PROTOC_GEN_CONNECT_GO_VERSION} \
+    BENCHSTAT_VERSION=${BENCHSTAT_VERSION} GOTESTSUM_VERSION=${GOTESTSUM_VERSION} \
+    GOFLAGS="-buildvcs=false" \
     GOCACHE=/tmp/go-cache \
     GOMODCACHE=/go/pkg/mod \
 	PODMAN_COMPOSE_PROVIDER=/usr/local/bin/docker-compose \
@@ -41,21 +46,8 @@ ENV GOFLAGS="-buildvcs=false" \
 # Build tools and certificates
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    rm -f /etc/apt/apt.conf.d/docker-clean \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-        git \
-        ca-certificates \
-        tzdata \
-        make \
-        gcc \
-        libc6-dev \
-        bash \
-        curl \
-        jq \
-        podman \
-        gnupg \
-    && rm -rf /var/lib/apt/lists/*
+    --mount=type=bind,from=compose-provider,source=/out/toolbootstrap,target=/bootstrap \
+    ["/bootstrap", "image-packages", "dev"]
 
 # Docker Compose v5 Go provider for `podman compose`.
 COPY --from=compose-provider /out/provider/docker-compose /usr/local/bin/docker-compose
@@ -64,41 +56,28 @@ COPY --from=compose-provider /out/provider/docker-compose /usr/local/bin/docker-
 ENV GOBIN=/go/bin
 ENV PATH=/go/bin:${PATH}
 
-# buf CLI — protobuf toolchain
-RUN go install github.com/bufbuild/buf/cmd/buf@${BUF_VERSION}
-
-# protoc-gen-go — Go protobuf code generator
-RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@${PROTOC_GEN_GO_VERSION}
-
-# protoc-gen-connect-go — ConnectRPC code generator
-RUN go install connectrpc.com/connect/v2/cmd/protoc-gen-connect-go@${PROTOC_GEN_CONNECT_GO_VERSION}
+# Build-argument versions remain explicit inputs to the fixed Go tool profiles.
+RUN --mount=type=bind,from=compose-provider,source=/out/toolbootstrap,target=/bootstrap ["/bootstrap", "dev-tools"]
 
 # golangci-lint v2 — build through the isolated tools module so its analyzer
 # closure cannot change the GoBFD runtime module's Minimal Version Selection.
 WORKDIR /tmp/gobfd-tools
 COPY tools/go.mod tools/go.sum ./
-RUN go mod download \
-    && go build -o /go/bin/golangci-lint \
-        github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+RUN ["go", "mod", "download"]
+RUN ["go", "build", "-o", "/go/bin/golangci-lint", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint"]
 
 # gopls keeps its upstream-compatible x/tools API in a separate patched graph.
 WORKDIR /tmp/gobfd-gopls
 COPY tools/gopls/go.mod tools/gopls/go.sum ./
-RUN go mod download \
-    && go build -o /go/bin/gopls golang.org/x/tools/gopls
+RUN ["go", "mod", "download"]
+RUN ["go", "build", "-o", "/go/bin/gopls", "golang.org/x/tools/gopls"]
 
 WORKDIR /tmp/gobfd-tools
 # Scanner builds inherit the shared tool module's security constraints.
-RUN go build -o /go/bin/govulncheck golang.org/x/vuln/cmd/govulncheck
+RUN ["go", "build", "-o", "/go/bin/govulncheck", "golang.org/x/vuln/cmd/govulncheck"]
 
 # osv-scanner — Google OSV vulnerability scanner (github.com/google/osv-scanner)
-RUN go build -o /go/bin/osv-scanner github.com/google/osv-scanner/v2/cmd/osv-scanner
-
-# benchstat — statistical comparison of Go benchmarks
-RUN go install golang.org/x/perf/cmd/benchstat@${BENCHSTAT_VERSION}
-
-# gotestsum — Go test runner with JUnit XML / JSON output
-RUN go install gotest.tools/gotestsum@${GOTESTSUM_VERSION}
+RUN ["go", "build", "-o", "/go/bin/osv-scanner", "github.com/google/osv-scanner/v2/cmd/osv-scanner"]
 
 # Module cache warm-up happens on first `go mod download`
 WORKDIR /app

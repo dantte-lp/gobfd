@@ -38,6 +38,8 @@ The alpha path shares stable artifact and identity checks. `release-pr-check` va
 
 Functional or security failures in the advertised alpha scope block publication. Require exact-candidate builds, critical protocol/authentication/reload/management regressions, a fresh dependency-security disposition, package lifecycle checks and complete verified draft evidence. Record remaining limitations in both changelogs and the release body; acceptance of this policy is not a passing result.
 
+Keep product identity separate from test-fixture identity in release performance comparisons. The explicit `decode-packet-per-iteration-v1` Go overlay gives each decoded packet its own lifetime on both the published baseline and candidate. Verify original files against committed blobs, retain original and corrected bytes with hashes, run race preflight before timing and reject fixture drift before reporting. This correction addresses a historical pointer-retention race in the benchmark; it does not alter product source, validate earlier unsafe timings, change critical thresholds or waive measured regressions. [The benchmark contract](../12-benchmarks.md#paired-ci-comparison) fixes the retained artifacts and limits.
+
 ## Alternatives
 
 Retaining a stable-only path prevents an experimental release while final qualification continues. Making Release Please create the release as well as GoReleaser creates competing tag/draft ownership. Publishing alpha through stable alias promotion changes the stable delivery channel. The separate PR-only proposal and verified prerelease publication avoid those conflicts.

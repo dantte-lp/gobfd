@@ -8,11 +8,15 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/dantte-lp/gobfd/test/internal/benchreport"
 )
 
-const benchmarkPairCount = 10
+const (
+	benchmarkPairCount   = 10
+	benchmarkSampleLimit = 120 * time.Second
+)
 
 // BenchmarkPair collects ten base/head samples with alternating first-run order.
 func BenchmarkPair(ctx context.Context, options BenchmarkBaseOptions, headOutput string) error {
@@ -117,16 +121,19 @@ func runInterleavedSamples(
 			if err != nil {
 				return fmt.Errorf("inspect benchmark output before sample: %w", err)
 			}
-			if runErr := options.Runner.RunCommand(ctx, CommandSpec{
+			sampleCtx, cancelSample := context.WithTimeout(ctx, benchmarkSampleLimit)
+			runErr := options.Runner.RunCommand(sampleCtx, CommandSpec{
 				Name: "go", Dir: target.dir,
 				WaitDelay: benchmarkCleanupLimit,
 				// Keep stdout behind io.Writer so os/exec must copy through the budget check.
 				Stdout: benchmarkOutputWriter{file: target.output},
 				Args: []string{
-					"test", buildVCSDisabledFlag, "-bench=" + options.Regex, "-benchmem", "-count=1",
+					goTestSubcommand, buildVCSDisabledFlag, "-bench=" + options.Regex, "-benchmem", singleTestRunFlag,
 					"-benchtime=100ms", "-run=^$", "-timeout=120s", "./internal/bfd/", "./internal/netio/",
 				},
-			}); runErr != nil {
+			})
+			cancelSample()
+			if runErr != nil {
 				return fmt.Errorf("execute benchmark sample in %s: %w", target.dir, runErr)
 			}
 			after, err := target.output.Stat()
@@ -161,6 +168,10 @@ func (w benchmarkOutputWriter) Write(data []byte) (int, error) {
 }
 
 func validateBenchmarkPairSamples(path string) error {
+	return validateBenchmarkSamples(path, benchmarkPairCount)
+}
+
+func validateBenchmarkSamples(path string, want int) error {
 	data, err := readRegularFile(path, "paired benchmark output")
 	if err != nil {
 		return err
@@ -191,8 +202,8 @@ func validateBenchmarkPairSamples(path string) error {
 	}
 	for _, name := range slices.Sorted(maps.Keys(counts)) {
 		count := counts[name]
-		if count != benchmarkPairCount {
-			return fmt.Errorf("benchmark %s has %d samples, want %d: %w", name, count, benchmarkPairCount, errInvalidConfig)
+		if count != want {
+			return fmt.Errorf("benchmark %s has %d samples, want %d: %w", name, count, want, errInvalidConfig)
 		}
 	}
 	return nil

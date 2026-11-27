@@ -292,6 +292,9 @@ func TestReleaseWorkflowTestAndReportStepsUseGoOwners(t *testing.T) {
 			if got := strings.Count(step, "\n        run:"); got != 1 {
 				t.Errorf("release step %q has %d run programs, want exactly one", test.step, got)
 			}
+			if test.step == "Create reports archive" && !strings.Contains(step, "if: always()") {
+				t.Error("release report archive must retain failed comparison evidence")
+			}
 			for _, marker := range []string{
 				"run: |", "run: >", "shell: bash", "mkdir ", " tee ", " cat ", " cp ", "tar -",
 				"VERSION=", "GIT_COMMIT=", "BUILD_DATE=", "go build", "go test", "benchstat",
@@ -304,10 +307,26 @@ func TestReleaseWorkflowTestAndReportStepsUseGoOwners(t *testing.T) {
 	}
 
 	reportsUpload := namedWorkflowStep(t, workflow, "Upload reports archive")
-	for _, marker := range []string{"name: release-reports", "path: gobfd-*-reports.tar.gz", "retention-days: 90"} {
+	for _, marker := range []string{
+		"if: always()", "name: release-reports", "path: gobfd-*-reports.tar.gz", "retention-days: 90",
+	} {
 		if !strings.Contains(reportsUpload, marker) {
 			t.Errorf("release reports upload lacks %q", marker)
 		}
+	}
+	comparison := namedWorkflowStep(t, workflow, "Compare with baseline")
+	for _, marker := range []string{"GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}", "GOTOOLCHAIN: local"} {
+		if !strings.Contains(comparison, marker) {
+			t.Errorf("release benchmark comparison lacks %q", marker)
+		}
+	}
+	_, reports, found := strings.Cut(workflow, "\n  reports:\n")
+	if !found {
+		t.Fatal("release reports job is missing")
+	}
+	checkout, _, found := strings.Cut(reports, "      - name: Set up Go\n")
+	if !found || !strings.Contains(checkout, "persist-credentials: false") {
+		t.Fatal("historical benchmark checkout retains GitHub credentials")
 	}
 }
 

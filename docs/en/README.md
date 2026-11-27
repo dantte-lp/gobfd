@@ -47,5 +47,6 @@ contract. Use pages from the deployed binary's commit: `dev`, `master` and
 
 Historical material: [external audit reconciliation](gist-audit-reconciliation.md),
 [independent audit dated 2026-10-23](audits/2026-10-23-independent-retrospective.md),
-[release retrospective](audits/2026-10-26-release-retrospective.md),
+[release retrospective dated 2026-10-26](audits/2026-10-26-release-retrospective.md),
+[release retrospective dated 2026-11-27](audits/2026-11-27-release-retrospective.md),
 [release changelog](../../CHANGELOG.md), [verbatim RFC texts](../rfc/).

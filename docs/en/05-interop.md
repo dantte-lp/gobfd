@@ -109,6 +109,8 @@ The 172.21.0.0/24 topology pairs GoBFD/GoBGP with FRR native BFD+BGP, BIRD3 nati
 
 Retain established BFD/BGP, route presence, failure withdrawal and restored route/BGP observations separately. Shared namespaces align BFD and BGP source addresses. Current dev uses the GoBGP v4 API; the supported v0.6 line retains v3 and cannot use the v4 endpoint contract.
 
+Query route observations with `gobgp global rib -j`. Command failure does not establish route absence or withdrawal. The [shared parser](../../test/internal/interopcheck/gobgp_rib.go) validates the complete snapshot before returning exact canonical-prefix membership: at most 1 MiB, one JSON object, unique names, nonempty destination path arrays and a boolean `best` field per path. `best:false` still indicates a present path. Empty `{}` establishes absence; `null`, malformed or partial output is an error. Unknown path attributes remain compatible. The [pinned CLI](https://github.com/osrg/gobgp/blob/da824d99912e02124b53741245ee4186c381adcc/cmd/gobgp/neighbor.go#L993-L1037) returns query errors and serializes an empty map successfully; [destination serialization](https://github.com/osrg/gobgp/blob/da824d99912e02124b53741245ee4186c381adcc/pkg/apiutil/util.go#L159-L164) emits path arrays. These legacy CLI probes retain their default IPv4 scope; IPv6 parser fixtures do not qualify an IPv6 query or installed FIB state.
+
 ## RFC scenarios
 
 The 172.22.0.0/24 topology contains an interval-alignment FRR peer, GoBFD/GoBGP BGP path, unsolicited FRR peer and independent Echo reflector.

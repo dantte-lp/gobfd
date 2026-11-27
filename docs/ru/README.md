@@ -49,5 +49,6 @@
 
 Исторические материалы: [сверка внешнего аудита](gist-audit-reconciliation.md),
 [независимый аудит от 2026-10-23](audits/2026-10-23-independent-retrospective.md),
-[ретроспектива выпуска](audits/2026-10-26-release-retrospective.md),
+[ретроспектива выпуска от 2026-10-26](audits/2026-10-26-release-retrospective.md),
+[ретроспектива выпуска от 2026-11-27](audits/2026-11-27-release-retrospective.md),
 [журнал релизов](../../CHANGELOG.ru.md), [исходные тексты RFC](../rfc/).

@@ -85,6 +85,13 @@ func testDaemonPending(t *testing.T, local netip.Addr) {
 			s.Receipt.Applied == missing.Receipt.Desired && !s.Receipt.Stale
 	})
 	assertDaemonIdentities(t, initial, applied)
+	claimDaemonBinding(t, d, pending, applied.Sessions[pending.Next().String()])
+	shared := d.await(t, "shared-api-claim", 2, true, nil)
+	assertDaemonIdentities(t, applied, shared)
+	if !slices.Equal(applied.UDPSockets, shared.UDPSockets) {
+		t.Fatal("repeated API claims replaced or duplicated UDP sockets")
+	}
+	beforeRecreation := probeDaemonRetainedBinding(t, nl, d, pending, "before-recreation", 0)
 	prefix := uint8(24)
 	if pending.Is6() {
 		prefix = 64
@@ -152,6 +159,51 @@ func testDaemonPending(t *testing.T, local netip.Addr) {
 	if !slices.Equal(applied.UDPSockets, recovered.UDPSockets) {
 		t.Fatal("recreation replaced or duplicated UDP sockets")
 	}
+	afterRecreation := probeDaemonRetainedBinding(t, nl, d, pending, "after-recreation", beforeRecreation.Received)
+	if afterRecreation.SourcePort != beforeRecreation.SourcePort {
+		t.Fatal("recreation changed the daemon UDP source port")
+	}
+
+	d.reload(t, "/metrics", local)
+	apiOnly := d.await(t, "api-only-config-withdrawn", 2, true, func(s daemonObservation) bool {
+		return s.Receipt.Desired == applied.Receipt.Desired+1 && s.Receipt.Applied == s.Receipt.Desired
+	})
+	assertDaemonIdentities(t, applied, apiOnly)
+	if !slices.Equal(applied.UDPSockets, apiOnly.UDPSockets) {
+		t.Fatal("config withdrawal closed or replaced an API-owned UDP socket")
+	}
+	apiBefore := probeDaemonRetainedBinding(t, nl, d, pending, "api-only-before-recreation", afterRecreation.Received)
+	nl.deleteLinkByName(pendingLink)
+	apiGone := d.await(t, "api-only-interface-disappeared", 2, false, nil)
+	assertDaemonIdentities(t, applied, apiGone)
+	apiIndex := create(pendingLink, "gobfdq1")
+	if apiIndex == recreated {
+		t.Fatal("API-only recreated interface retained its old index")
+	}
+	assign(apiIndex, pending)
+	apiRecovered := d.await(t, "api-only-interface-recreated", 2, true, func(s daemonObservation) bool {
+		return s.Receipt == apiOnly.Receipt
+	})
+	assertDaemonIdentities(t, applied, apiRecovered)
+	if !slices.Equal(applied.UDPSockets, apiRecovered.UDPSockets) {
+		t.Fatal("API-only recreation replaced or duplicated UDP sockets")
+	}
+	apiAfter := probeDaemonRetainedBinding(t, nl, d, pending, "api-only-after-recreation", apiBefore.Received)
+	if apiBefore.SourcePort != beforeRecreation.SourcePort || apiAfter.SourcePort != beforeRecreation.SourcePort {
+		t.Fatal("API-only recovery changed the daemon UDP source port")
+	}
+	d.reload(t, "/metrics", local, pending)
+	restored := d.await(t, "shared-config-restored", 2, true, func(s daemonObservation) bool {
+		return s.Receipt.Desired == apiOnly.Receipt.Desired+1 && s.Receipt.Applied == s.Receipt.Desired
+	})
+	releaseDaemonBinding(t, d, applied.Sessions[pending.Next().String()])
+	configOnly := d.await(t, "config-only-api-released", 2, true, nil)
+	assertDaemonIdentities(t, applied, configOnly)
+	if !slices.Equal(applied.UDPSockets, configOnly.UDPSockets) {
+		t.Fatal("API release closed or replaced a config-owned UDP socket")
+	}
+	probeDaemonRetainedBinding(t, nl, d, pending, "config-only-api-released", apiAfter.Received)
+	applied, recovered, recreated = restored, configOnly, apiIndex
 
 	d.reload(t, "/rejected-startup-change", local, pending)
 	rejected := d.await(t, "invalid-candidate", 2, true, func(s daemonObservation) bool {

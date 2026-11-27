@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/dantte-lp/gobfd/test/internal/frrjson"
+	"github.com/dantte-lp/gobfd/test/internal/interopcheck"
 )
 
 // =========================================================================
@@ -126,12 +127,11 @@ func gobgpNeighborState(ctx context.Context, peerIP string) (string, error) {
 
 // gobgpRouteExists checks if a prefix exists in the GoBGP global RIB.
 func gobgpRouteExists(ctx context.Context, prefix string) (bool, error) {
-	output, err := gobgpCmd(ctx, "global", "rib")
+	output, err := gobgpCmd(ctx, "global", "rib", "-j")
 	if err != nil {
-		// If no routes exist, gobgp returns an error; treat as empty RIB.
-		return false, nil //nolint:nilerr // empty RIB is not an error
+		return false, fmt.Errorf("query GoBGP global RIB: %w", err)
 	}
-	return strings.Contains(output, prefix), nil
+	return interopcheck.GoBGPRouteExists([]byte(output), prefix)
 }
 
 // =========================================================================

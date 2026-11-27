@@ -17,6 +17,7 @@ func TestValidateGoRecordRejectsInvalidMetricsAndNonRecords(t *testing.T) {
 		valid bool
 	}{
 		{line: "BenchmarkExample-2 1 10 ns/op 0 B/op 0 allocs/op", valid: true},
+		{line: "BenchmarkExample-2 1 10 ns/op 0.25 committed/op 0.75 queue-full/op", valid: true},
 		{line: "BenchmarkExample-2 0 10 ns/op"},
 		{line: "BenchmarkExample-2 1 NaN ns/op"},
 		{line: "garbage 1 10 ns/op"},

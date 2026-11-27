@@ -260,6 +260,15 @@ func (l *Listener) RebindDevice() error {
 	return conn.rebindDevice()
 }
 
+// RebindDeviceTo requires the same positive ifindex observed by the owner.
+func (l *Listener) RebindDeviceTo(index int) error {
+	conn, ok := l.conn.(interface{ rebindDeviceTo(index int) error })
+	if !ok {
+		return ErrRebindUnsupported
+	}
+	return conn.rebindDeviceTo(index)
+}
+
 // Close closes the underlying PacketConn.
 func (l *Listener) Close() error {
 	if err := l.conn.Close(); err != nil {
