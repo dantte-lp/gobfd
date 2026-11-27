@@ -3,6 +3,8 @@ package integrationrunner
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,13 +20,29 @@ import (
 	"github.com/dantte-lp/gobfd/test/internal/interopproject"
 )
 
-func TestHAProxyOwnedLifecycle(t *testing.T) {
-	for _, mode := range []string{
-		"healthy", "partial up", "existing project", "foreign backend", "foreign cleanup", "wrong provider",
+func TestIntegrationOwnedLifecycle(t *testing.T) {
+	for _, test := range []struct{ scenario, mode string }{
+		{"haproxy", "healthy"},
+		{"haproxy", "partial up"},
+		{"haproxy", "existing project"},
+		{"haproxy", "foreign backend"},
+		{"haproxy", "foreign cleanup"},
+		{"haproxy", "wrong provider"},
+		{"observability", "healthy"},
+		{"observability", "partial up"},
+		{"observability", "existing project"},
+		{"observability", "foreign cleanup"},
 	} {
-		t.Run(mode, func(t *testing.T) {
+		t.Run(test.scenario+"/"+test.mode, func(t *testing.T) {
+			mode := test.mode
 			directory := t.TempDir()
-			const project = "gobfd-haproxy-health"
+			if err := os.Chmod(directory, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			project := "gobfd-haproxy-health"
+			if test.scenario == "observability" {
+				project = "gobfd-observability"
+			}
 			const monitor = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 			const sidecar = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 			const network = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
@@ -47,21 +65,26 @@ func TestHAProxyOwnedLifecycle(t *testing.T) {
 				"GOBFD_HAP_STATE": state, "GOBFD_HAP_NETWORK_STATE": networkState, "GOBFD_HAP_TRACE": trace,
 				"GOBFD_HAP_MONITOR": monitor, "GOBFD_HAP_SIDECAR": sidecar, "GOBFD_HAP_NETWORK": network,
 				"GOBFD_HAP_CAPTURE":       capture,
+				"GORACE":                  "atexit_sleep_ms=0",
 				"PODMAN_COMPOSE_PROVIDER": "fixture-compose-provider", "DOCKER_BUILDKIT": "1",
 			} {
 				t.Setenv(key, value)
 			}
 			previous := http.DefaultTransport
 			http.DefaultTransport = haproxyRoundTrip(func(request *http.Request) (*http.Response, error) {
+				body := "nginx"
+				if test.scenario == "observability" {
+					body = `{"status":"success","data":{"activeTargets":[{"health":"up"}]}}`
+				}
 				return &http.Response{
-					StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("nginx")),
+					StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)),
 					Header: make(http.Header), Request: request,
 				}, nil
 			})
 			t.Cleanup(func() { http.DefaultTransport = previous })
 			synctest.Test(t, func(t *testing.T) {
 				var stdout, stderr bytes.Buffer
-				err := Run(t.Context(), directory, []string{"haproxy"}, &stdout, &stderr)
+				err := Run(t.Context(), directory, []string{test.scenario}, &stdout, &stderr)
 				if (err != nil) != (mode != "healthy") {
 					t.Errorf("owned lifecycle error=%v for %s", err, mode)
 				}
@@ -98,6 +121,29 @@ func TestHAProxyOwnedLifecycle(t *testing.T) {
 					networkRemaining, networkErr := os.ReadFile(networkState)
 					if networkErr != nil || strings.TrimSpace(string(networkRemaining)) != "" {
 						t.Errorf("owned network cleanup error=%v, remaining=%q", networkErr, networkRemaining)
+					}
+				}
+				imagePath := trace + ".image.json"
+				_, imageErr := os.Stat(imagePath)
+				if mode == "foreign cleanup" {
+					if imageErr != nil {
+						t.Errorf("foreign cleanup lost retained image state: %v", imageErr)
+					}
+				} else if !errors.Is(imageErr, os.ErrNotExist) {
+					t.Errorf("owned image not cleaned: %v", imageErr)
+				}
+				if test.scenario == "observability" && mode != "existing project" {
+					captures, err := filepath.Glob(filepath.Join(directory, "reports/e2e/observability-compose/run.*/bfd.pcapng"))
+					if err != nil || len(captures) != 1 {
+						t.Fatalf("retained capture files=%v error=%v", captures, err)
+					}
+					data, err := os.ReadFile(captures[0])
+					if err != nil || string(data) != "retained capture fixture" {
+						t.Fatalf("capture was lost during cleanup: %q %v", data, err)
+					}
+					if strings.Contains(string(commands), "--volumes") ||
+						strings.Contains(string(commands), "stop frr-observability") {
+						t.Errorf("observability used unowned lifecycle commands: %s", commands)
 					}
 				}
 			})
@@ -235,6 +281,23 @@ func TestHAProxyRequiredChecksAndRecovery(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
+	if root := os.Getenv("GOBFD_K8S_NAMESPACE_FIXTURE"); root != "" && filepath.Base(os.Args[0]) == "kubectl" {
+		code, handled := runKubernetesNamespaceFixture(root, os.Args[1:])
+		if !handled {
+			os.Exit(125)
+		}
+		os.Exit(code)
+	}
+	if os.Getenv("GOBFD_K8S_PROBE_FIXTURE") != "" && filepath.Base(os.Args[0]) == "kubectl" {
+		os.Exit(runKubernetesProbeFixture())
+	}
+	if os.Getenv("GOBFD_K8S_BUILD_FIXTURE") != "" &&
+		(filepath.Base(os.Args[0]) == "podman" || filepath.Base(os.Args[0]) == "kubectl") {
+		os.Exit(runKubernetesBuildFixture())
+	}
+	if os.Getenv("GOBFD_K8S_IMPORT_FIXTURE") != "" && filepath.Base(os.Args[0]) == "podman" {
+		os.Exit(runKubernetesImportFixture())
+	}
 	if filepath.Base(os.Args[0]) == "podman" {
 		if os.Getenv("GOBFD_HAP_TRACE") != "" {
 			os.Exit(runHAProxyOwnedPodmanFixture())
@@ -289,11 +352,11 @@ func haproxyFixtureArgument(arguments []string, index int) string {
 
 func haproxyFixtureID(name, prefix string) string {
 	switch name {
-	case "gobfd-monitor":
+	case "gobfd-monitor", "gobfd-observability":
 		return os.Getenv(prefix + "MONITOR")
-	case "backend1-bfd":
+	case "backend1-bfd", "frr-observability":
 		return os.Getenv(prefix + "SIDECAR")
-	case "tshark-haproxy":
+	case "tshark-haproxy", "tshark-observability":
 		return os.Getenv(prefix + "CAPTURE")
 	default:
 		return ""
@@ -327,6 +390,10 @@ func runHAProxyOwnedPodmanFixture() int {
 
 func (f haproxyOwnedFixture) run() int {
 	switch haproxyFixtureArgument(f.arguments, 0) {
+	case "info":
+		return writeHAProxyFixtureOutput(`{"hostname":"fake-haproxy","graph_root":"/fake/storage","run_root":"/fake/run"}`)
+	case "image":
+		return f.imageCommand()
 	case "ps":
 		return writeHAProxyFixtureOutput(f.containerList())
 	case "network":
@@ -347,7 +414,7 @@ func (f haproxyOwnedFixture) run() int {
 		return f.remove()
 	case "exec":
 		return f.exec()
-	case "pause", "unpause":
+	case "pause", "unpause", "stop", "start":
 		if haproxyFixtureArgument(f.arguments, 1) == os.Getenv("GOBFD_HAP_SIDECAR") {
 			return 0
 		}
@@ -440,14 +507,42 @@ func (f haproxyOwnedFixture) compose() int {
 		haproxyFixtureArgument(f.arguments, 3) != "-f" {
 		return 65
 	}
-	switch haproxyFixtureArgument(f.arguments, 5) {
+	if len(f.arguments) < 5 {
+		return 65
+	}
+	action := f.arguments[5:]
+	overrideValidated := false
+	if len(action) >= 2 && action[0] == "-f" {
+		data, err := os.ReadFile(action[1])
+		if err != nil {
+			return 65
+		}
+		var state struct {
+			Services map[string]struct {
+				Image      string `json:"image"`
+				PullPolicy string `json:"pull_policy"`
+			} `json:"services"`
+		}
+		if json.Unmarshal(data, &state) != nil || len(state.Services) != 1 {
+			return 65
+		}
+		image, err := readHAProxyFixtureImage()
+		if err != nil || state.Services["monitor"].Image != image.ID || state.Services["monitor"].PullPolicy != "never" {
+			return 65
+		}
+		action = action[2:]
+		overrideValidated = true
+	}
+	switch haproxyFixtureArgument(action, 0) {
 	case "config":
 		return writeHAProxyFixtureOutput(fmt.Sprintf(
 			"{\"services\":{\"monitor\":{\"build\":{\"context\":%q,\"dockerfile\":\"Containerfile\"}}}}\n",
 			os.Getenv("GOBFD_HAP_ROOT"),
 		))
 	case "up":
-		if haproxyFixtureArgument(f.arguments, 6) != "-d" || haproxyFixtureArgument(f.arguments, 7) != "--no-build" {
+		if !overrideValidated ||
+			haproxyFixtureArgument(action, 1) != "-d" ||
+			haproxyFixtureArgument(action, 2) != "--no-build" {
 			return 65
 		}
 		if code := writeHAProxyFixtureState("GOBFD_HAP_STATE", "abd\n"); code != 0 {
@@ -455,6 +550,16 @@ func (f haproxyOwnedFixture) compose() int {
 		}
 		if code := writeHAProxyFixtureState("GOBFD_HAP_NETWORK_STATE", "1\n"); code != 0 {
 			return code
+		}
+		if os.Getenv("GOBFD_HAP_PROJECT") == "gobfd-observability" {
+			captureDir := os.Getenv("GOBFD_OBSERVABILITY_CAPTURE_DIR")
+			info, err := os.Lstat(captureDir)
+			if err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
+				return 72
+			}
+			if os.WriteFile(filepath.Join(captureDir, "bfd.pcapng"), []byte("retained capture fixture"), 0o600) != nil {
+				return 72
+			}
 		}
 		if os.Getenv("GOBFD_HAP_MODE") == "partial up" {
 			return 27
@@ -474,13 +579,88 @@ func (f haproxyOwnedFixture) build() int {
 		{" --cpu-period 100000 --cpu-quota 200000 ", 66},
 		{" --memory 2g --memory-swap 2g --jobs 1 ", 66},
 		{" --build-arg GIT_COMMIT=" + strings.Repeat("a", 40) + " ", 67},
-		{" --label io.gobfd.image=gobfd-haproxy-health-monitor ", 68},
 	} {
 		if !strings.Contains(joined, check.value) {
 			return check.code
 		}
 	}
+	labels := make(map[string]string)
+	alias := ""
+	for index := 0; index+1 < len(f.arguments); index++ {
+		switch f.arguments[index] {
+		case "--tag":
+			alias = f.arguments[index+1]
+		case "--label":
+			key, value, ok := strings.Cut(f.arguments[index+1], "=")
+			if !ok {
+				return 68
+			}
+			labels[key] = value
+		}
+	}
+	if !strings.HasPrefix(alias, "localhost/gobfd-interop-"+os.Getenv("GOBFD_HAP_PROJECT")+"-monitor:") ||
+		labels["io.gobfd.image"] != alias || labels["io.gobfd.run"] == "" || labels["io.gobfd.test"] != "interop-compose" {
+		return 68
+	}
+	image := haproxyFixtureImage{ID: fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(alias))), Labels: labels}
+	data, err := json.Marshal(image)
+	if err != nil || os.WriteFile(os.Getenv("GOBFD_HAP_TRACE")+".image.json", data, 0o600) != nil {
+		return 125
+	}
 	return 0
+}
+
+type haproxyFixtureImage struct {
+	ID     string            `json:"id"`
+	Labels map[string]string `json:"labels"`
+}
+
+func readHAProxyFixtureImage() (haproxyFixtureImage, error) {
+	data, err := os.ReadFile(os.Getenv("GOBFD_HAP_TRACE") + ".image.json")
+	if err != nil {
+		return haproxyFixtureImage{}, err
+	}
+	var image haproxyFixtureImage
+	if err := json.Unmarshal(data, &image); err != nil {
+		return haproxyFixtureImage{}, err
+	}
+	return image, nil
+}
+
+func (f haproxyOwnedFixture) imageCommand() int {
+	if haproxyFixtureArgument(f.arguments, 1) == "ls" {
+		return 0
+	}
+	image, err := readHAProxyFixtureImage()
+	if errors.Is(err, os.ErrNotExist) {
+		return 1
+	}
+	if err != nil {
+		return 125
+	}
+	reference := haproxyFixtureArgument(f.arguments, len(f.arguments)-1)
+	if reference != image.ID && reference != image.Labels["io.gobfd.image"] {
+		return 1
+	}
+	switch haproxyFixtureArgument(f.arguments, 1) {
+	case "exists":
+		return 0
+	case "inspect":
+		if encErr := json.NewEncoder(os.Stdout).Encode(image); encErr != nil {
+			return 125
+		}
+		return 0
+	case "rm":
+		if reference != image.ID || haproxyFixtureArgument(f.arguments, 2) != "--no-prune" {
+			return 65
+		}
+		if os.Remove(os.Getenv("GOBFD_HAP_TRACE")+".image.json") != nil {
+			return 125
+		}
+		return 0
+	default:
+		return 65
+	}
 }
 
 func (f haproxyOwnedFixture) remove() int {

@@ -1,0 +1,11 @@
+services:
+  gobfd:
+    build:
+      context: ../../..
+      dockerfile: deployments/docker/Containerfile
+    network_mode: none
+  gobgp:
+    build:
+      context: ../../../test/interop/gobgp
+      dockerfile: Containerfile
+    network_mode: none
