@@ -9,11 +9,16 @@
 ## Исходная база
 
 База интеграции релизной линии:
-[`6f0efd108c7a66f291818063e2c447c676ef0dd8`](https://github.com/dantte-lp/gobfd/commit/6f0efd108c7a66f291818063e2c447c676ef0dd8),
-ветка `release/v1.0` (включая [`eae8f0636055de8ac4714199e27ff0c9d18b9859`](https://github.com/dantte-lp/gobfd/commit/eae8f0636055de8ac4714199e27ff0c9d18b9859)
-из `dev`, Go `1.27.4`, GoBGP `v4.11.0`, сохранение владения Unix-сокетом по ADR-0013, медленный темп Echo по RFC 9747 и сведённые потоки после `alpha.1`).
-Стабильные ветки, релизные теги и backup refs сохранены. Интеграция исходников
-не означает создание релизного тега или публикацию.
+[`53644faebd43510fa2c6244c6302b7a7e4c2b6b9`](https://github.com/dantte-lp/gobfd/commit/53644faebd43510fa2c6244c6302b7a7e4c2b6b9)
+и pull request `#137` в ветке `release/v1.0` (включая
+[`eae8f0636055de8ac4714199e27ff0c9d18b9859`](https://github.com/dantte-lp/gobfd/commit/eae8f0636055de8ac4714199e27ff0c9d18b9859)
+из `dev`, Go `1.27.4`, GoBGP `v4.11.0`, сохранение владения Unix-сокетом по
+ADR-0013, медленный темп Echo по RFC 9747, ресинхронизацию потерь Micro-BFD и
+контроль готовности `enforce`, лимит неактивных peer-метрик Prometheus,
+очистку run-owned и stage-образов Compose, прямой импорт в containerd по gRPC
+с lease для Kubernetes и без-Bash оркестрацию `Makefile`/OCI). Стабильные
+ветки, релизные теги и backup refs сохранены. Интеграция исходников не
+означает создание релизного тега или публикацию.
 
 ## Приёмка стабильной v1
 

@@ -96,16 +96,18 @@ Host CLI access requires a separately reviewed socket-directory mount/permission
 
 ## Kubernetes
 
+Before running `make int-k8s`, verify operator permissions to read nodes and namespaces, create/delete the isolated namespace, execute pod commands, `get` `pods/proxy` in namespace `gobfd`, and query the selected node's kubelet configuration through `nodes/proxy`. Kubernetes documents `get nodes/proxy` as privileged kubelet API access that can execute commands in node pods; it is not read-only. Bind this access to the local Node with a resource name where the cluster policy permits, and restrict runner credentials to trusted operators. The runner requires namespace `gobfd` to be absent and records ownership before creation. It reads port 9100 through the [Pod proxy API](https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/); it does not install an HTTP client into the application image. Follow the [required post-rollout and teardown checks](11-integrations.md#kubernetes).
+
 The [DaemonSet specimen](../../deployments/integrations/kubernetes/manifests/daemonset.yml) selects Linux, `hostNetwork: true`, `ClusterFirstWithHostNet`, runtime-default seccomp and `NET_RAW`/`NET_ADMIN`. Both containers use local images with `imagePullPolicy: Never`; distribute images to every eligible node's runtime before apply. Node-local port conflicts and unauthenticated host-network metrics need explicit network policy outside a pod-only assumption.
 
 Readiness executes `gobfdctl session list` over the socket; liveness connects to metrics TCP. Those probes do not prove BFD Up or BGP convergence. GoBGP API/probes use loopback. Before acceptance, require successful image import on every selected node, correct runner label/probe selection, rollout and failure/recovery under declared CPU/memory limits in the actual cluster. The specimen does not supply that live-cluster receipt.
 
 Use a principal authorized to apply the specimen and read its workload, logs and pod exec results. Admit one cluster/context, namespace `gobfd` and the intended Linux node set; verify ownership of existing objects and preserve the accepted ConfigMaps, DaemonSet and image identities before mutation. Keep independent cluster access for recovery. Stop on a foreign object, unresolved port conflict or missing node image.
 
-After admitting the target cluster/context and importing both local images on every selected node, run these unexecuted procedure examples:
+The checked-in image names are template values. For manual deployment, replace both with accepted references and save the reviewed manifest set in `ACCEPTED_MANIFEST_DIRECTORY`. The retained integration runner generates a separate DaemonSet and image plan per build; preserve that exact output for recovery. After admitting the target cluster/context and importing both images on every selected node, run these unexecuted procedure examples:
 
 ```sh
-kubectl apply -f deployments/integrations/kubernetes/manifests/
+kubectl apply -f ACCEPTED_MANIFEST_DIRECTORY/
 kubectl -n gobfd rollout status daemonset/gobfd --timeout=120s
 kubectl -n gobfd get daemonset gobfd
 kubectl -n gobfd get pods -l app.kubernetes.io/name=gobfd -o wide
@@ -121,7 +123,7 @@ kubectl -n gobfd exec POD_NAME -c gobfd -- /bin/gobfdctl session list
 
 Require the declared peer state and a separate route/forwarding check per node. Stop on apply/rollout failure, count/placement mismatch, restart/OOM or failed peer/forwarding checks. Inspect live objects before repeating apply; do not assume it restarts pods or restores old image contents.
 
-For an upgrade rollback, restore the accepted manifests and exact node-local images, then apply that set. The example reuses `gobfd:local` and `gobgp:local` with `imagePullPolicy: Never`; an unchanged Pod template does not replace running Pods. Verify the admitted DaemonSet uses `RollingUpdate`, then explicitly recreate its Pods with `kubectl -n gobfd rollout restart daemonset/gobfd`. Each invocation starts another rollout; do not repeat it while recovery is pending. Check the running `imageID` for both containers on every node, then repeat rollout, placement, health, peer and forwarding checks. Stop if the strategy or image identities differ from the admitted recovery. Sources: [checked-in images](../../deployments/integrations/kubernetes/manifests/daemonset.yml), [DaemonSet updates](https://kubernetes.io/docs/tasks/manage-daemon/update-daemon-set/), [rollout restart](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_rollout/kubectl_rollout_restart/).
+For an upgrade rollback, restore the accepted manifests and exact node-local images, then apply that set. The integration runner selects unique image references, records source IDs in the Pod template and records published OCI manifest digests in the private run plan. Changing the template triggers the admitted `RollingUpdate`; an unchanged template does not replace running Pods. If the approved recovery requires recreation with an unchanged template, use `kubectl -n gobfd rollout restart daemonset/gobfd` once and wait for completion. Check the running `imageID` for both containers on every node, then repeat rollout, placement, health, peer and forwarding checks. Stop if the strategy or image identities differ from the admitted recovery. Sources: [image owner and renderer](../../test/internal/integrationrunner/kubernetes_build.go), [containerd importer](../../test/internal/integrationrunner/kubernetes_containerd_import.go), [DaemonSet updates](https://kubernetes.io/docs/tasks/manage-daemon/update-daemon-set/), [rollout restart](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_rollout/kubectl_rollout_restart/).
 
 For an initial installation, cleanup covers only recorded newly created objects after ownership verification. Preserve shared namespace/resources. Command reference: [Kubernetes DaemonSet procedure](https://kubernetes.io/docs/tasks/manage-daemon/create-daemon-set/).
 

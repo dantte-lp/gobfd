@@ -4,6 +4,7 @@ package interop_test
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -606,13 +607,13 @@ func startCraftedPeerTopology(
 	configPath string, profile craftedProfile,
 ) testcontainers.Container {
 	t.Helper()
-	buildID := time.Now().UnixNano()
+	buildID := strings.ToLower(rand.Text())
 	gobfdImage := buildFourPeerImage(ctx, t, endpoint, prepareFourPeerGoContext(t, root),
-		fmt.Sprintf("localhost/gobfd-interop-test:%d", buildID), resources)
+		"localhost/gobfd-interop-test:"+buildID, resources)
 	tsharkImage := buildFourPeerImage(ctx, t, endpoint, filepath.Join(root, "test/interop/tshark"),
-		fmt.Sprintf("localhost/tshark-interop-test:%d", buildID), resources)
+		"localhost/tshark-interop-test:"+buildID, resources)
 	peerImage := buildFourPeerImage(ctx, t, endpoint, prepareCraftedPeerContext(t, root),
-		fmt.Sprintf("localhost/bfd-crafted-peer-test:%d", buildID), resources)
+		"localhost/bfd-crafted-peer-test:"+buildID, resources)
 	networkName, labels := startFourPeerNetwork(ctx, t, projectName, "crafted-peer-testcontainers", resources)
 	gobfd := startFourPeerGoBFD(ctx, t, gobfdImage, configPath, networkName, labels, resources)
 	resources.tshark = startFourPeerTshark(ctx, t, tsharkImage, gobfd, labels, resources)

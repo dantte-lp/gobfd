@@ -19,10 +19,10 @@ import (
 )
 
 const (
-	mergeOwnerLabelKey = "io.gobfd.e2e.merge-owner"
 	baseSuiteName      = "interop"
 	bgpSuiteName       = "interop-bgp"
 	minimumPacketRows  = 2
+	routingTopologySet = 15 * time.Second
 )
 
 var (
@@ -30,8 +30,6 @@ var (
 	errNoPassedTests  = errors.New("go test JSON contains no passed tests")
 	errInvalidImageID = errors.New("invalid immutable image ID")
 	errNoPacketRows   = errors.New("suite packet CSV has no packet rows")
-	errMergeCollision = errors.New("merge ownership label collision")
-	errMergeCleanup   = errors.New("merge-owned containers remain")
 	errUnsafePcap     = errors.New("copied tshark packet capture is empty or unsafe")
 )
 
@@ -48,8 +46,51 @@ type routingSuite struct {
 	holoArtifacts bool
 }
 
-//nolint:funlen // The linear orchestration keeps both guarded suites and final merge visible in one lifecycle.
 func (r *runner) runRouting(ctx context.Context) (runErr error) {
+	baseProject, bgpProject, err := resolveRoutingProjects()
+	if err != nil {
+		return err
+	}
+	if prepErr := r.prepareRoutingReport(); prepErr != nil {
+		return prepErr
+	}
+
+	defer func() {
+		runErr = errors.Join(
+			runErr,
+			r.writeRoutingEnvironment(baseProject, bgpProject),
+			r.writeRoutingSummary(runErr),
+		)
+	}()
+
+	for _, suite := range routingSuites(baseProject, bgpProject) {
+		controller, ctrlErr := interopproject.NewProject(r.root, suite.project, suite.kind, r.stdout, r.stderr)
+		if ctrlErr != nil {
+			return fmt.Errorf("create %s project controller: %w", suite.name, ctrlErr)
+		}
+		if suiteErr := controller.Lifecycle(
+			ctx,
+			func(lifecycleCtx context.Context, active *interopproject.Controller) error {
+				if runSuiteErr := r.runRoutingSuite(lifecycleCtx, active, suite); runSuiteErr != nil {
+					return runSuiteErr
+				}
+				if suite.name == bgpSuiteName {
+					// Merge before BGP teardown removes the borrowed tshark image.
+					return r.mergeRoutingArtifacts(lifecycleCtx)
+				}
+				return nil
+			},
+		); suiteErr != nil {
+			return fmt.Errorf("run routing suite %s: %w", suite.name, suiteErr)
+		}
+	}
+	if _, writeErr := fmt.Fprintf(r.stdout, "S10.3 routing E2E artifacts: %s\n", r.reportDir); writeErr != nil {
+		return fmt.Errorf("write routing artifact path: %w", writeErr)
+	}
+	return nil
+}
+
+func resolveRoutingProjects() (string, string, error) {
 	baseProject := os.Getenv("INTEROP_PROJECT_NAME")
 	if baseProject == "" {
 		baseProject = "gobfd-interop"
@@ -59,8 +100,15 @@ func (r *runner) runRouting(ctx context.Context) (runErr error) {
 		bgpProject = baseProject + "-bgp"
 	}
 	if !projectNamePattern.MatchString(baseProject) || !projectNamePattern.MatchString(bgpProject) {
-		return fmt.Errorf("%w: invalid routing Compose project names %q and %q", errUsage, baseProject, bgpProject)
+		return "", "", fmt.Errorf(
+			"%w: invalid routing Compose project names %q and %q",
+			errUsage, baseProject, bgpProject,
+		)
 	}
+	return baseProject, bgpProject, nil
+}
+
+func (r *runner) prepareRoutingReport() error {
 	for _, suite := range []string{baseSuiteName, bgpSuiteName} {
 		if err := os.MkdirAll(filepath.Join(r.reportDir, suite), 0o750); err != nil {
 			return fmt.Errorf("create routing suite report directory %s: %w", suite, err)
@@ -71,32 +119,40 @@ func (r *runner) runRouting(ctx context.Context) (runErr error) {
 		if err != nil {
 			return err
 		}
-		if err := file.Close(); err != nil {
-			return fmt.Errorf("close routing artifact %s: %w", name, err)
+		if closeErr := r.closeArtifact(file); closeErr != nil {
+			return fmt.Errorf("close routing artifact %s: %w", name, closeErr)
 		}
 	}
+	return nil
+}
 
-	defer func() {
-		runErr = errors.Join(runErr, r.writeJSON("environment.json", map[string]any{
-			environmentTarget: "e2e-routing", environmentRunID: r.runID, environmentDevProject: r.devProject,
-			"interop_project": baseProject, "interop_bgp_project": bgpProject,
-			environmentRuntime: podmanCommand, "suites": []string{baseSuiteName, bgpSuiteName},
-		}), r.writeSummary([]summaryRow{
-			{summaryTarget, "`make e2e-routing`"},
-			{summaryRunID, "`" + r.runID + "`"},
-			{summaryExitCode, fmt.Sprintf("`%d`", exitCode(runErr))},
-			{summaryGoTestJSON, "`" + goTestJSONName + "`"},
-			{summaryGoTestLog, "`" + goTestLogName + "`"},
-			{summaryContainerState, "`" + containersJSONName + "`"},
-			{summaryContainerLogs, "`" + containersLogName + "`"},
-			{"Packet CSV", "`packets.csv`"},
-			{"Merged packet capture", "`packets.pcapng`"},
-			{"BFD interop artifacts", "`interop/`"},
-			{"BGP+BFD interop artifacts", "`interop-bgp/`"},
-		}))
-	}()
+func (r *runner) writeRoutingEnvironment(baseProject, bgpProject string) error {
+	return r.writeJSON("environment.json", map[string]any{
+		environmentTarget: "e2e-routing", environmentRunID: r.runID, environmentDevProject: r.devProject,
+		"interop_project": baseProject, "interop_bgp_project": bgpProject,
+		environmentRuntime: podmanCommand, "suites": []string{baseSuiteName, bgpSuiteName},
+	})
+}
 
-	suites := []routingSuite{
+func (r *runner) writeRoutingSummary(runErr error) error {
+	return r.writeSummary([]summaryRow{
+		{summaryTarget, "`make e2e-routing`"},
+		{summaryRunID, "`" + r.runID + "`"},
+		{summaryExitCode, fmt.Sprintf("`%d`", exitCode(runErr))},
+		{summaryGoTestJSON, "`" + goTestJSONName + "`"},
+		{summaryGoTestLog, "`" + goTestLogName + "`"},
+		{summaryContainerState, "`" + containersJSONName + "`"},
+		{summaryContainerLogs, "`" + containersLogName + "`"},
+		{"Packet CSV", "`packets.csv`"},
+		{"Merged packet capture", "`packets.pcapng`"},
+		{"Merge runtime ownership", "`merge-runtime/runtime-plan.json`, `merge-runtime/runtime-container.json`"},
+		{"BFD interop artifacts", "`interop/`"},
+		{"BGP+BFD interop artifacts", "`interop-bgp/`"},
+	})
+}
+
+func routingSuites(baseProject, bgpProject string) []routingSuite {
+	return []routingSuite{
 		{
 			name: baseSuiteName, kind: "base", project: baseProject, environment: "INTEROP_COMPOSE_FILE",
 			composePath: "test/interop/compose.yml", tag: "interop", packagePath: "./test/interop/",
@@ -116,24 +172,6 @@ func (r *runner) runRouting(ctx context.Context) (runErr error) {
 			},
 		},
 	}
-	for _, suite := range suites {
-		controller, err := interopproject.NewProject(r.root, suite.project, suite.kind, r.stdout, r.stderr)
-		if err != nil {
-			return fmt.Errorf("create %s project controller: %w", suite.name, err)
-		}
-		if err := controller.Lifecycle(ctx, func(lifecycleCtx context.Context, active *interopproject.Controller) error {
-			return r.runRoutingSuite(lifecycleCtx, active, suite)
-		}); err != nil {
-			return fmt.Errorf("run routing suite %s: %w", suite.name, err)
-		}
-	}
-	if err := r.mergeRoutingArtifacts(ctx); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(r.stdout, "S10.3 routing E2E artifacts: %s\n", r.reportDir); err != nil {
-		return fmt.Errorf("write routing artifact path: %w", err)
-	}
-	return nil
 }
 
 func (r *runner) runRoutingSuite(
@@ -141,7 +179,7 @@ func (r *runner) runRoutingSuite(
 	controller *interopproject.Controller,
 	suite routingSuite,
 ) error {
-	if err := wait(ctx, 15*time.Second); err != nil {
+	if err := wait(ctx, routingTopologySet); err != nil {
 		return fmt.Errorf("wait for %s topology: %w", suite.name, err)
 	}
 	devID, err := controller.ServiceContainerID(ctx, r.devProject, "dev")
@@ -153,20 +191,22 @@ func (r *runner) runRoutingSuite(
 		suite.environment+"=/app/"+suite.composePath, "go", "test", "-tags", suite.tag,
 		"-json", "-v", "-count=1", "-timeout", "300s", suite.packagePath,
 	)
-	if err := passedGoTest(filepath.Join(r.reportDir, suite.name, goTestJSONName)); err != nil {
-		runErr = errors.Join(runErr, fmt.Errorf("validate %s Go test output: %w", suite.name, err))
+	if passErr := passedGoTest(filepath.Join(r.reportDir, suite.name, goTestJSONName)); passErr != nil {
+		runErr = errors.Join(runErr, fmt.Errorf("validate %s Go test output: %w", suite.name, passErr))
 	}
-	if err := r.collectRoutingLogs(ctx, controller, suite); err != nil {
-		runErr = errors.Join(runErr, err)
+	artifactCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), commandTimeout)
+	defer cancel()
+	if logErr := r.collectRoutingLogs(artifactCtx, controller, suite); logErr != nil {
+		runErr = errors.Join(runErr, logErr)
 	}
 	if suite.holoArtifacts {
-		r.collectHoloDiagnostics(ctx, controller, suite.name)
+		r.collectHoloDiagnostics(artifactCtx, controller, suite.name)
 	}
-	if err := r.collectRoutingPcap(ctx, controller, suite); err != nil {
-		runErr = errors.Join(runErr, fmt.Errorf("collect %s packet artifacts: %w", suite.name, err))
+	if pcapErr := r.collectRoutingPcap(artifactCtx, controller, suite); pcapErr != nil {
+		runErr = errors.Join(runErr, fmt.Errorf("collect %s packet artifacts: %w", suite.name, pcapErr))
 	}
-	if err := r.recordRoutingContainers(ctx, controller, suite); err != nil {
-		runErr = errors.Join(runErr, fmt.Errorf("record %s containers: %w", suite.name, err))
+	if recordErr := r.recordRoutingContainers(artifactCtx, controller, suite); recordErr != nil {
+		runErr = errors.Join(runErr, fmt.Errorf("record %s containers: %w", suite.name, recordErr))
 	}
 	return runErr
 }
@@ -184,7 +224,10 @@ func (r *runner) appendLoggedCommand(ctx context.Context, suite string, argv ...
 	for _, artifact := range paths {
 		file, err := os.OpenFile(artifact.path, artifact.flags, 0o600)
 		if err != nil {
-			return errors.Join(fmt.Errorf("open routing Go test artifact %s: %w", artifact.path, err), closeFiles(files))
+			return errors.Join(
+				fmt.Errorf("open routing Go test artifact %s: %w", artifact.path, err),
+				r.closeFiles(files),
+			)
 		}
 		files = append(files, file)
 	}
@@ -193,7 +236,7 @@ func (r *runner) appendLoggedCommand(ctx context.Context, suite string, argv ...
 		writers = append(writers, file)
 	}
 	runErr := r.command(ctx, testTimeout, io.MultiWriter(writers...), r.stderr, argv...)
-	closeErr := closeFiles(files)
+	closeErr := r.closeFiles(files)
 	if runErr != nil || closeErr != nil {
 		return errors.Join(runErr, closeErr)
 	}
@@ -203,16 +246,16 @@ func (r *runner) appendLoggedCommand(ctx context.Context, suite string, argv ...
 		return fmt.Errorf("read %s Go test JSON: %w", suite, err)
 	}
 	// #nosec G703 -- suite is selected only from the fixed routingSuite table above.
-	if err := os.WriteFile(filepath.Join(r.reportDir, suite, goTestLogName), data, 0o600); err != nil {
-		return fmt.Errorf("write %s Go test log: %w", suite, err)
+	if writeErr := os.WriteFile(filepath.Join(r.reportDir, suite, goTestLogName), data, 0o600); writeErr != nil {
+		return fmt.Errorf("write %s Go test log: %w", suite, writeErr)
 	}
 	return nil
 }
 
-func closeFiles(files []*os.File) error {
+func (r *runner) closeFiles(files []*os.File) error {
 	var result error
 	for _, file := range files {
-		result = errors.Join(result, file.Close())
+		result = errors.Join(result, r.closeArtifact(file))
 	}
 	if result != nil {
 		return fmt.Errorf("close routing artifact files: %w", result)
@@ -220,23 +263,27 @@ func closeFiles(files []*os.File) error {
 	return nil
 }
 
-func passedGoTest(path string) error {
+func passedGoTest(path string) (retErr error) {
 	// #nosec G304 -- Callers pass their own fixed Go test JSON artifact path; no network input selects files.
 	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("open Go test JSON: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		retErr = errors.Join(retErr, closeArtifact(file))
+	}()
 	decoder := json.NewDecoder(file)
 	for {
 		var event struct {
 			Action string `json:"Action"` //nolint:tagliatelle // go test -json uses exported Go field names.
 			Test   string `json:"Test"`   //nolint:tagliatelle // go test -json uses exported Go field names.
 		}
-		if err := decoder.Decode(&event); errors.Is(err, io.EOF) {
+		decodeErr := decoder.Decode(&event)
+		if errors.Is(decodeErr, io.EOF) {
 			return errNoPassedTests
-		} else if err != nil {
-			return fmt.Errorf("decode Go test JSON: %w", err)
+		}
+		if decodeErr != nil {
+			return fmt.Errorf("decode Go test JSON: %w", decodeErr)
 		}
 		if event.Action == "pass" && event.Test != "" {
 			return nil
@@ -248,22 +295,26 @@ func (r *runner) collectRoutingLogs(
 	ctx context.Context,
 	controller *interopproject.Controller,
 	suite routingSuite,
-) error {
+) (retErr error) {
 	logFile, err := os.OpenFile(filepath.Join(r.reportDir, containersLogName), os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return fmt.Errorf("open routing container log: %w", err)
 	}
-	defer logFile.Close()
+	defer func() {
+		retErr = errors.Join(retErr, r.closeArtifact(logFile))
+	}()
 	for _, name := range suite.containers {
 		id, resolveErr := controller.ContainerID(ctx, name)
 		if resolveErr != nil {
-			continue
+			continue // fail-silent-ok: optional/missing containers are enforced by recordRoutingContainers.
 		}
 		if _, writeErr := fmt.Fprintf(logFile, "\n===== %s container %s =====\n", suite.name, name); writeErr != nil {
 			return fmt.Errorf("write routing log header: %w", writeErr)
 		}
-		if commandErr := r.command(ctx, commandTimeout, logFile, logFile, podmanCommand, "logs", id); commandErr != nil {
-			continue
+		if commandErr := r.command(
+			ctx, commandTimeout, logFile, logFile, podmanCommand, "logs", id,
+		); commandErr != nil {
+			continue // fail-silent-ok: continue collecting remaining container logs before closing artifact.
 		}
 	}
 	return nil
@@ -281,8 +332,8 @@ func (r *runner) collectHoloDiagnostics(
 		r.bestEffortFile(ctx, filepath.Join(suite, "holod.err"), filepath.Join(suite, "holod-exec.err"),
 			podmanCommand, "exec", holoID, "cat", "/tmp/holod.err")
 	}
-	loaderID, err := controller.ContainerID(ctx, "holo-config-interop")
-	if err == nil {
+	loaderID, loaderErr := controller.ContainerID(ctx, "holo-config-interop")
+	if loaderErr == nil {
 		r.bestEffortFile(ctx, filepath.Join(suite, "holo-config.log"), filepath.Join(suite, "holo-config-log.err"),
 			podmanCommand, "logs", "--tail", "100", loaderID)
 	}
@@ -296,9 +347,13 @@ func (r *runner) recordRoutingContainers(
 	ids := make([]string, 0, len(suite.containers))
 	for _, name := range suite.containers {
 		id, err := controller.ContainerID(ctx, name)
-		if err == nil {
-			ids = append(ids, id)
+		if err != nil {
+			if name == "scapy-interop" && errors.Is(err, interopproject.ErrContainerAbsent) {
+				continue // fail-silent-ok: the scapy profile is optional; other lookup failures remain fatal.
+			}
+			return fmt.Errorf("resolve required %s container %s: %w", suite.name, name, err)
 		}
+		ids = append(ids, id)
 	}
 	path := filepath.Join(r.reportDir, suite.name, containersJSONName)
 	if len(ids) == 0 {
@@ -344,149 +399,150 @@ func (r *runner) collectRoutingPcap(
 		podmanCommand, "exec", id, "cat", "/captures/bfd.pcapng"); copyErr != nil {
 		return fmt.Errorf("copy tshark packet capture: %w", copyErr)
 	}
-	info, err := os.Lstat(pcapPath)
-	if err != nil {
-		return fmt.Errorf("stat copied tshark packet capture: %w", err)
-	}
-	if !info.Mode().IsRegular() || info.Size() == 0 {
-		return errUnsafePcap
+	if verifyErr := verifyNonemptyRegularPcap(pcapPath); verifyErr != nil {
+		return verifyErr
 	}
 	csvPath := filepath.Join(r.reportDir, suite.name, "packets.csv")
-	if err := r.commandToFile(ctx, csvPath, filepath.Join(r.reportDir, suite.name, "packets-csv.err"),
+	if decodeErr := r.commandToFile(ctx, csvPath, filepath.Join(r.reportDir, suite.name, "packets-csv.err"),
 		podmanCommand, "exec", id, "tshark", "-r", "/captures/bfd.pcapng", "-Y", "bfd", "-T", "fields",
 		"-e", "frame.time_relative", "-e", "ip.src", "-e", "ip.dst", "-e", "udp.srcport", "-e", "udp.dstport",
 		"-e", "bfd.sta", "-e", "bfd.diag", "-e", "bfd.my_discriminator", "-e", "bfd.your_discriminator",
-		"-E", "header=y", "-E", "separator=,"); err != nil {
-		return fmt.Errorf("decode tshark packet capture: %w", err)
+		"-E", "header=y", "-E", "separator=,"); decodeErr != nil {
+		return fmt.Errorf("decode tshark packet capture: %w", decodeErr)
 	}
-	if err := appendPacketCSV(r.reportDir, suite.name, csvPath); err != nil {
-		return fmt.Errorf("append tshark packet CSV: %w", err)
+	if appendErr := r.appendPacketCSV(suite.name, csvPath); appendErr != nil {
+		return fmt.Errorf("append tshark packet CSV: %w", appendErr)
 	}
 	return nil
 }
 
-func appendPacketCSV(reportDir, suite, source string) error {
-	// #nosec G304 -- source is the packets.csv just emitted by collectRoutingPackets for an allowlisted suite.
+func (r *runner) appendPacketCSV(suite, source string) error {
+	// #nosec G304 -- source is the packets.csv just emitted by collectRoutingPcap for an allowlisted suite.
 	file, err := os.Open(source)
 	if err != nil {
 		return fmt.Errorf("open suite packet CSV: %w", err)
 	}
-	rows, err := csv.NewReader(file).ReadAll()
-	closeErr := file.Close()
-	if err != nil || closeErr != nil {
-		return errors.Join(fmt.Errorf("read suite packet CSV: %w", err), closeErr)
+	rows, readErr := csv.NewReader(file).ReadAll()
+	closeErr := r.closeArtifact(file)
+	if readErr != nil || closeErr != nil {
+		var wrappedRead error
+		if readErr != nil {
+			wrappedRead = fmt.Errorf("read suite packet CSV: %w", readErr)
+		}
+		return errors.Join(wrappedRead, closeErr)
 	}
 	if len(rows) < minimumPacketRows {
 		return errNoPacketRows
 	}
-	outputPath := filepath.Join(reportDir, "packets.csv")
+	outputPath := filepath.Join(r.reportDir, "packets.csv")
 	_, statErr := os.Stat(outputPath)
 	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 		return fmt.Errorf("stat aggregate packet CSV: %w", statErr)
 	}
 	flags := os.O_WRONLY | os.O_CREATE | os.O_APPEND
 	// #nosec G304 -- outputPath is the fixed packets.csv basename under the runner-owned report directory.
-	output, err := os.OpenFile(outputPath, flags, 0o600)
-	if err != nil {
-		return fmt.Errorf("open aggregate packet CSV: %w", err)
+	output, openErr := os.OpenFile(outputPath, flags, 0o600)
+	if openErr != nil {
+		return fmt.Errorf("open aggregate packet CSV: %w", openErr)
 	}
 	writer := csv.NewWriter(output)
 	if errors.Is(statErr, os.ErrNotExist) {
 		rows[0] = append([]string{"suite"}, rows[0]...)
-		if err := writer.Write(rows[0]); err != nil {
-			return errors.Join(fmt.Errorf("write aggregate packet header: %w", err), output.Close())
+		if writeHeaderErr := writer.Write(rows[0]); writeHeaderErr != nil {
+			return errors.Join(
+				fmt.Errorf("write aggregate packet header: %w", writeHeaderErr),
+				r.closeArtifact(output),
+			)
 		}
 	}
 	for _, row := range rows[1:] {
-		if err := writer.Write(append([]string{suite}, row...)); err != nil {
-			return errors.Join(fmt.Errorf("write aggregate packet row: %w", err), output.Close())
+		if writeRowErr := writer.Write(append([]string{suite}, row...)); writeRowErr != nil {
+			return errors.Join(
+				fmt.Errorf("write aggregate packet row: %w", writeRowErr),
+				r.closeArtifact(output),
+			)
 		}
 	}
 	writer.Flush()
-	return errors.Join(writer.Error(), output.Close())
+	return errors.Join(writer.Error(), r.closeArtifact(output))
 }
 
 func (r *runner) mergeRoutingArtifacts(ctx context.Context) (runErr error) {
+	baseImage, bgpImage, err := r.prepareRoutingMergeInputs(ctx)
+	if err != nil {
+		return err
+	}
+	mergeRunner := *r
+	mergeRunner.reportDir = filepath.Join(r.reportDir, "merge-runtime")
+	if mkdirErr := os.Mkdir(mergeRunner.reportDir, 0o700); mkdirErr != nil {
+		return fmt.Errorf("create exclusive merge runtime directory: %w", mkdirErr)
+	}
+	if writeErr := mergeRunner.writeJSON("image-provenance.json", map[string]string{
+		"base_capture_image": baseImage, "bgp_capture_image": bgpImage, "merge_image": bgpImage,
+	}); writeErr != nil {
+		return writeErr
+	}
+	owned := mergeRunner.newRuntime("routing-merge")
+	defer func() {
+		runErr = errors.Join(runErr, mergeRunner.cleanupRuntime(ctx, owned))
+	}()
+	if createErr := mergeRunner.createRuntime(ctx, owned, []string{
+		podmanCommand, "create", "--name", owned.Name, "--network", "none", "--cap-drop", "ALL",
+		"--cpus", "2", "--memory", "2g", "--memory-swap", "2g", "--pids-limit", "512",
+		"--image-volume", "ignore", "--pull", "never", "--entrypoint", "/usr/bin/mergecap",
+		"-v", r.reportDir + ":/reports:z", bgpImage, "-w", "/reports/packets.pcapng",
+		"/reports/interop/packets.pcapng", "/reports/interop-bgp/packets.pcapng",
+	}); createErr != nil {
+		return createErr
+	}
+	if startErr := r.commandToFile(
+		ctx, filepath.Join(r.reportDir, "mergecap.out"), filepath.Join(r.reportDir, "mergecap.err"),
+		podmanCommand, "start", "-a", owned.ID,
+	); startErr != nil {
+		return startErr
+	}
+	if verifyErr := verifyNonemptyRegularPcap(filepath.Join(r.reportDir, "packets.pcapng")); verifyErr != nil {
+		return fmt.Errorf("merged capture is missing, empty, or unsafe: %w", verifyErr)
+	}
+	return nil
+}
+
+func (r *runner) prepareRoutingMergeInputs(ctx context.Context) (string, string, error) {
 	if err := routingartifacts.Merge(r.reportDir, containersJSONName, []routingartifacts.Input{
 		{Name: baseSuiteName, Path: filepath.Join(baseSuiteName, containersJSONName)},
 		{Name: bgpSuiteName, Path: filepath.Join(bgpSuiteName, containersJSONName)},
 	}); err != nil {
-		return fmt.Errorf("merge routing container inventories: %w", err)
+		return "", "", fmt.Errorf("merge routing container inventories: %w", err)
 	}
 	baseImage, err := routingartifacts.ReadImageID(r.reportDir, filepath.Join(baseSuiteName, "tshark-image-id"))
 	if err != nil {
-		return fmt.Errorf("read base tshark image ID: %w", err)
+		return "", "", fmt.Errorf("read base tshark image ID: %w", err)
 	}
 	bgpImage, err := routingartifacts.ReadImageID(r.reportDir, filepath.Join(bgpSuiteName, "tshark-image-id"))
 	if err != nil {
-		return fmt.Errorf("read BGP tshark image ID: %w", err)
+		return "", "", fmt.Errorf("read BGP tshark image ID: %w", err)
 	}
-	for _, image := range []string{baseImage, bgpImage} {
-		if imageErr := r.command(
-			ctx, commandTimeout, io.Discard, r.stderr, podmanCommand, "image", "exists", image,
-		); imageErr != nil {
-			return fmt.Errorf("routing tshark image %s is unavailable: %w", image, imageErr)
-		}
+	if imageErr := r.command(
+		ctx, commandTimeout, io.Discard, r.stderr, podmanCommand, "image", "exists", bgpImage,
+	); imageErr != nil {
+		return "", "", fmt.Errorf("active BGP tshark image %s is unavailable: %w", bgpImage, imageErr)
 	}
 	for _, suite := range []string{baseSuiteName, bgpSuiteName} {
 		path := filepath.Join(r.reportDir, suite, "packets.pcapng")
-		info, statErr := os.Lstat(path)
-		if statErr != nil || !info.Mode().IsRegular() || info.Size() == 0 {
-			return fmt.Errorf("required packet capture is missing, empty, or unsafe %s: %w", path, statErr)
+		if verifyErr := verifyNonemptyRegularPcap(path); verifyErr != nil {
+			return "", "", fmt.Errorf("required packet capture is missing, empty, or unsafe %s: %w", path, verifyErr)
 		}
 	}
-	owner := r.runID
-	ids, err := r.queryLabelledContainers(ctx, mergeOwnerLabelKey, owner)
-	if err != nil {
-		return err
-	}
-	if len(ids) != 0 {
-		return fmt.Errorf("%w %s=%s", errMergeCollision, mergeOwnerLabelKey, owner)
-	}
-	defer func() {
-		runErr = errors.Join(runErr, r.removeLabelledContainers(ctx, mergeOwnerLabelKey, owner))
-	}()
-	return r.commandToFile(ctx, filepath.Join(r.reportDir, "mergecap.out"), filepath.Join(r.reportDir, "mergecap.err"),
-		podmanCommand, "run", "--label", mergeOwnerLabelKey+"="+owner, "--entrypoint", "/usr/bin/mergecap",
-		"-v", r.reportDir+":/reports:z", baseImage, "-w", "/reports/packets.pcapng",
-		"/reports/interop/packets.pcapng", "/reports/interop-bgp/packets.pcapng")
+	return baseImage, bgpImage, nil
 }
 
-func (r *runner) queryLabelledContainers(ctx context.Context, key, value string) ([]string, error) {
-	output, err := r.commandText(ctx, podmanCommand, "ps", "-a", "--no-trunc",
-		"--filter", "label="+key+"="+value, "--format", "{{.ID}}")
+func verifyNonemptyRegularPcap(path string) error {
+	info, err := os.Lstat(path)
 	if err != nil {
-		return nil, err
+		return errors.Join(errUnsafePcap, fmt.Errorf("stat packet capture %s: %w", path, err))
 	}
-	return strings.Fields(output), nil
-}
-
-func (r *runner) removeLabelledContainers(ctx context.Context, key, value string) error {
-	ids, err := r.queryLabelledContainers(ctx, key, value)
-	if err != nil {
-		return err
-	}
-	for _, id := range ids {
-		label, inspectErr := r.commandText(ctx, podmanCommand, "inspect", "--type", "container", "--format",
-			`{{ index .Config.Labels "`+key+`" }}`, id)
-		if inspectErr != nil {
-			return fmt.Errorf("validate merge container %s ownership: %w", id, inspectErr)
-		}
-		if strings.TrimSpace(label) != value {
-			return fmt.Errorf("%w: container %s has unexpected owner %q", errMergeCleanup, id, label)
-		}
-		if removeErr := r.command(
-			ctx, commandTimeout, io.Discard, r.stderr, podmanCommand, "rm", "-f", "--", id,
-		); removeErr != nil {
-			return removeErr
-		}
-	}
-	remaining, err := r.queryLabelledContainers(ctx, key, value)
-	if err != nil {
-		return err
-	}
-	if len(remaining) != 0 {
-		return fmt.Errorf("%w: %s", errMergeCleanup, strings.Join(remaining, " "))
+	if !info.Mode().IsRegular() || info.Size() == 0 {
+		return errUnsafePcap
 	}
 	return nil
 }
@@ -507,8 +563,8 @@ func (r *runner) commandToFile(ctx context.Context, outputPath, errorPath string
 	}
 	errorOutput, err := secureFile(errorPath)
 	if err != nil {
-		return errors.Join(err, output.Close())
+		return errors.Join(err, r.closeArtifact(output))
 	}
 	runErr := r.command(ctx, testTimeout, output, errorOutput, argv...)
-	return errors.Join(runErr, output.Close(), errorOutput.Close())
+	return errors.Join(runErr, r.closeArtifact(output), r.closeArtifact(errorOutput))
 }

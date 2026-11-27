@@ -26,7 +26,7 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read checked repository inventory: %v", err)
 	}
-	wantGraphCounts := map[string]int{"runtime": 193, "tools": 745, "gopls": 44, "syft": 851, "goreleaser": 816}
+	wantGraphCounts := map[string]int{"runtime": 195, "tools": 745, "gopls": 44, "syft": 851, "goreleaser": 816}
 	if len(inv.ModuleGraphs) != len(wantGraphCounts) {
 		t.Fatalf("module graph count = %d, want %d", len(inv.ModuleGraphs), len(wantGraphCounts))
 	}

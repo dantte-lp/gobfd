@@ -4,6 +4,7 @@ package interop_bgp_test
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -79,35 +80,20 @@ func registerBGPTestImageCleanup(
 	t *testing.T,
 	endpoint, imageName string,
 	resources *bgpTestResources,
-) {
+) (*podmanapi.Client, *string) {
 	t.Helper()
 
 	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
 	if err != nil {
 		t.Fatalf("create Podman client for image ownership: %v", err)
 	}
-	exists, err := client.ImageExists(ctx, imageName)
-	if err != nil {
-		t.Fatalf("inspect image %s before test: %v", imageName, err)
-	}
-	if exists {
-		t.Fatalf("image %s already exists; refusing ambiguous ownership", imageName)
+	ownedID := new(string)
+	if err := containertest.RegisterImageCleanup(ctx, imageName, imageName, "bgp-testcontainers", ownedID,
+		client, t.Cleanup, func(err error) { t.Errorf("%v", err) }); err != nil {
+		t.Fatalf("register image ownership: %v", err)
 	}
 	resources.imageNames = append(resources.imageNames, imageName)
-	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
-		defer cancel()
-		exists, err := client.ImageExists(cleanupCtx, imageName)
-		if err != nil {
-			t.Errorf("inspect test-owned image %s during cleanup: %v", imageName, err)
-			return
-		}
-		if exists {
-			if err := client.RemoveImage(cleanupCtx, imageName); err != nil {
-				t.Errorf("remove test-owned image %s: %v", imageName, err)
-			}
-		}
-	})
+	return client, ownedID
 }
 
 func startBGPTestTopology(
@@ -118,7 +104,7 @@ func startBGPTestTopology(
 ) {
 	t.Helper()
 
-	buildID := time.Now().UnixNano()
+	buildID := strings.ToLower(rand.Text())
 	revision, buildDate, err := interopproject.BuildMetadata(ctx, root, os.Getenv("GOBFD_BUILD_REVISION"))
 	if err != nil {
 		t.Fatalf("resolve BGP peer build metadata: %v", err)
@@ -126,28 +112,28 @@ func startBGPTestTopology(
 	buildArgs := map[string]*string{"VCS_REF": &revision, "BUILD_DATE": &buildDate}
 	frrImage := buildBGPTestImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/frr"),
-		fmt.Sprintf("localhost/frr-bgp-interop-test:%d", buildID), resources,
+		"localhost/frr-bgp-interop-test:"+buildID, resources,
 		buildArgs,
 	)
 	gobgpImage := buildBGPTestImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/gobgp"),
-		fmt.Sprintf("localhost/gobgp-bgp-interop-test:%d", buildID), resources, buildArgs,
+		"localhost/gobgp-bgp-interop-test:"+buildID, resources, buildArgs,
 	)
 	exabgpImage := buildBGPTestImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/exabgp"),
-		fmt.Sprintf("localhost/exabgp-bgp-interop-test:%d", buildID), resources, buildArgs,
+		"localhost/exabgp-bgp-interop-test:"+buildID, resources, buildArgs,
 	)
 	gobfdImage := buildBGPTestImage(
 		ctx, t, endpoint, prepareBGPTestGoContext(t, root),
-		fmt.Sprintf("localhost/gobfd-bgp-interop-test:%d", buildID), resources, nil,
+		"localhost/gobfd-bgp-interop-test:"+buildID, resources, nil,
 	)
 	birdImage := buildBGPTestImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/bird3"),
-		fmt.Sprintf("localhost/bird3-bgp-interop-test:%d", buildID), resources, buildArgs,
+		"localhost/bird3-bgp-interop-test:"+buildID, resources, buildArgs,
 	)
 	tsharkImage := buildBGPTestImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/tshark"),
-		fmt.Sprintf("localhost/tshark-bgp-interop-test:%d", buildID), resources, nil,
+		"localhost/tshark-bgp-interop-test:"+buildID, resources, nil,
 	)
 
 	networkName := projectName + "-bgpbfdnet"
@@ -554,7 +540,7 @@ func buildBGPTestImage(
 ) string {
 	t.Helper()
 
-	registerBGPTestImageCleanup(ctx, t, endpoint, imageName, resources)
+	imageClient, ownedID := registerBGPTestImageCleanup(ctx, t, endpoint, imageName, resources)
 	//nolint:staticcheck // Retain core ProviderPodman without adding modules/podman.
 	provider, err := testcontainers.ProviderPodman.GetProvider()
 	if err != nil {
@@ -562,22 +548,25 @@ func buildBGPTestImage(
 	}
 	dockerProvider, ok := provider.(*testcontainers.DockerProvider)
 	if !ok {
-		t.Fatalf("Podman provider type = %T, want *testcontainers.DockerProvider", provider)
+		t.Fatalf("Podman provider type = %T, want *testcontainers.DockerProvider: %v", provider, provider.Close())
 	}
 	repository, tag, found := strings.Cut(imageName, ":")
 	if !found {
-		t.Fatalf("split test image name %q", imageName)
+		t.Fatalf("split test image name %q: %v", imageName, provider.Close())
 	}
 	//nolint:modernize // FromDockerfile alone does not implement ImageBuildInfo in v0.44.
-	builtImage, buildErr := dockerProvider.BuildImage(ctx, &testcontainers.ContainerRequest{
+	_, buildErr := dockerProvider.BuildImage(ctx, &testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{
 			Context:    contextPath,
 			Dockerfile: "Containerfile",
 			Repo:       repository,
 			Tag:        tag,
 			KeepImage:  true,
-			BuildArgs:  buildArgs,
+			BuildArgs:  containertest.StageBuildArgs(buildArgs, imageName, "bgp-testcontainers"),
 			BuildOptionsModifier: func(options *client.ImageBuildOptions) {
+				options.Labels = map[string]string{
+					"io.gobfd.test": "bgp-testcontainers", "io.gobfd.run": imageName, "io.gobfd.image": imageName,
+				}
 				options.CPUPeriod = 100000
 				options.CPUQuota = 200000
 				options.Memory = 2 << 30
@@ -585,12 +574,19 @@ func buildBGPTestImage(
 			},
 		},
 	})
-	closeErr := provider.Close()
-	if joinedErr := errors.Join(buildErr, closeErr); joinedErr != nil {
+	metadata, inspectErr := imageClient.ImageMetadata(ctx, imageName)
+	if inspectErr == nil {
+		inspectErr = containertest.ValidateImageOwner(metadata, imageName, imageName, "bgp-testcontainers")
+		if inspectErr == nil {
+			*ownedID = metadata.ID
+			t.Logf("test-owned image=%s id=%s", imageName, metadata.ID)
+		}
+	}
+	if joinedErr := errors.Join(buildErr, inspectErr, provider.Close()); joinedErr != nil {
 		t.Fatalf("build test-owned image %s: %v", imageName, joinedErr)
 	}
 
-	return builtImage
+	return metadata.ID
 }
 
 func prepareBGPTestGoContext(t *testing.T, root string) string {
@@ -627,6 +623,8 @@ func prepareBGPTestGoContext(t *testing.T, root string) string {
 		"COPY pkg ./pkg\n" +
 		"RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfd ./cmd/gobfd\n" +
 		"RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfdctl ./cmd/gobfdctl\n" +
+		"ARG GOBFD_IMAGE_RUN=\"\"\nARG GOBFD_IMAGE_TEST=\"\"\n" +
+		"LABEL io.gobfd.stage-run=\"${GOBFD_IMAGE_RUN}\" io.gobfd.stage-test=\"${GOBFD_IMAGE_TEST}\"\n" +
 		"FROM docker.io/library/debian:trixie-slim@sha256:" +
 		"8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0\n" +
 		"COPY --from=builder /bin/gobfd /bin/gobfdctl /bin/\n" +

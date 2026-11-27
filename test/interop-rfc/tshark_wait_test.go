@@ -118,25 +118,29 @@ func TestWaitTsharkCountRetriesUntilPacketsAppear(t *testing.T) {
 	}
 }
 
-// gobfd-b52: tshark -c counts packets that fail the -Y display filter, so a
-// live capture with -c stops on the first BFD packet of any session in the
-// shared network namespace. The row limit must use -a packets:, which counts
-// displayed packets only (tshark(1), options -c and -a).
-func TestTsharkLiveArgsLimitDisplayedPackets(t *testing.T) {
+// gobfd-b52: neither -c nor -a packets: may be passed to tshark live capture
+// without -w, because dumpcap enforces raw packet autostop on the temp capture
+// file before tshark evaluates -Y, causing 1-packet queries to stop on another
+// session's traffic in the shared network namespace. Row limits apply after -Y.
+func TestTsharkLiveArgsAvoidRawPacketCutoffs(t *testing.T) {
 	t.Parallel()
 
-	args := tsharkLiveArgs(3*time.Second, "bfd.sta == 0x03", []string{"frame.number"}, 2)
+	args := tsharkLiveArgs(3*time.Second, "bfd.sta == 0x03", []string{"frame.number"})
 	joined := strings.Join(args, " ")
-	if slices.Contains(args, "-c") {
-		t.Fatalf("live capture args use -c: %s", joined)
+	if slices.Contains(args, "-c") || strings.Contains(joined, "packets:") {
+		t.Fatalf("live capture args retain raw packet cutoff: %s", joined)
 	}
-	for _, want := range []string{"-a duration:3", "-a packets:2", "-Y bfd.sta == 0x03"} {
+	for _, want := range []string{"-q", "-a duration:3", "-Y bfd.sta == 0x03"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("live capture args = %s, want %q", joined, want)
 		}
 	}
-	if got := strings.Join(tsharkLiveArgs(0, "bfd", nil, 0), " "); strings.Contains(got, "packets:") ||
+	if got := strings.Join(tsharkLiveArgs(0, "bfd", nil), " "); strings.Contains(got, "packets:") ||
 		!strings.Contains(got, "-a duration:1") {
-		t.Fatalf("unlimited capture args = %s, want duration:1 and no packet limit", got)
+		t.Fatalf("minimum-duration capture args = %s, want duration:1 and no packet limit", got)
+	}
+	rows := parseTsharkRows("1\n2\n3\n", 2)
+	if len(rows) != 2 || rows[0][0] != "1" || rows[1][0] != "2" {
+		t.Fatalf("parseTsharkRows(maxCount=2) = %#v, want two rows", rows)
 	}
 }

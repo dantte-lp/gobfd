@@ -9,7 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
 
 type cleanupStack []func()
@@ -26,30 +29,76 @@ func (stack *cleanupStack) run() {
 
 type fakeOwnedImageClient struct {
 	exists     bool
+	metadata   podmanapi.ImageMetadata
+	images     map[string]podmanapi.ImageMetadata
 	inspectErr error
 	removeErr  error
 	removed    []string
 }
 
-func (client *fakeOwnedImageClient) ImageExists(context.Context, string) (bool, error) {
+func (client *fakeOwnedImageClient) ImageExists(_ context.Context, image string) (bool, error) {
+	if client.images != nil {
+		_, exists := client.images[image]
+		return exists, client.inspectErr
+	}
 	return client.exists, client.inspectErr
+}
+
+func (client *fakeOwnedImageClient) ImageMetadata(_ context.Context, image string) (podmanapi.ImageMetadata, error) {
+	if client.images != nil {
+		metadata, exists := client.images[image]
+		if !exists {
+			return podmanapi.ImageMetadata{}, errors.New("fixture image not found")
+		}
+		return metadata, client.inspectErr
+	}
+	return client.metadata, client.inspectErr
+}
+
+func (client *fakeOwnedImageClient) StageImages(
+	_ context.Context,
+	runID, testKind string,
+) ([]podmanapi.ImageMetadata, error) {
+	var out []podmanapi.ImageMetadata
+	for _, meta := range client.images {
+		if meta.Labels["io.gobfd.stage-run"] == runID &&
+			meta.Labels["io.gobfd.stage-test"] == testKind &&
+			meta.Labels["io.gobfd.image"] == "" {
+			out = append(out, meta)
+		}
+	}
+	return out, client.inspectErr
 }
 
 func (client *fakeOwnedImageClient) RemoveImage(_ context.Context, image string) error {
 	client.removed = append(client.removed, image)
+	if client.removeErr != nil {
+		return client.removeErr
+	}
+	for reference, metadata := range client.images {
+		if metadata.ID == image {
+			delete(client.images, reference)
+		}
+	}
 	client.exists = false
-	return client.removeErr
+	return nil
 }
 
 func TestOwnedImageCleanupPrecedesBuildFailure(t *testing.T) {
 	for _, failure := range []string{"late build error", "provider close error after successful build"} {
 		t.Run(failure, func(t *testing.T) {
 			const imageName = "localhost/gobfd-bgp-failover:test-owned"
-			client := new(fakeOwnedImageClient)
+			imageID := "sha256:" + strings.Repeat("a", 64)
+			client := &fakeOwnedImageClient{metadata: podmanapi.ImageMetadata{
+				ID: imageID,
+				Labels: map[string]string{
+					"io.gobfd.test": "bgp-fast-failover", "io.gobfd.run": imageName, "io.gobfd.image": imageName,
+				},
+			}}
 			var cleanups cleanupStack
 			var reported []error
 
-			err := installOwnedImageCleanup(
+			_, err := installOwnedImageCleanup(
 				t.Context(), imageName, client, cleanups.register,
 				func(err error) { reported = append(reported, err) },
 			)
@@ -63,8 +112,8 @@ func TestOwnedImageCleanupPrecedesBuildFailure(t *testing.T) {
 			// A late build or provider-close error may still leave the unique tag.
 			client.exists = true
 			cleanups.run()
-			if !slices.Equal(client.removed, []string{imageName}) {
-				t.Fatalf("removed images = %v, want exact owned tag", client.removed)
+			if !slices.Equal(client.removed, []string{imageID}) {
+				t.Fatalf("removed images = %v, want immutable owned ID %s", client.removed, imageID)
 			}
 			if len(reported) != 0 {
 				t.Fatalf("cleanup reports = %v, want none", reported)
@@ -76,7 +125,7 @@ func TestOwnedImageCleanupPrecedesBuildFailure(t *testing.T) {
 func TestOwnedImageCleanupRefusesForeignImage(t *testing.T) {
 	client := &fakeOwnedImageClient{exists: true}
 	var cleanups cleanupStack
-	err := installOwnedImageCleanup(
+	_, err := installOwnedImageCleanup(
 		t.Context(), "localhost/foreign:present", client, cleanups.register,
 		func(err error) { t.Error(err) },
 	)
@@ -85,6 +134,51 @@ func TestOwnedImageCleanupRefusesForeignImage(t *testing.T) {
 	}
 	if len(cleanups) != 0 || len(client.removed) != 0 {
 		t.Fatalf("foreign image cleanup = callbacks %d removals %v", len(cleanups), client.removed)
+	}
+}
+
+func TestOwnedImageCleanupPreservesReplacedTag(t *testing.T) {
+	const imageName = "localhost/gobfd-bgp-failover:test-owned"
+	id := "sha256:" + strings.Repeat("a", 64)
+	for _, test := range []struct {
+		name  string
+		bound bool
+	}{
+		{"unknown ID", false},
+		{"captured ID", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := new(fakeOwnedImageClient)
+			var cleanups cleanupStack
+			var reported []error
+			ownedID, err := installOwnedImageCleanup(t.Context(), imageName, client, cleanups.register,
+				func(err error) { reported = append(reported, err) })
+			if err != nil {
+				t.Fatal(err)
+			}
+			client.images = map[string]podmanapi.ImageMetadata{
+				id: {ID: id, Labels: map[string]string{
+					"io.gobfd.test": "bgp-fast-failover", "io.gobfd.run": imageName, "io.gobfd.image": imageName,
+				}},
+				imageName: {ID: "sha256:" + strings.Repeat("b", 64), Labels: map[string]string{
+					"io.gobfd.test": "bgp-fast-failover", "io.gobfd.run": "foreign", "io.gobfd.image": imageName,
+				}},
+			}
+			if test.bound {
+				*ownedID = id
+			}
+			cleanups.run()
+			if _, exists := client.images[imageName]; !exists {
+				t.Fatal("cleanup removed the foreign replacement tag")
+			}
+			if test.bound {
+				if len(reported) != 0 || !slices.Equal(client.removed, []string{id}) {
+					t.Fatalf("captured cleanup removed %v, reports %v", client.removed, reported)
+				}
+			} else if len(reported) != 1 || len(client.removed) != 0 {
+				t.Fatalf("unknown cleanup removed %v, reports %v", client.removed, reported)
+			}
+		})
 	}
 }
 

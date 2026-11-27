@@ -2,6 +2,7 @@ package interop_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec" //nolint:depguard // Contract test executes the repository runner with isolated fake Podman commands.
@@ -52,9 +53,22 @@ const (
 
 func TestMain(m *testing.M) {
 	if mode := os.Getenv(interopFakeMode); mode != "" {
-		os.Exit(runInteropFakeCommand(mode, filepath.Base(os.Args[0]), os.Args[1:]))
+		if mode == "graceful-shutdown" && filepath.Base(os.Args[0]) != "podman" {
+			os.Exit(m.Run())
+		}
+		exitFakeCommand(runInteropFakeCommand(mode, filepath.Base(os.Args[0]), os.Args[1:]))
 	}
 	os.Exit(m.Run())
+}
+
+func exitFakeCommand(code int) {
+	// Test-only packages have no instrumented statements under -coverprofile, so
+	// internal/coverage/cfile.emitMetaData writes "program not built with -cover"
+	// to stderr during os.Exit when TestMain exits as a fake CLI without m.Run().
+	_ = os.Stdout.Sync()
+	_ = os.Stderr.Sync()
+	_ = os.Stderr.Close()
+	os.Exit(code)
 }
 
 func TestProjectControlHoloSemanticGate(t *testing.T) {
@@ -116,11 +130,11 @@ func TestProjectControlHoloSemanticGate(t *testing.T) {
 			sharedSequence := []string{
 				"-p gobfd-interop -f " + filepath.Join(root, "test", "interop", "compose.yml") +
 					" config --format json",
-				baseBuildLimits + " --tag gobfd-interop-bird3 --file /rendered/bird3/Containerfile ",
-				baseBuildLimits + " --tag localhost/custom-frr:contract --file /rendered/frr/Containerfile ",
-				baseBuildLimits + " --tag gobfd-interop-gobfd --file /rendered/root/deployments/docker/Containerfile ",
-				baseBuildLimits + " --tag gobfd-interop-thoro --file /rendered/thoro/Containerfile ",
-				baseBuildLimits + " --tag gobfd-interop-tshark --file /rendered/tshark/Containerfile ",
+				baseBuildLimits + " --tag localhost/gobfd-interop-gobfd-interop-bird3:",
+				baseBuildLimits + " --tag localhost/gobfd-interop-gobfd-interop-frr:",
+				baseBuildLimits + " --tag localhost/gobfd-interop-gobfd-interop-gobfd:",
+				baseBuildLimits + " --tag localhost/gobfd-interop-gobfd-interop-thoro:",
+				baseBuildLimits + " --tag localhost/gobfd-interop-gobfd-interop-tshark:",
 				"podman wait immutable-holo-config-id",
 				"podman inspect --format {{.State.ExitCode}} immutable-holo-config-id",
 				"podman logs immutable-holo-config-id",
@@ -132,8 +146,7 @@ func TestProjectControlHoloSemanticGate(t *testing.T) {
 			}
 			if test.wantSecondUp {
 				sharedSequence = append(sharedSequence,
-					"-p gobfd-interop -f "+filepath.Join(root, "test", "interop", "compose.yml")+
-						" up -d --no-build --no-deps gobfd frr bird3 tshark thoro",
+					"up -d --no-build --no-deps gobfd frr bird3 tshark thoro",
 				)
 			}
 			assertCommandSubsequence(t, string(commands), sharedSequence)
@@ -151,7 +164,7 @@ func TestProjectControlHoloSemanticGate(t *testing.T) {
 				assertContainsAll(t, "build metadata", line, []string{
 					"--build-arg VCS_REF=" + strings.Repeat("a", 40), "--build-arg BUILD_DATE=",
 				})
-				if strings.Contains(line, "localhost/custom-frr:contract") &&
+				if strings.Contains(line, "--file /rendered/frr/Containerfile") &&
 					(!strings.Contains(line, "--build-arg EXTRA=two words") ||
 						!strings.HasSuffix(strings.TrimSpace(line), " /rendered/frr")) {
 					t.Fatalf("FRR build lost rendered arguments/context: %s", line)
@@ -269,6 +282,7 @@ func TestProjectControlBGPBoundedBuild(t *testing.T) {
 				"PATH="+fakeBin+":"+os.Getenv("PATH"),
 				"INTEROP_FAKE_COMMAND_LOG="+commandLog,
 				"INTEROP_FAKE_BUILD_FAIL="+testCase.fail,
+				"INTEROP_FAKE_STATE_DIR="+t.TempDir(),
 				"INTEROP_PROJECT_NAME=custom-bgp", "INTEROP_PROJECT_KIND="+testCase.kind,
 				"GOBFD_BUILD_REVISION="+strings.Repeat("a", 40),
 				"COMPOSE_COMPATIBILITY=", "XDG_RUNTIME_DIR="+secureRuntimeDir(t),
@@ -284,7 +298,7 @@ func TestProjectControlBGPBoundedBuild(t *testing.T) {
 			assertCommandSubsequence(t, log, []string{
 				"podman container exists " + testCase.frrName,
 				"podman compose -p custom-bgp -f " + filepath.Join(root, testCase.composeFile) + " config --format json",
-				baseBuildLimits + " --tag custom-bgp-frr-bgp --file /rendered/frr/Containerfile ",
+				baseBuildLimits + " --tag localhost/gobfd-interop-custom-bgp-frr-bgp:",
 			})
 			assertContainsAll(t, "BGP build metadata", log, []string{
 				"--build-arg VCS_REF=" + strings.Repeat("a", 40), "--build-arg BUILD_DATE=",
@@ -297,6 +311,35 @@ func TestProjectControlBGPBoundedBuild(t *testing.T) {
 				t.Fatalf("failed build did not enter owned cleanup: %s", log)
 			}
 		})
+	}
+}
+
+func TestProjectControlPreservesExistingImageAlias(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeBin, stateDir := t.TempDir(), t.TempDir()
+	fakeModeEnv := installFakeCommand(t, fakeBin, "podman", "bgp-build")
+	cmd := projectControlCommand(t.Context(), root, "up")
+	cmd.Env = append(os.Environ(), fakeModeEnv, fakeRaceOptions,
+		"PATH="+fakeBin+":"+os.Getenv("PATH"),
+		"INTEROP_FAKE_COMMAND_LOG="+filepath.Join(t.TempDir(), "commands.log"),
+		"INTEROP_FAKE_STATE_DIR="+stateDir,
+		"INTEROP_FAKE_PROTECTED_IMAGE=custom-bgp-frr-bgp",
+		"INTEROP_PROJECT_NAME=custom-bgp", "INTEROP_PROJECT_KIND=bgp",
+		"GOBFD_BUILD_REVISION="+strings.Repeat("a", 40),
+		"COMPOSE_COMPATIBILITY=", "XDG_RUNTIME_DIR="+secureRuntimeDir(t),
+	)
+	if output, runErr := cmd.CombinedOutput(); runErr != nil {
+		t.Fatalf("start isolated image owner: %v\n%s", runErr, output)
+	}
+	_, err = os.Stat(filepath.Join(stateDir, "protected-image-overwritten"))
+	if err == nil {
+		t.Fatal("build overwrote the pre-existing shared image alias")
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
 	}
 }
 
@@ -416,9 +459,10 @@ func TestProjectControlLockRunRejectsArbitraryLabelledResource(t *testing.T) {
 			commandLog := filepath.Join(t.TempDir(), "podman.log")
 			marker := filepath.Join(t.TempDir(), "command-ran")
 			fakeModeEnv := installFakeCommand(t, fakeBin, "podman", "arbitrary-resource")
+			installFakeCommand(t, fakeBin, "locked-command", "arbitrary-resource")
 			cmd := projectControlCommand(
 				t.Context(), root,
-				"lock-run", "--", "bash", "-c", `printf ran > "$1"`, "lock-run-command", marker,
+				"lock-run", "--", "locked-command", marker,
 			)
 			cmd.Env = append(os.Environ(),
 				fakeModeEnv,
@@ -453,9 +497,10 @@ func TestProjectControlLockRunRequiresAllMandatoryContainers(t *testing.T) {
 	fakeBin := t.TempDir()
 	marker := filepath.Join(t.TempDir(), "command-ran")
 	fakeModeEnv := installFakeCommand(t, fakeBin, "podman", "mandatory-containers")
+	installFakeCommand(t, fakeBin, "locked-command", "mandatory-containers")
 	cmd := projectControlCommand(
 		t.Context(), root,
-		"lock-run", "--", "bash", "-c", `printf ran > "$1"`, "lock-run-command", marker,
+		"lock-run", "--", "locked-command", marker,
 	)
 	cmd.Env = append(os.Environ(),
 		fakeModeEnv,
@@ -498,6 +543,15 @@ func TestProjectControlLockRunRejectsEveryMissingMandatoryContainer(t *testing.T
 				"bird3-bgp-interop", "gobfd-exabgp-interop", "exabgp-interop",
 			},
 		},
+		{
+			kind:    "rfc",
+			project: "gobfd-interop-rfc",
+			containers: []string{
+				"gobfd-rfc-interop", "tshark-rfc-interop", "frr-rfc-interop",
+				"gobfd-rfc9384-interop", "gobgp-rfc-interop", "frr-rfc-bgp-interop",
+				"frr-rfc-unsolicited-interop", "echo-reflector-interop",
+			},
+		},
 	}
 	for _, testCase := range testCases {
 		for _, missingContainer := range testCase.containers {
@@ -505,9 +559,10 @@ func TestProjectControlLockRunRejectsEveryMissingMandatoryContainer(t *testing.T
 				fakeBin := t.TempDir()
 				marker := filepath.Join(t.TempDir(), "command-ran")
 				fakeModeEnv := installFakeCommand(t, fakeBin, "podman", "missing-mandatory")
+				installFakeCommand(t, fakeBin, "locked-command", "missing-mandatory")
 				cmd := projectControlCommand(
 					t.Context(), root,
-					"lock-run", "--", "bash", "-c", `printf ran > "$1"`, "lock-run-command", marker,
+					"lock-run", "--", "locked-command", marker,
 				)
 				cmd.Env = append(os.Environ(),
 					fakeModeEnv,
@@ -538,7 +593,9 @@ func assertCommandSubsequence(t *testing.T, commandLog string, want []string) {
 		if next >= len(want) {
 			break
 		}
-		if line == want[next] || (strings.HasSuffix(want[next], " ") && strings.HasPrefix(line, want[next])) {
+		prefix := strings.HasSuffix(want[next], " ") || strings.HasSuffix(want[next], ":")
+		action := strings.HasPrefix(want[next], "up ") && strings.HasSuffix(line, " "+want[next])
+		if line == want[next] || (prefix && strings.HasPrefix(line, want[next])) || action {
 			next++
 		}
 	}
@@ -672,8 +729,16 @@ func installFakeCommand(t *testing.T, directory, name, mode string) string {
 }
 
 func runInteropFakeCommand(mode, command string, args []string) int {
+	if command == "locked-command" {
+		if len(args) != 1 || os.WriteFile(args[0], []byte("ran"), 0o600) != nil {
+			return 125
+		}
+		return 0
+	}
 	joined := strings.Join(args, " ")
 	switch mode {
+	case "graceful-shutdown":
+		return runGracefulShutdownFake(args)
 	case "timer-artifact-cleanup":
 		if code := fakeAppend("INTEROP_FAKE_COMMAND_LOG", command+" ", joined); code != 0 {
 			return code
@@ -721,12 +786,26 @@ func runInteropFakeCommand(mode, command string, args []string) int {
 		if len(args) == 0 {
 			return 9
 		}
+		if code, handled := fakeOwnedImageCommand(args); handled {
+			return code
+		}
 		switch args[0] {
 		case "container":
 			return 1
 		case "ps", "network", "volume":
 			return 0
 		case "build":
+			if protected := os.Getenv("INTEROP_FAKE_PROTECTED_IMAGE"); protected != "" {
+				index := slices.Index(args, "--tag")
+				if index < 0 || index+1 == len(args) {
+					return 9
+				}
+				if args[index+1] == protected {
+					if code := fakeStateMarker("protected-image-overwritten"); code != 0 {
+						return code
+					}
+				}
+			}
 			if os.Getenv("INTEROP_FAKE_BUILD_FAIL") == "true" {
 				return 17
 			}
@@ -738,11 +817,18 @@ func runInteropFakeCommand(mode, command string, args []string) int {
 			}
 			if len(args) >= 5 && args[1] == "-p" && args[2] == "custom-bgp" && args[3] == "-f" && filepath.IsAbs(args[4]) {
 				if slices.Equal(args[5:], []string{"config", "--format", "json"}) {
-					fmt.Fprintln(os.Stdout,
-						`{"services":{"frr-bgp":{"build":{"context":"/rendered/frr","dockerfile":"Containerfile"}}}}`)
+					config := os.Getenv("INTEROP_FAKE_BUILD_CONFIG")
+					if config == "" {
+						config = `{"services":{"frr-bgp":{"build":{"context":"/rendered/frr","dockerfile":"Containerfile"}}}}`
+					}
+					fmt.Fprintln(os.Stdout, config)
 					return 0
 				}
-				if slices.Equal(args[5:], []string{"up", "-d", "--no-build"}) {
+				action, err := fakeOwnedImageOverride(args[5:])
+				if err != nil {
+					return 9
+				}
+				if slices.Equal(action, []string{"up", "-d", "--no-build"}) {
 					return 0
 				}
 			}
@@ -793,6 +879,13 @@ func runInteropFakeCommand(mode, command string, args []string) int {
 				}
 				fmt.Fprintln(os.Stdout, config)
 				return 0
+			}
+			if validPrefix {
+				action, err := fakeOwnedImageOverride(args[4:])
+				if err != nil {
+					return 9
+				}
+				args = append(slices.Clone(args[:4]), action...)
 			}
 			if validPrefix && slices.Equal(args[4:], []string{"up", "-d", "--no-build", "holo", "holo-config"}) {
 				return fakeStateMarker("started")
@@ -901,6 +994,9 @@ func runInteropFakeCommand(mode, command string, args []string) int {
 
 func runHoloPodmanFake(args []string, joined string) int {
 	if code := fakeAppend("INTEROP_FAKE_COMMAND_LOG", "podman ", joined); code != 0 {
+		return code
+	}
+	if code, handled := fakeOwnedImageCommand(args); handled {
 		return code
 	}
 	stateDir := os.Getenv("INTEROP_FAKE_STATE_DIR")

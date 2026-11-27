@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dantte-lp/gobfd/test/internal/interopproject"
 	"github.com/dantte-lp/gobfd/test/internal/vendorprofiles"
 )
 
@@ -66,6 +67,7 @@ type runner struct {
 	devProject string
 	stdout     io.Writer
 	stderr     io.Writer
+	closeFile  func(*os.File) error
 }
 
 // Run executes one E2E target.
@@ -139,10 +141,10 @@ func initializeReportDirectory(root, target string) (string, string, error) {
 	if spec, ok := testReportTarget(target); ok {
 		return secureReportDirectory(root, spec.reportPath)
 	}
-	runID := time.Now().UTC().Format("20060102T150405Z")
-	if target == "routing" {
-		runID = fmt.Sprintf("%s-%d", time.Now().UTC().Format("20060102T150405000000000Z"), os.Getpid())
+	if target == "linux" || target == "overlay" || target == "routing" {
+		return secureReportDirectory(root, target)
 	}
+	runID := time.Now().UTC().Format("20060102T150405Z")
 	reportDir := filepath.Join(root, "reports", "e2e", target, runID)
 	if err := os.MkdirAll(reportDir, 0o750); err != nil {
 		return "", "", fmt.Errorf("create %s report directory: %w", target, err)
@@ -177,7 +179,11 @@ func (r *runner) devImageID(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve dev service container: %w", err)
 	}
-	containerID, _, _ = strings.Cut(strings.TrimSpace(containerID), "\n")
+	containers := strings.Fields(containerID)
+	if len(containers) != 1 || !imageIDPattern.MatchString(containers[0]) {
+		return "", fmt.Errorf("%w: dev service must resolve to exactly one full container ID", errUsage)
+	}
+	containerID = containers[0]
 	imageID, err := r.commandText(ctx, podmanCommand, "inspect", "--type", "container",
 		"--format", "{{.Image}}", containerID)
 	if err != nil {
@@ -191,15 +197,10 @@ func (r *runner) devImageID(ctx context.Context) (string, error) {
 }
 
 func (r *runner) runLinux(ctx context.Context) (runErr error) {
-	containerName := "e2e-linux-" + r.runID
+	owned := r.newRuntime("linux")
 	testImage := os.Getenv("E2E_LINUX_IMAGE")
 	defer func() {
-		r.bestEffortFile(
-			ctx, containersJSONName, "containers.err", podmanCommand,
-			"ps", "-a", "--filter", "name="+containerName, "--format", "json",
-		)
-		r.bestEffortFile(ctx, containersLogName, "containers-log.err", podmanCommand, "logs", containerName)
-		r.bestEffortCommand(ctx, podmanCommand, "rm", "-f", containerName)
+		runErr = errors.Join(runErr, r.cleanupRuntime(ctx, owned))
 		runErr = errors.Join(runErr, r.writeJSON("environment.json", map[string]any{
 			environmentTarget:     "e2e-linux",
 			environmentRunID:      r.runID,
@@ -216,6 +217,7 @@ func (r *runner) runLinux(ctx context.Context) (runErr error) {
 			{summaryGoTestLog, "`" + goTestLogName + "`"},
 			{summaryContainerState, "`" + containersJSONName + "`"},
 			{summaryContainerLogs, "`" + containersLogName + "`"},
+			{"Runtime ownership", "`runtime-plan.json`, `runtime-container.json`"},
 			{"Linux events", "`link-events.json`"},
 			{"LAG backend evidence", "`lag-backends.json`"},
 		}))
@@ -230,8 +232,9 @@ func (r *runner) runLinux(ctx context.Context) (runErr error) {
 	if err := r.buildLinuxBinaries(ctx); err != nil {
 		return err
 	}
-	if err := r.command(ctx, commandTimeout, io.Discard, r.stderr, podmanCommand, "create",
-		"--name", containerName, "--network", "none", "--cap-drop", "ALL", "--cap-add", "NET_ADMIN",
+	if err := r.createRuntime(ctx, owned, []string{
+		podmanCommand, "create",
+		"--name", owned.Name, "--network", "none", "--cap-drop", "ALL", "--cap-add", "NET_ADMIN",
 		"--cap-add", "NET_RAW", "--security-opt", "label=disable", "--workdir", "/report",
 		// The peer shares this isolated namespace; permit its IPv4 source over the veth wire.
 		"--sysctl", "net.ipv4.conf.all.accept_local=1", "--sysctl", "net.ipv4.conf.default.accept_local=1",
@@ -239,12 +242,12 @@ func (r *runner) runLinux(ctx context.Context) (runErr error) {
 		"--cpus", "2", "--memory", "2g", "--memory-swap", "2g", "--pids-limit", "512", "--image-volume", "ignore",
 		"-e", "GOMAXPROCS=2", "-e", "GOMEMLIMIT=1500MiB",
 		"-e", "E2E_LINUX_REPORT_DIR=/report", "-e", "E2E_LINUX_BFD_BINARY=/report/gobfd",
-		"-v", r.reportDir+":/report:z", testImage,
+		"-v", r.reportDir + ":/report:z", testImage,
 		"./test2json", "-t", "./e2e-linux.test", "-test.v", "-test.timeout=180s",
-	); err != nil {
+	}); err != nil {
 		return err
 	}
-	if err := r.loggedCommand(ctx, podmanCommand, "start", "-a", containerName); err != nil {
+	if err := r.loggedCommand(ctx, podmanCommand, "start", "-a", owned.ID); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(r.stdout, "S10.5 Linux E2E artifacts: %s\n", r.reportDir); err != nil {
@@ -272,16 +275,10 @@ func (r *runner) buildLinuxBinaries(ctx context.Context) error {
 }
 
 func (r *runner) runOverlay(ctx context.Context) (runErr error) {
-	containerName := fmt.Sprintf("e2e-overlay-%s-%d", r.runID, os.Getpid())
+	owned := r.newRuntime("overlay")
 	testImage := os.Getenv("E2E_OVERLAY_IMAGE")
-	created := false
 	defer func() {
-		if created {
-			cleanupCtx := context.WithoutCancel(ctx)
-			r.bestEffortFile(cleanupCtx, containersJSONName, "containers.err", podmanCommand, "inspect", containerName)
-			r.bestEffortFile(cleanupCtx, containersLogName, "containers-log.err", podmanCommand, "logs", containerName)
-			r.bestEffortCommand(cleanupCtx, podmanCommand, "rm", "-f", containerName)
-		}
+		runErr = errors.Join(runErr, r.cleanupRuntime(ctx, owned))
 		runErr = errors.Join(runErr, r.writeJSON("environment.json", map[string]any{
 			environmentTarget: "e2e-overlay", environmentRunID: r.runID, environmentDevProject: r.devProject,
 			environmentRuntime:  podmanCommand,
@@ -298,20 +295,16 @@ func (r *runner) runOverlay(ctx context.Context) (runErr error) {
 			{summaryGoTestLog, "`" + goTestLogName + "`"},
 			{summaryContainerState, "`" + containersJSONName + "`"},
 			{summaryContainerLogs, "`" + containersLogName + "`"},
+			{"Runtime ownership", "`runtime-plan.json`, `runtime-container.json`"},
 			{"Codec fixture summary (not a capture)", "`packets.csv`"},
 		}))
 	}()
 
 	if testImage == "" {
-		var output strings.Builder
-		if err := r.command(ctx, commandTimeout, &output, r.stderr, r.composeDev("images", "-q", "dev")...); err != nil {
+		var err error
+		if testImage, err = r.devImageID(ctx); err != nil {
 			return err
 		}
-		images := strings.Fields(output.String())
-		if len(images) != 1 {
-			return fmt.Errorf("resolve Compose dev image: expected one image ID, got %d: %w", len(images), errUsage)
-		}
-		testImage = images[0]
 	}
 	if err := r.command(ctx, testTimeout, r.stdout, r.stderr, r.composeDev(
 		"exec", "-T", "dev", "env", "GOMAXPROCS=2", "GOMEMLIMIT=1500MiB", "CGO_ENABLED=1",
@@ -320,12 +313,11 @@ func (r *runner) runOverlay(ctx context.Context) (runErr error) {
 	)...); err != nil {
 		return err
 	}
-	createArgs := r.overlayContainerArgs(containerName, testImage)
-	if err := r.command(ctx, commandTimeout, io.Discard, r.stderr, createArgs...); err != nil {
+	createArgs := r.overlayContainerArgs(owned.Name, testImage)
+	if err := r.createRuntime(ctx, owned, createArgs); err != nil {
 		return err
 	}
-	created = true
-	if err := r.loggedCommand(ctx, podmanCommand, "start", "-a", containerName); err != nil {
+	if err := r.loggedCommand(ctx, podmanCommand, "start", "-a", owned.ID); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(r.stdout, "S10.4 overlay E2E artifacts: %s\n", r.reportDir); err != nil {
@@ -351,25 +343,7 @@ const interopRFCProject = "gobfd-interop-rfc"
 
 func (r *runner) runRFC(ctx context.Context) (runErr error) {
 	composeFile := filepath.Join(r.root, "test", "interop-rfc", "compose.yml")
-	compose := func(args ...string) []string {
-		return append([]string{podmanCommand, "compose", "-p", interopRFCProject, "-f", composeFile}, args...)
-	}
 	defer func() {
-		r.bestEffortFile(ctx, containersLogName, "containers-log.err", compose("logs")...)
-		r.bestEffortFile(ctx, containersJSONName, "containers.err", podmanCommand, "inspect",
-			"gobfd-rfc-interop", "tshark-rfc-interop", "frr-rfc-interop", "gobfd-rfc9384-interop",
-			"gobgp-rfc-interop", "frr-rfc-bgp-interop", "frr-rfc-unsolicited-interop", "echo-reflector-interop")
-		r.bestEffortFile(
-			ctx, "packets.pcapng", "packets.err", podmanCommand,
-			"exec", "tshark-rfc-interop", "cat", "/captures/bfd.pcapng",
-		)
-		r.bestEffortFile(ctx, "packets.csv", "packets-csv.err", podmanCommand, "exec", "tshark-rfc-interop",
-			"tshark", "-r", "/captures/bfd.pcapng", "-Y", "bfd || udp.port == 3785", "-T", "fields",
-			"-e", "frame.time_relative", "-e", "ip.src", "-e", "ip.dst", "-e", "udp.srcport", "-e", "udp.dstport",
-			"-e", "bfd.sta", "-e", "bfd.diag", "-e", "bfd.desired_min_tx_interval", "-e", "bfd.required_min_rx_interval",
-			"-e", "bfd.required_min_echo_interval", "-e", "bfd.my_discriminator", "-e", "bfd.your_discriminator",
-			"-E", "header=y", "-E", "separator=,")
-		r.bestEffortCommand(ctx, compose("down", "--volumes", "--remove-orphans")...)
 		runErr = errors.Join(runErr, r.writeJSON("environment.json", map[string]any{
 			environmentTarget: "e2e-rfc", environmentRunID: r.runID, environmentDevProject: r.devProject,
 			"compose_file": composeFile, "compose_project": interopRFCProject, environmentRuntime: podmanCommand,
@@ -388,21 +362,12 @@ func (r *runner) runRFC(ctx context.Context) (runErr error) {
 		}))
 	}()
 
-	if err := r.command(ctx, 10*time.Minute, r.stdout, r.stderr, compose("build", "--no-cache")...); err != nil {
-		return err
+	controller, err := interopproject.NewProject(r.root, interopRFCProject, "rfc", r.stdout, r.stderr)
+	if err != nil {
+		return fmt.Errorf("create RFC project controller: %w", err)
 	}
-	if err := r.command(ctx, commandTimeout, r.stdout, r.stderr, compose("up", "-d")...); err != nil {
-		return err
-	}
-	if err := wait(ctx, 15*time.Second); err != nil {
-		return fmt.Errorf("wait for RFC topology: %w", err)
-	}
-	if err := r.loggedCommand(ctx, r.composeDev(
-		"exec", "-T", "dev", "env", "INTEROP_RFC_COMPOSE_FILE=/app/test/interop-rfc/compose.yml",
-		"INTEROP_PROJECT_NAME="+interopRFCProject,
-		"go", goTestCommand, goTagsFlag, "interop_rfc", "-json", "-v", "-count=1", "-timeout", "300s", "./test/interop-rfc/",
-	)...); err != nil {
-		return err
+	if err := controller.Lifecycle(ctx, r.runRFCSuite); err != nil {
+		return fmt.Errorf("run owned RFC topology: %w", err)
 	}
 	if _, err := fmt.Fprintf(r.stdout, "S10.4 RFC E2E artifacts: %s\n", r.reportDir); err != nil {
 		return fmt.Errorf("write RFC artifact path: %w", err)
@@ -517,12 +482,12 @@ func (r *runner) loggedCommandEnvironment(
 	}
 	logFile, err := secureFile(filepath.Join(r.reportDir, goTestLogName))
 	if err != nil {
-		return errors.Join(err, closeArtifact(jsonFile))
+		return errors.Join(err, r.closeArtifact(jsonFile))
 	}
 	runErr := r.commandEnvironment(
 		ctx, timeout, io.MultiWriter(r.stdout, jsonFile, logFile), r.stderr, environment, argv...,
 	)
-	closeErr := errors.Join(closeArtifact(jsonFile), closeArtifact(logFile))
+	closeErr := errors.Join(r.closeArtifact(jsonFile), r.closeArtifact(logFile))
 	var validationErr error
 	if runErr == nil {
 		validationErr = errors.Join(
@@ -581,12 +546,12 @@ func (r *runner) bestEffortFile(ctx context.Context, outputName, errorName strin
 	if err != nil {
 		return
 	}
-	defer output.Close()
+	defer r.reportBestEffortClose(output)
 	errOutput, err := secureFile(filepath.Join(r.reportDir, errorName))
 	if err != nil {
 		return
 	}
-	defer errOutput.Close()
+	defer r.reportBestEffortClose(errOutput)
 	if err := r.command(ctx, commandTimeout, output, errOutput, argv...); err != nil {
 		if _, writeErr := fmt.Fprintf(errOutput, "artifact collection failed: %v\n", err); writeErr != nil {
 			return
@@ -594,11 +559,9 @@ func (r *runner) bestEffortFile(ctx context.Context, outputName, errorName strin
 	}
 }
 
-func (r *runner) bestEffortCommand(ctx context.Context, argv ...string) {
-	if err := r.command(ctx, commandTimeout, io.Discard, io.Discard, argv...); err != nil {
-		if _, writeErr := fmt.Fprintf(r.stderr, "best-effort cleanup failed: %v\n", err); writeErr != nil {
-			return
-		}
+func (r *runner) reportBestEffortClose(file *os.File) {
+	if err := r.closeArtifact(file); err != nil && r.stderr != nil {
+		_, _ = fmt.Fprintf(r.stderr, "best-effort artifact close failed: %v\n", err)
 	}
 }
 
@@ -608,20 +571,29 @@ func secureFile(path string) (*os.File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create artifact %s: %w", path, err)
 	}
-	if err := file.Chmod(0o600); err != nil {
+	if chmodErr := file.Chmod(0o600); chmodErr != nil {
 		return nil, errors.Join(
-			fmt.Errorf("set artifact %s mode to 0600: %w", path, err),
+			fmt.Errorf("set artifact %s mode to 0600: %w", path, chmodErr),
 			closeArtifact(file),
 		)
 	}
 	return file, nil
 }
 
-func closeArtifact(file *os.File) error {
-	if err := file.Close(); err != nil {
+func (r *runner) closeArtifact(file *os.File) error {
+	closeFn := (*os.File).Close
+	if r != nil && r.closeFile != nil {
+		closeFn = r.closeFile
+	}
+	if err := closeFn(file); err != nil {
 		return fmt.Errorf("close artifact %s: %w", file.Name(), err)
 	}
 	return nil
+}
+
+func closeArtifact(file *os.File) error {
+	var defaultRunner *runner
+	return defaultRunner.closeArtifact(file)
 }
 
 func validateNonemptyArtifact(path string) error {

@@ -54,9 +54,10 @@ flowchart LR
 | Reviewed RX demux optimizations (`transportScope` reuse and concrete `*Manager` delivery reporter) | Integrated | Preserves zero allocations and thread safety; five unreviewed lock-elision experiments remain excluded |
 | Interface recreation and retained session binding recovery | Integrated | Restores `SO_BINDTODEVICE` sender/listener leases across link delete/recreate and preserves local `AdminDown` causes |
 | Function/profile code-quality inventory (`repoquality code`) and strict GoBGP RIB JSON parser | Integrated | Separates test support from production complexity budgets and fails closed on truncated RIB output |
-| Bash-free diagnostic/dev OCI recipes and exec-form `Containerfile` contract | Integrated | Removes explicit Bash installation and shell `RUN` steps while retaining checksum-verified `Compose v5.8.0` |
-| Run-owned E2E/Compose image cleanup and Kubernetes archive/UID/containerd preflight (`Stream B` Wave 4–5) | Committed on topic branch; deferred to Wave 2 | Preserved under `refs/backups/20261127/*`; requires decomposing 387 `cyclop`/`wrapcheck`/`govet`/`lll` diagnostics before merge |
-| Source-built Docker Compose Go module graph (`v5.6.1` prototype) | Deferred to dedicated wave | Current `release/v1.0` already verifies `Compose v5.8.0` by SHA-256; source graph requires `v5.8.0` upgrade first |
+| Bash-free diagnostic/dev OCI recipes and exec-form `Containerfile` contract | Integrated (`PR #135`, `a315549c`) | Removes explicit Bash installation and shell `RUN` steps while retaining checksum-verified `Compose v5.8.0` |
+| Runtime core hardening: Micro-BFD loss resync & `enforce` readiness, bounded per-peer metrics (`4096`), kernel `dev_valid_name` validation and recursive-safe shutdown | Integrated (`PR #136`, `53644fae`) | Eliminates stale LAG actuation on notification loss, bounds churn series cardinality, and deduplicates NetworkManager D-Bus helpers |
+| Run-owned E2E/Compose/stage image cleanup, direct Kubernetes containerd gRPC lease import, canonical Grafana provisioning and Bash-free `Makefile` (`Stream B` Wave 4–5) | Integrated (`PR #137`) | Decomposes all 387 lint findings across 19 profiles (`0` issues), imports OCI archives create-only via containerd gRPC leases, and removes duplicate observability assets |
+| Source-built Docker Compose Go module graph (`v5.6.1` prototype) | Deferred to post-v1 | Current `release/v1.0` already verifies `Compose v5.8.0` by SHA-256; source graph requires `v5.8.0` upgrade first |
 | Diagnostic CPU-window attribution witnesses (`695b2fa1`) | Parked on diagnostic branch | Extra per-window clock reads carry unbounded observer cost and are documented as diagnostic-only |
 
 ## Execution hierarchy and remaining v1 scope
@@ -76,8 +77,8 @@ Task counts are not a completion percentage: added leaves reflect finer-grained 
 
 | Remaining gate | Target channel | Required evidence |
 |:---|:---|:---|
-| Merge reconciled post-`alpha.1` Wave 1–3 PR and publish `v1.0.0-alpha.2` | `v1.0.0-alpha.2` | Hosted `CI`, `PR-safe E2E`, `release.yml` paired benchmark pass, verified draft assets and package lifecycle |
-| Refactor lint diagnostics in `Stream B` Wave 4–5 and qualify Debian trixie integration consumers | `v1.0.0` stable | Zero-issue 92-linter pass on run-owned image / Kubernetes containerd helpers plus live BGP failover, ExaBGP and K8s checks |
+| Publish `v1.0.0-alpha.2` from converged `release/v1.0` (`PR #133`, `#135`, `#136`, `#137`) | `v1.0.0-alpha.2` | Hosted `CI`, `PR-safe E2E`, `release.yml` paired benchmark pass, verified draft assets and package lifecycle |
+| Qualify live Debian trixie integration consumers (BGP failover, ExaBGP, Kubernetes DaemonSet) | `v1.0.0` stable | Live Compose and Kubernetes DaemonSet verification receipts on the converged `release/v1.0` candidate |
 | Record native Control/Echo A/B baseline without `runtime.LockOSThread` | `v1.0.0` stable | Native 1,000-session A/B evidence meeting the `2*GOMAXPROCS+32` OS-thread ceiling without timer regression |
 | Unified five-field session-preserving reload qualification on supported peers | `v1.0.0` stable | Wire pcaps and uninterrupted `Up` state across pinned FRR `10.7.1` and BIRD `3.4.0` on the frozen candidate |
 | Admitted reference runner, 5,000-session engineering gate and 24-hour 1,000-session run | `v1.0.0` stable | 24h run on isolated 8 vCPU / 8 GiB Debian runner (`p99 <= 25 ms`, `p99.9 <= 50 ms`, `RSS <= 512 MiB`, `< 5%` drift) |

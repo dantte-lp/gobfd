@@ -176,7 +176,11 @@ func (topology *haproxyHealthTopology) imageBuildRequest(
 ) *testcontainers.ContainerRequest {
 	return &testcontainers.ContainerRequest{
 		Context: buildContext, Dockerfile: "Containerfile", Repo: repository, Tag: tag, KeepImage: true,
-		BuildArgs: map[string]*string{"VCS_REF": &topology.revision, "BUILD_DATE": &topology.buildDate},
+		BuildArgs: containertest.StageBuildArgs(
+			map[string]*string{"VCS_REF": &topology.revision, "BUILD_DATE": &topology.buildDate},
+			topology.runID,
+			"haproxy-health-testcontainers",
+		),
 		BuildOptionsModifier: func(options *client.ImageBuildOptions) {
 			options.CPUPeriod, options.CPUQuota = 100000, 200000
 			options.Memory, options.MemorySwap = 2<<30, 2<<30

@@ -127,17 +127,22 @@ func writePacketCSV(t *testing.T, rows [][]string) {
 		return
 	}
 
+	// #nosec G304 -- E2E_OVERLAY_PACKET_CSV is configured by the trusted e2ectl harness.
 	f, err := os.Create(path)
 	if err != nil {
 		t.Fatalf("create packet CSV: %v", err)
 	}
-	defer f.Close()
 
 	w := csv.NewWriter(f)
-	if err := w.WriteAll(rows); err != nil {
-		t.Fatalf("write packet CSV: %v", err)
+	if writeErr := w.WriteAll(rows); writeErr != nil {
+		_ = f.Close()
+		t.Fatalf("write packet CSV: %v", writeErr)
 	}
-	if err := w.Error(); err != nil {
-		t.Fatalf("flush packet CSV: %v", err)
+	if flushErr := w.Error(); flushErr != nil {
+		_ = f.Close()
+		t.Fatalf("flush packet CSV: %v", flushErr)
+	}
+	if closeErr := f.Close(); closeErr != nil {
+		t.Fatalf("close packet CSV: %v", closeErr)
 	}
 }

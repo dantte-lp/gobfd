@@ -8,7 +8,7 @@ BFD означает Bidirectional Forwarding Detection. RX и TX обознач
 
 ## Границы сигналов
 
-`gobfd_bfd_sessions` считает зарегистрированные Control и Echo, включая типы Control Micro-BFD, VXLAN, Geneve. Регистрация не означает Up. Echo создаёт собственный ряд `session_type` и добавляет приращения пакетов и переходов в общие семейства метрик. Счётчики пакетов по соседу и локальному адресу не имеют дискриминатора, интерфейса и типа: одинаковые пары адресов агрегируются между обменами. Для отдельной сессии использовать снимок API. Источники: [регистрация Echo](../../internal/bfd/manager_echo.go), [прямое подключение коллектора](../../cmd/gobfd/factory.go).
+`gobfd_bfd_sessions` считает зарегистрированные Control и Echo, включая типы Control Micro-BFD, VXLAN, Geneve. Регистрация не означает Up. Echo создаёт собственный ряд `session_type` и добавляет приращения пакетов и переходов в общие семейства метрик. Счётчики пакетов по соседу и локальному адресу не имеют дискриминатора, интерфейса и типа: одинаковые пары адресов агрегируются между обменами. Незарегистрированные ряды `(peer_addr, local_addr)` удерживаются в порядке FIFO/LRU до `4096` неактивных записей (`DefaultMaxInactivePeerSeries`) перед вытеснением. Для отдельной сессии использовать снимок API. Источники: [регистрация Echo](../../internal/bfd/manager_echo.go), [прямое подключение коллектора](../../cmd/gobfd/factory.go), [метрики пакетов](../../internal/metrics/packet_metrics.go).
 
 ```mermaid
 flowchart LR
@@ -38,6 +38,7 @@ flowchart LR
 | `gobfd_bfd_packets_dropped_total` | counter | `peer_addr,local_addr` | Отказы и оставленные пакеты допущенной идентичности |
 | `gobfd_bfd_state_transitions_total` | counter | `peer_addr,local_addr,from_state,to_state` | Переходы FSM |
 | `gobfd_bfd_auth_failures_total` | counter | `peer_addr,local_addr` | Подмножество отказов аутентификации |
+| `gobfd_bfd_evicted_peer_series_total` | counter | нет | Вытесненные неактивные ряды пакетов по паре адресов |
 | `gobfd_bfd_delivery_outcomes_total` | counter | `source,outcome` | Фиксированные решения конвейера и уведомлений |
 | `gobfd_bfd_control_rx_timing_total` | counter | `outcome` | Фиксации владельцем по достоверности времени |
 | `gobfd_bfd_control_rx_commit_seconds` | histogram | нет | От программной метки приёма ядра до завершения владельцем |
@@ -53,7 +54,7 @@ flowchart LR
 | `gobfd_gobgp_pending_action` | gauge | `peer_addr,action` | Неприменённое намерение `up`/`down` |
 | `gobfd_gobgp_pending_action_deadline_seconds` | gauge | `peer_addr,action` | Срок повтора/перепроверки, секунды Unix; иначе 0 |
 
-Источники: [базовые метрики](../../internal/metrics/collector.go), [проверка и учёт Control](../../internal/bfd/session_packet.go), [принятые возвраты Echo](../../internal/bfd/echo.go), [время приёма](../../internal/metrics/receive_timing.go), [таймеры](../../internal/metrics/timer.go), [потери сокетов](../../internal/metrics/socket_drops.go), [GoBGP](../../internal/metrics/gobgp.go).
+Источники: [базовые метрики](../../internal/metrics/collector.go), [метрики пакетов](../../internal/metrics/packet_metrics.go), [проверка и учёт Control](../../internal/bfd/session_packet.go), [принятые возвраты Echo](../../internal/bfd/echo.go), [время приёма](../../internal/metrics/receive_timing.go), [таймеры](../../internal/metrics/timer.go), [потери сокетов](../../internal/metrics/socket_drops.go), [GoBGP](../../internal/metrics/gobgp.go).
 
 <a id="ledger-доставки"></a>
 
@@ -109,7 +110,7 @@ rate(gobfd_bfd_delivery_outcomes_total[5m])
 | `BFDAuthFailures` | Положительная частота отказов за 5 минут | `30s` |
 | `BFDPacketDrops` | Положительная частота потерь допущенного соседа за 5 минут | `1m` |
 
-Экспортёр без сессий отличается от недоступного экспортёра. `BFDNoActiveSessions` проверяет все положительные ряды регистраций, включая Echo, хотя поставляемая аннотация говорит «Control sessions»; это не проверка только Control и не проверка состояния Up. Оповещение о переходе не доказывает текущее Down. Панель: [Grafana JSON](../../deployments/integrations/observability/configs/grafana/dashboards/bfd.json).
+Экспортёр без сессий отличается от недоступного экспортёра. `BFDNoActiveSessions` проверяет все положительные ряды регистраций, включая Echo, хотя поставляемая аннотация говорит «Control sessions»; это не проверка только Control и не проверка состояния Up. Оповещение о переходе не доказывает текущее Down. Панель: [Grafana JSON](../../deployments/compose/configs/grafana/dashboards/bfd.json).
 
 ### Проверка Prometheus
 

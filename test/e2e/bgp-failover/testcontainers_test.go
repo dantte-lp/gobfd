@@ -4,6 +4,7 @@ package bgp_failover_test
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -91,6 +92,8 @@ type bgpFailoverResourceSnapshot struct {
 
 type ownedImageClient interface {
 	ImageExists(ctx context.Context, image string) (bool, error)
+	ImageMetadata(ctx context.Context, image string) (podmanapi.ImageMetadata, error)
+	StageImages(ctx context.Context, runID, testKind string) ([]podmanapi.ImageMetadata, error)
 	RemoveImage(ctx context.Context, image string) error
 }
 
@@ -301,7 +304,7 @@ func startBGPFailoverTopology(t *testing.T, topology *bgpFailoverTopology) error
 	t.Cleanup(cancel)
 	topology.armEvidenceCleanup(t)
 	contract := topology.contract
-	buildID := time.Now().UnixNano()
+	buildID := strings.ToLower(rand.Text())
 	revision, buildDate, err := interopproject.BuildMetadata(ctx, topology.root, os.Getenv("GOBFD_BUILD_REVISION"))
 	if err != nil {
 		return fmt.Errorf("resolve failover peer build metadata: %w", err)
@@ -309,33 +312,33 @@ func startBGPFailoverTopology(t *testing.T, topology *bgpFailoverTopology) error
 	buildArgs := map[string]*string{"VCS_REF": &revision, "BUILD_DATE": &buildDate}
 	frrImage, err := buildBGPFailoverImage(
 		ctx, t, topology, contract.frrSource,
-		fmt.Sprintf("localhost/gobfd-bgp-failover-frr:test-%d", buildID), buildArgs,
+		"localhost/gobfd-bgp-failover-frr:test-"+buildID, buildArgs,
 	)
 	if err != nil {
 		return fmt.Errorf("build bounded FRR image: %w", err)
 	}
 	gobgpImage, err := buildBGPFailoverImage(
 		ctx, t, topology, contract.gobgpSource,
-		fmt.Sprintf("localhost/gobfd-bgp-failover-gobgp:test-%d", buildID), buildArgs,
+		"localhost/gobfd-bgp-failover-gobgp:test-"+buildID, buildArgs,
 	)
 	if err != nil {
 		return fmt.Errorf("build bounded GoBGP image: %w", err)
 	}
 	gobfdImage, err := buildBGPFailoverImage(
 		ctx, t, topology, prepareGoBFDBuildContext(t, topology.root),
-		fmt.Sprintf("localhost/gobfd-bgp-failover:test-%d", buildID), nil,
+		"localhost/gobfd-bgp-failover:test-"+buildID, nil,
 	)
 	if err != nil {
 		return fmt.Errorf("build bounded GoBFD image: %w", err)
 	}
 	tsharkImage, err := buildBGPFailoverImage(
 		ctx, t, topology, prepareTsharkBuildContext(t, contract.tsharkSource),
-		fmt.Sprintf("localhost/gobfd-bgp-failover-tshark:test-%d", buildID), nil,
+		"localhost/gobfd-bgp-failover-tshark:test-"+buildID, nil,
 	)
 	if err != nil {
 		return fmt.Errorf("build bounded tshark image: %w", err)
 	}
-	networkName := fmt.Sprintf("gobfd-bgp-failover-%d", buildID)
+	networkName := "gobfd-bgp-failover-" + buildID
 	if recordErr := topology.recordOwnedNetwork(networkName); recordErr != nil {
 		return recordErr
 	}
@@ -1017,13 +1020,14 @@ func buildBGPFailoverImage(
 	if !found {
 		return "", fmt.Errorf("split test-owned image %q", imageName)
 	}
-	if err := installOwnedImageCleanup(ctx, imageName, topology.client, t.Cleanup, func(err error) {
-		t.Errorf("%v", err)
-	}); err != nil {
+	ownedID, err := installOwnedImageCleanup(ctx, imageName, topology.client, t.Cleanup, func(cleanupErr error) {
+		t.Errorf("%v", cleanupErr)
+	})
+	if err != nil {
 		return "", err
 	}
-	if err := topology.recordOwnedImage(imageName); err != nil {
-		return "", err
+	if recordErr := topology.recordOwnedImage(imageName); recordErr != nil {
+		return "", recordErr
 	}
 	topology.armEvidenceCleanup(t)
 	//nolint:staticcheck // Retain core ProviderPodman without adding modules/podman.
@@ -1043,8 +1047,11 @@ func buildBGPFailoverImage(
 	_, buildErr := dockerProvider.BuildImage(ctx, &testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{
 			Context: buildContext, Dockerfile: "Containerfile", Repo: repository, Tag: tag, KeepImage: true,
-			BuildArgs: buildArgs,
+			BuildArgs: containertest.StageBuildArgs(buildArgs, imageName, "bgp-fast-failover"),
 			BuildOptionsModifier: func(options *client.ImageBuildOptions) {
+				options.Labels = map[string]string{
+					"io.gobfd.test": "bgp-fast-failover", "io.gobfd.run": imageName, "io.gobfd.image": imageName,
+				}
 				options.CPUPeriod = 100000
 				options.CPUQuota = 200000
 				options.Memory = 2 << 30
@@ -1052,11 +1059,19 @@ func buildBGPFailoverImage(
 			},
 		},
 	})
-	closeErr := provider.Close()
-	if err := errors.Join(buildErr, closeErr); err != nil {
+	metadata, inspectErr := topology.client.ImageMetadata(ctx, imageName)
+	var receiptErr error
+	if inspectErr == nil {
+		inspectErr = containertest.ValidateImageOwner(metadata, imageName, imageName, "bgp-fast-failover")
+		if inspectErr == nil {
+			*ownedID = metadata.ID
+			receiptErr = topology.recordOwnedImageID(metadata.ID)
+		}
+	}
+	if err := errors.Join(buildErr, inspectErr, receiptErr, provider.Close()); err != nil {
 		return "", fmt.Errorf("build bounded test-owned image %s: %w", imageName, err)
 	}
-	return imageName, nil
+	return metadata.ID, nil
 }
 
 func installOwnedImageCleanup(
@@ -1065,30 +1080,11 @@ func installOwnedImageCleanup(
 	client ownedImageClient,
 	register func(func()),
 	report func(error),
-) error {
-	exists, err := client.ImageExists(ctx, imageName)
-	if err != nil {
-		return fmt.Errorf("inspect unique test-owned image %s before build: %w", imageName, err)
-	}
-	if exists {
-		return fmt.Errorf("refuse ownership of pre-existing image %s", imageName)
-	}
-	register(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
-		defer cancel()
-		exists, inspectErr := client.ImageExists(cleanupCtx, imageName)
-		if inspectErr != nil {
-			report(fmt.Errorf("inspect exact test-owned image %s during cleanup: %w", imageName, inspectErr))
-			return
-		}
-		if !exists {
-			return
-		}
-		if removeErr := client.RemoveImage(cleanupCtx, imageName); removeErr != nil {
-			report(fmt.Errorf("remove exact test-owned image %s: %w", imageName, removeErr))
-		}
-	})
-	return nil
+) (*string, error) {
+	ownedID := new(string)
+	err := containertest.RegisterImageCleanup(ctx, imageName, imageName, "bgp-fast-failover", ownedID,
+		client, register, report)
+	return ownedID, err
 }
 
 func prepareGoBFDBuildContext(t *testing.T, root string) string {
@@ -1118,6 +1114,10 @@ COPY cmd/gobfd ./cmd/gobfd
 COPY internal ./internal
 COPY pkg ./pkg
 RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfd ./cmd/gobfd
+ARG GOBFD_IMAGE_RUN=""
+ARG GOBFD_IMAGE_TEST=""
+LABEL io.gobfd.stage-run="${GOBFD_IMAGE_RUN}" \
+      io.gobfd.stage-test="${GOBFD_IMAGE_TEST}"
 FROM docker.io/library/debian:trixie-slim@sha256:` +
 		`8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
 COPY --from=builder /bin/gobfd /bin/gobfd

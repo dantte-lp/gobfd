@@ -24,8 +24,14 @@ services:
       - ..:/app:z
       - ${BENCH_RESULTS_DIR:-../bench-results}:/results:z
     working_dir: /app
-    command: >-
-      sh -c "go test -buildvcs=false -bench=. -benchmem -count=6
-             -run='^$$' -timeout=120s ./internal/bfd/
-             | tee /results/bench-go.txt
-             && echo 'Go benchmarks complete'"
+    command:
+      - go
+      - run
+      - ./test/cmd/cictl
+      - local-benchmark
+      - --output
+      - /results/bench-go.txt
+      - --timeout
+      - 120s
+      - --package
+      - ./internal/bfd/

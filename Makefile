@@ -42,6 +42,7 @@ COMPOSE_PROJECT_NAME ?= $(PROJECT_SLUG)
 COMPOSE_FILE := deployments/compose/compose.dev.yml
 DC := COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) $(COMPOSE) -p $(COMPOSE_PROJECT_NAME) -f $(COMPOSE_FILE)
 EXEC := $(DC) exec -T dev
+CI_CTL ?= go run ./test/cmd/cictl
 E2ECTL_BIN := /tmp/gobfd-e2ectl
 E2E_AGGREGATES := e2e-routing e2e-rfc e2e-overlay e2e-linux e2e-vendor
 E2E_PRIVATE_TARGETS := $(addprefix _,$(E2E_AGGREGATES))
@@ -100,24 +101,7 @@ dev-project:
 # $(CURDIR) (typical after worktree teardown) the container is force-recreated.
 # This is the canonical pre-flight for build / test / lint targets.
 dev-ensure:
-	@set -e; \
-	cid="$$( $(DC) ps --all --quiet dev )"; \
-	if [ -z "$$cid" ]; then \
-	  echo "dev-ensure: dev service container missing, creating"; \
-	  if podman image exists "$(COMPOSE_PROJECT_NAME)-dev:latest"; then \
-	    $(DC) up -d --no-build dev; \
-	  else \
-	    $(DC) up -d --build dev; \
-	  fi; \
-	  exit 0; \
-	fi; \
-	src="$$(podman inspect "$$cid" --format '{{range .Mounts}}{{if eq .Destination "/app"}}{{.Source}}{{end}}{{end}}')"; \
-	if [ "$$src" != "$(CURDIR)" ]; then \
-	  echo "dev-ensure: mount source $$src != $(CURDIR), force recreating"; \
-	  $(DC) up -d --no-build --force-recreate dev; \
-	  exit 0; \
-	fi; \
-	$(DC) up -d --no-build dev
+	@$(CI_CTL) dev-ensure --project "$(COMPOSE_PROJECT_NAME)" --compose-file "$(COMPOSE_FILE)"
 
 e2ectl-build: dev-ensure
 	$(EXEC) go build -trimpath -o $(E2ECTL_BIN) ./test/cmd/e2ectl
@@ -177,9 +161,7 @@ e2e-routing-test: interop-project-validate
 		INTEROP_BGP_COMPOSE_FILE=/app/test/interop-bgp/compose.yml \
 		go test -tags interop_bgp -v -count=1 -timeout 300s ./test/interop-bgp/
 
-e2e-rfc-test:
-	$(EXEC) env INTEROP_RFC_COMPOSE_FILE=/app/test/interop-rfc/compose.yml \
-		go test -tags interop_rfc -v -count=1 -timeout 300s ./test/interop-rfc/
+e2e-rfc-test: interop-rfc-test
 
 e2e-overlay-test: e2e-overlay
 
@@ -328,14 +310,22 @@ interop-bgp-logs: interop-project-validate
 
 INTEROP_RFC_COMPOSE := test/interop-rfc/compose.yml
 INTEROP_RFC_PROJECT ?= gobfd-interop-rfc
-INTEROP_RFC_DC := $(COMPOSE) -p $(INTEROP_RFC_PROJECT) -f $(INTEROP_RFC_COMPOSE)
+override INTEROP_RFC_PROJECT := $(value INTEROP_RFC_PROJECT)
+_INTEROP_RFC_PROJECT_RAW := $(value INTEROP_RFC_PROJECT)
+ifneq ($(findstring $$,$(_INTEROP_RFC_PROJECT_RAW)),)
+$(error invalid INTEROP_RFC_PROJECT: Make function syntax is forbidden)
+endif
+export INTEROP_RFC_PROJECT
+INTEROP_RFC_CTL := env "INTEROP_PROJECT_NAME=$${INTEROP_RFC_PROJECT}" INTEROP_PROJECT_KIND=rfc $(INTEROP_CTL)
 
 interop-rfc: interop-rfc-testcontainers
 
-interop-rfc-test:
-	$(EXEC) env INTEROP_PROJECT_NAME=$(INTEROP_RFC_PROJECT) \
+interop-rfc-test: interop-project-validate
+	$(INTEROP_RFC_CTL) lock-run -- env "COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME)" \
+		$(INTEROP_CTL) dev-exec -- \
+		env "INTEROP_PROJECT_NAME=$${INTEROP_RFC_PROJECT}" \
 		INTEROP_RFC_COMPOSE_FILE=$(INTEROP_RFC_COMPOSE) \
-		go test -tags interop_rfc -v -count=1 -timeout 300s ./test/interop-rfc/
+		go test -tags interop_rfc -race -v -count=1 -timeout 300s ./test/interop-rfc/
 
 interop-rfc-testcontainers: dev-ensure
 	$(EXEC) /go/bin/golangci-lint run \
@@ -347,14 +337,14 @@ interop-rfc-testcontainers: dev-ensure
 		go test -tags interop_rfc_testcontainers -race -count=1 -v -timeout 15m \
 		-run '^TestRFCInteropTopologyTestcontainers$$' ./test/interop-rfc/
 
-interop-rfc-up:
-	$(INTEROP_RFC_DC) up --build -d
+interop-rfc-up: interop-project-validate
+	$(INTEROP_RFC_CTL) up
 
-interop-rfc-down:
-	$(INTEROP_RFC_DC) down --volumes --remove-orphans
+interop-rfc-down: interop-project-validate
+	$(INTEROP_RFC_CTL) down
 
-interop-rfc-logs:
-	$(INTEROP_RFC_DC) logs -f
+interop-rfc-logs: interop-project-validate
+	$(INTEROP_RFC_CTL) logs
 
 # === Containerlab Vendor Interop Tests (Arista + Nokia + Cisco + SONiC + VyOS) ===
 
@@ -589,7 +579,7 @@ interop-clab-down:
 
 INT_BGP_CTL := env "INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}-bgp-fast-failover" INTEROP_PROJECT_KIND=bgp-fast-failover $(INTEROP_CTL)
 INT_HAPROXY_CTL := env INTEROP_PROJECT_NAME=gobfd-haproxy-health INTEROP_PROJECT_KIND=haproxy-health $(INTEROP_CTL)
-INT_OBS_DC := $(COMPOSE) -f deployments/integrations/observability/compose.yml
+INT_OBS_CTL := env INTEROP_PROJECT_NAME=gobfd-observability INTEROP_PROJECT_KIND=observability $(INTEROP_CTL)
 INT_EXABGP_CTL := env "INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}-exabgp-anycast" INTEROP_PROJECT_KIND=exabgp-anycast $(INTEROP_CTL)
 
 int-bgp-failover: int-bgp-failover-testcontainers
@@ -634,14 +624,14 @@ int-observability-testcontainers: e2ectl-build
 		./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/observability/...
 	$(EXEC) $(E2ECTL_BIN) observability
 
-int-observability-up:
-	$(INT_OBS_DC) up --build -d
+int-observability-up: interop-project-validate
+	$(INT_OBS_CTL) up
 
-int-observability-down:
-	$(INT_OBS_DC) down --volumes --remove-orphans
+int-observability-down: interop-project-validate
+	$(INT_OBS_CTL) down
 
-int-observability-logs:
-	$(INT_OBS_DC) logs -f
+int-observability-logs: interop-project-validate
+	$(INT_OBS_CTL) logs
 
 int-exabgp-anycast:
 	go run ./test/cmd/integrationctl exabgp-anycast
@@ -666,15 +656,11 @@ int-k8s-down:
 
 # === Benchmarks & Profiling ===
 
-# Preserve producer and tee failures before publishing benchmark reports.
-benchmark benchmark-all benchmark-save benchmark-compare: SHELL := bash
-benchmark benchmark-all benchmark-save benchmark-compare: .SHELLFLAGS := -e -o pipefail -c
+benchmark: dev-ensure
+	@$(CI_CTL) local-benchmark --output benchmark.txt --package ./internal/bfd/ -- $(EXEC)
 
-benchmark:
-	$(EXEC) go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$$' ./internal/bfd/ | tee benchmark.txt
-
-benchmark-all:
-	$(EXEC) go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$$' ./... | tee benchmark.txt
+benchmark-all: dev-ensure
+	@$(CI_CTL) local-benchmark --output benchmark.txt --package ./... -- $(EXEC)
 
 coverage:
 	$(EXEC) go test -buildvcs=false ./... -race -count=1 -coverprofile=coverage.out -covermode=atomic
@@ -694,40 +680,27 @@ profile:
 
 # Save benchmarks tagged by version.
 # Usage: make benchmark-save [BENCH_VERSION=v0.5.0]
-benchmark-save:
-	@mkdir -p $(BENCH_DIR)/$(BENCH_VERSION)
-	$(EXEC) go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$$' -timeout=120s \
-		./internal/bfd/ | tee $(BENCH_DIR)/$(BENCH_VERSION)/benchmark-bfd.txt
-	$(EXEC) go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$$' -timeout=120s \
-		./internal/netio/ | tee $(BENCH_DIR)/$(BENCH_VERSION)/benchmark-netio.txt
-	@cat $(BENCH_DIR)/$(BENCH_VERSION)/benchmark-bfd.txt \
-		$(BENCH_DIR)/$(BENCH_VERSION)/benchmark-netio.txt \
-		> $(BENCH_DIR)/$(BENCH_VERSION)/benchmark.txt
-	@go_version="$$($(EXEC) go env GOVERSION)"; \
-	printf '{"version":"%s","commit":"%s","date":"%s","go":"%s","count":6}\n' \
-		"$(BENCH_VERSION)" "$(GIT_COMMIT)" "$(BUILD_DATE)" \
-		"$$go_version" \
-		> $(BENCH_DIR)/$(BENCH_VERSION)/meta.json
-	@echo "=== Benchmarks saved to $(BENCH_DIR)/$(BENCH_VERSION)/ ==="
+benchmark-save: dev-ensure
+	@$(CI_CTL) local-benchmark-save \
+		--bench-dir "$(BENCH_DIR)" \
+		--version "$(BENCH_VERSION)" \
+		--commit "$(GIT_COMMIT)" \
+		--date "$(BUILD_DATE)" \
+		-- $(EXEC)
 
 # Compare benchmarks between two versions via benchstat.
 # Usage: make benchmark-compare OLD=v0.4.0 NEW=v0.5.0
 OLD ?= baseline
 NEW ?= $(BENCH_VERSION)
 
-benchmark-compare:
-	@mkdir -p $(REPORT_DIR)/benchmarks
-	@old_file=""; new_file=""; \
-	if [ "$(OLD)" = "baseline" ]; then old_file="$(BENCH_DIR)/baseline.txt"; \
-	else old_file="$(BENCH_DIR)/$(OLD)/benchmark.txt"; fi; \
-	new_file="$(BENCH_DIR)/$(NEW)/benchmark.txt"; \
-	$(EXEC) benchstat "$$old_file" "$$new_file" | tee $(REPORT_DIR)/benchmarks/comparison.txt; \
-	printf '<!DOCTYPE html>\n<html><head><meta charset="utf-8">\n<title>GoBFD Benchmark Comparison: %s vs %s</title>\n<style>\nbody{font-family:system-ui,sans-serif;margin:2em;background:#1a1a2e;color:#e0e0e0}\nh1{color:#00d4ff}pre{background:#16213e;padding:1.5em;border-radius:8px;overflow-x:auto;font-size:14px;line-height:1.6;border:1px solid #0f3460}\n.meta{color:#888;font-size:13px}\n</style></head><body>\n<h1>GoBFD Benchmark Comparison</h1>\n<p class="meta">Old: %s &mdash; New: %s &mdash; Generated: %s</p>\n<pre>\n' \
-		"$(OLD)" "$(NEW)" "$(OLD)" "$(NEW)" "$(BUILD_DATE)" \
-		> $(REPORT_DIR)/benchmarks/comparison.html; \
-	cat $(REPORT_DIR)/benchmarks/comparison.txt >> $(REPORT_DIR)/benchmarks/comparison.html; \
-	printf '</pre></body></html>\n' >> $(REPORT_DIR)/benchmarks/comparison.html; \
-	echo "=== Comparison: $(REPORT_DIR)/benchmarks/comparison.html ==="
+benchmark-compare: dev-ensure
+	@$(CI_CTL) local-benchmark-compare \
+		--bench-dir "$(BENCH_DIR)" \
+		--report-dir "$(REPORT_DIR)" \
+		--old "$(OLD)" \
+		--new "$(NEW)" \
+		--date "$(BUILD_DATE)" \
+		-- $(EXEC)
 
 # Generate test report (JUnit XML -> standalone HTML).
 # Usage: make test-report
@@ -753,9 +726,10 @@ report-all: test-report benchmark-save benchmark-compare
 BENCH_COMPOSE := bench/compose.yml
 BENCH_DC := $(COMPOSE) -f $(BENCH_COMPOSE)
 BENCH_RESULTS := $(CURDIR)/bench-results
-BENCH_REPORT_OUTPUT ?= $(CURDIR)/reports/benchmarks/cross-comparison.html
-BENCH_META_JSON ?= $(CURDIR)/testdata/benchmarks/v0.4.0/meta.json
-BENCH_REPORT_TEMPLATE := $(CURDIR)/scripts/report-template.html
+BENCH_REPORT_RESULTS := $(patsubst $(CURDIR)/%,%,$(BENCH_RESULTS))
+BENCH_REPORT_OUTPUT ?= reports/benchmarks/cross-comparison.html
+BENCH_META_JSON ?= testdata/benchmarks/v0.4.0/meta.json
+BENCH_REPORT_TEMPLATE := scripts/report-template.html
 
 benchmark-cross:
 	@mkdir -p "$(BENCH_RESULTS)"
@@ -764,11 +738,11 @@ benchmark-cross:
 	BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) run --rm bench-go
 	@echo "=== All benchmarks completed. Results in $(BENCH_RESULTS)/ ==="
 
-benchmark-report:
-	GCC_VERSION="gcc (Debian trixie)" go run ./test/cmd/benchreport -- \
-		"$(BENCH_RESULTS)/bench-go.txt" \
-		"$(BENCH_RESULTS)/bench-c-frr.txt" \
-		"$(BENCH_RESULTS)/bench-c-bird.txt" \
+benchmark-report: dev-ensure
+	$(EXEC) env GCC_VERSION="gcc (Debian trixie)" go run ./test/cmd/benchreport -- \
+		"$(BENCH_REPORT_RESULTS)/bench-go.txt" \
+		"$(BENCH_REPORT_RESULTS)/bench-c-frr.txt" \
+		"$(BENCH_REPORT_RESULTS)/bench-c-bird.txt" \
 		"$(BENCH_META_JSON)" "$(BENCH_REPORT_TEMPLATE)" "$(BENCH_REPORT_OUTPUT)"
 
 # === Quality ===
@@ -868,8 +842,8 @@ clean:
 
 # === Info ===
 
-versions:
-	@echo "=== Go ===" && $(EXEC) go version
-	@echo "=== Buf ===" && $(EXEC) buf --version
-	@echo "=== golangci-lint ===" && $(EXEC) /go/bin/golangci-lint version --short
-	@echo "=== govulncheck ===" && $(EXEC) govulncheck -version 2>/dev/null || echo "installed"
+versions: dev-ensure
+	$(EXEC) go version
+	$(EXEC) buf --version
+	$(EXEC) /go/bin/golangci-lint version --short
+	$(EXEC) govulncheck -version

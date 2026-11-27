@@ -108,9 +108,9 @@ func checkReleaseBenchmarkRace(ctx context.Context, options BenchmarkBaseOptions
 			Name: "go", Dir: target.directory, WaitDelay: benchmarkCleanupLimit,
 			Stdout: writer, Stderr: writer,
 			Args: []string{
-				goTestSubcommand, buildVCSDisabledFlag, "-race", "-run=^$", singleTestRunFlag, "-benchmem",
+				goTestSubcommand, buildVCSDisabledFlag, "-race", noUnitTestsFlag, singleTestRunFlag, benchMemFlag,
 				"-bench=^(BenchmarkManagerDemux1000Sessions|BenchmarkRecvDecodeLookupEnqueue|BenchmarkFullRecvPath)$",
-				"-benchtime=100000x", "-timeout=120s", "./internal/bfd/",
+				"-benchtime=100000x", "-timeout=120s", bfdBenchmarkPackage,
 			},
 		})
 		commandErr := errors.Join(runErr, wrapOptional("close receive benchmark race output", artifact.Close()))

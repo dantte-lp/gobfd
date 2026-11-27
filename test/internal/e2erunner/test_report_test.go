@@ -32,6 +32,9 @@ type fakeGoInvocation struct {
 }
 
 func TestMain(m *testing.M) {
+	if os.Getenv(runtimeFixtureEnv) != "" {
+		os.Exit(runRuntimeFixture())
+	}
 	if path := os.Getenv(secureFilePath); path != "" {
 		runSecureFileHelper(path)
 		return

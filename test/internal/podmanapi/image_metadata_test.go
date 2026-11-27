@@ -79,3 +79,65 @@ func TestClientImageMetadata(t *testing.T) {
 		t.Fatal("image metadata retained runtime environment")
 	}
 }
+
+func TestClientStageImagesFiltersOwnedStages(t *testing.T) {
+	t.Parallel()
+	stageID := "sha256:" + strings.Repeat("c", 64)
+	foreignID := "sha256:" + strings.Repeat("d", 64)
+	finalID := "sha256:" + strings.Repeat("e", 64)
+	socket := filepath.Join(t.TempDir(), "podman.sock")
+	server := newUnixHTTPServer(t, socket, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v5.0.0/images/json" || r.URL.Query().Get("all") != "true" {
+			http.NotFound(w, r)
+			return
+		}
+		filters := r.URL.Query().Get("filters")
+		if !strings.Contains(filters, "io.gobfd.stage-run=run-1") ||
+			!strings.Contains(filters, "io.gobfd.stage-test=unit") {
+			http.Error(w, "missing stage label filters", http.StatusBadRequest)
+			return
+		}
+		err := json.NewEncoder(w).Encode([]map[string]any{
+			{
+				"Id": strings.TrimPrefix(stageID, "sha256:"),
+				"Labels": map[string]string{
+					"io.gobfd.stage-run":  "run-1",
+					"io.gobfd.stage-test": "unit",
+				},
+			},
+			{
+				"Id": foreignID,
+				"Labels": map[string]string{
+					"io.gobfd.stage-run":  "other-run",
+					"io.gobfd.stage-test": "unit",
+				},
+			},
+			{
+				"Id": finalID,
+				"Labels": map[string]string{
+					"io.gobfd.stage-run":  "run-1",
+					"io.gobfd.stage-test": "unit",
+					"io.gobfd.image":      "localhost/final:tag",
+				},
+			},
+		})
+		if err != nil {
+			t.Errorf("encode stage images: %v", err)
+		}
+	}))
+	defer server.Close()
+	client, err := NewClient(socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stages, stageErr := client.StageImages(t.Context(), "run-1", "unit")
+	if stageErr != nil {
+		t.Fatalf("StageImages() error = %v", stageErr)
+	}
+	if len(stages) != 1 || stages[0].ID != stageID {
+		t.Fatalf("StageImages() = %+v, want only %s", stages, stageID)
+	}
+	if _, emptyErr := client.StageImages(t.Context(), "", "unit"); emptyErr == nil {
+		t.Fatal("StageImages() accepted empty runID")
+	}
+}

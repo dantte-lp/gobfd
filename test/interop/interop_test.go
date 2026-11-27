@@ -16,6 +16,7 @@ package interop_test
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -61,12 +62,11 @@ const (
 	holoConfigStartTimeout = 15 * time.Second
 	holoConfigWaitTimeout  = 10 * time.Second
 	holoInspectTimeout     = 5 * time.Second
-
-	// bfdFuzzImage is the image name for the Go BFD invalid-vector generator.
-	// Built with podman build (not compose) to avoid compose's "run"
-	// behavior that tears down and recreates the entire stack.
-	bfdFuzzImage = "gobfd-bfd-fuzz:latest"
 )
+
+func invalidVectorImageName() string {
+	return "localhost/gobfd-bfd-fuzz:" + strings.ToLower(rand.Text())
+}
 
 var (
 	errSessionStateNotFound      = errors.New("session state not found")
@@ -2531,8 +2531,11 @@ func TestGracefulShutdown(t *testing.T) {
 	waitFRRUp(ctx, t, 60*time.Second)
 
 	// Record AdminDown packet count before shutdown.
-	adminDownBefore, _ := tsharkCount(ctx,
+	adminDownBefore, err := tsharkCount(ctx,
 		"bfd && ip.src == "+gobfdIP+" && bfd.sta == 0x00 && bfd.diag == 0x07")
+	if err != nil {
+		t.Fatalf("tshark query for AdminDown baseline: %v", err)
+	}
 
 	output, err := projectContainerCommand(ctx, "gobfd-interop", "stop")
 	if err != nil {
@@ -2546,7 +2549,7 @@ func TestGracefulShutdown(t *testing.T) {
 		"bfd && ip.src == "+gobfdIP+" && bfd.sta == 0x00 && bfd.diag == 0x07")
 	switch {
 	case err != nil:
-		t.Logf("tshark query for AdminDown packets: %v", err)
+		t.Errorf("tshark query for AdminDown packets: %v", err)
 	case adminDownAfter <= adminDownBefore:
 		t.Error("GoBFD did not send AdminDown (state=0, diag=7) packets on SIGTERM")
 	default:
@@ -2564,7 +2567,7 @@ func TestGracefulShutdown(t *testing.T) {
 		{"Holo", holoIP},
 	}
 	if crashed, statusErr := thoroUnsupportedPollSequenceCrash(ctx); statusErr != nil {
-		t.Logf("Thoro/bfd status lookup failed: %v", statusErr)
+		t.Errorf("Thoro/bfd status lookup failed: %v", statusErr)
 	} else if crashed {
 		t.Log("Thoro/bfd AdminDown verification skipped: upstream peer panicked on " +
 			"unimplemented RFC 5880 poll-sequence interval update")
@@ -2579,7 +2582,7 @@ func TestGracefulShutdown(t *testing.T) {
 			"bfd && ip.src == "+gobfdIP+" && ip.dst == "+peer.ip+
 				" && bfd.sta == 0x00 && bfd.diag == 0x07")
 		if countErr != nil {
-			t.Logf("tshark query for %s AdminDown: %v", peer.name, countErr)
+			t.Errorf("tshark query for %s AdminDown: %v", peer.name, countErr)
 			continue
 		}
 		if count == 0 {

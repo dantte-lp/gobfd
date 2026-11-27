@@ -4,6 +4,7 @@ package interop_test
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -22,12 +23,12 @@ func TestSameKeyFRRTestcontainers(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 12*time.Minute)
 		t.Cleanup(cancel)
 		root := fourPeerRepositoryRoot(t)
-		buildID := time.Now().UnixNano()
-		project := fmt.Sprintf("gobfd-same-key-tc-%d", buildID)
+		buildID := strings.ToLower(rand.Text())
+		project := "gobfd-same-key-tc-" + buildID
 		images := []string{
-			fmt.Sprintf("localhost/gobfd-same-key:%d", buildID),
-			fmt.Sprintf("localhost/frr-same-key:%d", buildID),
-			fmt.Sprintf("localhost/tshark-same-key:%d", buildID),
+			"localhost/gobfd-same-key:" + buildID,
+			"localhost/frr-same-key:" + buildID,
+			"localhost/tshark-same-key:" + buildID,
 		}
 		ensureFourPeerArtifactDirectory(t)
 		ownership, err := json.Marshal(map[string]any{

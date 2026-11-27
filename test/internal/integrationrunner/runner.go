@@ -16,32 +16,42 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dantte-lp/gobfd/test/internal/containertest"
 	"github.com/dantte-lp/gobfd/test/internal/interopproject"
-	"github.com/dantte-lp/gobfd/test/internal/toolbootstrap"
 )
 
 const (
-	commandTimeout  = 2 * time.Minute
-	buildTimeout    = 10 * time.Minute
-	cleanupTimeout  = 2 * time.Minute
-	httpTimeout     = 5 * time.Second
-	maxHTTPBodySize = 1 << 20
-	kubeconfigPath  = "/etc/rancher/k3s/k3s.yaml"
-	composeVersion  = toolbootstrap.ComposeVersion
-	haproxyProject  = "gobfd-haproxy-health"
+	commandTimeout      = 2 * time.Minute
+	buildTimeout        = 10 * time.Minute
+	cleanupTimeout      = 2 * time.Minute
+	httpTimeout         = 5 * time.Second
+	maxHTTPBodySize     = 1 << 20
+	maxImageIDOutput    = 128
+	importReceiptSchema = 1
+	kubeconfigPath      = "/etc/rancher/k3s/k3s.yaml"
+	haproxyProject      = "gobfd-haproxy-health"
 )
 
 var (
-	errUsage           = errors.New("invalid integrationctl usage")
-	errEmptyPodName    = errors.New("kubectl returned an empty pod name")
-	errRootRequired    = errors.New("root privileges are required")
-	errK3sNotReady     = errors.New("K3s cluster did not become ready")
-	errHTTPStatus      = errors.New("unexpected HTTP status")
-	errHTTPBodyLarge   = errors.New("HTTP response body exceeds limit")
-	errEmptyArgv       = errors.New("empty command argument vector")
-	errComposeVersion  = errors.New("unexpected Docker Compose provider version")
-	errHAProxyResponse = errors.New("HAProxy response does not identify nginx")
+	errUsage                     = errors.New("invalid integrationctl usage")
+	errRootRequired              = errors.New("root privileges are required")
+	errK3sNotReady               = errors.New("K3s cluster did not become ready")
+	errHTTPStatus                = errors.New("unexpected HTTP status")
+	errHTTPBodyLarge             = errors.New("HTTP response body exceeds limit")
+	errHAProxyResponse           = errors.New("HAProxy response does not identify nginx")
+	errKubernetesArchiveIdentity = errors.New("temporary Kubernetes image archive identity changed")
+	errKubernetesImageIdentity   = errors.New("invalid Kubernetes source image identity")
+	errKubernetesOutputLimit     = errors.New("kubernetes command output exceeds limit")
 )
+
+type kubernetesImportReceipt struct {
+	Schema         int    `json:"schema"`
+	Image          string `json:"image"`
+	SourceID       string `json:"source_id"`
+	ManifestDigest string `json:"manifest_digest"`
+	ArchiveDigest  string `json:"archive_digest"`
+	ServerUUID     string `json:"server_uuid"`
+}
 
 // ExitError preserves the exit status of a failed external command.
 type ExitError struct {
@@ -54,10 +64,11 @@ func (e *ExitError) Error() string { return e.Err.Error() }
 func (e *ExitError) Unwrap() error { return e.Err }
 
 type runner struct {
-	root   string
-	stdout io.Writer
-	stderr io.Writer
-	http   *http.Client
+	root         string
+	stdout       io.Writer
+	stderr       io.Writer
+	http         *http.Client
+	hostIdentity func() (string, string, error)
 }
 
 // Run executes one integration demo or Kubernetes lifecycle action.
@@ -84,7 +95,18 @@ func Run(ctx context.Context, root string, args []string, stdout, stderr io.Writ
 		}
 		return nil
 	case "observability":
-		return r.composeLifecycle(ctx, "observability", r.observability)
+		controller, err := interopproject.NewProject(root, "gobfd-observability", "observability", stdout, stderr)
+		if err != nil {
+			return fmt.Errorf("create observability controller: %w", err)
+		}
+		runErr := controller.Lifecycle(ctx, r.observability)
+		if exitErr, ok := errors.AsType[*exec.ExitError](runErr); ok {
+			return &ExitError{Code: exitErr.ExitCode(), Err: runErr}
+		}
+		if runErr != nil {
+			return fmt.Errorf("observability lifecycle: %w", runErr)
+		}
+		return nil
 	case "exabgp-anycast":
 		return r.exabgpAnycastLifecycle(ctx)
 	case "k8s":
@@ -100,48 +122,6 @@ func Run(ctx context.Context, root string, args []string, stdout, stderr io.Writ
 
 func usage() error {
 	return fmt.Errorf("%w: usage: integrationctl {haproxy|observability|exabgp-anycast|k8s|k8s-up|k8s-down}", errUsage)
-}
-
-func (r *runner) composeLifecycle(
-	ctx context.Context,
-	scenario string,
-	operation func(context.Context) error,
-) (runErr error) {
-	composeFile := filepath.Join(r.root, "deployments", "integrations", scenario, "compose.yml")
-	compose := func(args ...string) []string {
-		return append([]string{"podman", "compose", "-f", composeFile}, args...)
-	}
-	composeEnv := interopproject.ComposeEnvironment()
-	version, err := r.outputArgvEnv(ctx, commandTimeout, composeEnv, compose("version", "--short"))
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(version) != composeVersion {
-		return fmt.Errorf("%w: got %q, want %q", errComposeVersion, strings.TrimSpace(version), composeVersion)
-	}
-	if err := r.commandArgvEnv(
-		ctx, commandTimeout, io.Discard, r.stderr, composeEnv, compose("config"),
-	); err != nil {
-		return fmt.Errorf("render %s Compose topology: %w", scenario, err)
-	}
-
-	r.info("Building and starting %s topology", scenario)
-	if err := r.commandArgvEnv(
-		ctx, buildTimeout, r.stdout, r.stderr, composeEnv, compose("up", "--build", "-d"),
-	); err != nil {
-		return err
-	}
-	defer func() {
-		r.info("Cleaning up %s topology", scenario)
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
-		defer cancel()
-		runErr = errors.Join(runErr, r.commandArgvEnv(
-			cleanupCtx, cleanupTimeout, r.stdout, r.stderr, composeEnv,
-			compose("down", "--volumes", "--remove-orphans"),
-		))
-	}()
-
-	return operation(ctx)
 }
 
 func (r *runner) haproxy(ctx context.Context, controller *interopproject.Controller) (runErr error) {
@@ -215,20 +195,28 @@ func (r *runner) captureHAProxy(ctx context.Context, controller *interopproject.
 	r.capture(ctx, containerID, count)
 }
 
-func (r *runner) observability(ctx context.Context) error {
-	if err := sleep(ctx, 5*time.Second); err != nil {
-		return err
+func (r *runner) observability(ctx context.Context, controller *interopproject.Controller) error {
+	frrID, err := controller.ContainerID(ctx, "frr-observability")
+	if err != nil {
+		return fmt.Errorf("resolve owned observability FRR: %w", err)
+	}
+	captureID, err := controller.ContainerID(ctx, "tshark-observability")
+	if err != nil {
+		return fmt.Errorf("resolve owned observability capture: %w", err)
+	}
+	if waitErr := sleep(ctx, 5*time.Second); waitErr != nil {
+		return waitErr
 	}
 	r.info("Waiting for a healthy Prometheus target")
 	healthy := false
 	for range 20 {
-		body, err := r.httpGet(ctx, "http://localhost:9090/api/v1/targets")
-		if err == nil && bytes.Contains(body, []byte(`"health":"up"`)) {
+		body, getErr := r.httpGet(ctx, "http://localhost:9090/api/v1/targets")
+		if getErr == nil && bytes.Contains(body, []byte(`"health":"up"`)) {
 			healthy = true
 			break
 		}
-		if err := sleep(ctx, time.Second); err != nil {
-			return err
+		if retryErr := sleep(ctx, time.Second); retryErr != nil {
+			return retryErr
 		}
 	}
 	if healthy {
@@ -237,26 +225,26 @@ func (r *runner) observability(ctx context.Context) error {
 		r.warn("Prometheus target is not healthy yet")
 	}
 	r.printJSONEndpoint(ctx, "http://localhost:9090/api/v1/query?query=gobfd_bfd_sessions")
-	r.capture(ctx, "tshark-observability", 5)
+	r.capture(ctx, captureID, 5)
 
 	r.info("Stopping FRR to trigger BFDSessionDownTransition")
-	if err := r.command(ctx, commandTimeout, r.stdout, r.stderr, "podman", "stop", "frr-observability"); err != nil {
-		return err
+	if stopErr := r.command(ctx, commandTimeout, r.stdout, r.stderr, "podman", "stop", frrID); stopErr != nil {
+		return stopErr
 	}
-	if err := sleep(ctx, 30*time.Second); err != nil {
-		return err
+	if downErr := sleep(ctx, 30*time.Second); downErr != nil {
+		return downErr
 	}
 	r.printJSONEndpoint(ctx, "http://localhost:9090/api/v1/alerts")
 
 	r.info("Starting FRR for recovery")
-	if err := r.command(ctx, commandTimeout, r.stdout, r.stderr, "podman", "start", "frr-observability"); err != nil {
-		return err
+	if startErr := r.command(ctx, commandTimeout, r.stdout, r.stderr, "podman", "start", frrID); startErr != nil {
+		return startErr
 	}
-	if err := sleep(ctx, 15*time.Second); err != nil {
-		return err
+	if recErr := sleep(ctx, 15*time.Second); recErr != nil {
+		return recErr
 	}
 	r.printJSONEndpoint(ctx, "http://localhost:9090/api/v1/alerts")
-	r.capture(ctx, "tshark-observability", 0)
+	r.capture(ctx, captureID, 0)
 	r.info("Grafana dashboard: http://localhost:3000 (admin/admin)")
 	r.info("Prometheus: http://localhost:9090")
 	return nil
@@ -266,53 +254,31 @@ func (r *runner) kubernetes(ctx context.Context) error {
 	if err := r.kubernetesUp(ctx); err != nil {
 		return err
 	}
-	if err := r.kubectl(ctx, "-n", "gobfd", "rollout", "status", "daemonset/gobfd", "--timeout=120s"); err != nil {
+	if err := r.kubectl(
+		ctx, "-n", kubernetesNamespaceName, "rollout", "status", "daemonset/gobfd", "--timeout=120s",
+	); err != nil {
 		return err
 	}
-	if err := r.kubectl(ctx, "-n", "gobfd", "get", "pods", "-o", "wide"); err != nil {
+	if err := r.kubectl(ctx, "-n", kubernetesNamespaceName, "get", "pods", "-o", "wide"); err != nil {
 		return err
 	}
-	pod, err := r.outputKube(
-		ctx, "-n", "gobfd", "get", "pods", "-l", "app=gobfd",
-		"-o", "jsonpath={.items[0].metadata.name}",
-	)
-	if err != nil {
-		return err
+	localNode, _, nodeErr := r.kubernetesLocalNode(ctx)
+	if nodeErr != nil {
+		return fmt.Errorf("resolve local Kubernetes node for pod checks: %w", nodeErr)
 	}
-	pod = strings.TrimSpace(pod)
-	if pod == "" {
-		return fmt.Errorf("resolve GoBFD pod: %w", errEmptyPodName)
+	pod, podErr := r.selectKubernetesLocalPod(ctx, localNode.Name)
+	if podErr != nil {
+		return fmt.Errorf("resolve active Ready GoBFD pod on %s: %w", localNode.Name, podErr)
 	}
 	r.info("GoBFD pod: %s", pod)
-	if sessionErr := r.kubectl(
-		ctx, "-n", "gobfd", "exec", pod, "-c", "gobfd", "--", "/bin/gobfdctl", "sessions",
-	); sessionErr != nil {
-		r.warn("No sessions are configured yet: %v", sessionErr)
-	}
-	if gobgpErr := r.kubectl(
-		ctx, "-n", "gobfd", "exec", pod, "-c", "gobgp", "--", "gobgp", "global",
-	); gobgpErr != nil {
-		r.warn("GoBGP is not ready yet: %v", gobgpErr)
-	}
-	metrics, err := r.outputKube(
-		ctx, "-n", "gobfd", "exec", pod, "-c", "gobfd", "--",
-		"wget", "-qO-", "http://127.0.0.1:9100/metrics",
-	)
-	if err != nil {
-		r.warn("Metrics endpoint is not responding: %v", err)
-	} else {
-		written := 0
-		for line := range strings.Lines(metrics) {
-			if strings.HasPrefix(line, "gobfd_bfd_") && written < 10 {
-				fmt.Fprint(r.stdout, line)
-				written++
-			}
-		}
+	if err := r.kubernetesPodChecks(ctx, pod); err != nil {
+		return err
 	}
 	if captureErr := r.kubectl(
-		ctx, "-n", "gobfd", "exec", pod, "-c", "gobfd", "--",
+		ctx, "-n", kubernetesNamespaceName, "exec", pod, "-c", kubernetesNamespaceName, "--",
 		"tshark", "-i", "any", "-c", "10", "-Y", "bfd",
 	); captureErr != nil {
+		// fail-silent-ok: capture tooling is optional; packet acceptance is a separate gate.
 		r.info("tshark is unavailable in the GoBFD image; use host capture tooling")
 	}
 	r.info("Kubernetes demo complete; run make int-k8s-down to delete only namespace gobfd")
@@ -323,8 +289,7 @@ func (r *runner) kubernetesUp(ctx context.Context) error {
 	if err := r.kubernetesSetup(ctx); err != nil {
 		return err
 	}
-	manifests := filepath.Join(r.root, "deployments", "integrations", "kubernetes", "manifests")
-	return r.kubectl(ctx, "apply", "-f", manifests)
+	return r.kubernetesBuildAndApply(ctx)
 }
 
 func (r *runner) kubernetesSetup(ctx context.Context) error {
@@ -341,68 +306,215 @@ func (r *runner) kubernetesSetup(ctx context.Context) error {
 		return err
 	}
 	r.info("Waiting for the existing K3s cluster")
-	ready := false
-	for range 60 {
-		if _, err := r.outputKube(ctx, "get", "nodes"); err == nil {
-			ready = true
-			break
+	readyCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	for {
+		if _, err := r.kubernetesNodes(readyCtx); err != nil {
+			if waitErr := sleep(readyCtx, time.Second); waitErr != nil {
+				return errors.Join(fmt.Errorf("%w within 60 seconds: %w", errK3sNotReady, err), waitErr)
+			}
+			continue
 		}
-		if err := sleep(ctx, time.Second); err != nil {
-			return err
-		}
+		break
 	}
-	if !ready {
-		return fmt.Errorf("%w within 60 seconds", errK3sNotReady)
+	return r.kubectl(ctx, "get", "nodes", "-o", "wide")
+}
+
+type kubernetesOutput struct {
+	buffer   bytes.Buffer
+	maxBytes int
+}
+
+func (output *kubernetesOutput) String() string { return output.buffer.String() }
+
+func (output *kubernetesOutput) Write(data []byte) (int, error) {
+	if len(data) > output.maxBytes-output.buffer.Len() {
+		return 0, errKubernetesOutputLimit
 	}
-	if err := r.kubectl(ctx, "get", "nodes", "-o", "wide"); err != nil {
+	n, err := output.buffer.Write(data)
+	if err != nil {
+		return n, fmt.Errorf("write bounded kubernetes output: %w", err)
+	}
+	return n, nil
+}
+
+func (r *runner) kubernetesImageID(ctx context.Context, image string) (string, error) {
+	output := kubernetesOutput{maxBytes: maxImageIDOutput}
+	if err := r.command(ctx, commandTimeout, &output, r.stderr,
+		"podman", "image", "inspect", "--format", "{{.ID}}", "--", image); err != nil {
+		return "", errors.Join(errKubernetesImageIdentity, fmt.Errorf("inspect Kubernetes source image: %w", err))
+	}
+	id := "sha256:" + strings.TrimPrefix(strings.TrimSpace(output.String()), "sha256:")
+	if !containertest.IsImageDigest(id) {
+		return "", fmt.Errorf("inspect Kubernetes source image: %w", errKubernetesImageIdentity)
+	}
+	return id, nil
+}
+
+func (r *runner) importKubernetesImage(
+	ctx context.Context,
+	store *kubernetesContainerdStore,
+	image, expectedID, receiptDirectory string,
+) (_ string, runErr error) {
+	if !containertest.IsImageDigest(expectedID) {
+		return "", errKubernetesImageIdentity
+	}
+	if store == nil || store.connection == nil {
+		return "", errKubernetesContainerdStore
+	}
+	if idErr := r.verifySourceImageID(ctx, image, expectedID); idErr != nil {
+		return "", idErr
+	}
+	archive, archivePath, archiveInfo, createErr := createTempKubernetesArchive()
+	if createErr != nil {
+		return "", createErr
+	}
+	defer func() {
+		runErr = errors.Join(runErr, cleanupTempKubernetesArchive(archive, archivePath, archiveInfo))
+	}()
+	verified, exportErr := r.exportAndVerifyKubernetesArchive(ctx, archive, archivePath, archiveInfo, image, expectedID)
+	if exportErr != nil {
+		return "", exportErr
+	}
+	if receiptErr := writeKubernetesArchiveReceipt(receiptDirectory, expectedID, verified.Evidence); receiptErr != nil {
+		return "", receiptErr
+	}
+	manifestDigest, importErr := store.importArchive(ctx, archive, image, verified)
+	if importErr != nil {
+		return "", importErr
+	}
+	importReceipt := kubernetesImportReceipt{
+		Schema:         importReceiptSchema,
+		Image:          image,
+		SourceID:       expectedID,
+		ManifestDigest: manifestDigest,
+		ArchiveDigest:  verified.Evidence.Digest,
+		ServerUUID:     store.serverUUID,
+	}
+	if pubReceiptErr := writeKubernetesImportReceipt(receiptDirectory, expectedID, importReceipt); pubReceiptErr != nil {
+		return "", pubReceiptErr
+	}
+	r.info("Imported %s (%s) into containerd image store", image, manifestDigest)
+	return manifestDigest, nil
+}
+
+func (r *runner) verifySourceImageID(ctx context.Context, image, expectedID string) error {
+	id, err := r.kubernetesImageID(ctx, image)
+	if err != nil {
 		return err
 	}
-
-	for _, image := range []struct{ tag, containerfile, context string }{
-		{"gobfd:local", filepath.Join(r.root, "deployments", "docker", "Containerfile"), r.root},
-		// GoBGP v4 from the shared source-pinned recipe; dev GoBFD needs a v4 daemon.
-		{
-			"gobgp:local", filepath.Join(r.root, "test", "interop", "gobgp", "Containerfile"),
-			filepath.Join(r.root, "test", "interop", "gobgp"),
-		},
-	} {
-		r.info("Building %s", image.tag)
-		if err := r.command(ctx, buildTimeout, r.stdout, r.stderr,
-			"podman", "build", "-f", image.containerfile, "-t", image.tag, image.context,
-		); err != nil {
-			return err
-		}
-		if err := r.importKubernetesImage(ctx, image.tag); err != nil {
-			return err
-		}
+	if id != expectedID {
+		return fmt.Errorf("source image changed before export: %w", errKubernetesImageIdentity)
 	}
 	return nil
 }
 
-func (r *runner) importKubernetesImage(ctx context.Context, image string) error {
-	archive, err := os.CreateTemp("/var/tmp", "gobfd-k8s-image-*.tar")
+func createTempKubernetesArchive() (*os.File, string, os.FileInfo, error) {
+	archive, err := os.CreateTemp("", "gobfd-k8s-image-*.tar")
 	if err != nil {
-		return fmt.Errorf("create temporary image archive: %w", err)
+		return nil, "", nil, fmt.Errorf("create temporary image archive: %w", err)
 	}
-	archivePath := archive.Name()
-	if err := archive.Close(); err != nil {
-		return fmt.Errorf("close temporary image archive: %w", err)
+	info, statErr := archive.Stat()
+	if statErr != nil {
+		closeErr := archive.Close()
+		removeErr := os.Remove(archive.Name())
+		return nil, "", nil, fmt.Errorf(
+			"identify temporary image archive: %w",
+			errors.Join(statErr, closeErr, removeErr),
+		)
 	}
-	defer func() {
-		if removeErr := os.Remove(archivePath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			r.warn("Could not remove temporary image archive %s: %v", archivePath, removeErr)
-		}
-	}()
-	if err := r.command(
+	return archive, archive.Name(), info, nil
+}
+
+func cleanupTempKubernetesArchive(archive *os.File, archivePath string, archiveInfo os.FileInfo) error {
+	var cleanupErr error
+	if closeErr := archive.Close(); closeErr != nil {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("close temporary image archive: %w", closeErr))
+	}
+	current, statErr := os.Lstat(archivePath)
+	if errors.Is(statErr, os.ErrNotExist) {
+		return cleanupErr
+	}
+	if statErr != nil {
+		return errors.Join(
+			cleanupErr,
+			fmt.Errorf("inspect temporary image archive %s before cleanup: %w", archivePath, statErr),
+		)
+	}
+	if archiveInfo == nil || !current.Mode().IsRegular() || !os.SameFile(archiveInfo, current) {
+		return errors.Join(
+			cleanupErr,
+			fmt.Errorf("preserve replaced temporary image archive %s: %w", archivePath, errKubernetesArchiveIdentity),
+		)
+	}
+	if removeErr := os.Remove(archivePath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+		cleanupErr = errors.Join(
+			cleanupErr,
+			fmt.Errorf("remove temporary image archive %s: %w", archivePath, removeErr),
+		)
+	}
+	return cleanupErr
+}
+
+func (r *runner) exportAndVerifyKubernetesArchive(
+	ctx context.Context,
+	archive *os.File,
+	archivePath string,
+	archiveInfo os.FileInfo,
+	image, expectedID string,
+) (verifiedKubernetesArchive, error) {
+	var empty verifiedKubernetesArchive
+	saveErr := r.command(
 		ctx, buildTimeout, r.stdout, r.stderr,
-		"podman", "save", "--output", archivePath, image,
-	); err != nil {
-		return err
+		"podman", "save", "--format", "docker-archive", "--multi-image-archive=false",
+		"--output", archivePath, expectedID, image,
+	)
+	if saveErr != nil {
+		return empty, saveErr
 	}
-	if err := r.command(ctx, buildTimeout, r.stdout, r.stderr, "k3s", "ctr", "images", "import", archivePath); err != nil {
-		return err
+	current, statErr := os.Lstat(archivePath)
+	if statErr != nil {
+		return empty, fmt.Errorf("inspect exported image archive before import: %w", statErr)
 	}
-	r.info("Imported %s into the existing K3s image store", image)
+	if !current.Mode().IsRegular() || !os.SameFile(archiveInfo, current) {
+		return empty, fmt.Errorf("preserve replaced exported image archive: %w", errKubernetesArchiveIdentity)
+	}
+	validationCtx, cancel := context.WithTimeout(ctx, buildTimeout)
+	verified, validationErr := inspectKubernetesArchive(validationCtx, archive, image, expectedID)
+	cancel()
+	if validationErr != nil {
+		return empty, fmt.Errorf("verify exported Kubernetes image archive: %w", validationErr)
+	}
+	return verified, nil
+}
+
+func writeKubernetesArchiveReceipt(
+	receiptDirectory, expectedID string,
+	evidence kubernetesArchiveEvidence,
+) error {
+	data, err := json.Marshal(evidence)
+	if err != nil {
+		return fmt.Errorf("encode Kubernetes archive evidence: %w", err)
+	}
+	name := "archive-" + strings.TrimPrefix(expectedID, "sha256:") + ".json"
+	if writeErr := interopproject.CreatePrivateReceipt(filepath.Join(receiptDirectory, name), data); writeErr != nil {
+		return fmt.Errorf("write Kubernetes archive evidence receipt: %w", writeErr)
+	}
+	return nil
+}
+
+func writeKubernetesImportReceipt(
+	receiptDirectory, expectedID string,
+	receipt kubernetesImportReceipt,
+) error {
+	data, err := json.Marshal(receipt)
+	if err != nil {
+		return fmt.Errorf("encode Kubernetes import receipt: %w", err)
+	}
+	name := "import-" + strings.TrimPrefix(expectedID, "sha256:") + ".json"
+	if writeErr := interopproject.CreatePrivateReceipt(filepath.Join(receiptDirectory, name), data); writeErr != nil {
+		return fmt.Errorf("write Kubernetes import receipt: %w", writeErr)
+	}
 	return nil
 }
 
@@ -410,16 +522,7 @@ func (r *runner) kubernetesDown(ctx context.Context) error {
 	if _, err := os.Stat(kubeconfigPath); err != nil {
 		return fmt.Errorf("inspect K3s kubeconfig %s: %w", kubeconfigPath, err)
 	}
-	namespace, err := r.outputKube(ctx, "get", "namespace", "gobfd", "--ignore-not-found", "-o", "name")
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(namespace) == "" {
-		r.info("Namespace gobfd does not exist")
-		return nil
-	}
-	r.info("Deleting namespace gobfd; the host K3s cluster is preserved")
-	return r.kubectl(ctx, "delete", "namespace", "gobfd", "--timeout=30s")
+	return r.deleteKubernetesNamespace(ctx)
 }
 
 func (r *runner) requests(ctx context.Context, count int) error {
@@ -458,13 +561,13 @@ func (r *runner) printJSONEndpoint(ctx context.Context, endpoint string) {
 		return
 	}
 	var formatted bytes.Buffer
-	if err := json.Indent(&formatted, body, "", "  "); err != nil {
+	if indentErr := json.Indent(&formatted, body, "", "  "); indentErr != nil {
 		fmt.Fprintln(r.stdout, string(body))
 		return
 	}
 	formatted.WriteByte('\n')
-	if _, err := formatted.WriteTo(r.stdout); err != nil {
-		r.warn("Could not write formatted JSON: %v", err)
+	if _, writeErr := formatted.WriteTo(r.stdout); writeErr != nil {
+		r.warn("Could not write formatted JSON: %v", writeErr)
 	}
 }
 
@@ -504,10 +607,6 @@ func (r *runner) kubectl(ctx context.Context, args ...string) error {
 	)
 }
 
-func (r *runner) outputKube(ctx context.Context, args ...string) (string, error) {
-	return r.outputEnv(ctx, commandTimeout, []string{"KUBECONFIG=" + kubeconfigPath}, "kubectl", args...)
-}
-
 func (r *runner) output(ctx context.Context, timeout time.Duration, name string, args ...string) (string, error) {
 	return r.outputEnv(ctx, timeout, nil, name, args...)
 }
@@ -534,31 +633,21 @@ func (r *runner) command(
 	return r.commandEnv(ctx, timeout, stdout, stderr, nil, name, args...)
 }
 
-func (r *runner) commandArgvEnv(
-	ctx context.Context,
-	timeout time.Duration,
-	stdout, stderr io.Writer,
-	environment, argv []string,
-) error {
-	if len(argv) == 0 {
-		return fmt.Errorf("run command: %w", errEmptyArgv)
-	}
-	return r.commandEnv(ctx, timeout, stdout, stderr, environment, argv[0], argv[1:]...)
-}
-
-func (r *runner) outputArgvEnv(
-	ctx context.Context,
-	timeout time.Duration,
-	environment, argv []string,
-) (string, error) {
-	var output bytes.Buffer
-	err := r.commandArgvEnv(ctx, timeout, &output, &output, environment, argv)
-	return output.String(), err
-}
-
 func (r *runner) commandEnv(
 	ctx context.Context,
 	timeout time.Duration,
+	stdout, stderr io.Writer,
+	environment []string,
+	name string,
+	args ...string,
+) error {
+	return r.commandInputEnv(ctx, timeout, nil, stdout, stderr, environment, name, args...)
+}
+
+func (r *runner) commandInputEnv(
+	ctx context.Context,
+	timeout time.Duration,
+	stdin io.Reader,
 	stdout, stderr io.Writer,
 	environment []string,
 	name string,
@@ -570,6 +659,7 @@ func (r *runner) commandEnv(
 	cmd := exec.CommandContext(commandCtx, name, args...)
 	cmd.Dir = r.root
 	cmd.Env = append(os.Environ(), environment...)
+	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {

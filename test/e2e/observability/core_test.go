@@ -151,6 +151,7 @@ type grafanaSearchResult struct {
 
 func newObservabilityContract(root string) observabilityContract {
 	base := filepath.Join(root, "deployments/integrations/observability")
+	grafanaBase := filepath.Join(root, "deployments/compose/configs/grafana")
 	return observabilityContract{
 		subnet: "172.25.0.0/24", gateway: "172.25.0.1",
 		gobfdIP: "172.25.0.10", frrIP: "172.25.0.20",
@@ -165,9 +166,9 @@ func newObservabilityContract(root string) observabilityContract {
 		prometheusConfig:         filepath.Join(base, "configs/prometheus/prometheus.yml"),
 		alertRules:               filepath.Join(base, "configs/prometheus/alert-rules.yml"),
 		alertRuleTests:           filepath.Join(root, "test/e2e/observability/testdata/alert-rules.yml"),
-		grafanaDatasource:        filepath.Join(base, "configs/grafana/provisioning/datasources/prometheus.yml"),
-		grafanaDashboardProvider: filepath.Join(base, "configs/grafana/provisioning/dashboards/dashboards.yml"),
-		grafanaDashboard:         filepath.Join(base, "configs/grafana/dashboards/bfd.json"),
+		grafanaDatasource:        filepath.Join(grafanaBase, "provisioning/datasources/prometheus.yml"),
+		grafanaDashboardProvider: filepath.Join(grafanaBase, "provisioning/dashboards/dashboards.yml"),
+		grafanaDashboard:         filepath.Join(grafanaBase, "dashboards/bfd.json"),
 		tsharkContainerfile:      filepath.Join(root, "test/interop/tshark/Containerfile"),
 	}
 }
@@ -431,6 +432,10 @@ RUN CGO_ENABLED=0 go build -trimpath \
 RUN CGO_ENABLED=0 go build -trimpath \
     -ldflags="-X github.com/dantte-lp/gobfd/internal/version.GitCommit=${VCS_REF} \
 -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" -o /bin/gobfdctl ./cmd/gobfdctl
+ARG GOBFD_IMAGE_RUN=""
+ARG GOBFD_IMAGE_TEST=""
+LABEL io.gobfd.stage-run="${GOBFD_IMAGE_RUN}" \
+      io.gobfd.stage-test="${GOBFD_IMAGE_TEST}"
 FROM docker.io/library/debian:trixie-slim@sha256:` +
 		`8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
 ARG VCS_REF
@@ -467,13 +472,13 @@ func deriveGrafanaDatasource(t *testing.T, source, prometheusIP string) string {
 	t.Helper()
 	contents, err := os.ReadFile(source)
 	if err != nil {
-		t.Fatalf("read operational Grafana datasource: %v", err)
+		t.Fatalf("read canonical Grafana datasource: %v", err)
 	}
-	const operationalURL = "http://prometheus-observability:9090"
-	if bytes.Count(contents, []byte(operationalURL)) != 1 {
-		t.Fatalf("operational Grafana datasource URL occurrence count != 1")
+	const placeholder = "${PROMETHEUS_URL}"
+	if bytes.Count(contents, []byte(placeholder)) != 1 {
+		t.Fatalf("canonical Grafana datasource ${PROMETHEUS_URL} occurrence count != 1")
 	}
-	derived := bytes.Replace(contents, []byte(operationalURL), []byte("http://"+prometheusIP+":9090"), 1)
+	derived := bytes.Replace(contents, []byte(placeholder), []byte("http://"+prometheusIP+":9090"), 1)
 	path := filepath.Join(t.TempDir(), "prometheus.yml")
 	if err := os.WriteFile(path, derived, 0o600); err != nil {
 		t.Fatalf("write minimally derived Grafana datasource: %v", err)

@@ -5,6 +5,7 @@ package core_test
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
@@ -75,7 +77,7 @@ func TestCoreBuildContextIncludesGobfdctl(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read bounded Containerfile: %v", err)
 	}
-	if !bytes.Contains(containerfile, []byte("-o /bin/gobfdctl ./cmd/gobfdctl")) {
+	if !bytes.Contains(containerfile, []byte(`"/bin/gobfdctl", "./cmd/gobfdctl"`)) {
 		t.Fatal("bounded Containerfile does not build /bin/gobfdctl")
 	}
 }
@@ -208,9 +210,9 @@ func startCoreTopology(t *testing.T, endpoint string) *coreTopology {
 	root := repositoryRoot(t)
 	runID, reportDir := coreReportDirectory(t, root)
 	networkName := fmt.Sprintf("gobfd-e2e-core-%d", time.Now().UnixNano())
-	buildID := time.Now().UnixNano()
-	imageName := fmt.Sprintf("localhost/gobfd-e2e-core:test-%d", buildID)
-	tsharkImageName := fmt.Sprintf("localhost/gobfd-e2e-core-tshark:test-%d", buildID)
+	buildID := strings.ToLower(rand.Text())
+	imageName := "localhost/gobfd-e2e-core:test-" + buildID
+	tsharkImageName := "localhost/gobfd-e2e-core-tshark:test-" + buildID
 	buildContext := prepareBuildContext(t, root)
 	builtImage := buildCoreImage(ctx, t, endpoint, buildContext, imageName)
 	builtTsharkImage := buildCoreImage(ctx, t, endpoint, prepareTsharkBuildContext(t, root), tsharkImageName)
@@ -230,7 +232,7 @@ func startCoreTopology(t *testing.T, endpoint string) *coreTopology {
 
 	topology := &coreTopology{
 		daemons: make(map[string]coreDaemon, 2), endpoint: endpoint,
-		imageNames: []string{builtImage, builtTsharkImage}, networkName: networkName,
+		imageNames: []string{imageName, tsharkImageName}, networkName: networkName,
 		root: root, runID: runID, reportDir: reportDir,
 	}
 	topology.writeRuntimeConfig(t, "gobfd-a.yml", coreConfig(gobfdAIP, gobfdBIP))
@@ -252,7 +254,7 @@ func startCoreTopology(t *testing.T, endpoint string) *coreTopology {
 	assertCoreTsharkIsolation(ctx, t, topology.capture, tsharkImageID, daemonA.container.GetContainerID())
 	topology.analyzer = startCoreTshark(ctx, t, tsharkImageID, runID, "gobfd-core-analyzer", "", false)
 	assertCoreTsharkIsolation(ctx, t, topology.analyzer, tsharkImageID, "")
-	topology.imageNames = []string{inspection.Image, tsharkImageID}
+	topology.imageNames = append(topology.imageNames, inspection.Image, tsharkImageID)
 
 	daemonB := startCoreDaemon(ctx, t, inspection.Image, networkName, runID, "gobfd-b", gobfdBIP, gobfdAIP)
 	assertDaemonIsolation(ctx, t, endpoint, daemonB.container, networkName, gobfdBIP)
@@ -335,13 +337,15 @@ func prepareBuildContext(t *testing.T, root string) string {
 		`430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download && go mod verify
+RUN ["go", "mod", "download"]
+RUN ["go", "mod", "verify"]
 COPY cmd/gobfd ./cmd/gobfd
 COPY cmd/gobfdctl ./cmd/gobfdctl
 COPY internal ./internal
 COPY pkg ./pkg
-RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfd ./cmd/gobfd
-RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfdctl ./cmd/gobfdctl
+ENV CGO_ENABLED=0
+RUN ["go", "build", "-trimpath", "-o", "/bin/gobfd", "./cmd/gobfd"]
+RUN ["go", "build", "-trimpath", "-o", "/bin/gobfdctl", "./cmd/gobfdctl"]
 ENTRYPOINT ["/bin/gobfd"]
 `
 	if err := os.WriteFile(filepath.Join(contextDir, "Containerfile"), []byte(containerfile), 0o600); err != nil {
@@ -390,9 +394,14 @@ func buildCoreImage(
 ) string {
 	t.Helper()
 
-	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
+	imageClient, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
 	if err != nil {
 		t.Fatalf("create Podman client for image ownership: %v", err)
+	}
+	var ownedID string
+	if regErr := containertest.RegisterImageCleanup(ctx, imageName, imageName, "e2e-core", &ownedID,
+		imageClient, t.Cleanup, func(cleanupErr error) { t.Errorf("%v", cleanupErr) }); regErr != nil {
+		t.Fatalf("register e2e-core image ownership: %v", regErr)
 	}
 	//nolint:staticcheck // Retain core ProviderPodman without adding modules/podman.
 	provider, err := testcontainers.ProviderPodman.GetProvider()
@@ -401,36 +410,44 @@ func buildCoreImage(
 	}
 	dockerProvider, ok := provider.(*testcontainers.DockerProvider)
 	if !ok {
-		t.Fatalf("Podman provider type = %T, want *testcontainers.DockerProvider", provider)
+		t.Fatalf("Podman provider type = %T, want *testcontainers.DockerProvider: %v", provider, provider.Close())
 	}
 	repo, tag, found := strings.Cut(imageName, ":")
 	if !found {
-		t.Fatalf("split e2e-core image name %q", imageName)
+		t.Fatalf("split e2e-core image name %q: %v", imageName, provider.Close())
 	}
 	// ContainerRequest, unlike the embedded FromDockerfile, implements
 	// ImageBuildInfo because the latter's BuildLogWriter field shadows the method.
 	//nolint:modernize // FromDockerfile alone does not implement ImageBuildInfo.
-	builtImage, err := dockerProvider.BuildImage(ctx, &testcontainers.ContainerRequest{
+	_, buildErr := dockerProvider.BuildImage(ctx, &testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{
 			Context:    buildContext,
 			Dockerfile: "Containerfile",
 			Repo:       repo,
 			Tag:        tag,
 			KeepImage:  true,
+			BuildArgs:  containertest.StageBuildArgs(nil, imageName, "e2e-core"),
+			BuildOptionsModifier: func(options *client.ImageBuildOptions) {
+				options.Labels = map[string]string{
+					"io.gobfd.test": "e2e-core", "io.gobfd.run": imageName, "io.gobfd.image": imageName,
+				}
+				options.CPUPeriod, options.CPUQuota = 100000, 200000
+				options.Memory, options.MemorySwap = 2<<30, 2<<30
+			},
 		},
 	})
-	closeErr := provider.Close()
-	if joinedErr := errors.Join(err, closeErr); joinedErr != nil {
+	metadata, inspectErr := imageClient.ImageMetadata(ctx, imageName)
+	if inspectErr == nil {
+		inspectErr = containertest.ValidateImageOwner(metadata, imageName, imageName, "e2e-core")
+		if inspectErr == nil {
+			ownedID = metadata.ID
+			t.Logf("e2e-core image=%s id=%s", imageName, ownedID)
+		}
+	}
+	if joinedErr := errors.Join(buildErr, inspectErr, provider.Close()); joinedErr != nil {
 		t.Fatalf("build bounded e2e-core image: %v", joinedErr)
 	}
-	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
-		defer cancel()
-		if removeErr := client.RemoveImage(cleanupCtx, builtImage); removeErr != nil {
-			t.Errorf("remove e2e-core image %s: %v", builtImage, removeErr)
-		}
-	})
-	return builtImage
+	return ownedID
 }
 
 func startCoreTshark(
@@ -1257,7 +1274,11 @@ func captureContainerLogsOnFailure(
 			t.Logf("read %s diagnostics: %v", name, err)
 			return
 		}
-		defer logs.Close()
+		defer func() {
+			if closeErr := logs.Close(); closeErr != nil {
+				t.Logf("close %s diagnostics: %v", name, closeErr)
+			}
+		}()
 		const maxLogBytes = 1 << 20
 		buffer := new(strings.Builder)
 		if _, copyErr := io.CopyN(buffer, logs, maxLogBytes); copyErr != nil && !errors.Is(copyErr, io.EOF) {

@@ -92,9 +92,21 @@ Fuzz targets cover Control, VXLAN, Geneve and inner packet codecs. Select the ex
 
 The [E2E target inventory](../../test/e2e/targets.md) distinguishes assertion-based gates from retained demos and manifest-only checks. Never infer vendor execution from `e2e-vendor`, nor complete RFC coverage from a named RFC action-path test. Cleanup targets can delete owned resources and require the applicable authorization.
 
+### RFC Compose ownership
+
+Use `make interop-rfc-up`, `make interop-rfc-test`, `make interop-rfc-logs` and `make interop-rfc-down` for the retained Compose stack. `e2e-rfc-test` uses the same locked test target. The [controller](../../test/internal/interopproject/controller.go) validates the project and owns each build through a run receipt; cleanup targets verified IDs. Captures remain in private `reports/e2e/rfc-compose/run.<identity>/` directories after teardown. Existing named capture volumes are preserved.
+
+The [RFC aggregate](../../test/internal/e2erunner/rfc.go) resolves container IDs, collects logs and packet artifacts before teardown, and collects artifacts under an independent timeout after cancellation. Missing required containers or empty captures fail the run. The testcontainers entry point remains separate. These ownership checks do not extend the [RFC coverage matrix](08-rfc-compliance.md).
+
+### Routing artifact ownership
+
+The [routing launcher](../../test/internal/e2erunner/routing.go) collects the base and BGP suite artifacts sequentially. It merges their copied captures inside the BGP lifecycle, while that suite's verified tshark image is still available. The retired base image ID remains provenance for its capture; merge uses the active BGP image by ID. `merge-runtime/` holds separate ownership receipts, image provenance and helper diagnostics, preserving aggregate inventories and logs. A missing merge output or unconfirmed cleanup fails the run. Post-test artifact collection and runtime cleanup use independent bounded contexts after cancellation; this does not establish native packet or interoperability acceptance.
+
 ### Overlay wire qualification
 
-Run `make e2e-overlay` for the assertion-based userspace UDP tests. The [launcher](../../test/internal/e2erunner/runner.go) creates a separate `--network none` runtime, starts the bounded test immediately and attempts best-effort removal before returning. It provides no capture startup, readiness or join hook. A capture started after the target returns cannot observe the completed test in that runtime.
+Run `make e2e-overlay` for the assertion-based userspace UDP tests. The [launcher](../../test/internal/e2erunner/runner.go) creates a separate `--network none` runtime and starts the bounded test immediately. [Runtime ownership](../../test/internal/e2erunner/runtime.go) validates the full container ID and owner labels before starting or removing it, verifies removal under an independent cleanup timeout, and reports unconfirmed cleanup as an error. It provides no capture startup, readiness or join hook. A capture started after the target returns cannot observe the completed test in that runtime.
+
+Linux and overlay reports use exclusive private run directories. `runtime-plan.json` records the unique name and owner labels before creation; `runtime-container.json` records the validated ID before launch or recovery cleanup. Preserve both receipts and the report when cleanup fails. A failed preparation must not remove an existing container. The launcher preserves external test images and a foreign container that replaces an owned name.
 
 Retain Go test JSON for both inner tuples on the same outer endpoints/VNI. [Assertions](../../test/e2e/overlay/wire_test.go) cover bidirectional userspace UDP, TTL 255, identity/malformed rejection, cancellation, reuse and Close. The generated `packets.csv` is a codec fixture summary, not a PCAP.
 

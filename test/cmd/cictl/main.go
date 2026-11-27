@@ -33,7 +33,9 @@ type dependencies struct {
 	now              func() time.Time
 	runner           cirunner.CommandRunner
 	specRunner       cirunner.SpecRunner
+	prefixRunner     cirunner.PrefixRunner
 	stdout           io.Writer
+	stderr           io.Writer
 	preparePublisher func(context.Context, cirunner.GoReleaserOptions) (publisherAuditWorkspace, error)
 }
 
@@ -56,14 +58,21 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 	if deps.specRunner == nil {
 		deps.specRunner = cirunner.ExecRunner{Stdout: os.Stdout, Stderr: os.Stderr}
 	}
+	if deps.prefixRunner == nil {
+		deps.prefixRunner = cirunner.ExecRunner{Stdout: os.Stdout, Stderr: os.Stderr}
+	}
 	if deps.stdout == nil {
 		deps.stdout = os.Stdout
 	}
+	if deps.stderr == nil {
+		deps.stderr = os.Stderr
+	}
 	if len(arguments) == 0 {
 		return fmt.Errorf(
-			"usage: cictl {build|lint|test-coverage|commit-policy|"+
+			"usage: cictl {build|dev-ensure|lint|test-coverage|commit-policy|"+
 				"buf-fetch-base|buf-breaking|sbom|proto-verify|publisher-audit|"+
 				"benchmark-run|benchmark-base|benchmark-pair|benchmark-normalize|benchmark-report|"+
+				"local-benchmark|local-benchmark-save|local-benchmark-compare|"+
 				"release-build|release-test-report|release-benchmarks|release-benchmark-metadata|"+
 				"release-benchmark-comparison|release-reports-archive|release-preflight|release-notes|release-pr-check|"+
 				"release-please-pr|release-goreleaser|release-source-tools|"+
@@ -96,6 +105,8 @@ func runCoreCommand(
 	switch command {
 	case "build":
 		return true, runBuild(ctx, arguments, deps)
+	case "dev-ensure":
+		return true, runDevEnsure(ctx, arguments, deps)
 	case "lint":
 		return true, runLint(ctx, arguments, deps)
 	case "test-coverage":
@@ -131,6 +142,12 @@ func runBenchmarkCommand(
 		return true, runBenchmarkNormalize(arguments, deps)
 	case "benchmark-report":
 		return true, runBenchmarkReport(ctx, arguments, deps)
+	case "local-benchmark":
+		return true, runLocalBenchmark(ctx, arguments, deps)
+	case "local-benchmark-save":
+		return true, runLocalBenchmarkSave(ctx, arguments, deps)
+	case "local-benchmark-compare":
+		return true, runLocalBenchmarkCompare(ctx, arguments, deps)
 	default:
 		return false, nil
 	}

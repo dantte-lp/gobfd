@@ -687,9 +687,9 @@ func TestInteropOperationalContract(t *testing.T) {
 	assertOrdered(t, "bounded base build metadata", baseBuild, []string{
 		`BuildMetadata(ctx, c.root, os.Getenv("GOBFD_BUILD_REVISION"))`,
 		`"compose", "-p", c.projectName, "-f", c.composeFile, "config", "--format", "json"`,
-		"composeBuildArgs(service.Build, image, revision, buildDate)",
+		"composeBuildArgs(service.Build, image, revision, buildDate, run)",
 		"c.mutation = true",
-		"c.podmanStream(ctx, 10*time.Minute, args...)",
+		"c.podmanStream(ctx, 10*time.Minute, build.args...)",
 	})
 	assertContainsAll(t, "bounded base build limits", baseBuild, []string{
 		"func (c *Controller) build(ctx context.Context) error {",
@@ -785,8 +785,8 @@ func TestInteropOperationalContract(t *testing.T) {
 		"routingartifacts.WriteImageID",
 		"routingartifacts.ReadImageID",
 		"routingartifacts.Merge",
-		"mergeOwnerLabelKey",
-		"removeLabelledContainers",
+		"mergeRunner.createRuntime",
+		"mergeRunner.cleanupRuntime",
 	})
 	assertOrdered(t, "routing Go lifecycle", routing, []string{
 		"controller.Lifecycle",
@@ -942,8 +942,8 @@ func TestRFCRunnerUsesHelperComposeProject(t *testing.T) {
 	}
 	assertContainsAll(t, "E2E runner RFC suite", runner, []string{
 		`const interopRFCProject = "gobfd-interop-rfc"`,
-		`podmanCommand, "compose", "-p", interopRFCProject, "-f", composeFile`,
-		`"INTEROP_PROJECT_NAME="+interopRFCProject`,
+		`interopproject.NewProject(r.root, interopRFCProject, "rfc", r.stdout, r.stderr)`,
+		`controller.Lifecycle(ctx, r.runRFCSuite)`,
 	})
 }
 
@@ -1682,14 +1682,15 @@ func TestBenchmarkReportOperationalContract(t *testing.T) {
 	if strings.Contains(strings.ToLower(makefile), "bench-"+"python") {
 		t.Error("benchmark-cross retains the removed benchmark service")
 	}
-	recipeStart := strings.Index(makefile, "benchmark-report:\n")
+	recipeStart := strings.Index(makefile, "benchmark-report: dev-ensure\n")
 	recipeEnd := strings.Index(makefile, "\n# === Quality ===")
 	if recipeStart < 0 || recipeEnd < recipeStart {
 		t.Fatal("Makefile lacks a bounded benchmark-report recipe")
 	}
 	reportRecipe := makefile[recipeStart:recipeEnd]
 	assertContainsAll(t, "benchmark report generator", reportRecipe, []string{
-		`go run ./test/cmd/benchreport --`,
+		`$(EXEC) env GCC_VERSION="gcc (Debian trixie)" go run ./test/cmd/benchreport --`,
+		`"$(BENCH_REPORT_RESULTS)/bench-go.txt"`,
 		`"$(BENCH_META_JSON)" "$(BENCH_REPORT_TEMPLATE)" "$(BENCH_REPORT_OUTPUT)"`,
 	})
 	for _, removed := range []string{"uv run", "python -", "<<'PY'", "tempfile.NamedTemporaryFile"} {
@@ -1713,6 +1714,9 @@ func TestBenchmarkResultMountContract(t *testing.T) {
 	}
 	if strings.Contains(compose, "\nvolumes:\n  bench-results:") {
 		t.Error("benchmark Compose retains the obsolete named result volume")
+	}
+	if strings.Contains(compose, "sh -c") {
+		t.Error("benchmark Compose retains a shell wrapper")
 	}
 	defaultSource := filepath.Clean(filepath.Join(root, "bench", "..", "bench-results"))
 	assertEqual(t, "default rendered benchmark result source", defaultSource, filepath.Join(root, "bench-results"))
@@ -1778,7 +1782,8 @@ func TestBenchmarkResultMountContract(t *testing.T) {
 		`BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) run --rm bench-go`,
 		`go run ./test/cmd/benchreport --`,
 	})
-	spaceResults := filepath.Join(t.TempDir(), "benchmark results with spaces")
+	spaceRel := filepath.Join("bench-results", "benchmark results with spaces")
+	spaceResults := filepath.Join(root, spaceRel)
 	dryRun := exec.CommandContext(
 		t.Context(), "make", "--no-print-directory", "-n", "benchmark-cross", "benchmark-report",
 		"BENCH_RESULTS="+spaceResults,
@@ -1791,8 +1796,56 @@ func TestBenchmarkResultMountContract(t *testing.T) {
 	assertContainsAll(t, "benchmark Make recipes with spaces", string(dryRunOutput), []string{
 		`mkdir -p "` + spaceResults + `"`,
 		`BENCH_RESULTS_DIR="` + spaceResults + `" podman compose -f bench/compose.yml build`,
-		`"` + filepath.Join(spaceResults, "bench-go.txt") + `"`,
+		`"` + filepath.ToSlash(filepath.Join(spaceRel, "bench-go.txt")) + `"`,
 	})
+}
+
+func TestGrafanaProvisioningSingleAuthorityContract(t *testing.T) {
+	t.Parallel()
+
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	duplicate := filepath.Join(root, "deployments", "integrations", "observability", "configs", "grafana")
+	if _, statErr := os.Stat(duplicate); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("duplicate observability Grafana assets remain at %s: %v", duplicate, statErr)
+	}
+	datasource := readContractFile(t, "canonical Grafana datasource",
+		filepath.Join(root, "deployments/compose/configs/grafana/provisioning/datasources/prometheus.yml"))
+	if !strings.Contains(datasource, "url: ${PROMETHEUS_URL}") {
+		t.Fatalf("canonical Grafana datasource lacks ${PROMETHEUS_URL}: %q", datasource)
+	}
+	prodCompose := readContractFile(t, "production Compose", filepath.Join(root, "deployments/compose/compose.yml"))
+	assertContainsAll(t, "production Compose Grafana URL", prodCompose, []string{
+		`PROMETHEUS_URL: "http://127.0.0.1:9090"`,
+		`./configs/grafana/provisioning:/etc/grafana/provisioning:ro,z`,
+		`./configs/grafana/dashboards:/var/lib/grafana/dashboards:ro,z`,
+	})
+	obsCompose := readContractFile(
+		t, "observability Compose",
+		filepath.Join(root, "deployments/integrations/observability/compose.yml"),
+	)
+	assertContainsAll(t, "observability Compose Grafana mounts", obsCompose, []string{
+		`PROMETHEUS_URL=http://prometheus-observability:9090`,
+		`../../compose/configs/grafana/provisioning:/etc/grafana/provisioning:ro,z`,
+		`../../compose/configs/grafana/dashboards:/var/lib/grafana/dashboards:ro,z`,
+	})
+	dashboardRaw := readContractFile(
+		t, "canonical Grafana dashboard",
+		filepath.Join(root, "deployments/compose/configs/grafana/dashboards/bfd.json"),
+	)
+	var dashboard struct {
+		UID    string            `json:"uid"`
+		Panels []json.RawMessage `json:"panels"`
+	}
+	if unmarshalErr := json.Unmarshal([]byte(dashboardRaw), &dashboard); unmarshalErr != nil ||
+		dashboard.UID != "gobfd-bfd-sessions" || len(dashboard.Panels) == 0 {
+		t.Fatalf(
+			"canonical Grafana dashboard = uid %q panels %d, err %v",
+			dashboard.UID, len(dashboard.Panels), unmarshalErr,
+		)
+	}
 }
 
 func TestBenchmarkComposeConfigCommandUsesAbsolutePath(t *testing.T) {

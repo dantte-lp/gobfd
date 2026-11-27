@@ -44,6 +44,11 @@ RUN tar -xzf /tmp/bird.tar.gz --strip-components=1 \
        > /out/usr/share/doc/bird/gobfd-source.txt \
     && sha256sum nest/rt-table.c >> /out/usr/share/doc/bird/gobfd-source.txt
 
+ARG GOBFD_IMAGE_RUN=""
+ARG GOBFD_IMAGE_TEST=""
+LABEL io.gobfd.stage-run="${GOBFD_IMAGE_RUN}" \
+      io.gobfd.stage-test="${GOBFD_IMAGE_TEST}"
+
 FROM docker.io/library/debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
 
 ARG VCS_REF

@@ -54,7 +54,10 @@ func TestObservabilityBuildRequestLimits(t *testing.T) {
 		t.Fatalf("consume image-build context: %v", err)
 	}
 	for name, want := range map[string]string{
-		"VCS_REF": strings.Repeat("a", 40), "BUILD_DATE": "2026-10-28T00:00:00Z",
+		"VCS_REF":          strings.Repeat("a", 40),
+		"BUILD_DATE":       "2026-10-28T00:00:00Z",
+		"GOBFD_IMAGE_RUN":  "fixture-run",
+		"GOBFD_IMAGE_TEST": "observability",
 	} {
 		if got := options.BuildArgs[name]; got == nil || *got != want {
 			t.Errorf("image build argument %s = %v, want %q", name, got, want)
@@ -198,6 +201,10 @@ func TestObservabilityImageCleanupIdentity(t *testing.T) {
 			client := observabilityAPIClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				mu.Lock()
 				defer mu.Unlock()
+				if r.Method == http.MethodGet && r.URL.Path == "/v5.0.0/images/json" {
+					_ = json.NewEncoder(w).Encode([]any{})
+					return
+				}
 				if r.Method == http.MethodDelete {
 					deleted = append(deleted, strings.TrimPrefix(r.URL.Path, "/v5.0.0/images/"))
 					removed = true
