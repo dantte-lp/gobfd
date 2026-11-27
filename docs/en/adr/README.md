@@ -27,5 +27,6 @@ Reference sections use present-tense facts with repository sources. Procedures u
 | [0011](0011-bfd-auth-inline-payload.md) | Inline authentication payload | Accepted policy; source/runtime qualification separate |
 | [0012](0012-owner-down-transition-witness.md) | Owner-monotonic Down evidence | Accepted policy; classification/release qualification separate |
 | [0013](0013-gobgp-restart-disable-ownership.md) | Speaker-epoch GoBGP disable ownership across restarts | Accepted policy; candidate qualification separate |
+| [0014](0014-v1-gobgp-v4-release-line-baseline.md) | GoBGP v4 v1.0 release-line graduation and cross-major benchmark baseline | Accepted |
 
 See [architecture](../01-architecture.md), [RFC coverage](../08-rfc-compliance.md) and [vendor references](../reference/vendor-bfd.md) for implementation and peer boundaries.

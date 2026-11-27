@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func benchmarkGateCSV(name, unit, base, head, delta string) string {
@@ -258,5 +259,81 @@ func TestBenchmarkCriticalGateArtifactFailurePreservesEarlierReports(t *testing.
 		if readTestFile(t, filepath.Join(options.Root, name)) == "" {
 			t.Errorf("earlier artifact %s lost", name)
 		}
+	}
+}
+
+func TestBenchmarkCriticalGateCrossMajorReleaseEstablishesNewMajorBaseline(t *testing.T) {
+	t.Parallel()
+	generatedAt := time.Date(2026, time.November, 27, 19, 0, 0, 0, time.UTC)
+	csv := benchmarkGateCSV("ManagerDemux1000Sessions-8", "sec/op", "8.1e-8", "1.81e-7", "+123.46%")
+
+	for _, test := range []struct {
+		name              string
+		baseline, version string
+		wantCriticalErr   bool
+		wantNoteFragment  string
+	}{
+		{
+			name:             "v0_to_v1_stable_tags",
+			baseline:         "v0.6.4",
+			version:          "v1.0.0",
+			wantCriticalErr:  false,
+			wantNoteFragment: "cross-major release baseline transition (v0 to v1)",
+		},
+		{
+			name:             "v0_to_v1_trimmed_version",
+			baseline:         "v0.6.4",
+			version:          "1.0.0",
+			wantCriticalErr:  false,
+			wantNoteFragment: "cross-major release baseline transition (v0 to v1)",
+		},
+		{
+			name:            "same_major_v1_patch_blocks",
+			baseline:        "v1.0.0",
+			version:         "v1.0.1",
+			wantCriticalErr: true,
+		},
+		{
+			name:            "same_major_v0_patch_blocks",
+			baseline:        "v0.6.4",
+			version:         "v0.6.5",
+			wantCriticalErr: true,
+		},
+		{
+			name:            "unparsed_baseline_fails_closed",
+			baseline:        "custom-baseline",
+			version:         "v1.0.0",
+			wantCriticalErr: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			options, _, _ := benchmarkGateFixture(t, csv)
+			options.SkipStepSummary = true
+			options.StepSummary = ""
+			options.ReleaseContext = &BenchmarkReleaseContext{
+				Baseline:    test.baseline,
+				Version:     test.version,
+				GeneratedAt: generatedAt,
+			}
+			err := BenchmarkReport(t.Context(), options)
+			if (err != nil) != test.wantCriticalErr {
+				t.Fatalf("BenchmarkReport() error = %v, wantCriticalErr = %t", err, test.wantCriticalErr)
+			}
+			if test.wantCriticalErr && !errors.Is(err, errCriticalBenchmarkRegression) {
+				t.Fatalf("BenchmarkReport() error = %v, want errCriticalBenchmarkRegression", err)
+			}
+			requireBenchmarkGateArtifacts(t, options)
+			jsonData := readTestFile(t, filepath.Join(options.Root, options.JSON))
+			notesData := readTestFile(t, filepath.Join(options.Root, options.Notes))
+			if test.wantNoteFragment != "" {
+				if !strings.Contains(jsonData, `"regression_classification": "reported"`) ||
+					!strings.Contains(jsonData, test.wantNoteFragment) ||
+					!strings.Contains(notesData, test.wantNoteFragment) {
+					t.Fatalf("cross-major report missing reported classification or provenance note:\nJSON:\n%s\nNotes:\n%s",
+						jsonData, notesData)
+				}
+			}
+		})
 	}
 }

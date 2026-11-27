@@ -9,16 +9,16 @@ commit and the applicable release-line contract.
 ## Source baseline
 
 Release-line integration baseline:
-[`53644faebd43510fa2c6244c6302b7a7e4c2b6b9`](https://github.com/dantte-lp/gobfd/commit/53644faebd43510fa2c6244c6302b7a7e4c2b6b9)
-plus pull request `#137` on branch `release/v1.0` (incorporating
+[`e4f9c3b885606a9a941d8ac35ab5bcfd1dc2ad88`](https://github.com/dantte-lp/gobfd/commit/e4f9c3b885606a9a941d8ac35ab5bcfd1dc2ad88)
+on branch `release/v1.0` (incorporating
 [`eae8f0636055de8ac4714199e27ff0c9d18b9859`](https://github.com/dantte-lp/gobfd/commit/eae8f0636055de8ac4714199e27ff0c9d18b9859)
 from `dev`, Go `1.27.4`, GoBGP `v4.11.0`, ADR-0013 Unix restart ownership,
-RFC 9747 slow Echo pacing, Micro-BFD loss resync and `enforce` health
-gating, bounded inactive per-peer Prometheus series, run-owned Compose/stage
-image cleanup, direct containerd gRPC lease import for Kubernetes, and
-Bash-free `Makefile`/OCI orchestration). Stable branches, release tags and
-backup refs are preserved. No release tag or publication follows from source
-integration.
+ADR-0014 `v1.0` GoBGP v4 release-line graduation, RFC 9747 slow Echo pacing,
+Micro-BFD loss resync and `enforce` health gating, bounded inactive per-peer
+Prometheus series, run-owned Compose/stage image cleanup, direct containerd
+gRPC lease import for Kubernetes, and Bash-free `Makefile`/OCI orchestration).
+Stable branches, release tags and backup refs are preserved. No release tag or
+publication follows from source integration.
 
 ## Stable v1 acceptance
 
@@ -32,21 +32,25 @@ integration.
 | Security disposition | Scoped dependency exceptions and management controls | Stable v1 advisory, reachability and final-candidate security evidence |
 | Documentation | Source-linked EN/RU manual and ADR contracts | Independent correspondence, links and language-parity checks |
 
-The reference 24-hour run, native Control/Echo scale acceptance and final
-wire evidence are release conditions. Local unit/race tests, zero-allocation
-micro-benchmarks and short native lifecycle runs do not substitute for them.
-See [Performance](14-performance-analysis.md) and [Interoperability](05-interop.md)
-for measurement conditions.
+Under [ADR-0014](adr/0014-v1-gobgp-v4-release-line-baseline.md), `release/v1.0`
+graduates to the `1.0.0` product line coupled to GoBGP v4 while preserving
+explicit preview/experimental boundaries in [RFC coverage](08-rfc-compliance.md);
+users requiring GoBGP v3 remain on `release/v0.6`. Long-horizon 24-hour soak,
+native Control/Echo scale campaigns and external hardware NOS runs remain
+tracked as operational qualification evidence outside the initial `1.0.0`
+branch cut. See [Performance](14-performance-analysis.md) and
+[Interoperability](05-interop.md) for measurement conditions.
 
-## Experimental prerelease
+## Release channels and prerelease history
 
-[ADR-0008](adr/0008-experimental-prerelease-boundary.md) accepts the
-maintainer-authorized `v1.0.0-alpha.N` channel dated 2026-10-30. Release Please
+[ADR-0008](adr/0008-experimental-prerelease-boundary.md) defines the historical
+`v1.0.0-alpha.N` prerelease boundary dated 2026-10-30, and
+[ADR-0014](adr/0014-v1-gobgp-v4-release-line-baseline.md) graduates
+`release/v1.0` to stable `1.0.0` proposals on 2026-11-27. Release Please
 prepares the reviewed release PR; GoReleaser and the independent verifier
-own draft creation and publication. Alpha preserves stable latest and OCI
-aliases. Policy acceptance does not establish candidate qualification or a
-published release. Strict CPU-window acceptance, native A/B, calibrated
-reference/24-hour operation and final wire qualification remain stable gates.
+own draft creation and publication. Policy acceptance does not establish a
+published release until the reviewed release PR merges and the annotated tag
+passes `release.yml`.
 
 ## Additional scope
 

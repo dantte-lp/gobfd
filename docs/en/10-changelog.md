@@ -21,7 +21,7 @@ The layout follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/): new
 |:---|:---|
 | `dev` | Next product line; never a stable tag target |
 | `master` | Latest accepted stable state |
-| `release/vMAJOR.MINOR` | Release line; alpha uses the narrower ADR-0008 scope |
+| `release/vMAJOR.MINOR` | Release line (`release/v1.0` targets GoBGP v4 under ADR-0014; `release/v0.6` targets GoBGP v3.37.0) |
 | `fix/vMAJOR.MINOR-*` | Fix targeting the corresponding supported line |
 
 The v0.6 line preserves GoBGP v3.37.0 and its public contracts. Acceptance on `dev` does not deliver a fix to a stable line.
