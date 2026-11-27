@@ -221,7 +221,7 @@ func TestE2EMakeRejectsMissingAmbiguousAndUnpinnedCompiler(t *testing.T) {
 	for _, content := range []string{
 		"FROM example.invalid/compiler:latest AS dev\n",
 		"FROM example.invalid/compiler:latest AS go-toolchain\n",
-		"FROM docker.io/library/golang:1.27.3-trixie@sha256:bad AS go-toolchain\n",
+		"FROM docker.io/library/golang:1.27.4-trixie@sha256:bad AS go-toolchain\n",
 		"FROM docker.io/library/golang:1.27.2-trixie@sha256:" + strings.Repeat("a", 64) + " AS go-toolchain\n",
 	} {
 		fixture := newE2EMakeFixture(t)

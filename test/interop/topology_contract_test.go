@@ -283,16 +283,16 @@ func TestBGPTopologyContract(t *testing.T) {
 		})
 		recipe := readContractFile(t, peer+" recipe", filepath.Join(root, "test/interop", peer, "Containerfile"))
 		assertContainsAll(t, peer+" trixie artifact", recipe, []string{
-			"FROM docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad",
+			"FROM docker.io/library/debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0",
 			`org.opencontainers.image.revision="${VCS_REF}"`,
 			`org.opencontainers.image.created="${BUILD_DATE}"`,
 		})
 		if peer == "gobgp" {
 			assertContainsAll(t, peer+" source build", recipe, []string{
-				"FROM docker.io/library/golang:1.27.3-trixie@sha256:" +
-					"604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c",
-				"https://codeload.github.com/osrg/gobgp/tar.gz/da824d99912e02124b53741245ee4186c381adcc",
-				"ADD --checksum=sha256:755448f0881b66e4a3795b443dd53825431cda1866d8b38e941e474d51714151",
+				"FROM docker.io/library/golang:1.27.4-trixie@sha256:" +
+					"430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee",
+				"https://codeload.github.com/osrg/gobgp/tar.gz/53ceb78fe284018ce83a92f3039198f0a86dc823",
+				"ADD --checksum=sha256:9706526b6fb76b8d6c4de379755819bed41be312e155f59e85baf55f9f3259a8",
 				"CGO_ENABLED=0", `"go", "build", "-trimpath"`, `"./cmd/gobgp", "./cmd/gobgpd"`,
 				"COPY --from=builder /src/LICENSE /usr/share/licenses/gobgp/LICENSE",
 			})
@@ -531,7 +531,7 @@ func TestInteropOperationalContract(t *testing.T) {
 
 	fuzzImage := contents["BFD fuzz image"]
 	assertContainsAll(t, "BFD fuzz image", fuzzImage, []string{
-		"golang:1.27.3-trixie@sha256:",
+		"golang:1.27.4-trixie@sha256:",
 		"debian:trixie-slim@sha256:",
 		"go build -trimpath -o /out/bfd-fuzz ./test/interop/scapy",
 		`ENTRYPOINT ["/usr/local/bin/bfd-fuzz"]`,

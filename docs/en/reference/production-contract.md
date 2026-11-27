@@ -273,12 +273,22 @@ server name, client certificate, and client key.
 
 The actuator reconciles per-peer desired and applied state. RPC failures retry
 with bounded exponential backoff and jitter. Duplicate or out-of-order BFD
-events are harmless because current desired state wins. A successful disable
-creates an ownership receipt valid only in the current process epoch. GoBFD
-never enables a peer that it did not disable. After restart, it does not
-auto-enable any disabled peer because GoBGP cannot prove who last changed that
-state. An optional one-shot adoption operation is explicit, authenticated,
-audited, and disabled by default; persisted receipts alone grant no authority.
+events are harmless because current desired state wins. GoBFD never enables a
+peer that it did not disable. Under the 2026-11-27 amendment ([ADR-0013](../adr/0013-gobgp-restart-disable-ownership.md)),
+a confirmed `DisablePeer` over a local filesystem Unix socket persists a
+mode-`0600` receipt bound to the kernel-verified GoBGP speaker epoch
+(`SO_PEERCRED` PID/UID, socket metadata, boot ID/process start time when
+readable, and `GetBgp` ASN/router ID) in `gobgp.state_file` (default
+`/var/lib/gobfd/gobgp-ownership.json`). After a GoBFD restart, recovery enables
+a neighbor only when a valid receipt matches the live GoBGP speaker epoch,
+`Conf.AdminDown` is `false`, `State.AdminState` is `ADMIN_STATE_DOWN`, and no
+external `ADMIN_STATE_UP` transition was observed on `WatchEvent`. Pre-existing
+operator disables, `Conf.AdminDown = true` configuration, `gobgpd` restarts,
+unconfirmed mid-RPC crashes and TCP endpoints without `SO_PEERCRED` remain
+administratively disabled. Because GoBGP v4.10.0–v4.11.0 zeroes peer timers/counters on
+`adminStateDown` and omits `Communication` in `ListPeer`, offline operator
+retention against the same `gobgpd` PID while GoBFD is stopped requires
+`Conf.AdminDown = true` (`UpdatePeer` or static config).
 Every actuation request carries one validated, non-empty canonical peer address;
 GoBFD never uses GoBGP's empty-address all-peers behavior.
 
@@ -412,7 +422,7 @@ socket pools, `SO_REUSEPORT`, `recvmmsg`, or a timing wheel require a measured
 post-core ADR that preserves discriminator and source-port affinity.
 
 The supported v1 envelope is qualified on a reference runner with 8 vCPU,
-8 GiB RAM, `GOMAXPROCS=8`, and the exact Go 1.27.3 toolchain required by
+8 GiB RAM, `GOMAXPROCS=8`, and the exact Go 1.27.4 toolchain required by
 `AGENTS.md`. It runs 1,000 mixed IPv4/IPv6 Up
 sessions for 24 hours at 100 ms TX/RX and multiplier 3, with background CPU
 load held at 80%, deterministic 0.1% random packet loss, and one intentional
@@ -522,9 +532,11 @@ Required qualification includes status, metrics, health, shutdown, Kubernetes pa
   regression server, failed preflight leaves every peer byte-for-byte in its
   prior administrative state; no empty-address or bulk actuation RPC is sent.
 - Operator-disabled peers are never enabled by GoBFD.
-- Disable by GoBFD, followed by an operator disable and process restart,
-  remains disabled until an explicit authorized action; a stale receipt cannot
-  enable it.
+- A confirmed Unix-IPC disable by GoBFD survives a GoBFD crash and restart when
+  the local GoBGP speaker epoch is unchanged and live BFD returns Up; stale
+  speaker epochs, `Conf.AdminDown = true` peers, unconfirmed mid-RPC crashes,
+  TCP endpoints without `SO_PEERCRED` and receipts revoked after an external
+  `WatchEvent` recovery remain disabled until an explicit authorized action.
 - Native GoBGP BFD conflict is rejected before actuation.
 - A short flap publishes every fact and immediately disables on Down. Repeated
   flaps hold only recovery, a sustained Down is never suppressed, and recovery

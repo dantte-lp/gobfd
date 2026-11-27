@@ -25,7 +25,7 @@ func TestReferenceAdmissionRejectsTighterAncestorsAndUnknowns(t *testing.T) {
 	}
 	env := Environment{
 		Process: ProcessSnapshot{ObserverCPUAffinity: 8},
-		Runtime: RuntimeSnapshot{Version: "go1.27.3", GOOS: "linux", GOMAXPROCS: 8, GCPercent: 100},
+		Runtime: RuntimeSnapshot{Version: "go1.27.4", GOOS: "linux", GOMAXPROCS: 8, GCPercent: 100},
 	}
 	if err := validateReferenceResources(env, []CgroupSnapshot{leaf, parent}, 1064); err != nil {
 		t.Fatalf("approved visible envelope rejected: %v", err)
@@ -127,7 +127,7 @@ func TestReferenceAdmissionRejectsThreadExhaustion(t *testing.T) {
 			}
 			env := Environment{
 				Process: ProcessSnapshot{ObserverCPUAffinity: 8},
-				Runtime: RuntimeSnapshot{Version: "go1.27.3", GOOS: "linux", GOMAXPROCS: 8, GCPercent: 100},
+				Runtime: RuntimeSnapshot{Version: "go1.27.4", GOOS: "linux", GOMAXPROCS: 8, GCPercent: 100},
 			}
 			if err := validateReferenceResources(env, chain, 1064); !errors.Is(err, ErrAdmission) {
 				t.Fatalf("1000 pinned sessions admitted without task headroom: %v", err)

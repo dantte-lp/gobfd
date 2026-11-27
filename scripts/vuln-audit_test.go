@@ -593,13 +593,13 @@ func TestPublisherDispositionsRequireFreshArtifactAndAbsenceProof(t *testing.T) 
 		})
 	}
 	allowed, unallowed, failures := classifyPublisherFindings(input, evidence, publisherAuditTime())
-	if len(allowed) != 7 || len(unallowed) != 0 || len(failures) != 0 || len(allowed["GO-2026-5932"]) != 2 {
+	if len(allowed) != 6 || len(unallowed) != 0 || len(failures) != 0 {
 		t.Fatalf("publisher classification: allowed=%v unallowed=%v failures=%v", allowed, unallowed, failures)
 	}
-	if len(input) != 7 || input[0].Source != "publisher selected graph" {
+	if len(input) != 6 || input[0].Source != "publisher selected graph" {
 		t.Fatal("publisher classification changed raw findings")
 	}
-	if len(allowlist) != 2 {
+	if len(allowlist) != 0 {
 		t.Fatal("publisher decisions broadened the runtime/tool allowlist")
 	}
 }
@@ -659,7 +659,7 @@ func TestPublisherDispositionsRejectIncompleteOrChangedEvidence(t *testing.T) {
 			e.nativeReport = bytes.ReplaceAll(e.nativeReport, []byte("2026-10-30"), []byte("2026-09-30"))
 		}},
 		{"changed-artifact-sbom", func(e *publisherAuditEvidence) {
-			e.nativeReport = bytes.ReplaceAll(e.nativeReport, []byte("v0.58.0"), []byte("v0.57.0"))
+			e.nativeReport = bytes.ReplaceAll(e.nativeReport, []byte("v0.59.0"), []byte("v0.57.0"))
 		}},
 		{"artifact-contains-aws", func(e *publisherAuditEvidence) {
 			e.buildInfo.Deps = append(e.buildInfo.Deps, &debug.Module{Path: "github.com/aws/aws-sdk-go", Version: "v1.55.5"})
@@ -703,8 +703,8 @@ func TestPublisherDispositionsRejectUnapprovedFindingsAndExpiry(t *testing.T) {
 		}
 	}
 	expired := publisherEvidenceFixture(t)
-	expired.nativeReport = bytes.ReplaceAll(expired.nativeReport, []byte("2026-10-30"), []byte("2026-11-30"))
-	_, _, failures := classifyPublisherFindings(nil, expired, time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC))
+	expired.nativeReport = bytes.ReplaceAll(expired.nativeReport, []byte("2026-10-30"), []byte("2026-12-31"))
+	_, _, failures := classifyPublisherFindings(nil, expired, time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC))
 	if len(failures) == 0 {
 		t.Fatal("expired publisher approval accepted")
 	}
@@ -741,7 +741,7 @@ func TestPublisherArtifactAcceptsAuthenticatedLocalRefmtBuildInfo(t *testing.T) 
 	evidence.nativeReport = bytes.Replace(evidence.nativeReport, []byte(`"modules":[`),
 		[]byte(`"modules":[{"path":"../refmt-local","version":"(devel)"},`), 1)
 	allowed, unallowed, failures := classifyPublisherFindings(nil, evidence, publisherAuditTime())
-	if len(failures) != 0 || len(unallowed) != 0 || len(allowed["GO-2026-5932"]) != 1 {
+	if len(failures) != 0 || len(unallowed) != 0 || len(allowed) != 0 {
 		t.Fatalf("authenticated local component rejected: allowed=%v unallowed=%v failures=%v",
 			allowed, unallowed, failures)
 	}
@@ -768,15 +768,15 @@ func TestPublisherNativeSBOMRequiresExactCompilerStandardLibrary(t *testing.T) {
 		change func([]byte) []byte
 	}{
 		{"missing", func(data []byte) []byte {
-			return bytes.Replace(data, []byte(`,{"path":"stdlib","version":"go1.27.3"}`), nil, 1)
+			return bytes.Replace(data, []byte(`,{"path":"stdlib","version":"go1.27.4"}`), nil, 1)
 		}},
 		{"wrong-version", func(data []byte) []byte {
-			return bytes.Replace(data, []byte(`"path":"stdlib","version":"go1.27.3"`),
-				[]byte(`"path":"stdlib","version":"go1.27.2"`), 1)
+			return bytes.Replace(data, []byte(`"path":"stdlib","version":"go1.27.4"`),
+				[]byte(`"path":"stdlib","version":"go1.27.3"`), 1)
 		}},
 		{"duplicate", func(data []byte) []byte {
 			return bytes.Replace(data, []byte(`"modules":[`),
-				[]byte(`"modules":[{"path":"stdlib","version":"go1.27.3"},`), 1)
+				[]byte(`"modules":[{"path":"stdlib","version":"go1.27.4"},`), 1)
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -921,16 +921,16 @@ func TestPublisherScannerOutputBoundFailsWithoutTruncatingSuccess(t *testing.T) 
 func TestPublisherSelectedGraphRequiresBothAuthenticatedLocalComponents(t *testing.T) {
 	t.Parallel()
 	const main = `{"Path":"github.com/dantte-lp/gobfd/tools/goreleaser","Main":true}` + "\n"
-	const publisher = `{"Path":"github.com/goreleaser/goreleaser/v2","Version":"v2.19.0",` +
+	const publisher = `{"Path":"github.com/goreleaser/goreleaser/v2","Version":"v2.20.3",` +
 		`"Replace":{"Path":"../source"}}` + "\n"
 	const refmt = `{"Path":"github.com/polydawn/refmt","Version":"v0.90.0",` +
 		`"Replace":{"Path":"../refmt-local"}}` + "\n"
 	const remote = `{"Path":"golang.org/x/net","Version":"v0.61.0",` +
-		`"Replace":{"Path":"golang.org/x/net","Version":"v0.62.0"}}`
+		`"Replace":{"Path":"golang.org/x/net","Version":"v0.63.0"}}`
 	input := main + publisher + refmt + remote
 	selection, err := publisherSelectedModules([]byte(input), "/private/consumer")
-	if err != nil || !bytes.Contains(selection, []byte("golang.org/x/net v0.62.0\n")) ||
-		!bytes.Contains(selection, []byte("github.com/goreleaser/goreleaser/v2 v2.19.0\n")) {
+	if err != nil || !bytes.Contains(selection, []byte("golang.org/x/net v0.63.0\n")) ||
+		!bytes.Contains(selection, []byte("github.com/goreleaser/goreleaser/v2 v2.20.3\n")) {
 		t.Fatalf("authenticated source identities/effective remote version lost: %s, %v", selection, err)
 	}
 	for _, bad := range []string{
@@ -1001,9 +1001,10 @@ func publisherAuditTime() time.Time { return time.Date(2026, 10, 31, 0, 0, 0, 0,
 func publisherEvidenceFixture(t *testing.T) publisherAuditEvidence {
 	t.Helper()
 	modules := map[string]string{
-		"github.com/goreleaser/goreleaser/v2":                "v2.19.0",
+		"github.com/goreleaser/goreleaser/v2":                "v2.20.3",
 		"github.com/polydawn/refmt":                          "v0.90.0",
-		"github.com/osscontainertools/docker-credential-acr": "v1.0.0",
+		"github.com/osscontainertools/docker-credential-acr": "v1.0.1",
+		"golang.org/x/crypto":                                "v0.59.0",
 	}
 	for _, disposition := range publisherDispositions() {
 		modules[disposition.module] = disposition.version
@@ -1013,12 +1014,12 @@ func publisherEvidenceFixture(t *testing.T) publisherAuditEvidence {
 		fmt.Fprintf(&selected, "%s %s\n", path, modules[path])
 	}
 	info := &debug.BuildInfo{
-		GoVersion: "go1.27.3",
-		Main:      debug.Module{Path: "github.com/goreleaser/goreleaser/v2", Version: "v2.19.0"},
+		GoVersion: "go1.27.4",
+		Main:      debug.Module{Path: "github.com/goreleaser/goreleaser/v2", Version: "v2.20.3"},
 		Settings:  []debug.BuildSetting{{Key: "CGO_ENABLED", Value: "0"}, {Key: "-trimpath", Value: "true"}},
 		Deps: []*debug.Module{
-			{Path: "golang.org/x/crypto", Version: "v0.58.0"},
-			{Path: "github.com/osscontainertools/docker-credential-acr", Version: "v1.0.0"},
+			{Path: "golang.org/x/crypto", Version: "v0.59.0"},
+			{Path: "github.com/osscontainertools/docker-credential-acr", Version: "v1.0.1"},
 		},
 	}
 	binaryModules := make([]map[string]string, 0, 2+len(info.Deps))
@@ -1034,14 +1035,12 @@ func publisherEvidenceFixture(t *testing.T) publisherAuditEvidence {
 	}
 	const config = `{"config":{"scanner_name":"govulncheck","scan_mode":"binary","scan_level":"symbol",` +
 		`"db":"https://vuln.go.dev","db_last_modified":"2026-10-30T00:00:00Z"}}` + "\n"
-	const nativeFinding = "\n" + `{"finding":{"osv":"GO-2026-5932","trace":[` +
-		`{"module":"golang.org/x/crypto","version":"v0.58.0"}]}}`
 	return publisherAuditEvidence{
 		selected: []byte(selected.String()),
 		packages: []byte("github.com/goreleaser/goreleaser/v2\ngolang.org/x/crypto/ssh\n" +
 			"github.com/osscontainertools/docker-credential-acr/pkg/credhelper\n"),
 		artifactSHA256: strings.Repeat("1", 64), profileSHA256: publisherApprovedProfileSHA256, buildInfo: info,
-		nativeReport: append([]byte(config), append(sbom, []byte(nativeFinding)...)...),
+		nativeReport: append([]byte(config), sbom...),
 	}
 }
 

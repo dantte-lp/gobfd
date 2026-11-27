@@ -54,7 +54,7 @@ Continue only when the installed file matches, logs report converged reconciliat
 
 ### 2.2 Startup-owned changes
 
-Use an admitted maintenance interval with expected session interruption. Complete section 1 first. When GoBGP integration is enabled, retain peer administrative states and the journal evidence of which peers GoBFD disabled. That ownership map is memory-only and is lost on restart. Do not restart during a failure without a documented peer recovery decision.
+Use an admitted maintenance interval with expected session interruption. Complete section 1 first. When GoBGP integration is enabled, retain peer administrative states and the journal evidence of which peers GoBFD disabled. Over local filesystem Unix sockets, confirmed GoBFD disables are persisted in `gobgp.state_file` (`/var/lib/gobfd/gobgp-ownership.json` by default) and bound to the local `gobgpd` process epoch ([ADR-0013](adr/0013-gobgp-restart-disable-ownership.md)); over TCP endpoints, or if `gobgpd` also restarts, ownership across a GoBFD restart is unprovable and lost. Do not restart during a failure without a documented peer recovery decision.
 
 ```sh
 gobgp neighbor > "$backup_dir/gobgp-before.txt"
@@ -83,7 +83,7 @@ gobgp neighbor 192.0.2.2
 gobgp global rib
 ```
 
-Require Established, intended routes and the independent forwarding probe. Never bulk-enable all disabled neighbors. Sources: [in-memory disable ownership](../../internal/gobgp/handler.go), [official GoBGP CLI](https://github.com/osrg/gobgp/blob/master/docs/sources/cli-operations.md).
+Require Established, intended routes and the independent forwarding probe. Never bulk-enable all disabled neighbors. Sources: [disable ownership handler](../../internal/gobgp/handler.go), [ownership store](../../internal/gobgp/ownership_store.go), [official GoBGP CLI](https://github.com/osrg/gobgp/blob/master/docs/sources/cli-operations.md).
 
 ## 3. Post-check
 

@@ -1,25 +1,18 @@
 {
   "module": "github.com/goreleaser/goreleaser/v2",
-  "version": "v2.19.0",
-  "sum": "h1:itigLdv2rh1nB4YPDzfLxdbNE4HldoY/Jm3pZ+dSqoQ=",
-  "go_mod_sum": "h1:mnh43uONuuViy2+nl4xcbj3HAWnU86W9TZG+gJ2/iM8=",
-  "source_commit": "00139d15712716a3a2f21eb4d533f231ff19b9c5",
-  "files": 917,
-  "bytes": 3534846,
-  "patch": {
-    "path": "internal/pipe/ko/ko.go",
-    "before": "\"github.com/chrismellard/docker-credential-acr-env/pkg/credhelper\"",
-    "after": "\"github.com/osscontainertools/docker-credential-acr/pkg/credhelper\"",
-    "before_sha256": "fc6fb7a23b8ddca5b557b92618a7173639a7e02682344cd1f747fad9d75c193b",
-    "after_sha256": "5e012b59be6529c388a7787e5e3348b200973a2b96c912f346a8c4d5c009dae4"
-  },
+  "version": "v2.20.3",
+  "sum": "h1:u9HQ6pEw76Eu4sFXjRz8xXF/pWsVsO3HkriYgbMNggI=",
+  "go_mod_sum": "h1:pLJK4xFoo+enD9Y07RqANcgJxI4FCzvftUscIESqkDE=",
+  "source_commit": "a6edafaafe0fd15a4725e917beac26305ba67738",
+  "files": 919,
+  "bytes": 3602510,
   "qualified_manifests": {
-    "go_mod_sha256": "c2611f7667243d4218327645d5239f68c6ef917ef12201b5e28f2798e9ed4cca",
-    "go_sum_sha256": "07ee2388cd4c00a3d157cb0270e29f3dc0f4645472db6e4cd4354ed4fccc2d64"
+    "go_mod_sha256": "46007f1378e62439be4b35e1d6b69504381ff47936062f2b9feac5829ea2c405",
+    "go_sum_sha256": "978a353c46eabfa294b970f85c33ab631ae35c1af321c0ad870b542926d5da64"
   },
   "source_manifests": {
-    "go_mod_sha256": "ec1d4f6ffe50e7bd337c6bf77c73171d4d69b28542a1babd3a50564ae28371af",
-    "go_sum_sha256": "e8e8de47a2381220f6bc9ed9e292bfac9ec765c196e58bfd99dce96bd193da85"
+    "go_mod_sha256": "08c700ccbf5581c19eb9afd82b2fcce214fb0471e39613824e470631e5a6f8fe",
+    "go_sum_sha256": "6d2413554ea8a75081184fc2469d359a775bffe46864e43f45b62d6a7052f36d"
   },
   "refmt": {
     "module": "github.com/polydawn/refmt",

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"sync"
 	"time"
 
@@ -97,10 +98,14 @@ type Handler struct {
 	statusMu      sync.RWMutex
 	pendingStatus map[string]PeerStatus
 
-	// disabled holds the peers this process disabled (owned by the Run
-	// goroutine). GoBFD enables only these: a peer the operator disabled,
-	// or one disabled before a restart, is never enabled (.8.2.4.1).
+	// disabled holds the peers this process disabled in the current process epoch
+	// (owned by the Run goroutine).
 	disabled map[string]struct{}
+
+	// recovered holds confirmed speaker-epoch disable receipts loaded from
+	// OwnershipStore at startup (owned by the Run goroutine, ADR-0013).
+	recovered map[string]OwnershipReceipt
+	store     *OwnershipStore
 
 	// last is the last state seen per base session (owned by the Run
 	// goroutine); a resync rebuilds lost edges from it.
@@ -157,6 +162,13 @@ type HandlerConfig struct {
 	// action attempt, including retries. It runs on the handler goroutine.
 	OnAction func(rpc string, err error)
 
+	// OwnershipStore optionally persists confirmed Unix speaker-epoch disable
+	// receipts across GoBFD restarts (ADR-0013).
+	OwnershipStore *OwnershipStore
+
+	// RecoveredReceipts seeds receipts loaded from OwnershipStore at startup.
+	RecoveredReceipts map[string]OwnershipReceipt
+
 	// Logger is the parent logger. The handler adds its own component tag.
 	Logger *slog.Logger
 }
@@ -177,6 +189,9 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		timeout = DefaultActionTimeout
 	}
 
+	recovered := make(map[string]OwnershipReceipt, len(cfg.RecoveredReceipts))
+	maps.Copy(recovered, cfg.RecoveredReceipts)
+
 	return &Handler{
 		client:        cfg.Client,
 		strategy:      strategy,
@@ -190,6 +205,8 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		pending:       make(map[string]*pendingAction),
 		pendingStatus: make(map[string]PeerStatus),
 		disabled:      make(map[string]struct{}),
+		recovered:     recovered,
+		store:         cfg.OwnershipStore,
 		logger: cfg.Logger.With(
 			slog.String("component", "gobgp.handler"),
 			slog.String("strategy", string(cfg.Strategy)),
@@ -215,9 +232,17 @@ func (h *Handler) Run(ctx context.Context, events <-chan bfd.StateChange) error 
 	h.logger.Info("handler started, consuming BFD state changes")
 	defer h.publishPendingStatus(nil)
 
+	externalUpCh, stopWatcher := h.startExternalPeerWatcher(ctx)
+	defer stopWatcher()
+
 	retry := time.NewTimer(time.Hour)
 	retry.Stop()
 	defer retry.Stop()
+
+	h.pruneStaleRecoveredReceipts(ctx)
+	h.reconcileRecoveredStartupUp(ctx)
+	h.publishPendingStatus(h.pending)
+	h.armRetry(retry)
 
 	for {
 		select {
@@ -232,12 +257,108 @@ func (h *Handler) Run(ctx context.Context, events <-chan bfd.StateChange) error 
 			}
 			h.handleStateChange(ctx, sc)
 
+		case peerAddr := <-externalUpCh:
+			h.revokeExternalEnable(peerAddr)
+
 		case <-retry.C:
 			// One GoBGP call per wakeup keeps the event channel drained.
 			h.retryDue(ctx)
 		}
 		h.publishPendingStatus(h.pending)
 		h.armRetry(retry)
+	}
+}
+
+func (h *Handler) startExternalPeerWatcher(ctx context.Context) (<-chan string, func()) {
+	oc, ok := h.client.(OwnershipClient)
+	if !ok {
+		return nil, func() {}
+	}
+	watchCtx, cancel := context.WithCancel(ctx)
+	ch := make(chan string, 16)
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		watchErr := oc.WatchPeerAdminUp(watchCtx, func(addr string) {
+			select {
+			case ch <- addr:
+			case <-watchCtx.Done():
+			}
+		})
+		if watchErr != nil && watchCtx.Err() == nil {
+			h.logger.Warn("GoBGP peer event watcher ended unexpectedly", slog.Any("error", watchErr))
+		}
+	})
+	return ch, func() {
+		cancel()
+		wg.Wait()
+	}
+}
+
+func (h *Handler) revokeExternalEnable(peerAddr string) {
+	if _, ok := h.recovered[peerAddr]; !ok {
+		return
+	}
+	delete(h.recovered, peerAddr)
+	h.deleteReceipt(peerAddr)
+	h.logger.Info("external GoBGP peer enable observed; revoked persisted disable receipt",
+		slog.String("peer", peerAddr),
+	)
+}
+
+func (h *Handler) pruneStaleRecoveredReceipts(ctx context.Context) {
+	if len(h.recovered) == 0 {
+		return
+	}
+	oc, ok := h.client.(OwnershipClient)
+	if !ok {
+		return
+	}
+	for peerAddr, receipt := range h.recovered {
+		inspectCtx, cancel := context.WithTimeout(ctx, h.timeout)
+		insp, err := oc.InspectPeer(inspectCtx, peerAddr)
+		cancel()
+		if err != nil {
+			if errors.Is(err, errPeerNotFound) {
+				delete(h.recovered, peerAddr)
+				h.deleteReceipt(peerAddr)
+			}
+			continue
+		}
+		if !receipt.Speaker.Matches(insp.Speaker) || insp.ConfAdminDown || insp.AdminState != PeerAdminStateDown {
+			delete(h.recovered, peerAddr)
+			h.deleteReceipt(peerAddr)
+		}
+	}
+}
+
+func (h *Handler) reconcileRecoveredStartupUp(ctx context.Context) {
+	if len(h.recovered) == 0 || h.snapshot == nil {
+		return
+	}
+	snaps, _ := h.snapshot()
+	for _, snap := range snaps {
+		if !isBaseSession(snap.Type) || snap.State != bfd.StateUp {
+			continue
+		}
+		peerAddr := snap.PeerAddr.Unmap().String()
+		if _, ok := h.recovered[peerAddr]; !ok {
+			continue
+		}
+		sc := bfd.StateChange{
+			LocalDiscr:         snap.LocalDiscr,
+			PeerAddr:           snap.PeerAddr,
+			LocalAddr:          snap.LocalAddr,
+			OldState:           bfd.StateDown,
+			NewState:           bfd.StateUp,
+			Diag:               snap.LocalDiag,
+			Timestamp:          time.Now(),
+			Type:               snap.Type,
+			Interface:          snap.Interface,
+			ObservationVersion: snap.ObservationVersion,
+			Ref:                snap.Ref,
+		}
+		h.last[snap.LocalDiscr] = sc
+		h.handleUp(ctx, peerAddr, &pendingAction{sc: sc})
 	}
 }
 
@@ -455,7 +576,7 @@ func (h *Handler) handleDown(ctx context.Context, peerAddr string, p *pendingAct
 	// makes a Down redundant for a peer GoBFD already disabled, and that
 	// Down cancels a held recovery.
 	suppressed := h.dampener.ShouldSuppress(peerAddr)
-	if _, ours := h.disabled[peerAddr]; ours && suppressed {
+	if h.ownsDisable(peerAddr) && suppressed {
 		delete(h.pending, peerAddr)
 		h.logger.Info("BFD Down while dampened; peer stays disabled",
 			slog.String("peer", peerAddr),
@@ -576,18 +697,16 @@ func (h *Handler) applyDownAction(ctx context.Context, peerAddr string, sc bfd.S
 		actionCtx, cancel := context.WithTimeout(ctx, h.timeout)
 		defer cancel()
 
-		if _, ours := h.disabled[peerAddr]; !ours {
-			adminDown, err := h.client.PeerAdminDown(actionCtx, peerAddr)
-			if err != nil {
-				return fmt.Errorf("disable peer %s: %w", peerAddr, err)
-			}
-			if adminDown {
-				h.logger.Info("BGP peer already administratively down; leaving it to the operator",
-					slog.String("peer", peerAddr))
-				return nil
-			}
+		speaker, alreadyDown, err := h.preflightDisable(actionCtx, peerAddr)
+		if err != nil {
+			return fmt.Errorf("disable peer %s: %w", peerAddr, err)
 		}
-		// A PeerAdminDown read may block while the owner commits AdminDown.
+		if alreadyDown {
+			h.logger.Info("BGP peer already administratively down; leaving it to the operator",
+				slog.String("peer", peerAddr))
+			return nil
+		}
+		// A preflight read may block while the owner commits AdminDown.
 		// This local preflight cannot make the remote RPC atomic with future commits.
 		if !h.canDisable(sc) {
 			return nil
@@ -597,6 +716,8 @@ func (h *Handler) applyDownAction(ctx context.Context, peerAddr string, sc bfd.S
 			return fmt.Errorf("disable peer %s: %w", peerAddr, err)
 		}
 		h.disabled[peerAddr] = struct{}{}
+		delete(h.recovered, peerAddr)
+		h.saveReceipt(peerAddr, speaker)
 		return nil
 
 	case StrategyWithdrawRoutes:
@@ -608,22 +729,81 @@ func (h *Handler) applyDownAction(ctx context.Context, peerAddr string, sc bfd.S
 	}
 }
 
+func (h *Handler) preflightDisable(ctx context.Context, peerAddr string) (SpeakerIdentity, bool, error) {
+	_, oursInMemory := h.disabled[peerAddr]
+	if oc, hasOC := h.client.(OwnershipClient); hasOC {
+		return h.preflightDisableWithOwnership(ctx, oc, peerAddr, oursInMemory)
+	}
+	if oursInMemory {
+		return SpeakerIdentity{}, false, nil
+	}
+	adminDown, err := h.client.PeerAdminDown(ctx, peerAddr)
+	if err != nil {
+		return SpeakerIdentity{}, false, fmt.Errorf("check peer %s admin state before disable: %w", peerAddr, err)
+	}
+	return SpeakerIdentity{}, adminDown, nil
+}
+
+func (h *Handler) preflightDisableWithOwnership(
+	ctx context.Context,
+	oc OwnershipClient,
+	peerAddr string,
+	oursInMemory bool,
+) (SpeakerIdentity, bool, error) {
+	insp, err := oc.InspectPeer(ctx, peerAddr)
+	if err != nil {
+		return SpeakerIdentity{}, false, fmt.Errorf("inspect peer %s before disable: %w", peerAddr, err)
+	}
+	if oursInMemory {
+		return insp.Speaker, false, nil
+	}
+	if receipt, hasRecovered := h.recovered[peerAddr]; hasRecovered {
+		if receipt.Speaker.Matches(insp.Speaker) && !insp.ConfAdminDown && insp.AdminState == PeerAdminStateDown {
+			return insp.Speaker, false, nil
+		}
+		delete(h.recovered, peerAddr)
+		h.deleteReceipt(peerAddr)
+	}
+	externalDown := insp.ConfAdminDown ||
+		insp.AdminState == PeerAdminStateDown ||
+		insp.AdminState == PeerAdminStatePrefixLimit
+	if externalDown {
+		return SpeakerIdentity{}, true, nil
+	}
+	return insp.Speaker, false, nil
+}
+
 // applyUpAction executes the strategy-specific BGP action for BFD Up.
 func (h *Handler) applyUpAction(ctx context.Context, peerAddr string, _ bfd.StateChange) error {
 	switch h.strategy {
 	case StrategyDisablePeer:
-		if _, ours := h.disabled[peerAddr]; !ours {
+		_, oursInMemory := h.disabled[peerAddr]
+		receipt, hasRecovered := h.recovered[peerAddr]
+		if !oursInMemory && !hasRecovered {
 			h.logger.Debug("BFD Up for a peer GoBFD did not disable; not enabling it",
 				slog.String("peer", peerAddr))
 			return nil
 		}
+
 		actionCtx, cancel := context.WithTimeout(ctx, h.timeout)
 		defer cancel()
+
+		if !oursInMemory && hasRecovered {
+			shouldEnable, err := h.verifyRecoveredReceipt(actionCtx, peerAddr, receipt)
+			if err != nil {
+				return fmt.Errorf("enable peer %s: %w", peerAddr, err)
+			}
+			if !shouldEnable {
+				return nil
+			}
+		}
 
 		if err := h.client.EnablePeer(actionCtx, peerAddr); err != nil {
 			return fmt.Errorf("enable peer %s: %w", peerAddr, err)
 		}
 		delete(h.disabled, peerAddr)
+		delete(h.recovered, peerAddr)
+		h.deleteReceipt(peerAddr)
 		return nil
 
 	case StrategyWithdrawRoutes:
@@ -632,6 +812,90 @@ func (h *Handler) applyUpAction(ctx context.Context, peerAddr string, _ bfd.Stat
 
 	default:
 		return fmt.Errorf("apply up action for peer %s: strategy %q: %w", peerAddr, h.strategy, ErrInvalidStrategy)
+	}
+}
+
+func (h *Handler) verifyRecoveredReceipt(ctx context.Context, peerAddr string, receipt OwnershipReceipt) (bool, error) {
+	oc, ok := h.client.(OwnershipClient)
+	if !ok {
+		delete(h.recovered, peerAddr)
+		h.deleteReceipt(peerAddr)
+		h.logger.Warn("discarding persisted GoBGP disable receipt; client cannot verify speaker epoch",
+			slog.String("peer", peerAddr))
+		return false, nil
+	}
+	insp, err := oc.InspectPeer(ctx, peerAddr)
+	if err != nil {
+		if errors.Is(err, errPeerNotFound) {
+			delete(h.recovered, peerAddr)
+			h.deleteReceipt(peerAddr)
+			h.logger.Warn("discarding persisted GoBGP disable receipt; neighbor no longer configured",
+				slog.String("peer", peerAddr))
+			return false, nil
+		}
+		return false, fmt.Errorf("inspect peer %s for receipt verification: %w", peerAddr, err)
+	}
+	if !receipt.Speaker.Matches(insp.Speaker) || insp.ConfAdminDown {
+		delete(h.recovered, peerAddr)
+		h.deleteReceipt(peerAddr)
+		h.logger.Warn("refusing to enable BGP peer from persisted receipt; ownership is ambiguous or overridden",
+			slog.String("peer", peerAddr),
+			slog.Bool("conf_admin_down", insp.ConfAdminDown),
+		)
+		return false, nil
+	}
+	if insp.AdminState == PeerAdminStateUp {
+		delete(h.recovered, peerAddr)
+		h.deleteReceipt(peerAddr)
+		h.logger.Info("BGP peer already administratively up; clearing persisted disable receipt",
+			slog.String("peer", peerAddr))
+		return false, nil
+	}
+	if insp.AdminState != PeerAdminStateDown {
+		delete(h.recovered, peerAddr)
+		h.deleteReceipt(peerAddr)
+		h.logger.Warn("refusing to enable BGP peer from persisted receipt; unexpected admin state",
+			slog.String("peer", peerAddr),
+			slog.Uint64("admin_state", uint64(insp.AdminState)),
+		)
+		return false, nil
+	}
+	return true, nil
+}
+
+func (h *Handler) ownsDisable(peerAddr string) bool {
+	if _, ok := h.disabled[peerAddr]; ok {
+		return true
+	}
+	_, ok := h.recovered[peerAddr]
+	return ok
+}
+
+func (h *Handler) saveReceipt(peerAddr string, speaker SpeakerIdentity) {
+	if h.store == nil || !speaker.Provable() {
+		return
+	}
+	if err := h.store.Save(peerAddr, OwnershipReceipt{
+		Peer:       peerAddr,
+		Speaker:    speaker,
+		DisabledAt: time.Now().UTC(),
+	}); err != nil {
+		h.logger.Error("failed to persist GoBGP disable ownership receipt; restart recovery unavailable for peer",
+			slog.String("peer", peerAddr),
+			slog.String("error", err.Error()),
+		)
+	}
+}
+
+func (h *Handler) deleteReceipt(peerAddr string) {
+	if h.store == nil {
+		return
+	}
+	if err := h.store.Delete(peerAddr); err != nil {
+		h.logger.Error("failed to delete GoBGP disable ownership receipt",
+			slog.String("peer", peerAddr),
+			slog.String("error", err.Error()),
+		)
 	}
 }
 

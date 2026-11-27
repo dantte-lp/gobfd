@@ -20,6 +20,7 @@ import (
 	"github.com/knadh/koanf/v2"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
+	gobgpendpoint "github.com/dantte-lp/gobfd/internal/gobgp/endpoint"
 	gobgpstrategy "github.com/dantte-lp/gobfd/internal/gobgp/strategy"
 	"github.com/dantte-lp/gobfd/internal/overlay"
 )
@@ -666,6 +667,10 @@ type GoBGPConfig struct {
 	//   - "withdraw-routes": reserved and rejected as unsupported
 	Strategy string `koanf:"strategy"`
 
+	// StateFile is the clean absolute path of the GoBGP disable ownership
+	// receipt store. Empty disables disk persistence (memory-only receipts).
+	StateFile string `koanf:"state_file"`
+
 	// ActionTimeout bounds each GoBGP API action.
 	ActionTimeout time.Duration `koanf:"action_timeout"`
 
@@ -690,10 +695,17 @@ type GoBGPTLSConfig struct {
 }
 
 // GoBGPPlaintextNonLoopback reports whether the GoBGP integration is enabled,
-// TLS is disabled, and the configured endpoint is not a loopback host.
+// TLS is disabled, and the configured endpoint is neither a loopback TCP host
+// nor a valid local filesystem Unix-domain socket.
 func GoBGPPlaintextNonLoopback(cfg GoBGPConfig) bool {
 	if !cfg.Enabled || cfg.TLS.Enabled {
 		return false
+	}
+	if _, ok := gobgpendpoint.LocalUnixSocketPath(cfg.Addr); ok {
+		return false
+	}
+	if strings.Contains(cfg.Addr, "://") || strings.HasPrefix(strings.TrimSpace(cfg.Addr), "unix") {
+		return true
 	}
 
 	host := goBGPAddrHost(cfg.Addr)
@@ -835,6 +847,10 @@ func (sc SessionConfig) LocalAddr() (netip.Addr, error) {
 // Defaults
 // -------------------------------------------------------------------------
 
+// DefaultGoBGPStateFile is the default path where GoBFD persists confirmed
+// Unix speaker-epoch GoBGP disable ownership receipts across daemon restarts.
+const DefaultGoBGPStateFile = "/var/lib/gobfd/gobgp-ownership.json"
+
 // DefaultConfig returns a Config populated with sensible defaults.
 //
 // BFD defaults follow RFC 5880 Section 6.8.3: "When bfd.SessionState is not
@@ -877,12 +893,8 @@ func DefaultConfig() *Config {
 				UpAction:      MicroBFDActuatorActionAddMember,
 			},
 		},
-		VXLAN: VXLANConfig{
-			Backend: OverlayBackendUserspaceUDP,
-		},
-		Geneve: GeneveConfig{
-			Backend: OverlayBackendUserspaceUDP,
-		},
+		VXLAN:  VXLANConfig{Backend: OverlayBackendUserspaceUDP},
+		Geneve: GeneveConfig{Backend: OverlayBackendUserspaceUDP},
 		Unsolicited: UnsolicitedConfig{
 			SessionDefaults: UnsolicitedSessionDefaultsConfig{
 				DesiredMinTx:  1 * time.Second,
@@ -894,10 +906,9 @@ func DefaultConfig() *Config {
 			Enabled:       false,
 			Addr:          "127.0.0.1:50051",
 			Strategy:      "disable-peer",
+			StateFile:     DefaultGoBGPStateFile,
 			ActionTimeout: 5 * time.Second,
-			TLS: GoBGPTLSConfig{
-				Enabled: false,
-			},
+			TLS:           GoBGPTLSConfig{Enabled: false},
 			Dampening: GoBGPDampeningConfig{
 				Enabled:           false,
 				SuppressThreshold: 3,
@@ -1216,6 +1227,7 @@ func envKeyMapper(s string) string {
 		"GOBFD_GOBGP_ENABLED":             "gobgp.enabled",
 		"GOBFD_GOBGP_ADDR":                "gobgp.addr",
 		"GOBFD_GOBGP_STRATEGY":            "gobgp.strategy",
+		"GOBFD_GOBGP_STATE_FILE":          "gobgp.state_file",
 		"GOBFD_GOBGP_TLS_ENABLED":         "gobgp.tls.enabled",
 		"GOBFD_GOBGP_DAMPENING_ENABLED":   "gobgp.dampening.enabled",
 		"GOBFD_SOCKET_READ_BUFFER_SIZE":   "socket.read_buffer_size",
@@ -1265,6 +1277,7 @@ func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 		"gobgp.enabled":                      defaults.GoBGP.Enabled,
 		"gobgp.addr":                         defaults.GoBGP.Addr,
 		"gobgp.strategy":                     defaults.GoBGP.Strategy,
+		"gobgp.state_file":                   defaults.GoBGP.StateFile,
 		"gobgp.action_timeout":               defaults.GoBGP.ActionTimeout.String(),
 		"gobgp.tls.enabled":                  defaults.GoBGP.TLS.Enabled,
 		"gobgp.tls.ca_file":                  defaults.GoBGP.TLS.CAFile,
@@ -1668,6 +1681,10 @@ func validateGoBGP(cfg GoBGPConfig) error {
 		return fmt.Errorf("gobgp.strategy %q: %w", cfg.Strategy, ErrUnsupportedGoBGPStrategy)
 	}
 
+	if err := validateGoBGPStateFile(cfg.StateFile); err != nil {
+		return err
+	}
+
 	if cfg.ActionTimeout <= 0 {
 		return ErrInvalidGoBGPActionTimeout
 	}
@@ -1682,6 +1699,24 @@ func validateGoBGP(cfg GoBGPConfig) error {
 		}
 	}
 
+	return nil
+}
+
+// ErrInvalidGoBGPStateFile rejects non-canonical or non-absolute GoBGP receipt paths.
+var ErrInvalidGoBGPStateFile = errors.New("gobgp.state_file must be empty or a clean absolute file path")
+
+func validateGoBGPStateFile(stateFile string) error {
+	if stateFile == "" {
+		return nil
+	}
+	if strings.TrimSpace(stateFile) != stateFile || strings.ContainsRune(stateFile, 0) ||
+		!filepath.IsAbs(stateFile) || strings.HasSuffix(stateFile, "/") {
+		return fmt.Errorf("gobgp.state_file %q: %w", stateFile, ErrInvalidGoBGPStateFile)
+	}
+	cleaned := filepath.Clean(stateFile)
+	if cleaned == "/" || cleaned != stateFile {
+		return fmt.Errorf("gobgp.state_file %q: %w", stateFile, ErrInvalidGoBGPStateFile)
+	}
 	return nil
 }
 

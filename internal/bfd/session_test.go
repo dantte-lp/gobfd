@@ -724,6 +724,31 @@ func TestApplyJitter(t *testing.T) {
 			t.Errorf("jitter of zero interval = %v, want 0", result)
 		}
 	})
+
+	t.Run("sub-hundred-nanosecond ceiling for detectMult=1 and max duration overflow safety", func(t *testing.T) {
+		t.Parallel()
+		for _, oddInterval := range []time.Duration{
+			10 * time.Nanosecond,
+			11 * time.Nanosecond,
+			81 * time.Nanosecond,
+			1999 * time.Nanosecond,
+		} {
+			for range iterations {
+				got := bfd.ApplyJitter(oddInterval, 1)
+				if int64(got)*100 < int64(oddInterval)*75 || int64(got)*10 > int64(oddInterval)*9 {
+					t.Fatalf("ApplyJitter(%v, 1) = %v, violates exact [75%%, 90%%] RFC 5880 §6.8.7 bound", oddInterval, got)
+				}
+			}
+		}
+		const maxDur = time.Duration(1<<63 - 1)
+		for _, mult := range []uint8{1, 3} {
+			got := bfd.ApplyJitter(maxDur, mult)
+			minAllowed := (maxDur / 100) * 75
+			if got < minAllowed || got > maxDur {
+				t.Fatalf("ApplyJitter(MaxInt64, %d) = %v, overflowed outside [%v, %v]", mult, got, minAllowed, maxDur)
+			}
+		}
+	})
 }
 
 // -------------------------------------------------------------------------

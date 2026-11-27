@@ -38,7 +38,7 @@ func TestBuildUsesOnlyPublicSelectionTracking(t *testing.T) {
 		t.Fatalf("native generator fixture did not exercise graphs and records: %#v", inv)
 	}
 	for subject, record := range inventoryRecords(&inv) {
-		if record.Assessment.Decision.Tracking != "https://github.com/dantte-lp/gobfd/pull/105" {
+		if record.Assessment.Decision.Tracking != "https://github.com/dantte-lp/gobfd/pull/133" {
 			t.Fatalf("%s tracking = %q, want current public release review", subject, record.Assessment.Decision.Tracking)
 		}
 	}

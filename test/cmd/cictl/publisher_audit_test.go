@@ -44,7 +44,7 @@ func (runner publisherRunnerFunc) RunCommand(ctx context.Context, spec cirunner.
 }
 
 const publisherSelectedFixture = `{"Path":"github.com/dantte-lp/gobfd/tools/goreleaser","Main":true}
-{"Path":"github.com/goreleaser/goreleaser/v2","Version":"v2.19.0","Replace":{"Path":"../source"}}
+{"Path":"github.com/goreleaser/goreleaser/v2","Version":"v2.20.3","Replace":{"Path":"../source"}}
 {"Path":"github.com/polydawn/refmt","Version":"v0.90.0","Replace":{"Path":"../refmt-local"}}`
 
 func TestPublisherAuditSharesWorkspaceAndRetainsReportsOutsideCleanup(t *testing.T) {

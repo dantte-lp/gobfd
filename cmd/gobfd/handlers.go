@@ -257,10 +257,16 @@ func newGoBGPHandler(
 	status *goBGPStatus,
 	logger *slog.Logger,
 ) (*gobgp.Handler, error) {
+	store, recovered, err := gobgp.OpenOwnershipStore(cfg.StateFile)
+	if err != nil {
+		return nil, fmt.Errorf("open gobgp ownership store: %w", err)
+	}
 	handler, err := gobgp.NewHandler(gobgp.HandlerConfig{
-		Client:        client,
-		Strategy:      gobgp.Strategy(cfg.Strategy),
-		ActionTimeout: cfg.ActionTimeout,
+		Client:            client,
+		Strategy:          gobgp.Strategy(cfg.Strategy),
+		ActionTimeout:     cfg.ActionTimeout,
+		OwnershipStore:    store,
+		RecoveredReceipts: recovered,
 		Dampening: gobgp.DampeningConfig{
 			Enabled:           cfg.Dampening.Enabled,
 			SuppressThreshold: cfg.Dampening.SuppressThreshold,

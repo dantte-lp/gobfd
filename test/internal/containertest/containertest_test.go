@@ -77,6 +77,7 @@ func TestPodmanRequest(t *testing.T) {
 	t.Parallel()
 
 	request := podmanRequest(testcontainers.ContainerRequest{Image: "example.invalid/image@sha256:deadbeef"})
+	//nolint:staticcheck // Verify podmanRequest selects core ProviderPodman without adding modules/podman.
 	if request.ProviderType != testcontainers.ProviderPodman {
 		t.Fatalf("provider = %v, want ProviderPodman", request.ProviderType)
 	}

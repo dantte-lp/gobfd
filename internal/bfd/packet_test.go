@@ -484,6 +484,32 @@ func TestUnmarshalValidation(t *testing.T) {
 
 		// --- Auth section: A bit set but auth section too short ---
 		{
+			name: "auth: A bit set with auth len below minimum 2 bytes",
+			buf: func() []byte {
+				b := make([]byte, 30)
+				copy(b, validUpPacket())
+				b[1] |= 1 << 2 // Set A bit.
+				b[3] = 26      // Length = 26 (minimum with auth).
+				b[24] = 255    // Auth Type = 255 (unknown).
+				b[25] = 1      // Auth Len = 1 (< 2 minimum header).
+				return b
+			}(),
+			wantErr: bfd.ErrInvalidLength,
+		},
+		{
+			name: "auth: unknown auth type with len exceeding available section bytes",
+			buf: func() []byte {
+				b := make([]byte, 26)
+				copy(b, validUpPacket())
+				b[1] |= 1 << 2 // Set A bit.
+				b[3] = 26      // Length = 26 (only 2 bytes in auth section).
+				b[24] = 255    // Auth Type = 255 (unknown).
+				b[25] = 10     // Auth Len = 10 (> 2 available bytes, even though <= 2+HeaderSize).
+				return b
+			}(),
+			wantErr: bfd.ErrAuthSectionTruncated,
+		},
+		{
 			name: "auth: A bit set with invalid auth type",
 			buf: func() []byte {
 				// Build a packet with A bit, auth section of unknown type.

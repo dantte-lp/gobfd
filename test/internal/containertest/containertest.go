@@ -24,7 +24,7 @@ const rootfulPodmanSocket = "/run/podman/podman.sock"
 
 // DebianImage is the shared immutable trixie runtime for copied Go test binaries.
 const DebianImage = "docker.io/library/debian:trixie-slim@sha256:" +
-	"62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad"
+	"8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0"
 
 var errImageProvenance = errors.New("invalid image provenance")
 
@@ -203,6 +203,7 @@ func AssertNetworkRemoved(tb testing.TB, networkName string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	//nolint:staticcheck // Retain core ProviderPodman without adding the separate modules/podman dependency.
 	provider, err := testcontainers.ProviderPodman.GetProvider()
 	if err != nil {
 		tb.Fatalf("create Podman provider for network cleanup verification: %v", err)
@@ -329,6 +330,7 @@ func podmanRequest(request testcontainers.ContainerRequest) testcontainers.Gener
 	return testcontainers.GenericContainerRequest{
 		ContainerRequest: request,
 		Started:          true,
-		ProviderType:     testcontainers.ProviderPodman,
+		//nolint:staticcheck // Retain core ProviderPodman without adding modules/podman.
+		ProviderType: testcontainers.ProviderPodman,
 	}
 }

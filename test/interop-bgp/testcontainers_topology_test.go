@@ -379,7 +379,7 @@ func verifyBGPTestVersions(ctx context.Context, t *testing.T, resources *bgpTest
 	}{
 		{
 			name: "GoBGP", container: findBGPTestContainer(ctx, t, resources, gobgpContainer),
-			command: []string{"gobgp", "--version"}, version: "4.10.0",
+			command: []string{"gobgp", "--version"}, version: "4.11.0",
 		},
 		{
 			name: "FRR", container: findBGPTestContainer(ctx, t, resources, frrContainer),
@@ -555,6 +555,7 @@ func buildBGPTestImage(
 	t.Helper()
 
 	registerBGPTestImageCleanup(ctx, t, endpoint, imageName, resources)
+	//nolint:staticcheck // Retain core ProviderPodman without adding modules/podman.
 	provider, err := testcontainers.ProviderPodman.GetProvider()
 	if err != nil {
 		t.Fatalf("create Podman provider for %s: %v", imageName, err)
@@ -615,8 +616,8 @@ func prepareBGPTestGoContext(t *testing.T, root string) string {
 			t.Fatalf("write %s into bounded BGP build context: %v", name, err)
 		}
 	}
-	const containerfile = "FROM docker.io/library/golang:1.27.3-trixie@sha256:" +
-		"604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c AS builder\n" +
+	const containerfile = "FROM docker.io/library/golang:1.27.4-trixie@sha256:" +
+		"430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee AS builder\n" +
 		"WORKDIR /src\n" +
 		"COPY go.mod go.sum ./\n" +
 		"RUN go mod download && go mod verify\n" +
@@ -627,7 +628,7 @@ func prepareBGPTestGoContext(t *testing.T, root string) string {
 		"RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfd ./cmd/gobfd\n" +
 		"RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfdctl ./cmd/gobfdctl\n" +
 		"FROM docker.io/library/debian:trixie-slim@sha256:" +
-		"62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad\n" +
+		"8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0\n" +
 		"COPY --from=builder /bin/gobfd /bin/gobfdctl /bin/\n" +
 		"ENTRYPOINT [\"/bin/gobfd\"]\n"
 	if err := os.WriteFile(filepath.Join(contextPath, "Containerfile"), []byte(containerfile), 0o600); err != nil {

@@ -168,16 +168,17 @@ A VXLAN network identifier (VNI) is a 24-bit overlay identifier.
 | `gobgp` key | Default | Contract |
 |:---|:---|:---|
 | `enabled` | `false` | Peer actuation |
-| `addr` | `127.0.0.1:50051` | API endpoint |
+| `addr` | `127.0.0.1:50051` | Loopback/remote TCP `host:port` or local filesystem `unix:///abs/path` (`unix:/abs/path`) |
 | `strategy` | `disable-peer` | Only implemented strategy; `withdraw-routes` rejected |
+| `state_file` | `/var/lib/gobfd/gobgp-ownership.json` | Clean absolute path for Unix speaker-epoch disable receipts; empty disables persistence |
 | `action_timeout` | `5s` | Per-action deadline |
-| `tls.enabled` | `false` | Server-authenticated TLS |
+| `tls.enabled` | `false` | Server-authenticated TLS for remote TCP endpoints |
 | `tls.ca_file`, `tls.server_name` | empty | Root bundle (host roots if empty), verification-name override |
 | `dampening.enabled` | `false` | Hold recovery after flaps; Down acts immediately |
 | `dampening.suppress_threshold`, `dampening.reuse_threshold` | `3`, `2` | Suppress/reuse penalty thresholds |
 | `dampening.max_suppress_time`, `dampening.half_life` | `60s`, `15s` | Maximum hold and penalty half-life |
 
-The `dev` implementation requires GoBGP v4 API and rejects native BFD ownership conflicts. Several base sessions for one BGP address prevent canonical actuation. Administrative transitions do not mean path failure. Sources: [startup preflight and canonical selection](../../cmd/gobfd/handlers.go), [actuation](../../internal/gobgp/handler.go), [RFC 5882 §10.2](https://www.rfc-editor.org/rfc/rfc5882.html#section-10.2).
+The implementation requires GoBGP v4 API and rejects native BFD ownership conflicts. Local filesystem Unix sockets (`unix:///abs/path` and `unix:/abs/path`) are classified as local IPC and do not trigger the non-loopback plaintext warning, whereas plaintext remote TCP, `unix-abstract:` and malformed targets emit a startup warning. Over local Unix sockets, confirmed `DisablePeer` ownership is persisted to `gobgp.state_file` and bound to the GoBGP speaker epoch ([ADR-0013](adr/0013-gobgp-restart-disable-ownership.md)). Several base sessions for one BGP address prevent canonical actuation. Administrative transitions do not mean path failure. Sources: [startup preflight and canonical selection](../../cmd/gobfd/handlers.go), [actuation](../../internal/gobgp/handler.go), [RFC 5882 §10.2](https://www.rfc-editor.org/rfc/rfc5882.html#section-10.2).
 
 ## Environment overrides
 
@@ -190,7 +191,7 @@ Prefix each suffix below with `GOBFD_`. Only these exact mappings exist; arbitra
 | `LOG_LEVEL`, `LOG_FORMAT` | `log.level`, `log.format` |
 | `UNSOLICITED_ENABLED`, `ECHO_ENABLED`, `MICRO_BFD_ENABLED` | Profile `.enabled` |
 | `VXLAN_ENABLED`, `VXLAN_BACKEND`, `GENEVE_ENABLED`, `GENEVE_BACKEND` | Profile `.enabled`/`.backend` |
-| `GOBGP_ENABLED`, `GOBGP_ADDR`, `GOBGP_STRATEGY` | Corresponding `gobgp` fields |
+| `GOBGP_ENABLED`, `GOBGP_ADDR`, `GOBGP_STRATEGY`, `GOBGP_STATE_FILE` | Corresponding `gobgp` fields |
 | `GOBGP_TLS_ENABLED`, `GOBGP_DAMPENING_ENABLED` | `gobgp.tls.enabled`, `gobgp.dampening.enabled` |
 | `SOCKET_READ_BUFFER_SIZE`, `SOCKET_WRITE_BUFFER_SIZE` | Corresponding `socket` buffers |
 | `SOCKET_IPV4_DSCP`, `SOCKET_IPV6_TRAFFIC_CLASS` | Corresponding `socket` markings |

@@ -115,7 +115,8 @@ func TestEchoPeersActualReturnsBlackholeAndRecovery(t *testing.T) {
 		t.Run(map[bool]string{false: "both_directions", true: "return_only"}[txOnly], func(t *testing.T) {
 			cfg := echoFixture(t)
 			cfg.Profile.TXOnlyBlackhole = txOnly
-			cfg.Profile.BlackholeEvery, cfg.Profile.BlackholeFor = 300*time.Millisecond, 100*time.Millisecond
+			cfg.Profile.Duration = 2450 * time.Millisecond
+			cfg.Profile.BlackholeEvery, cfg.Profile.BlackholeFor = 1250*time.Millisecond, 100*time.Millisecond
 			owner, err := StartOwner(t.Context(), OwnerConfig{
 				Echo: true, Sessions: cfg.Sessions,
 				Interval: cfg.Profile.Interval, DetectMultiplier: cfg.Profile.DetectMultiplier,

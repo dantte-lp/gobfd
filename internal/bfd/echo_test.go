@@ -110,16 +110,23 @@ func TestNewEchoSessionZeroTxInterval(t *testing.T) {
 func TestNewEchoSessionRejectsUnencodableTxInterval(t *testing.T) {
 	t.Parallel()
 
-	cfg := bfd.EchoSessionConfig{
-		PeerAddr:         netip.MustParseAddr("10.0.0.1"),
-		TxInterval:       bfd.MaxWireInterval + time.Microsecond,
-		DetectMultiplier: 3,
-	}
+	for _, interval := range []time.Duration{
+		time.Nanosecond,
+		time.Microsecond - time.Nanosecond,
+		bfd.MaxWireInterval + time.Nanosecond,
+		bfd.MaxWireInterval + time.Microsecond,
+	} {
+		cfg := bfd.EchoSessionConfig{
+			PeerAddr:         netip.MustParseAddr("10.0.0.1"),
+			TxInterval:       interval,
+			DetectMultiplier: 3,
+		}
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	_, err := bfd.NewEchoSession(cfg, 1, noopSender{}, nil, logger)
-	if !errors.Is(err, bfd.ErrInvalidWireInterval) {
-		t.Fatalf("NewEchoSession() error = %v, want ErrInvalidWireInterval", err)
+		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+		_, err := bfd.NewEchoSession(cfg, 1, noopSender{}, nil, logger)
+		if !errors.Is(err, bfd.ErrInvalidWireInterval) {
+			t.Fatalf("NewEchoSession(TxInterval=%v) error = %v, want ErrInvalidWireInterval", interval, err)
+		}
 	}
 }
 
@@ -296,14 +303,14 @@ func TestEchoSessionUpPacketUsesNonzeroYourDiscriminator(t *testing.T) {
 
 		go es.Run(t.Context())
 
-		time.Sleep(60 * time.Millisecond)
+		synctest.Sleep(time.Second)
 		first := sender.last(t)
 		if got := binary.BigEndian.Uint32(first[8:12]); got != 0 {
 			t.Fatalf("initial Down packet YourDiscriminator = %d, want 0", got)
 		}
 
 		es.RecvEcho()
-		time.Sleep(60 * time.Millisecond)
+		synctest.Sleep(60 * time.Millisecond)
 
 		upPacket := sender.last(t)
 		var pkt bfd.ControlPacket
@@ -337,8 +344,8 @@ func TestEchoSessionCounters(t *testing.T) {
 
 		go es.Run(t.Context())
 
-		// Let it send a few echo packets.
-		time.Sleep(200 * time.Millisecond)
+		// Let it send a slow-rate Down echo packet.
+		synctest.Sleep(time.Second)
 
 		if es.EchosSent() == 0 {
 			t.Error("expected echos_sent > 0")
@@ -347,10 +354,77 @@ func TestEchoSessionCounters(t *testing.T) {
 		// Send some echo returns.
 		es.RecvEcho()
 		es.RecvEcho()
-		time.Sleep(10 * time.Millisecond)
+		synctest.Sleep(10 * time.Millisecond)
 
 		if es.EchosReceived() < 2 {
 			t.Errorf("echos_received = %d, want >= 2", es.EchosReceived())
+		}
+	})
+}
+
+func TestEchoSessionSlowRatePacingInDownAndFastInUp(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		notifyCh := make(chan bfd.StateChange, 8)
+		cfg := bfd.EchoSessionConfig{
+			PeerAddr:         netip.MustParseAddr("10.0.0.1"),
+			LocalAddr:        netip.MustParseAddr("10.0.0.2"),
+			TxInterval:       50 * time.Millisecond,
+			DetectMultiplier: 3, // DetectionTime = 150ms
+		}
+
+		logger := slog.New(slog.DiscardHandler)
+		es, err := bfd.NewEchoSession(cfg, 105, noopSender{}, notifyCh, logger)
+		if err != nil {
+			t.Fatalf("NewEchoSession: %v", err)
+		}
+
+		go es.Run(t.Context())
+		synctest.Wait()
+
+		// RFC 9747 Section 2: slow transmission in Down uses 1s floor with 0-25% jitter ([750ms, 1s]).
+		synctest.Sleep(750*time.Millisecond - time.Nanosecond)
+		if got := es.EchosSent(); got != 0 {
+			t.Fatalf("EchosSent before 750ms jittered slow floor = %d, want 0", got)
+		}
+		synctest.Sleep(250*time.Millisecond + time.Nanosecond)
+		if got := es.EchosSent(); got != 1 {
+			t.Fatalf("EchosSent after first 1s Down window = %d, want 1", got)
+		}
+
+		// Transition Down -> Up and verify immediate switch to provisioned 50ms interval ([37.5ms, 50ms]).
+		es.RecvEcho()
+		synctest.Wait()
+		sc := <-notifyCh
+		if sc.NewState != bfd.StateUp {
+			t.Fatalf("state after RecvEcho = %s, want Up", sc.NewState)
+		}
+		sentAtUp := es.EchosSent()
+
+		synctest.Sleep(37500*time.Microsecond - time.Nanosecond)
+		if got := es.EchosSent(); got != sentAtUp {
+			t.Fatalf("EchosSent before 37.5ms jittered Up floor = %d, want %d", got, sentAtUp)
+		}
+		synctest.Sleep(12500*time.Microsecond + time.Nanosecond)
+		if got := es.EchosSent(); got != sentAtUp+1 {
+			t.Fatalf("EchosSent after first 50ms Up interval = %d, want %d", got, sentAtUp+1)
+		}
+
+		// Let detection timer expire (150ms from RecvEcho; 50ms elapsed -> 100ms remaining).
+		synctest.Sleep(100 * time.Millisecond)
+		downChange := <-notifyCh
+		if downChange.NewState != bfd.StateDown || downChange.Diag != bfd.DiagEchoFailed {
+			t.Fatalf("timeout state/diag = %s/%s, want Down/EchoFailed", downChange.NewState, downChange.Diag)
+		}
+		sentAtDown := es.EchosSent()
+
+		// Immediately after returning Down, fast 50ms pacing must NOT continue; slow [750ms, 1s] resumes.
+		synctest.Sleep(750*time.Millisecond - time.Nanosecond)
+		if got := es.EchosSent(); got != sentAtDown {
+			t.Fatalf("EchosSent during 750ms post-timeout slow floor = %d, want %d", got, sentAtDown)
+		}
+		synctest.Sleep(250*time.Millisecond + time.Nanosecond)
+		if got := es.EchosSent(); got != sentAtDown+1 {
+			t.Fatalf("EchosSent 1s after returning Down = %d, want %d", got, sentAtDown+1)
 		}
 	})
 }

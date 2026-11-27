@@ -148,6 +148,7 @@ func buildHAProxyOwnedImage(
 		return "", err
 	}
 	topology.armEvidenceCleanup(t)
+	//nolint:staticcheck // Retain core ProviderPodman without adding modules/podman.
 	provider, err := testcontainers.ProviderPodman.GetProvider()
 	if err != nil {
 		return "", fmt.Errorf("create explicit Podman image provider: %w", err)

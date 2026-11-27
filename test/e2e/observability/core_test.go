@@ -413,8 +413,8 @@ func prepareGoBFDBuildContext(t *testing.T, root string) string {
 			t.Fatalf("copy %s into bounded GoBFD build context: %v", name, err)
 		}
 	}
-	const containerfile = `FROM docker.io/library/golang:1.27.3-trixie@sha256:` +
-		`604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c AS builder
+	const containerfile = `FROM docker.io/library/golang:1.27.4-trixie@sha256:` +
+		`430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee AS builder
 ARG VCS_REF
 ARG BUILD_DATE
 ENV GOTOOLCHAIN=local GOMAXPROCS=2 GOMEMLIMIT=1500MiB GOFLAGS=-p=1
@@ -432,7 +432,7 @@ RUN CGO_ENABLED=0 go build -trimpath \
     -ldflags="-X github.com/dantte-lp/gobfd/internal/version.GitCommit=${VCS_REF} \
 -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" -o /bin/gobfdctl ./cmd/gobfdctl
 FROM docker.io/library/debian:trixie-slim@sha256:` +
-		`62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+		`8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
 ARG VCS_REF
 ARG BUILD_DATE
 LABEL org.opencontainers.image.source="https://github.com/dantte-lp/gobfd" \
@@ -443,7 +443,7 @@ LABEL org.opencontainers.image.source="https://github.com/dantte-lp/gobfd" \
       org.opencontainers.image.title="GoBFD observability daemon" \
       org.opencontainers.image.description="GoBFD daemon and CLI from the qualified candidate" \
       org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
-      org.opencontainers.image.base.digest="sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad"
+      org.opencontainers.image.base.digest="sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0"
 COPY --from=builder /bin/gobfd /bin/gobfd
 COPY --from=builder /bin/gobfdctl /bin/gobfdctl
 ENTRYPOINT ["/bin/gobfd"]

@@ -142,9 +142,9 @@ Multiple stored keys do not establish live rotation. Same-identity auth enableme
 
 ## Unaffiliated Echo
 
-Default-off Echo uses UDP/3785, a separate `EchoSession`, locally provisioned `D = TxInterval * DetectMult`, TTL 255 on send and exact 254 on receive. It transitions directly Down↔Up, demultiplexes returns by My Discriminator and selects diagnostic 2 on timeout. Sources: [Echo owner](../../internal/bfd/echo.go), [Echo receiver](../../internal/netio/echo_receiver.go).
+Default-off Echo uses UDP/3785, a separate `EchoSession`, locally provisioned `D = TxInterval * DetectMult`, slow TX at most once per second outside `Up` (`max(TxInterval, 1s)`), TTL 255 on send and exact 254 on receive. It transitions directly Down↔Up, demultiplexes returns by My Discriminator and selects diagnostic 2 on timeout. Sources: [Echo owner](../../internal/bfd/echo.go), [Echo receiver](../../internal/netio/echo_receiver.go).
 
-[RFC 9747 §2](https://www.rfc-editor.org/rfc/rfc9747.html#section-2) requires the RFC 5880 FSM without AdminDown, initial address/source-port bootstrap and subsequent Your Discriminator demux. The preview lacks those procedures, return authentication and slow pre-Up/post-Down pacing. Its peer-address send path does not qualify traversal of an adjacent forwarding plane. Management claims in [ADR-0009](adr/0009-echo-principal-claims.md) do not authenticate Echo returns.
+[RFC 9747 §2](https://www.rfc-editor.org/rfc/rfc9747.html#section-2) requires the RFC 5880 FSM without AdminDown, initial address/source-port bootstrap and subsequent Your Discriminator demux. The preview lacks those procedures and return authentication. Its peer-address send path does not qualify traversal of an adjacent forwarding plane. Management claims in [ADR-0009](adr/0009-echo-principal-claims.md) do not authenticate Echo returns.
 
 ## Not Implemented
 

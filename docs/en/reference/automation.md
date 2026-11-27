@@ -8,10 +8,10 @@ These are source contracts. A command's existence does not establish candidate a
 
 | Surface | Pinned tool | Binding |
 |:---|:---|:---|
-| Podman Compose provider | [Compose 5.6.1](https://github.com/docker/compose/releases/tag/v5.6.1) | Verified bootstrap and development image |
-| Release packages | [GoReleaser 2.19.0](https://github.com/goreleaser/goreleaser/releases/tag/v2.19.0) | Release workflow and local `package-build` |
-| Module SBOMs | [Syft 1.55.0](https://github.com/anchore/syft/releases/tag/v1.55.0) | Release workflow and `cictl sbom` |
-| Filesystem scan | [Trivy 0.76.1](https://github.com/aquasecurity/trivy/releases/tag/v0.76.1) | CI fails on CRITICAL/HIGH findings |
+| Podman Compose provider | [Compose 5.8.0](https://github.com/docker/compose/releases/tag/v5.8.0) | Verified bootstrap and development image |
+| Release packages | [GoReleaser 2.20.3](https://github.com/goreleaser/goreleaser/releases/tag/v2.20.3) | Release workflow and local `package-build` |
+| Module SBOMs | [Syft 1.57.2](https://github.com/anchore/syft/releases/tag/v1.57.2) | Release workflow and `cictl sbom` |
+| Filesystem scan | [Trivy 0.76.2](https://github.com/aquasecurity/trivy/releases/tag/v0.76.2) | CI fails on CRITICAL/HIGH findings |
 
 Rebuild the development image after the Compose pin changes. Recheck scanner output, SBOM validation and package lifecycle before release; a version update alone does not qualify their results.
 
@@ -41,7 +41,7 @@ CI executable steps remain single commands; no multiline shell programs or expli
 
 ## Release proposal
 
-Invoke `cictl release-please-pr` from the [proposal workflow](../../../.github/workflows/release-please.yml). Run the job in this pinned image and install Go 1.27.3 through the existing official setup action:
+Invoke `cictl release-please-pr` from the [proposal workflow](../../../.github/workflows/release-please.yml). Run the job in this pinned image and install Go 1.27.4 through the existing official setup action:
 
 ```text
 docker.io/library/node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
@@ -107,7 +107,7 @@ Release Please creates the proposal only with `skip-github-release: true`; the r
 
 The release job compiles `cictl` inside the pinned [compiler image](../../../internal/toolprofile/compiler.go) before registry login. The nonroot host runs `release-source-tools --compiler-container`. Separate bounded workers build Syft and GoReleaser from authenticated sources. The host verifies the opened binaries, source provenance and version metadata, removes temporary files and publishes both absolute binary directories to `GITHUB_PATH` in one transaction. Installations remain outside `dist`; package builds reuse the bound publisher executable.
 
-The [publisher profile](../../../tools/goreleaser/source.json) binds original GoReleaser and Refmt source checksums, two reviewed import migrations and three manifest pairs. The managed consumer resolves only `../source` and `../refmt-local` as local modules. Inventory and security commands use the same verified workspace layout; reject changed files, foreign replacements and failed cleanup.
+The [publisher profile](../../../tools/goreleaser/source.json) binds original GoReleaser and Refmt source checksums, the reviewed Refmt import migration and three manifest pairs. The managed consumer resolves only `../source` and `../refmt-local` as local modules. Inventory and security commands use the same verified workspace layout; reject changed files, foreign replacements and failed cleanup.
 
 Run this bootstrap only on a fresh GitHub-hosted Ubuntu runner. Its compiler deadline is 600 seconds with a 5-second kill grace; the release job has a 60-minute deadline. Hosted VM disposal bounds a bootstrap container left before start after abrupt CLI death; runner temporary-directory cleanup or VM disposal removes a leftover bootstrap file. A persistent runner requires a separate lifecycle owner. These source contracts do not establish hosted publication acceptance.
 

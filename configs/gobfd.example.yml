@@ -23,6 +23,7 @@
 #   GOBFD_GOBGP_ENABLED=true
 #   GOBFD_GOBGP_ADDR=127.0.0.1:50051
 #   GOBFD_GOBGP_STRATEGY=disable-peer
+#   GOBFD_GOBGP_STATE_FILE=/var/lib/gobfd/gobgp-ownership.json
 #   GOBFD_GOBGP_TLS_ENABLED=true
 #   GOBFD_GOBGP_DAMPENING_ENABLED=true
 
@@ -208,10 +209,12 @@ bfd:
 #
 # gobgp:
 #   enabled: true
-#   # GoBGP gRPC API address (gobgpd default port 50051).
+#   # GoBGP gRPC API address (gobgpd default port 50051, or unix:///abs/path).
 #   addr: "127.0.0.1:50051"
 #   # Only "disable-peer" is implemented; "withdraw-routes" is rejected.
 #   strategy: "disable-peer"
+#   # Durable receipt file for provable Unix speaker-epoch disables (empty disables persistence).
+#   state_file: "/var/lib/gobfd/gobgp-ownership.json"
 #   # Flap dampening (GoBFD policy; RFC 5882 Section 3.1 hysteresis): every
 #   # BFD Down disables the peer at once; past suppress_threshold only the
 #   # re-enable on BFD Up is held until reuse_threshold or max_suppress_time.

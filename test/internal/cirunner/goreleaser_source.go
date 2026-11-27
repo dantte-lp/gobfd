@@ -361,6 +361,9 @@ func (source *goreleaserSource) write(name string, data []byte, create bool) err
 }
 
 func (source *goreleaserSource) patch(profile goreleaserProfile) error {
+	if profile.Patch == nil {
+		return nil
+	}
 	data, err := readGoReleaserFile(source.root, profile.Patch.Path)
 	if err != nil {
 		return err

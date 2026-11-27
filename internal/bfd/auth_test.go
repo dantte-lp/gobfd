@@ -349,6 +349,41 @@ func TestAuthSequenceReplay(t *testing.T) {
 	}
 }
 
+func TestHashAuthVerifyRejectsZeroDetectMult(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		typ  bfd.AuthType
+		auth bfd.Authenticator
+	}{
+		{name: "KeyedMD5", typ: bfd.AuthTypeKeyedMD5, auth: bfd.KeyedMD5Auth{}},
+		{name: "MeticulousKeyedMD5", typ: bfd.AuthTypeMeticulousKeyedMD5, auth: bfd.MeticulousKeyedMD5Auth{}},
+		{name: "KeyedSHA1", typ: bfd.AuthTypeKeyedSHA1, auth: bfd.KeyedSHA1Auth{}},
+		{name: "MeticulousKeyedSHA1", typ: bfd.AuthTypeMeticulousKeyedSHA1, auth: bfd.MeticulousKeyedSHA1Auth{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			keys := newTestKeyStore(1, tc.typ, []byte("zero-mult-secret"))
+			txState := &bfd.AuthState{Type: tc.typ, XmitAuthSeq: 500}
+			pkt := newTestPacket()
+			buf := make([]byte, bfd.MaxPacketSize)
+			if err := tc.auth.Sign(txState, keys, pkt, buf, 0); err != nil {
+				t.Fatalf("Sign: %v", err)
+			}
+			rxBuf, rxPkt, n := unmarshalSigned(t, pkt, buf)
+			rxPkt.DetectMult = 0
+			rxState := &bfd.AuthState{Type: tc.typ, RcvAuthSeq: 200, AuthSeqKnown: true}
+
+			err := tc.auth.Verify(rxState, keys, rxPkt, rxBuf[:n], n)
+			if !errors.Is(err, bfd.ErrZeroDetectMult) {
+				t.Fatalf("Verify(DetectMult=0) error = %v, want ErrZeroDetectMult", err)
+			}
+		})
+	}
+}
+
 // -------------------------------------------------------------------------
 // TestAuthKeyMismatch — reject wrong key ID
 // -------------------------------------------------------------------------

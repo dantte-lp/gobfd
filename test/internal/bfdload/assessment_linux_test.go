@@ -120,7 +120,7 @@ func assessmentReviewAdmission() OwnerWorkloadObservation {
 	parent.MemberPath = "/qualification"
 	environment := Environment{
 		Cgroup: &leaf, Process: ProcessSnapshot{ObserverCPUAffinity: 8},
-		Runtime: RuntimeSnapshot{Version: "go1.27.3", GOOS: "linux", GOMAXPROCS: 8, GCPercent: 100},
+		Runtime: RuntimeSnapshot{Version: "go1.27.4", GOOS: "linux", GOMAXPROCS: 8, GCPercent: 100},
 	}
 	return OwnerWorkloadObservation{
 		Config: PeerConfig{Sessions: make([]OwnerEndpoint, 1)},

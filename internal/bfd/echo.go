@@ -8,7 +8,7 @@
 //
 // Current preview behavior; full RFC 9747 qualification remains incomplete:
 //   - No three-way handshake (no Init state)
-//   - No timer negotiation (locally provisioned)
+//   - Locally provisioned Up interval with RFC 9747 slow 1s pacing in Down
 //   - DiagEchoFailed (2) on timeout instead of DiagControlTimeExpired (1)
 //   - UDP port 3785 (RFC 5881 Section 4)
 //   - TTL 255 send, exact TTL 254 receive after one-hop loopback (RFC 9747)
@@ -111,6 +111,7 @@ type EchoSession struct {
 	sender           PacketSender
 	metrics          MetricsReporter
 	timerEvent       timerObservation
+	jitterRng        jitterRNG
 	lastAcceptedEcho time.Time
 	delivery         DeliveryReporter
 	publicLossWake   chan<- struct{}
@@ -169,6 +170,7 @@ func NewEchoSession(
 		detectMult:   cfg.DetectMultiplier,
 		sender:       sender,
 		metrics:      noopMetrics{},
+		jitterRng:    newJitterRNG(),
 		notifyCh:     notifyCh,
 		recvCh:       make(chan struct{}, echoRecvChSize),
 		cachedPacket: make([]byte, MaxPacketSize),
@@ -199,6 +201,13 @@ func validateEchoConfig(cfg EchoSessionConfig, localDiscr uint32) error {
 	}
 	if cfg.TxInterval <= 0 {
 		return ErrInvalidEchoTxInterval
+	}
+	if cfg.TxInterval < time.Microsecond {
+		return fmt.Errorf(
+			"echo TX interval %v is below one wire microsecond: %w",
+			cfg.TxInterval,
+			ErrInvalidWireInterval,
+		)
 	}
 	if cfg.TxInterval > MaxWireInterval {
 		return fmt.Errorf(
@@ -345,7 +354,7 @@ func (es *EchoSession) Run(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
-	txTimer := time.NewTimer(ApplyJitter(es.txInterval, es.detectMult))
+	txTimer := time.NewTimer(es.applyJitter(es.calcTxInterval()))
 	defer txTimer.Stop()
 
 	detectTime := es.DetectionTime()
@@ -358,6 +367,20 @@ func (es *EchoSession) Run(ctx context.Context) {
 	)
 
 	es.echoRunLoop(ctx, txTimer, detectTimer)
+}
+
+func (es *EchoSession) calcTxInterval() time.Duration {
+	if es.State() != StateUp && es.txInterval < slowTxInterval {
+		return slowTxInterval
+	}
+	return es.txInterval
+}
+
+func (es *EchoSession) applyJitter(interval time.Duration) time.Duration {
+	if interval <= 0 {
+		return interval
+	}
+	return applyJitterWithRand(interval, es.detectMult, es.jitterRng.IntN)
 }
 
 // echoRunLoop is the core select loop for the echo session.
@@ -373,17 +396,17 @@ func (es *EchoSession) echoRunLoop(
 			return
 
 		case <-es.recvCh:
-			es.handleEchoRecv(ctx, detectTimer)
+			es.handleEchoRecvWithTimers(ctx, txTimer, detectTimer)
 
 		case due := <-txTimer.C:
 			es.timerEvent.begin(es.metrics, TimerEchoTX, due)
 			es.sendEcho(ctx)
-			txTimer.Reset(ApplyJitter(es.txInterval, es.detectMult))
+			txTimer.Reset(es.applyJitter(es.calcTxInterval()))
 			es.timerEvent.finish(es.metrics)
 
 		case due := <-detectTimer.C:
 			es.timerEvent.begin(es.metrics, TimerEchoDetection, due)
-			es.handleDetectTimeout(ctx, detectTimer)
+			es.handleDetectTimeoutWithTimers(ctx, txTimer, detectTimer)
 			es.timerEvent.finish(es.metrics)
 		}
 	}
@@ -393,9 +416,14 @@ func (es *EchoSession) echoRunLoop(
 // Echo Receive Handling
 // -------------------------------------------------------------------------
 
-// handleEchoRecv processes a returned echo packet.
-// Resets the detection timer and transitions Down → Up if needed.
+// handleEchoRecv processes a returned echo packet without a TX timer handle.
 func (es *EchoSession) handleEchoRecv(ctx context.Context, detectTimer *time.Timer) {
+	es.handleEchoRecvWithTimers(ctx, nil, detectTimer)
+}
+
+// handleEchoRecvWithTimers processes a returned echo packet, resets the
+// detection timer, and switches TX pacing to the provisioned Up interval.
+func (es *EchoSession) handleEchoRecvWithTimers(ctx context.Context, txTimer, detectTimer *time.Timer) {
 	defer es.recordDelivery(DeliveryEchoOwner, DeliveryCommitted)
 	es.echosReceived.Add(1)
 	es.lastAcceptedEcho = time.Now()
@@ -407,6 +435,9 @@ func (es *EchoSession) handleEchoRecv(ctx context.Context, detectTimer *time.Tim
 
 	if es.State() == StateDown {
 		es.transitionTo(ctx, StateUp, DiagNone)
+		if txTimer != nil {
+			txTimer.Reset(es.applyJitter(es.calcTxInterval()))
+		}
 	}
 }
 
@@ -415,10 +446,18 @@ func (es *EchoSession) handleEchoRecv(ctx context.Context, detectTimer *time.Tim
 // -------------------------------------------------------------------------
 
 // handleDetectTimeout fires when no echo returns within detection time.
-// RFC 9747 Section 2: transition to Down with DiagEchoFailed.
 func (es *EchoSession) handleDetectTimeout(ctx context.Context, detectTimer *time.Timer) {
+	es.handleDetectTimeoutWithTimers(ctx, nil, detectTimer)
+}
+
+// handleDetectTimeoutWithTimers transitions Up → Down with DiagEchoFailed and
+// resumes RFC 9747 Section 2 slow TX pacing.
+func (es *EchoSession) handleDetectTimeoutWithTimers(ctx context.Context, txTimer, detectTimer *time.Timer) {
 	if es.State() == StateUp {
 		es.transitionTo(ctx, StateDown, DiagEchoFailed)
+		if txTimer != nil {
+			txTimer.Reset(es.applyJitter(es.calcTxInterval()))
+		}
 	}
 	// Restart detection timer regardless of state.
 	detectTimer.Reset(es.DetectionTime())

@@ -16,33 +16,26 @@ Inventory success does not establish security. A module finding, imported affect
 
 ## Controlled exceptions
 
-| Advisory | Exact module | Owner / expiry | Permitted scope |
-|:---|:---|:---|:---|
-| GO-2026-4736 | github.com/osrg/gobgp/v4 | @dantte-lp; 2026-12-31 | Module-only findings, exact scanner/package match |
-| GO-2026-5932 | golang.org/x/crypto | maintainers; 2026-12-31 | Module-only inventory; no affected openpgp import |
-
-Reachable findings, affected imported packages, module mismatch, unknown scanner, additional advisory, expiry and an exception with no corresponding finding fail the controlled audit. Do not broaden an exception to make a scan green.
+`scripts/vuln-audit.go` currently carries zero runtime, tool, `gopls`, or Syft allowlist exceptions. Reachable findings, affected imported packages, module mismatch, unknown scanner, additional advisory, expiry and an exception with no corresponding finding fail the controlled audit. Do not broaden an exception to make a scan green.
 
 ### GoBGP
 
-The dev pin is github.com/osrg/gobgp/v4 v4.10.0; handwritten integration imports its API package. The recorded exception concerns GO-2026-4736/CVE-2026-30405/GHSA-4p9m-8gc4-rw2h and the upstream server path. The source rationale records patched v4.4.0 and missing fixed-v4 data in the Go database; that rationale is not a live database query.
-
-Stable-v1 acceptance requires GHSA/OSV to identify a fix at or below the pin and final-candidate govulncheck to retain module-only scope. Keep GoBGP on loopback/trusted management networks. Remove the exception once the scanner no longer produces its matching inventory finding.
+The repository pin is github.com/osrg/gobgp/v4 v4.11.0; handwritten integration imports only `github.com/osrg/gobgp/v4/api`. The historical `GO-2026-4736` (`CVE-2026-30405` / `GHSA-4p9m-8gc4-rw2h`) module-only exception was retired after upstream fix coverage and the Go vulnerability database update eliminated the inventory finding. Keep GoBGP on loopback/trusted management networks and keep `github.com/osrg/gobgp/v4/pkg/server` excluded from the build graph.
 
 The v0.6 line retains GoBGP v3.37.0 and its separately accepted support boundary until 2026-12-31. Verify delivery on that supported branch separately. Dev acceptance does not transfer to that line. The v3/v4 RPC service contracts differ; use the matching daemon.
 
 ### OpenPGP
 
-The selected indirect crypto module is v0.58.0. The exception permits only exact-module inventory findings for GO-2026-5932. Confirm the final build graph excludes golang.org/x/crypto/openpgp. Any affected import or reachable symbol invalidates the disposition.
+The selected indirect crypto module is v0.59.0, retiring the earlier `GO-2026-5932` module-only exception. Confirm the final build graph continues to exclude `golang.org/x/crypto/openpgp`.
 
 ## Other retained dependencies
 
 | Dependency | Product use | Required check |
 |:---|:---|:---|
 | reeflective/console v0.5.0 | gobfdctl interactive shell | CLI/race compatibility; fresh upstream review before upgrade |
-| go.yaml.in/yaml/v3 v3.0.5 | First-party YAML | Preserve decoding/output compatibility |
+| go.yaml.in/yaml/v3 v3.0.6 | First-party YAML | Preserve decoding/output compatibility |
 | gopkg.in/yaml.v3 v3.0.1 | Transitive legacy graph | Recheck exact go mod why chain; no new first-party imports |
-| golang.org/x/net v0.62.0 | Transport and selected graphs | Fresh security scan and IPv4 transport regression checks |
+| golang.org/x/net v0.63.0 | Transport and selected graphs | Fresh security scan and IPv4 transport regression checks |
 
 Console is a build dependency of the CLI even when noninteractive commands do not start the REPL. Its integration point is [shell.go](../../../cmd/gobfdctl/commands/shell.go); this register does not establish upstream staffing or maintenance status.
 

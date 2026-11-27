@@ -122,12 +122,12 @@ func TestDiscoverSyftToolFromIsolatedManifest(t *testing.T) {
 	t.Parallel()
 	components := map[string]declaredComponent{}
 	data := []byte(`{"Tool":[{"Path":"github.com/anchore/syft/cmd/syft"}],"Require":[{"Path":"github.com/an` +
-		`chore/syft","Version":"v1.55.0"}]}`)
+		`chore/syft","Version":"v1.57.2"}]}`)
 	if err := discoverGoToolDeclarations(components, "tools/syft/go.mod", data); err != nil {
 		t.Fatal(err)
 	}
 	component, ok := components["tool:syft"]
-	if !ok || component.Installed != "v1.55.0" || !isGoToolManifest("tools/syft/go.mod") {
+	if !ok || component.Installed != "v1.57.2" || !isGoToolManifest("tools/syft/go.mod") {
 		t.Fatalf("isolated Syft declaration = %#v, %t", component, ok)
 	}
 }
@@ -145,13 +145,13 @@ func TestDiscoverPublisherToolFromQualifiedConsumerManifest(t *testing.T) {
 	t.Parallel()
 	components := map[string]declaredComponent{}
 	data := []byte(`{"Tool":[{"Path":"github.com/goreleaser/goreleaser/v2"}],"Require":[
-		{"Path":"github.com/goreleaser/goreleaser/v2","Version":"v2.19.0"}]}`)
+		{"Path":"github.com/goreleaser/goreleaser/v2","Version":"v2.20.3"}]}`)
 	const path = "tools/goreleaser/qualified.mod"
 	if err := discoverGoToolDeclarations(components, path, data); err != nil {
 		t.Fatal(err)
 	}
 	component, ok := components["tool:goreleaser"]
-	if !ok || component.Installed != "v2.19.0" || !isGoToolManifest(path) || !shouldScanDeclaredSource(path) {
+	if !ok || component.Installed != "v2.20.3" || !isGoToolManifest(path) || !shouldScanDeclaredSource(path) {
 		t.Fatalf("qualified publisher declaration = %#v, %t", component, ok)
 	}
 }

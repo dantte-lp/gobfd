@@ -48,8 +48,8 @@ func TestSyftSelectedGraphKeepsQualifiedSourceBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	required := map[string]string{
-		"github.com/anchore/syft":             "v1.55.0",
-		"golang.org/x/net":                    "v0.62.0",
+		"github.com/anchore/syft":             "v1.57.2",
+		"golang.org/x/net":                    "v0.63.0",
 		"github.com/go-jose/go-jose/v4":       "v4.1.7",
 		"github.com/containerd/containerd/v2": "v2.4.2",
 		"github.com/sigstore/fulcio":          "v1.9.1",
@@ -58,12 +58,14 @@ func TestSyftSelectedGraphKeepsQualifiedSourceBoundaries(t *testing.T) {
 		"go.etcd.io/etcd/client/pkg/v3":       "v3.7.3",
 		"golang.org/x/image":                  "v0.47.0",
 		"github.com/chromedp/chromedp":        "v0.21.0",
+		"github.com/gobwas/ws":                "v1.5.0",
 		"github.com/ledongthuc/pdf":           "v0.0.0-20261020125853-5e46805f718e",
+		"github.com/sbomify/ar":               "v0.0.0-20261110120314-cac91ea00b05",
 		"github.com/docker/distribution":      "v2.8.4-0.20260923142519-db037680f2ac+incompatible",
 	}
 	for _, module := range modules {
 		for _, excluded := range []string{
-			"rsc.io/pdf", "go.step.sm/crypto", "github.com/go-jose/go-jose/v3",
+			"rsc.io/pdf", "github.com/blakesmith/ar", "go.step.sm/crypto", "github.com/go-jose/go-jose/v3",
 			"github.com/chromedp/chromedp/test",
 		} {
 			if module.Path == excluded || strings.HasPrefix(module.Path, excluded+"/") {

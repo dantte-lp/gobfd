@@ -764,6 +764,10 @@ func validateHashAuth(pkt *ControlPacket, p hashParams) error {
 		return err
 	}
 
+	if pkt.DetectMult == 0 {
+		return fmt.Errorf("hash auth: %w", ErrZeroDetectMult)
+	}
+
 	if pkt.Auth.Type != p.authType {
 		return fmt.Errorf("hash auth: got type %d, expected %d: %w",
 			pkt.Auth.Type, p.authType, ErrAuthTypeMismatch)

@@ -38,15 +38,15 @@ func newGoReleaserFixture(t *testing.T) *goreleaserFixture {
 	fixture := &goreleaserFixture{
 		t: t, root: t.TempDir(), installDir: filepath.Join(t.TempDir(), "publisher"),
 		contents: map[string][]byte{
-			"go.mod": []byte("module " + toolprofile.GoReleaserModule + "\n\ngo 1.27.3\n"),
+			"go.mod": []byte("module " + toolprofile.GoReleaserModule + "\n\ngo 1.27.4\n"),
 			"go.sum": []byte("upstream fixture\n"), "main.go": []byte("package main\nfunc main() {}\n"),
 			"internal/pipe/ko/ko.go": ko,
 		},
 	}
 	fixture.profile = goreleaserProfile{
-		Module: toolprofile.GoReleaserModule, Version: "v2.19.0",
-		SourceCommit: "00139d15712716a3a2f21eb4d533f231ff19b9c5", Files: len(fixture.contents),
-		Patch: goreleaserSourcePatch{
+		Module: toolprofile.GoReleaserModule, Version: "v2.20.3",
+		SourceCommit: "a6edafaafe0fd15a4725e917beac26305ba67738", Files: len(fixture.contents),
+		Patch: &goreleaserSourcePatch{
 			Path: "internal/pipe/ko/ko.go", Before: before, After: after,
 			BeforeSHA256: goreleaserSHA256(ko),
 			AfterSHA256:  goreleaserSHA256([]byte(strings.Replace(string(ko), before, after, 1))),

@@ -527,6 +527,7 @@ func buildSystemdImage(
 		podman, t.Cleanup, func(err error) { t.Errorf("%v", err) }); cleanupErr != nil {
 		t.Fatalf("register package fixture image cleanup: %v", cleanupErr)
 	}
+	//nolint:staticcheck // Retain core ProviderPodman without adding modules/podman.
 	provider, err := testcontainers.ProviderPodman.GetProvider()
 	if err != nil {
 		t.Fatalf("create Podman provider: %v", err)

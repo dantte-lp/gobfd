@@ -11,7 +11,7 @@ import (
 )
 
 const publisherGraphFixture = `{"Path":"github.com/dantte-lp/gobfd/tools/goreleaser","Main":true}
-{"Path":"github.com/goreleaser/goreleaser/v2","Version":"v2.19.0","Replace":{"Path":"../source"}}
+{"Path":"github.com/goreleaser/goreleaser/v2","Version":"v2.20.3","Replace":{"Path":"../source"}}
 {"Path":"github.com/polydawn/refmt","Version":"v0.90.0","Replace":{"Path":"../refmt-local"}}
 {"Path":"example.invalid/dependency","Version":"v1.0.0","Indirect":true,
 "Replace":{"Path":"example.invalid/dependency","Version":"v1.1.0"}}`
@@ -22,7 +22,7 @@ func TestPublisherGraphUsesAuthenticatedAncestryAndEffectiveRemoteVersions(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(modules) != 3 || modules[0].Version != "v2.19.0" || modules[1].Version != "v0.90.0" ||
+	if len(modules) != 3 || modules[0].Version != "v2.20.3" || modules[1].Version != "v0.90.0" ||
 		modules[2].Version != "v1.1.0" || !modules[2].Indirect {
 		t.Fatalf("publisher graph = %#v", modules)
 	}
@@ -37,12 +37,12 @@ func TestPublisherGraphRejectsUnknownOrIncompleteSources(t *testing.T) {
 		"cleaned alias":   strings.Replace(publisherGraphFixture, "../source", "../other/../source", 1),
 		"foreign source":  strings.Replace(publisherGraphFixture, "../refmt-local", "../foreign", 1),
 		"remote instead of local": strings.Replace(publisherGraphFixture, `"Path":"../source"`,
-			`"Path":"github.com/goreleaser/goreleaser/v2","Version":"v2.19.0"`, 1),
-		"duplicate field": strings.Replace(publisherGraphFixture, `"Version":"v2.19.0"`,
-			`"Version":"v2.18.0","Version":"v2.19.0"`, 1),
+			`"Path":"github.com/goreleaser/goreleaser/v2","Version":"v2.20.3"`, 1),
+		"duplicate field": strings.Replace(publisherGraphFixture, `"Version":"v2.20.3"`,
+			`"Version":"v2.18.0","Version":"v2.20.3"`, 1),
 		"duplicate module": publisherGraphFixture + "\n" + `{"Path":"example.invalid/dependency","Version":"v1.1.0"}`,
-		"go error": strings.Replace(publisherGraphFixture, `"Version":"v2.19.0"`,
-			`"Version":"v2.19.0","Error":{"Err":"cannot load module"}`, 1),
+		"go error": strings.Replace(publisherGraphFixture, `"Version":"v2.20.3"`,
+			`"Version":"v2.20.3","Error":{"Err":"cannot load module"}`, 1),
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

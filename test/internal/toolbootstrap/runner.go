@@ -77,6 +77,9 @@ func executeOutput(
 ) (string, error) {
 	// #nosec G204 -- path is fixed /proc/self/fd/3 or resolved from the command allowlist.
 	command := exec.CommandContext(ctx, path, arguments...)
+	if len(command.Args) > 0 && displayName != "" {
+		command.Args[0] = displayName
+	}
 	command.Env = environment
 	command.ExtraFiles = extraFiles
 	command.WaitDelay = commandWaitDelay

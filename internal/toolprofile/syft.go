@@ -7,6 +7,6 @@ const (
 	SyftCommand      = SyftModule + "/cmd/syft"
 	SyftManifest     = "tools/syft/go.mod"
 	SyftBuildTags    = "containers_image_openpgp,exclude_graphdriver_btrfs"
-	SyftSourceCommit = "f15c3343e29dfb20cf6d82c820e7090b49808c96"
-	SyftSourceSum    = "h1:IeBZJrF/g75ba3k0ITQ8v4NCVGiGsWU3Wa1P/eSAFa0="
+	SyftSourceCommit = "1a72047fd46c72e0a12ee77e24b23d2316753d08"
+	SyftSourceSum    = "h1:Vm+22QHzQfwy9WBlWeGOWBSByH6dt6SEjxrfOvQZsfM="
 )

@@ -575,7 +575,7 @@ func (topology *bgpFailoverTopology) requireVersions(t *testing.T) {
 		command   []string
 		version   string
 	}{
-		{name: "GoBGP", container: topology.gobgpID, command: []string{"gobgp", "--version"}, version: "4.10.0"},
+		{name: "GoBGP", container: topology.gobgpID, command: []string{"gobgp", "--version"}, version: "4.11.0"},
 		{name: "FRR", container: topology.frrID, command: []string{"vtysh", "-c", "show version"}, version: "10.7.1"},
 	} {
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -1030,6 +1030,7 @@ func buildBGPFailoverImage(
 		return "", err
 	}
 	topology.armEvidenceCleanup(t)
+	//nolint:staticcheck // Retain core ProviderPodman without adding modules/podman.
 	provider, err := testcontainers.ProviderPodman.GetProvider()
 	if err != nil {
 		return "", fmt.Errorf("create explicit Podman image provider: %w", err)
@@ -1112,8 +1113,8 @@ func prepareGoBFDBuildContext(t *testing.T, root string) string {
 			t.Fatalf("copy %s into bounded GoBFD build context: %v", name, err)
 		}
 	}
-	const containerfile = `FROM docker.io/library/golang:1.27.3-trixie@sha256:` +
-		`604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c AS builder
+	const containerfile = `FROM docker.io/library/golang:1.27.4-trixie@sha256:` +
+		`430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download && go mod verify
@@ -1122,7 +1123,7 @@ COPY internal ./internal
 COPY pkg ./pkg
 RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfd ./cmd/gobfd
 FROM docker.io/library/debian:trixie-slim@sha256:` +
-		`62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+		`8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
 COPY --from=builder /bin/gobfd /bin/gobfd
 ENTRYPOINT ["/bin/gobfd"]
 `

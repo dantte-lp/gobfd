@@ -47,8 +47,8 @@ const (
 	currentSchemaVersion  = 2
 	githubRepositoryParts = 2
 	snapshotObservedAt    = "2026-10-28T19:52:52Z"
-	devReviewBy           = "2026-10-31"
-	devTracking           = "https://github.com/dantte-lp/gobfd/pull/105"
+	devReviewBy           = "2026-12-31"
+	devTracking           = "https://github.com/dantte-lp/gobfd/pull/133"
 )
 
 // Kind classifies a non-Go dependency or a Go module record.
@@ -695,6 +695,11 @@ func fetchDepsDevLicense(
 		return moduleLicenseResult{}, fmt.Errorf("query deps.dev for %s@%s: %w", identity.Path, identity.Version, err)
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		if _, ok := exactModuleLicense(identity.Path, identity.Version); ok {
+			return moduleLicenseResult{}, nil
+		}
+	}
 	if response.StatusCode != http.StatusOK {
 		return moduleLicenseResult{}, fmt.Errorf("query deps.dev for %s@%s: HTTP %s", identity.Path, identity.Version, response.Status)
 	}
@@ -764,12 +769,12 @@ func applyOCILicenseEvidence(inv *Inventory) {
 
 func exactOCILicense(reference string) (ociLicenseOverride, bool) {
 	licenses := map[string]ociLicenseOverride{
-		"docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad": {
-			SourceRepository: "debuerreotype/docker-debian-artifacts", SourceCommit: "cee78df586385250331cacba8fd1140133c054e5",
+		"docker.io/library/debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0": {
+			SourceRepository: "debuerreotype/docker-debian-artifacts", SourceCommit: "7935fc7dd049cb343df42037c152f570069d274f",
 			LicenseFile: licenseFileName, SPDX: licenseApache2, LicenseHash: "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
 		},
-		"docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c": {
-			SourceRepository: "docker-library/golang", SourceCommit: "41d9b4da70324ae7b6461ac2cc401b06719ff57d",
+		"docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee": {
+			SourceRepository: "docker-library/golang", SourceCommit: "2a78efb599931f824db4d97f50b3d2252787a6aa",
 			LicenseFile: licenseFileName, SPDX: "BSD-3-Clause", LicenseHash: "31668de690a9ecc50ba008a701b6bdb4d08ded13df7c319c49466b500eef6f69",
 		},
 		"docker.io/library/haproxy:3.4.6-trixie@sha256:e273915691a8eab3f105bf3e39fd4c29a4ecf334e33421903b5589d25e14db26": {
@@ -846,6 +851,11 @@ func exactModuleLicense(path, version string) (moduleLicenseOverride, bool) {
 			version: "v0.0.1", repository: "mattn/go-localereader",
 			commit: "6338b4c69507fb1f9edba3db33882a8e9ab9bfa8", file: "README.md", spdx: "MIT",
 			hash: "0c5c52517f13becd7a1e1234f1e8a5ba370f5a5078cee9ac058c2d534e267fcb",
+		},
+		"github.com/sbomify/ar": {
+			version: "v0.0.0-20261110120314-cac91ea00b05", repository: "sbomify/ar",
+			commit: "cac91ea00b0538f92fd42fa3ece0b15adc5ef01f", file: "COPYING", spdx: "MIT",
+			hash: "1a14eaa119dcfcb812d54ef951a72f6c72b2bac2dd247f376010303d73bfc54b",
 		},
 	}
 	license, ok := licenses[path]
@@ -990,12 +1000,10 @@ func assessmentTemplate(name string) Assessment {
 	switch name {
 	case "removed-direct-require":
 	case "gobgp-v4-risk":
-		// Same owner and expiry (review) date as the GO-2026-4736 entry in scripts/vuln-audit.go.
 		assessment.Decision = Decision{
 			Status: DecisionDeferred,
-			Reason: "stable v1 maintainer decision 2026-10-21 permits the module-only GO-2026-4736 exception " +
-				"while GHSA/OSV record a fixed version at or below the pin and the final candidate's govulncheck " +
-				"reports it only at module level; remove it once the Go vulnerability database records a fixed v4 version",
+			Reason: "GoBGP v4.11.0 imports only github.com/osrg/gobgp/v4/api with zero govulncheck/osv-scanner findings; " +
+				"final release-line acceptance remains gated by live BGP+BFD interoperability qualification",
 			Owner: "@dantte-lp", Tracking: devTracking, ReviewBy: "2026-12-31",
 		}
 	default:

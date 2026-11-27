@@ -17,7 +17,7 @@ import (
 	"github.com/dantte-lp/gobfd/internal/toolprofile"
 )
 
-const syftFixtureVersion = "v1.55.0"
+const syftFixtureVersion = "v1.57.2"
 
 type syftFixtureRunner struct {
 	t       *testing.T

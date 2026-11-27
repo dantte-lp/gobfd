@@ -27,17 +27,17 @@ const (
 )
 
 type goreleaserProfile struct {
-	Module          string                `json:"module"`
-	Version         string                `json:"version"`
-	Sum             string                `json:"sum"`
-	GoModSum        string                `json:"go_mod_sum"`
-	SourceCommit    string                `json:"source_commit"`
-	Files           int                   `json:"files"`
-	Bytes           int64                 `json:"bytes"`
-	Patch           goreleaserSourcePatch `json:"patch"`
-	Manifests       *goreleaserManifests  `json:"qualified_manifests"`
-	SourceManifests *goreleaserManifests  `json:"source_manifests"`
-	Refmt           *refmtSourceProfile   `json:"refmt"`
+	Module          string                 `json:"module"`
+	Version         string                 `json:"version"`
+	Sum             string                 `json:"sum"`
+	GoModSum        string                 `json:"go_mod_sum"`
+	SourceCommit    string                 `json:"source_commit"`
+	Files           int                    `json:"files"`
+	Bytes           int64                  `json:"bytes"`
+	Patch           *goreleaserSourcePatch `json:"patch,omitempty"`
+	Manifests       *goreleaserManifests   `json:"qualified_manifests"`
+	SourceManifests *goreleaserManifests   `json:"source_manifests"`
+	Refmt           *refmtSourceProfile    `json:"refmt"`
 }
 
 type refmtSourceProfile struct {
@@ -53,10 +53,11 @@ type refmtSourceProfile struct {
 }
 
 func (profile refmtSourceProfile) sourceProfile() goreleaserProfile {
+	patch := profile.Patch
 	return goreleaserProfile{
 		Module: profile.Module, Version: profile.Version, Sum: profile.Sum,
 		GoModSum: profile.GoModSum, SourceCommit: profile.SourceCommit, Files: profile.Files,
-		Bytes: profile.Bytes, Patch: profile.Patch, SourceManifests: profile.Manifests,
+		Bytes: profile.Bytes, Patch: &patch, SourceManifests: profile.Manifests,
 	}
 }
 
@@ -103,7 +104,8 @@ func loadGoReleaserProfile(repository string) (goreleaserProfile, error) {
 }
 
 func (profile goreleaserProfile) validate() error {
-	if profile.Module != toolprofile.GoReleaserModule || profile.Patch.Path != "internal/pipe/ko/ko.go" ||
+	if profile.Module != toolprofile.GoReleaserModule ||
+		(profile.Patch != nil && profile.Patch.Path != "internal/pipe/ko/ko.go") ||
 		profile.Refmt == nil || profile.Refmt.Module != toolprofile.RefmtModule ||
 		profile.Refmt.Patch.Path != "cmd/refmt/helper_yaml.go" {
 		return fmt.Errorf("publisher component roles differ from closed source layout: %w", errInvalidConfig)
@@ -111,7 +113,11 @@ func (profile goreleaserProfile) validate() error {
 	if err := profile.validateIdentity(); err != nil {
 		return err
 	}
-	return errors.Join(profile.Patch.validate(), profile.Refmt.sourceProfile().validateIdentity(),
+	var patchErr error
+	if profile.Patch != nil {
+		patchErr = profile.Patch.validate()
+	}
+	return errors.Join(patchErr, profile.Refmt.sourceProfile().validateIdentity(),
 		profile.Refmt.Patch.validate())
 }
 
