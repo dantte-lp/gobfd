@@ -22,6 +22,9 @@ BFD means Bidirectional Forwarding Detection; FSM means finite state machine. TX
 | [8971](../rfc/rfc8971.txt) | VXLAN BFD | Incomplete userspace preview | Exact IPv4 profile; owner-specific dataplane integration open |
 | [9521](../rfc/rfc9521.txt) | Geneve BFD | Incomplete userspace preview | IPv4 Format A only; owner-specific integration open |
 | [9764](../rfc/rfc9764.txt) | Large packets | Partial | Auth vectors and scoped padded TX; path MTU/final gates separate |
+| [9978](../rfc/rfc9978.txt) | BFD Stability | Not implemented (experimental) | Verbatim RFC archived; `lost-packet-count` and `NULL Auth (6)` evaluated for `dev` |
+| [9985](../rfc/rfc9985.txt), [9986](../rfc/rfc9986.txt) | Optimized auth / ISAAC | Not implemented (experimental) | Verbatim RFCs archived; `Auth Types 7/8` evaluated behind `dev` feature gate |
+| [8562](../rfc/rfc8562.txt), [8563](../rfc/rfc8563.txt), [9780](https://www.rfc-editor.org/rfc/rfc9780.html) | Multipoint BFD | Not implemented | `M=1` rejected per point-to-point base rules |
 | [7880](https://www.rfc-editor.org/rfc/rfc7880.html), [7881](https://www.rfc-editor.org/rfc/rfc7881.html) | S-BFD | Planned | No reflector, initiator or UDP/7784 listener |
 | [5884](../rfc/rfc5884.txt), [5885](../rfc/rfc5885.txt) | MPLS LSP/PW VCCV | Not implemented | No session implementation or stub API |
 
@@ -42,7 +45,7 @@ The five preview profiles are explicitly reported by [CapabilityService](../../i
 | 6.8.7 | 75–100% jitter, or 75–90% with local multiplier 1 | [jitter](02-protocol.md#jitter) |
 | 6.8.12 | DetectMult joins the five-field reload tuple | [session_update.go](../../internal/bfd/session_update.go) |
 
-The selected Held-errata 5205/7240 policy sets diagnostic 1 on a Down timeout without a state edge and preserves diagnostic across recovery to Up. AdminDown/7 survives local PathDown. These are explicit project policies; Held for Document Update is not an amended normative RFC requirement. Sources: [FSM](../../internal/bfd/fsm.go), [owner](../../internal/bfd/session_loop.go), [RFC errata record](https://www.rfc-editor.org/errata/rfc5880).
+The selected Held-errata 5205/7240 policy sets diagnostic 1 on a Down timeout without a state edge and preserves diagnostic across recovery to Up. AdminDown/7 survives local PathDown. These are explicit project policies; Held for Document Update is not an amended normative RFC requirement. `validateKeyedHash` commits `AuthSeqKnown` and `RcvAuthSeq` strictly after digest verification, matching Verified Errata 7082/7083 in `draft-ietf-bfd-rfc5880bis-02`. Sources: [FSM](../../internal/bfd/fsm.go), [auth](../../internal/bfd/auth.go), [owner](../../internal/bfd/session_loop.go), [RFC errata record](https://www.rfc-editor.org/errata/rfc5880).
 
 ### Poll Sequences and reload
 
@@ -150,11 +153,11 @@ RFC 5884/5885 remain reference scope. No MPLS/VCCV session or stub interface is 
 
 ## Reference RFCs
 
-RFC 5082 supplies GTSM context; RFC 8203 supplies administrative shutdown communication. RFC 9127 is a management-model reference. OSPF strict mode from RFC 9355 requires an OSPF integration not implemented here. Sources and applicability are linked from [protocol](02-protocol.md), [GoBGP adapter](../../internal/gobgp/rfc9384.go) and [vendor references](reference/vendor-bfd.md).
+RFC 5082 supplies GTSM context; RFC 8203 supplies administrative shutdown communication. RFC 9314 (obsoleting RFC 9127) and RFC 9612 are NMDA YANG management-model references. OSPF strict mode from RFC 9355 requires an OSPF integration not implemented here. Sources and applicability are linked from [protocol](02-protocol.md), [GoBGP adapter](../../internal/gobgp/rfc9384.go), [vendor references](reference/vendor-bfd.md) and the [2026-11-28 formal RFC audit](audits/2026-11-28-v1-post-release-retrospective-and-formal-rfc-audit.md).
 
 ## RFC Source Files
 
-The [local RFC archive](../rfc/) retains standards texts. Presence of RFC 9985/9986 or other texts does not establish implementation. Prefer section-specific references over an unqualified compliance label.
+The [local RFC archive](../rfc/) retains standards texts, including experimental RFC 9978, RFC 9985 and RFC 9986. Presence of an archived text does not establish implementation. Prefer section-specific references over an unqualified compliance label.
 
 ## Related Documents
 

@@ -51,4 +51,5 @@
 [независимый аудит от 2026-10-23](audits/2026-10-23-independent-retrospective.md),
 [ретроспектива выпуска от 2026-10-26](audits/2026-10-26-release-retrospective.md),
 [ретроспектива выпуска от 2026-11-27](audits/2026-11-27-release-retrospective.md),
+[пострелизная ретроспектива и формальный аудит RFC от 2026-11-28](audits/2026-11-28-v1-post-release-retrospective-and-formal-rfc-audit.md),
 [журнал релизов](../../CHANGELOG.ru.md), [исходные тексты RFC](../rfc/).

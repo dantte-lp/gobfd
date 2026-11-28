@@ -2,23 +2,23 @@
 
 [Russian translation](../ru/roadmap.md).
 
-Snapshot: **2026-11-27**. This page records the technical acceptance boundary;
-it does not authorize publication. Use the documentation at the candidate's
-commit and the applicable release-line contract.
+Snapshot: **2026-11-28**. This page records the post-`v1.0.0` technical
+qualification boundary and `dev` roadmap projection; it does not broaden
+published release claims beyond the documented [RFC matrix](08-rfc-compliance.md).
 
 ## Source baseline
 
-Release-line integration baseline:
-[`816fc7e04d411c306fbe430a91a167cdb6481e81`](https://github.com/dantte-lp/gobfd/commit/816fc7e04d411c306fbe430a91a167cdb6481e81)
-on branch `release/v1.0` (incorporating
-[`eae8f0636055de8ac4714199e27ff0c9d18b9859`](https://github.com/dantte-lp/gobfd/commit/eae8f0636055de8ac4714199e27ff0c9d18b9859)
-from `dev`, Go `1.27.4`, GoBGP `v4.11.0`, ADR-0013 Unix restart ownership,
+Published `v1.0.0` baseline:
+[`bc558130d37e489939f4b8764b6a9d1b568861da`](https://github.com/dantte-lp/gobfd/commit/bc558130d37e489939f4b8764b6a9d1b568861da)
+on branch `release/v1.0` (annotated tag `v1.0.0` at
+`1cac85e8083b38717066769f2db7b0d62ad7f11d`, synchronized to `master` at
+[`3bcdea03d3f05f21b14dd2a785e20805f642bf5f`](https://github.com/dantte-lp/gobfd/commit/3bcdea03d3f05f21b14dd2a785e20805f642bf5f)),
+incorporating Go `1.27.4`, GoBGP `v4.11.0`, ADR-0013 Unix restart ownership,
 ADR-0014 `v1.0` GoBGP v4 release-line graduation, RFC 9747 slow Echo pacing,
 Micro-BFD loss resync and `enforce` health gating, bounded inactive per-peer
 Prometheus series, run-owned Compose/stage image cleanup, direct containerd
-gRPC lease import for Kubernetes, and Bash-free `Makefile`/OCI orchestration).
-Stable branches, release tags and backup refs are preserved. No release tag or
-publication follows from source integration.
+gRPC lease import for Kubernetes, and Bash-free `Makefile`/OCI orchestration.
+Stable branches, release tags and backup refs are preserved.
 
 ## Stable v1 acceptance
 
@@ -56,7 +56,9 @@ passes `release.yml`.
 
 | Capability | Boundary |
 |:---|:---|
-| HAProxy health as anycast VIP policy | Not implemented; the existing agent exports BFD state to HAProxy |
+| RFC 9747 full Unaffiliated Echo (`#125`, `#126`) | Planned on `dev` (`v1.1`): Linux `AF_PACKET` adjacent-peer send (`rfc5881bis-02` §2), 3-state `Down -> Init -> Up` FSM, `YourDiscriminator` demux and return authentication |
+| HAProxy health as anycast VIP policy (`#88`) | Not implemented; the existing agent exports BFD state to HAProxy; reverse L4/HTTP health -> GoBGP v4 route control with hold-down planned on `dev` |
+| Experimental 2026 RFCs (`RFC 9978`, `RFC 9985`/`9986`) | Not implemented; `RFC 9978` window-gated `lost_packets_total` (`delta - 1` with reorder guard) and `RFC 9986` ISAAC evaluation tracked on `dev` |
 | Broader ExaBGP process API | A native anycast cycle does not qualify ACK/reload, JSON/EOR or the full dual-stack matrix |
 | Pending-interface validation | Separate from the implemented core pending activation |
 | Runtime global VNI defaults | Separate from startup-default behavior |
@@ -84,7 +86,8 @@ contracts. Preserve existing v0.6 assets and tags.
 
 The previous accumulated status and exact receipts remain available at
 [the integration baseline](https://github.com/dantte-lp/gobfd/blob/eae8f0636055de8ac4714199e27ff0c9d18b9859/docs/en/roadmap.md).
-Dated audits remain in [the 2026-11-27 retrospective](audits/2026-11-27-release-retrospective.md),
+Dated audits remain in [the 2026-11-28 post-release retrospective and formal RFC audit](audits/2026-11-28-v1-post-release-retrospective-and-formal-rfc-audit.md),
+[the 2026-11-27 retrospective](audits/2026-11-27-release-retrospective.md),
 [the 2026-10-26 retrospective](audits/2026-10-26-release-retrospective.md)
 and [external-audit reconciliation](gist-audit-reconciliation.md). Historical
 results are not fresh measurements of the current candidate.
