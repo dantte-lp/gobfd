@@ -57,13 +57,153 @@ Thumbs.db
 # Fuzz corpus (can be large)
 **/testdata/fuzz/
 
-# Claude local config
-CLAUDE.local.md
-.mcp.json
+# Beads / Dolt local task database and process locks (never tracked or merged)
+.beads/
+.beads*
+.dolt/
+*.db
+*.gate.lock*
 
-# Beads local task database and process lock
-/.beads/
-/.beads.gate.lock
+# Local-only AI agent state, caches, and personal Markdown overrides
+.aider*
+AGENTS.local.md
+AGENT.local.md
+CLAUDE.local.md
+GEMINI.local.md
+CODEX.local.md
+CURSOR.local.md
+WINDSURF.local.md
+COPILOT.local.md
+.github/copilot-instructions.local.md
+
+# Non-Markdown AI / agent configuration and rule files (only .md is allowed)
+.mcp.json
+claude_desktop_config.json
+opencode.json
+opencode.jsonc
+.opencode.json
+.opencode.jsonc
+.cursorrules
+.cursorignore
+.cursorindexingignore
+.windsurfrules
+.windsurfignore
+.codeiumignore
+.clinerules
+.clineignore
+.roorules
+.rooignore
+.goosehints
+.gooseignore
+.continuerules
+.continueignore
+.copilotignore
+.aiignore
+.aiexclude
+.geminiignore
+.claudeignore
+.codexignore
+.junieignore
+.ampignore
+.kiroignore
+*.mdc
+*.prompt.yml
+*.prompt.yaml
+*.prompt.json
+*.agent.yml
+*.agent.yaml
+*.agent.json
+
+# AI / agent directories: ignore all non-Markdown files; allow intentional .md
+.agent/**
+!.agent/**/
+!.agent/**/*.md
+.agent/**/*.local.md
+.agents/**
+!.agents/**/
+!.agents/**/*.md
+.agents/**/*.local.md
+.amp/**
+!.amp/**/
+!.amp/**/*.md
+.amp/**/*.local.md
+.antigravity/**
+!.antigravity/**/
+!.antigravity/**/*.md
+.antigravity/**/*.local.md
+.augment/**
+!.augment/**/
+!.augment/**/*.md
+.augment/**/*.local.md
+.claude/**
+!.claude/**/
+!.claude/**/*.md
+.claude/**/*.local.md
+.claude/worktrees/**
+.cline/**
+!.cline/**/
+!.cline/**/*.md
+.cline/**/*.local.md
+.codex/**
+!.codex/**/
+!.codex/**/*.md
+.codex/**/*.local.md
+.continue/**
+!.continue/**/
+!.continue/**/*.md
+.continue/**/*.local.md
+.copilot/**
+!.copilot/**/
+!.copilot/**/*.md
+.copilot/**/*.local.md
+.cursor/**
+!.cursor/**/
+!.cursor/**/*.md
+.cursor/**/*.local.md
+.gemini/**
+!.gemini/**/
+!.gemini/**/*.md
+.gemini/**/*.local.md
+.junie/**
+!.junie/**/
+!.junie/**/*.md
+.junie/**/*.local.md
+.kiro/**
+!.kiro/**/
+!.kiro/**/*.md
+.kiro/**/*.local.md
+.opencode/**
+!.opencode/**/
+!.opencode/**/*.md
+.opencode/**/*.local.md
+.roo/**
+!.roo/**/
+!.roo/**/*.md
+.roo/**/*.local.md
+.trae/**
+!.trae/**/
+!.trae/**/*.md
+.trae/**/*.local.md
+.windsurf/**
+!.windsurf/**/
+!.windsurf/**/*.md
+.windsurf/**/*.local.md
+.github/agents/**
+!.github/agents/**/
+!.github/agents/**/*.md
+.github/agents/**/*.local.md
+.github/copilot/**
+!.github/copilot/**/
+!.github/copilot/**/*.md
+.github/copilot/**/*.local.md
+.github/instructions/**
+!.github/instructions/**/
+!.github/instructions/**/*.md
+.github/instructions/**/*.local.md
+.github/prompts/**
+!.github/prompts/**/
+!.github/prompts/**/*.md
+.github/prompts/**/*.local.md
 
 # Local git worktrees
 /.worktrees/
@@ -74,7 +214,6 @@ docs/tmp/
 # Build artifacts
 dist/
 release-notes.md
-.codex
 
 # Generated reports (regenerate with: make report-all)
 /reports/
@@ -92,10 +231,3 @@ test/interop-clab/*.generated.clab.yml
 test/interop-clab/gobfd/*.generated.yml
 test/interop-clab/gobfd/.runtime/
 test/interop-clab/clab-*/
-
-# Beads / Dolt files (added by bd init)
-.dolt/
-*.db
-.beads-credential-key
-.beads/proxieddb/
-*.gate.lock*

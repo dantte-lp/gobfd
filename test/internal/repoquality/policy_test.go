@@ -34,6 +34,27 @@ func TestCommitPolicyMatchesPinnedCommitlintContract(t *testing.T) {
 			wantOK:      true,
 			wantWarning: "body-max-line-length",
 		},
+		{
+			name:    "subject naming AI tool as work topic allowed",
+			message: "ci(lint): block Claude Code non-Markdown artifacts from merge",
+			wantOK:  true,
+		},
+		{
+			name:    "co-authored-by claude forbidden",
+			message: "feat(bfd): add peer\n\nCo-Authored-By: Claude <noreply@anthropic.com>",
+		},
+		{
+			name:    "co-authored-by gemini forbidden",
+			message: "feat(bfd): add peer\n\nCo-Authored-By: Gemini <gemini@example.com>",
+		},
+		{
+			name:    "generated with claude code forbidden",
+			message: "feat(bfd): add peer\n\nGenerated with Claude Code",
+		},
+		{
+			name:    "revert commit with AI trailer still forbidden",
+			message: "Revert accidental change\n\nCo-Authored-By: Codex <noreply@openai.com>",
+		},
 	}
 
 	for _, test := range tests {

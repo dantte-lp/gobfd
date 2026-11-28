@@ -69,14 +69,16 @@ func MarkdownRules() []string {
 }
 
 // CheckCommit checks one message against the committed Conventional Commit
-// type, scope, subject-case, and length contract.
+// type, scope, subject-case, length, and no-AI-attribution contract.
 func CheckCommit(message string) []Diagnostic {
-	if ignoredCommit(message) {
-		return nil
-	}
 	lines := strings.Split(strings.ReplaceAll(message, "\r\n", "\n"), "\n")
+	attributionDiagnostics := checkCommitAIAttribution(lines)
+	if ignoredCommit(message) {
+		return attributionDiagnostics
+	}
 	header := lines[0]
-	diagnostics := make([]Diagnostic, 0)
+	diagnostics := make([]Diagnostic, 0, len(attributionDiagnostics)+2)
+	diagnostics = append(diagnostics, attributionDiagnostics...)
 	if len(header) > headerMaxBytes {
 		diagnostics = append(diagnostics, newDiagnostic("header-max-length", 1, "header exceeds 100 bytes"))
 	}
