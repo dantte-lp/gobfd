@@ -28,7 +28,7 @@ flowchart LR
 | Milestone | Reference | Measured verification receipt |
 |:---|:---|:---|
 | Core stack, Unix ownership and preview pacing | Pull request `#133` (`6f0efd10`) | `Go 1.27.4`, `GoBGP v4.11.0`, [ADR-0013](../adr/0013-gobgp-restart-disable-ownership.md) `SO_PEERCRED` epoch receipts, slow `1 s` Echo TX outside `Up` |
-| Bash-free OCI and runtime hardening | Pull requests `#135` (`a315549c`), `#136` (`53644fae`), `#137` (`eb54695a`) | Exec-form `Containerfile` recipes, Micro-BFD loss resync, bounded `4,096` inactive peer series, containerd gRPC lease import, `0` issues across 92 linters / 19 profiles |
+| Bash-free OCI and runtime hardening | Pull requests `#135` (`a315549c`), `#136` (`53644fae`), `#137` (`e4f9c3b8`) | Exec-form `Containerfile` recipes, Micro-BFD loss resync, bounded `4,096` inactive peer series, containerd gRPC lease import, `0` issues across 92 linters / 19 profiles |
 | `v1.0` GoBGP v4 graduation and documentation audit | Pull requests `#138` (`816fc7e0`), `#139` (`a1f8c84c`) | [ADR-0014](../adr/0014-v1-gobgp-v4-release-line-baseline.md), `repoquality markdown` clean across `115` `.md` files and `36` Mermaid diagrams |
 | `v1.0.0` release cut and publication | Pull request `#134` (`bc558130`), tag `v1.0.0` (`1cac85e8`) | Workflow run `46083125672` (`SUCCESS`): `12` release assets (`.deb`, `.rpm`, `.tar.gz`, CycloneDX SBOMs, `checksums.txt`, Cosign bundle) + multi-arch GHCR `:1.0.0` / `:latest` |
 | Default-branch and `dev` synchronization | Pull request `#140` (`3bcdea03`) | `master` and `dev` aligned to tree `61b43f886e09a5943a9774c406dc9a654790b6d9`; 12 superseded `v0.6`/GoBGP-v3 Dependabot PRs (`#111`–`#130`) closed |
@@ -39,7 +39,7 @@ flowchart LR
 1. **Release-branch merges require explicit back-merge to `master` before landing documentation on `master`.** Landing documentation and Release Please commits on `release/v1.0` left `master` at the `v0.6.4` tree until pull request `#140` reconciled both branches. Maintaining the post-release back-merge as an explicit release-checklist gate prevents default-branch README drift.
 2. **Paired benchmark overlays must isolate allocation semantics across major internal refactors.** Comparing `v1.0.0` against `v0.6.4` failed initially because `v0.6.4` mutated a retained packet struct while `v1.0` enforced immutable per-iteration decoding; shipping `decode-packet-per-iteration-v1` established apples-to-apples timing without weakening regression thresholds.
 3. **Splitting product-line contracts (`release/v0.6` on GoBGP v3 vs `release/v1.0` on GoBGP v4) retired 12 incompatible dependency PRs cleanly.** Recording the boundary in [ADR-0014](../adr/0014-v1-gobgp-v4-release-line-baseline.md) separated incompatible major-API upgrades from security maintenance.
-4. **Operational soak and hardware NOS qualification remain distinct from source release readiness.** Publishing `v1.0.0` with explicit `CapabilityService` maturity states (`disabled_by_default`, `preview`, `experimental`) preserved honest operator boundaries while keeping 24-hour reference-runner soak and physical switch interop tracked separately.
+4. **Operational soak and hardware NOS qualification remain distinct from source release readiness.** Publishing `v1.0.0` with explicit `CapabilityService` maturity and enablement states (`CAPABILITY_MATURITY_PREVIEW` paired with `CAPABILITY_ENABLEMENT_DISABLED` / `CAPABILITY_ENABLEMENT_ENABLED`) preserved honest operator boundaries while keeping 24-hour reference-runner soak and physical switch interop tracked separately.
 
 ## 2. 2026 IETF BFD RFC and Internet-Draft audit
 
@@ -76,7 +76,7 @@ All machine-checked proofs and symbolic computations were executed in ephemeral,
 | `Z1b` | `QF_BV(32)` | `SeqInWindow(seq, rcv, rcv+3*M)` equals modular `0 <= (seq - rcv) mod 2^32 <= 3*M` for all `M in [1, 255]` | `UNSAT` (proven) | 0.53 |
 | `Z2` | `QF_BV(32)` | Meticulous sequence acceptance admits no 1-, 2- or 3-step replay cycle across `2^32` wraparound (`M in [1, 255]`) | `UNSAT` (proven) | 33.37 |
 | `Z3a` | `QF_BV(32)` | Pre-errata `RFC 5880` §§6.7.3–6.7.4 / `RFC 9985` §7.1 (mutating `RcvAuthSeq` when `AuthSeqKnown == 0` *before* MAC check) admits 1-packet sequence-window DoS | `SAT` (`atk_seq=43008`, `peer_seq=1`, `M=3`) | 5.48 |
-| `Z3b` | `QF_BV(32)` | GoBFD `validateKeyedHash` commit-after-MAC (`rfc5880bis-02` Verified Errata `7082`/`7083`) preserves state on invalid MAC | `UNSAT` (proven) | 0.52 |
+| `Z3b` | `QF_BV(32)` | GoBFD `verifyAndUpdateSeq` / `verifyHash` commit-after-MAC (`rfc5880bis-02` Verified Errata `7082`/`7083`) preserves state on invalid MAC | `UNSAT` (proven) | 0.52 |
 | `Z4a` | `QF_LIA` | `applyJitterWithRand` ([session_packet.go](../../../internal/bfd/session_packet.go)) with `DetectMult == 1` satisfies exact `0.75 * I <= out <= 0.90 * I` across `[1 µs, 4,294,967,295 µs]` | `UNSAT` (proven) | 5.51 |
 | `Z4b` | `QF_LIA` | `applyJitterWithRand` with `DetectMult > 1` satisfies exact `0.75 * I <= out <= 1.00 * I` across `[1 µs, 4,294,967,295 µs]` | `UNSAT` (proven) | 4.79 |
 | `Z4c` | `QF_BV(64)` | All intermediate `int64` multiplications and additions in `applyJitterWithRand` are free of signed 64-bit overflow | `UNSAT` (proven) | 24.58 |
@@ -100,7 +100,7 @@ All machine-checked proofs and symbolic computations were executed in ephemeral,
 Nine constructive theorems were kernel-checked in `Lean 4.36.0` (`commit 611c117bfaf7`) with **zero `sorry` axioms**:
 
 1. `adminDown_closed`: for all diagnostics and all non-`AdminUp` events (packets, detection timeouts, `PathDown`), `StateAdminDown` remains `StateAdminDown` with `changed = false`.
-2. `changed_iff_state_ne`: across all `4 × 9 × 8 = 288` `(State, Diag, Event)` combinations in [fsm.go](../../../internal/bfd/fsm.go), `changed = true` holds if and only if `newState != curState`.
+2. `changed_iff_state_ne`: across all `4 x 7 = 28` `(State, Event)` transitions in [fsm.go](../../../internal/bfd/fsm.go) extended with owner `controlPathDown` and `9` diagnostic codes from [session_loop.go](../../../internal/bfd/session_loop.go) (`4 x 9 x 8 = 288` combined cases), `changed = true` holds if and only if `newState != curState`.
 3. `rxUp_from_down_stays_down`: receiving a remote `Up` packet in local `Down` never bypasses `Init` (`RFC 5880` §6.2 three-way handshake).
 4. `recovery_to_up_preserves_diag`: every transition into `StateUp` preserves `curDiag` (Held Erratum `7240` policy).
 5. `seqInWindow_lo` and `seqInWindow_hi`: both boundary endpoints `lo` and `hi` are inclusively accepted for all `UInt32` wraparound pairs.
@@ -111,30 +111,30 @@ Nine constructive theorems were kernel-checked in `Lean 4.36.0` (`commit 611c117
 
 ### 3.4 Exact stochastic, combinatorial and graph analysis (`SageMath 10.10`)
 
-#### Jitter renewal moments over $\mathbb{Q}$
+#### Jitter renewal moments over exact rationals
 
-GoBFD samples integer reduction percentages uniformly (`0..25%` for `DetectMult >= 2`; `10..25%` for `DetectMult == 1`). Over exact $\mathbb{Q}$:
+GoBFD samples integer reduction percentages uniformly (`0..25%` for `DetectMult >= 2`; `10..25%` for `DetectMult == 1`). Over exact rational arithmetic (`QQ`):
 
-- For `DetectMult >= 2`: $\mathbb{E}[T/I] = \frac{7}{8} = 0.875$, $\mathrm{Var}(T/I) = \frac{9}{1600}$, asymptotic TX renewal rate $\lambda_{\mathrm{TX}} = \frac{8}{7I} \approx \frac{1.142857}{I}$ (`+14.29%` packet rate above nominal `DesiredMinTxInterval`).
-- For `DetectMult == 1`: $\mathbb{E}[T/I] = \frac{33}{40} = 0.825$, $\mathrm{Var}(T/I) = \frac{17}{8000}$, asymptotic TX renewal rate $\lambda_{\mathrm{TX}} = \frac{40}{33I} \approx \frac{1.212121}{I}$, with exact worst-case single-interval safety slack $1 - \frac{9}{10} = \frac{1}{10}$ (`10%` of detection time).
+- For `DetectMult >= 2`: `E[T/I] = 7/8 = 0.875`, `Var(T/I) = 9/1600`, asymptotic TX renewal rate `lambda_TX = 8 / (7 * I) = 1.142857 / I` (`+14.29%` packet rate above nominal `DesiredMinTxInterval`).
+- For `DetectMult == 1`: `E[T/I] = 33/40 = 0.825`, `Var(T/I) = 17/8000`, asymptotic TX renewal rate `lambda_TX = 40 / (33 * I) = 1.212121 / I`, with exact worst-case single-interval safety slack `1 - 9/10 = 1/10` (`10%` of detection time).
 
 #### False-Down Markov absorption: Bernoulli vs Gilbert–Elliott burst loss (`24 h` at `10 ms` TX)
 
-At `DesiredMinTxInterval = 10 ms` ($\mathbb{E}[T] = 8.75\text{ ms}$, $K = 9{,}874{,}285$ packets per session per 24 hours), comparing an i.i.d. Bernoulli channel against a 2-state Gilbert–Elliott burst channel with the **exact same mean packet-loss rate** $p_{\mathrm{avg}} = \frac{3}{50005} \approx 6.0 \times 10^{-5}$ ($p_G = 10^{-5}$, $p_B = 0.5$, $\alpha = 2 \times 10^{-5}$, $\beta = 0.2$, mean burst `43.75 ms`) over 256-bit precision (`RealField(256)`):
+At `DesiredMinTxInterval = 10 ms` (`E[T] = 8.75 ms`, `K = 9,874,285` packets per session per 24 hours), comparing an i.i.d. Bernoulli channel against a 2-state Gilbert–Elliott burst channel with the **exact same mean packet-loss rate** `p_avg = 3/50005` (`~6.0e-5`, with `p_G = 1e-5`, `p_B = 0.5`, `alpha = 2e-5`, `beta = 0.2`, mean burst `43.75 ms`, `30–100 ms` detection windows) over 256-bit precision (`RealField(256)`):
 
-| `DetectMult` ($M$) | Detection window (`ms`) | 24 h false-`Down` (1 session, i.i.d.) | 24 h false-`Down` (1,000 sessions, i.i.d.) | 24 h false-`Down` (1 session, Gilbert–Elliott) | 24 h false-`Down` (1,000 sessions, Gilbert–Elliott) |
-|---:|---:|---:|---:|---:|---:|
-| 3 | 30 | `2.13e-06` | `2.13e-03` | `1.0000` | `1.0000` |
-| 5 | 50 | `7.67e-15` | `7.67e-12` | `0.9994` | `1.0000` |
-| 7 | 70 | `2.76e-23` | `2.76e-20` | `0.7016` | `1.0000` |
-| 10 | 100 | `5.96e-36` | `5.96e-33` | `0.0747` | `1.0000` |
+| `DetectMult` (`M`) | 24 h false-`Down` (1, i.i.d.) | 24 h false-`Down` (1,000, i.i.d.) | 24 h false-`Down` (1, Gilbert–Elliott) | 24 h false-`Down` (1,000, Gilbert–Elliott) |
+|---:|---:|---:|---:|---:|
+| 3 | `2.13e-06` | `2.13e-03` | `1.0000` | `1.0000` |
+| 5 | `7.67e-15` | `7.67e-12` | `0.9994` | `1.0000` |
+| 7 | `2.76e-23` | `2.76e-20` | `0.7016` | `1.0000` |
+| 10 | `5.96e-36` | `5.96e-33` | `0.0747` | `1.0000` |
 
-This proves quantitatively why `DetectMult = 3` at `10 ms` is resilient against uncorrelated bit errors (`0.21%` daily fleet flap risk across `1,000` sessions) yet collapses under `40–50 ms` queue microbursts unless either the interval is raised to `50–100 ms` ([RFC 7419](../../rfc/rfc7419.txt)) so $M \cdot I$ exceeds burst duration, or sub-detection packet drops are observed ahead of flap via `RFC 9978` stability counters.
+This proves quantitatively why `DetectMult = 3` at `10 ms` (`30 ms` detection time) is resilient against uncorrelated bit errors (`0.21%` daily fleet flap risk across `1,000` sessions) yet collapses under `40–50 ms` queue microbursts unless either the interval is raised to `50–100 ms` ([RFC 7419](../../rfc/rfc7419.txt)) so `M * I` exceeds burst duration, or sub-detection packet drops are observed ahead of flap via `RFC 9978` stability counters.
 
 #### Discriminator birthday collisions and topology connectivity
 
-- **Non-zero 32-bit discriminator space** ($D = 2^{32} - 1 = 4{,}294{,}967{,}295$): exact collision probability is $1.16 \times 10^{-4}$ at `1,000` sessions, $2.91 \times 10^{-3}$ at `5,000` sessions, $3.08 \times 10^{-2}$ at `16,384` sessions, and $0.3935$ (`39.35%`) at `65,536` sessions — confirming that collision-checked allocation against `sessionsByDiscr` is mandatory even with cryptographic randomness.
-- **Graph connectivity (`Menger` $\kappa'(G)$ and Fiedler algebraic connectivity $\lambda_2(L)$)**: a 12-node dual-ring DCI graph (`14` edges) has $\kappa'(G) = 2$, diameter `4`, and $\lambda_2 = 0.4384$ (surviving any single link fault with bounded ring reconvergence), whereas a `4`-spine / `8`-leaf Clos fabric $K_{4,8}$ (`32` edges) achieves $\kappa'(G) = 4$, diameter `2`, and $\lambda_2 = 4.0000$ (`9.12x` stronger spectral expansion, tolerating up to `3` concurrent link failures before partition).
+- **Non-zero 32-bit discriminator space** (`D = 2^32 - 1 = 4,294,967,295`): exact collision probability is `1.16e-4` at `1,000` sessions, `2.91e-3` at `5,000` sessions, `3.08e-2` at `16,384` sessions, and `0.3935` (`39.35%`) at `65,536` sessions — confirming that collision-checked allocation in `DiscriminatorAllocator.allocated` ([discriminator.go](../../../internal/bfd/discriminator.go)) and `Manager.sessions` ([manager.go](../../../internal/bfd/manager.go)) is mandatory even with cryptographic randomness.
+- **Graph connectivity (Menger edge connectivity `kappa'(G)` and Fiedler algebraic connectivity `lambda_2(L)`)**: a 12-node dual-ring DCI graph (`14` edges) has `kappa'(G) = 2`, diameter `4`, and `lambda_2 = 0.4384` (surviving any single link fault with bounded ring reconvergence), whereas a `4`-spine / `8`-leaf Clos fabric `K_{4,8}` (`32` edges) achieves `kappa'(G) = 4`, diameter `2`, and `lambda_2 = 4.0000` (`9.12x` stronger spectral expansion, tolerating up to `3` concurrent link failures before partition).
 
 ## 4. Cryptanalysis, Go 1.27.4 runtime and SIMD boundary
 
@@ -142,17 +142,16 @@ This proves quantitatively why `DetectMult = 3` at `10 ms` is resilient against 
 
 Evaluating BFD authentication modes against Merkle–Damgård compression geometry, collision/MAC forgery bounds and constant-time execution (`Go 1.27.4` on `Intel Xeon Gold 6348` @ `2.60 GHz` in Podman):
 
-| Auth mode (`AuthType`) | PDU size (B) | 64-byte hash blocks | Sign (`ns/op`) | Verify (`ns/op`) | Forgery / collision security and side-channel posture |
-|:---|---:|---:|---:|---:|:---|
-| Simple Password (`1`) | 27–43 | 0 | 12.42 | 48.06 | **Cleartext credential on wire**; zero passive attacker resistance; constant-time fixed-slot comparison in GoBFD prevents key-length timing |
-| Keyed / Meticulous MD5 (`2`, `3`) | 48 | **1** (`48+9 <= 64`) | 165.0 | 188.2 | Envelope suffix keying `MD5(PDU_with_padded_key)` fits in 1 block; immune to naive length extension because `Length` is fixed, but `MD5` suffers `~2^39` chosen-prefix / differential weaknesses; software-only serial ARX rounds |
-| Keyed / Meticulous SHA-1 (`4`, `5`) | 52 | **1** (`52+9 <= 64`) | **149.5** | **166.9** | Fits in **1 single 64-byte block** and uses hardware **SHA-NI** (`SHA1RNDS4`) in Go `crypto/sha1`, making SHA-1 **10–12% faster than MD5** while raising collision cost (`>= 2^61.2` chosen-prefix) and retaining `subtle.ConstantTimeCompare` |
-| `RFC 9764` 9,000 B padded SHA-1 (`5`) | 52 (`9,000` UDP) | **1** (not `141`) | 149.5 | 166.9 | GoBFD hashes `pdu[:buf[3]]` (`52` B declared BFD length), avoiding the `141x` hash-amplification DoS of hashing trailing zero padding |
-| `RFC 9978` `NULL Auth` (`6`, Experimental) | 32 | 0 | — | — | **Zero cryptographic protection** (`0`-bit MAC); telemetry-only sequence counter |
-| `RFC 9985`/`9986` ISAAC LCI (`7`, `8`, `Opt. Mode 2`) | 40 | 0 (`1/256` mix) | ~8–12 (est.) | ~10–15 (est.) | `32`-bit stream token (`p_blind = 2^-32` per slot; `1.40e-05` across `60,000` guesses in a `60 s` window at `1,000 pps`), **zero PDU payload MAC**; security relies entirely on `RFC 9985` §7.1 rejecting any state/timer mutation in LCI mode plus periodic MCI Poll reauthentication |
+| Auth mode (`AuthType`) | PDU / 64 B blocks | Sign (`ns/op`) | Verify (`ns/op`) | Forgery / collision security and side-channel posture |
+|:---|:---|---:|---:|:---|
+| Simple Password (`1`) | `27–43 B` / `0` | 12.42 | 48.06 | **Cleartext credential on wire**; zero passive attacker resistance; constant-time fixed-slot comparison in GoBFD prevents key-length timing |
+| Keyed / Meticulous MD5 (`2`, `3`) | `48 B` / **1** | 165.0 | 188.2 | Envelope suffix keying `MD5(PDU_with_padded_key)` fits in 1 block (`48+9 <= 64`); immune to naive length extension because `Length` is fixed, but `MD5` suffers `~2^39` differential weaknesses; software-only serial ARX rounds |
+| Keyed / Meticulous SHA-1 (`4`, `5`) | `52 B` / **1** | **149.5** | **166.9** | Fits in **1 single 64-byte block** (`52+9 <= 64`) and uses hardware **SHA-NI** (`SHA1RNDS4`) in Go `crypto/sha1`, making SHA-1 **10–12% faster than MD5** while raising collision cost (`>= 2^61.2`) and retaining `subtle.ConstantTimeCompare` |
+| `RFC 9764` 9,000 B padded SHA-1 (`5`) | `52 B` (`9,000` UDP) / **1** | 149.5 | 166.9 | GoBFD hashes `pdu[:buf[3]]` (`52` B declared BFD length), avoiding the `141`-block (`141x`) hash-amplification DoS of hashing trailing zero padding |
+| `RFC 9978` `NULL Auth` (`6`, Experimental) | `32 B` / `0` | — | — | **Zero cryptographic protection** (`0`-bit MAC); telemetry-only sequence counter |
+| `RFC 9985`/`9986` ISAAC LCI (`7`, `8`, `Opt. Mode 2`) | `40 B` / `0` (`1/256` mix) | ~8–12 (est.) | ~10–15 (est.) | `32`-bit stream token (`p_blind = 2^-32` per slot; `1.40e-05` across `60,000` guesses in a `60 s` window at `1,000 pps`), **zero PDU payload MAC**; security relies entirely on `RFC 9985` §7.1 rejecting any state/timer mutation in LCI mode plus periodic MCI Poll reauthentication |
 
-> [!IMPORTANT]
-> On `x86_64` with SHA-NI and `arm64` with ARMv8 Crypto Extensions, `Meticulous Keyed SHA-1` (`AuthType = 5`) requires only `31.7 ms` of CPU time per second (`3.17%` of one core) to sign and verify `1,000` sessions at `100 pps` bidirectional (`200,000` packets/s), with `0 B/op` and `0 allocs/op`. Confirming `RFC 9986` §15.1, `Meticulous Keyed ISAAC` provides no security advantage and negligible CPU savings on hardware-accelerated servers at `<= 5,000` sessions; it remains an experimental opt-in candidate only for `50,000+` session software reflectors or CPUs lacking SHA hardware instructions.
+On `x86_64` with SHA-NI and `arm64` with ARMv8 Crypto Extensions, `Meticulous Keyed SHA-1` (`AuthType = 5`) requires only `31.7 ms` of CPU time per second (`3.17%` of one core) to sign and verify `1,000` sessions at `100 pps` bidirectional (`200,000` packets/s), with `0 B/op` and `0 allocs/op`. Confirming `RFC 9986` §15.1, `Meticulous Keyed ISAAC` provides no security advantage and negligible CPU savings on hardware-accelerated servers at `<= 5,000` sessions; it remains an experimental opt-in candidate only for `50,000+` session software reflectors or CPUs lacking SHA hardware instructions.
 
 ### Go 1.27.4 runtime and SIMD crossover analysis
 
@@ -176,7 +175,7 @@ Based on the formal audit, post-`v1.0.0` engineering on `dev` is ordered into fo
    - Add local TCP/HTTP backend health probing -> GoBGP v4 route announcement/withdrawal coupling with configurable hold-down and graceful drain per `RFC 4786` §4.4.1 (`#88`), complementing `gobfd-haproxy-agent`.
    - Qualify dynamic `RFC 9764` padding enable/disable reload and coordinated `AuthKeyID` rotation without session drop.
 3. **Experimental `2026` RFC extensions (`RFC 9978`, `RFC 9985`/`9986`):**
-   - Prototype optional `RFC 9978` per-session `lost_packets_total` Prometheus/API telemetry on meticulous sessions (`AuthType` `3`, `5`, and opt-in `6` `NULL Auth`) using the `Z3`-verified window-gated gap formula `1 < delta <= 3*M ? delta - 1 : 0` (plus a 64-bit sliding reorder bitmap per `RFC 9978` §6.2) to prevent off-by-one overcounts and `2^32 - 1` LAG/ECMP reorder wraparound.
+   - Prototype optional `RFC 9978` per-session `lost_packets_total` Prometheus/API telemetry on meticulous sessions (`AuthType` `3`, `5`, and opt-in `6` `NULL Auth`) using the `Z3`-verified window-gated gap formula `1 < delta <= 3*M ? delta - 1 : 0` (plus a GoBFD-defined 64-bit sliding reorder bitmap implementing the optional out-of-order handling permitted by `RFC 9978` §6.2) to prevent off-by-one overcounts and `2^32 - 1` LAG/ECMP reorder wraparound.
    - Retain `RFC 9985`/`9986` (`AuthType` `7`/`8`) behind an experimental feature gate with double-buffered 256-word pages (`DetectMult <= 85` enforced at config validation per `Z6a`/`Z6b`) and explicit network-seed / little-endian-word packing per the Table 2 KAT verification.
 4. **Operational `v1.0` reference qualification campaigns:**
    - Execute the 24-hour 1,000-session soak campaign on an isolated Debian runner, native `linux/amd64` + `linux/arm64` ancillary/A-B scale runs, multi-node Kubernetes containerd delivery, and physical vendor NOS interoperability (`Arista EOS`, `Cisco IOS XR`, `Juniper Junos`, `Nokia SR Linux`).

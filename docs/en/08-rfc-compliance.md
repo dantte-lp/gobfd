@@ -45,7 +45,7 @@ The five preview profiles are explicitly reported by [CapabilityService](../../i
 | 6.8.7 | 75–100% jitter, or 75–90% with local multiplier 1 | [jitter](02-protocol.md#jitter) |
 | 6.8.12 | DetectMult joins the five-field reload tuple | [session_update.go](../../internal/bfd/session_update.go) |
 
-The selected Held-errata 5205/7240 policy sets diagnostic 1 on a Down timeout without a state edge and preserves diagnostic across recovery to Up. AdminDown/7 survives local PathDown. These are explicit project policies; Held for Document Update is not an amended normative RFC requirement. `validateKeyedHash` commits `AuthSeqKnown` and `RcvAuthSeq` strictly after digest verification, matching Verified Errata 7082/7083 in `draft-ietf-bfd-rfc5880bis-02`. Sources: [FSM](../../internal/bfd/fsm.go), [auth](../../internal/bfd/auth.go), [owner](../../internal/bfd/session_loop.go), [RFC errata record](https://www.rfc-editor.org/errata/rfc5880).
+The selected Held-errata 5205/7240 policy sets diagnostic 1 on a Down timeout without a state edge and preserves diagnostic across recovery to Up. AdminDown/7 survives local PathDown. These are explicit project policies; Held for Document Update is not an amended normative RFC requirement. `verifyAndUpdateSeq` and `verifyHash` commit `AuthSeqKnown` and `RcvAuthSeq` strictly after digest verification, matching Verified Errata 7082/7083 in `draft-ietf-bfd-rfc5880bis-02`. Sources: [FSM](../../internal/bfd/fsm.go), [auth](../../internal/bfd/auth.go), [owner](../../internal/bfd/session_loop.go), [RFC errata record](https://www.rfc-editor.org/errata/rfc5880).
 
 ### Poll Sequences and reload
 

@@ -47,7 +47,7 @@ BFD означает Bidirectional Forwarding Detection; FSM — конечны�
 | 6.8.7 | Случайный разброс 75–100%, при локальном множителе 1 — 75–90% | [Случайный разброс](02-protocol.md#jitter) |
 | 6.8.12 | DetectMult входит в кортеж перечитывания из пяти полей | [session_update.go](../../internal/bfd/session_update.go) |
 
-Выбранная политика исправлений RFC 5205/7240 со статусом Held задаёт диагностику 1 при истечении срока в Down без перехода состояния и сохраняет диагностику при переходе в Up. AdminDown/7 сохраняется при локальном PathDown. Это явные политики проекта; Held for Document Update не изменяет нормативные требования RFC. `validateKeyedHash` фиксирует `AuthSeqKnown` и `RcvAuthSeq` строго после проверки дайджеста в соответствии с Verified Errata 7082/7083 в `draft-ietf-bfd-rfc5880bis-02`. Источники: [FSM](../../internal/bfd/fsm.go), [аутентификация](../../internal/bfd/auth.go), [владелец](../../internal/bfd/session_loop.go), [реестр исправлений RFC](https://www.rfc-editor.org/errata/rfc5880).
+Выбранная политика исправлений RFC 5205/7240 со статусом Held задаёт диагностику 1 при истечении срока в Down без перехода состояния и сохраняет диагностику при переходе в Up. AdminDown/7 сохраняется при локальном PathDown. Это явные политики проекта; Held for Document Update не изменяет нормативные требования RFC. `verifyAndUpdateSeq` и `verifyHash` фиксируют `AuthSeqKnown` и `RcvAuthSeq` строго после проверки дайджеста в соответствии с Verified Errata 7082/7083 в `draft-ietf-bfd-rfc5880bis-02`. Источники: [FSM](../../internal/bfd/fsm.go), [аутентификация](../../internal/bfd/auth.go), [владелец](../../internal/bfd/session_loop.go), [реестр исправлений RFC](https://www.rfc-editor.org/errata/rfc5880).
 
 <a id="poll-sequences-и-reload"></a>
 
