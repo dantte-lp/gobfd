@@ -54,13 +54,37 @@ Release Please готовит проверяемый PR выпуска; GoReleas
 означает опубликованный выпуск до слияния проверенного PR выпуска и прохождения
 аннотированным тегом `release.yml`.
 
+## Дорожная карта развития продукта (`dev`)
+
+Развитие в ветке `dev` организовано в три продуктовых горизонта после `v1.0.0`, тогда как ветка `release/v1.0` принимает только исправления ошибок и уязвимостей:
+
+```mermaid
+flowchart LR
+    accTitle: Продуктовая дорожная карта GoBFD после v1.0.0 по горизонтам v1.1, v1.2 и v2.0
+    accDescr: Выпуск v1.0.0 переходит в v1.1 с мультидемонным kubectl-подобным CLI, TUI, интерактивным shell и RFC 9747 Echo, затем в v1.2 для операторских LAG и оверлеев и в v2.0 для S-BFD, Multipoint BFD и тракта 50k сессий.
+    V10["v1.0.0 Stable: Go 1.27.4, GoBGP v4.11.0 (bc558130)"]:::mgt --> V11["v1.1: Мультидемонный kubectl CLI, Bubble Tea v2 TUI, REPL и RFC 9747"]:::srv
+    V11 --> V12["v1.2: Операторский Micro-BFD, VXLAN/Geneve, Cease/10 и RFC 9978"]:::leaf
+    V12 --> V20["v2.0: S-BFD, Multipoint BFD, warm restart и тракт 50k сессий"]:::brt
+    classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
+    classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
+    classDef leaf fill:#e3f2fd,stroke:#1976d2,color:#000
+    classDef brt fill:#fff3e0,stroke:#bf360c,color:#000
+```
+
+| Горизонт | Направление | Запланированные возможности в `dev` | Ворота квалификации |
+|:---|:---|:---|:---|
+| `v1.1` | Мультидемонный операторский CLI, TUI, REPL и завершение `RFC 9747` | Аддитивный read-only сервис интроспекции `bfd.v1.DaemonService` (версия/аптайм демона, готовность сокетов и потери `SO_RXQ_OVFL`, `GOMEMLIMIT`/горутины/потоки ОС, квантили задержек, эпоха спикера / `PeerAdminState` / демпфирование `GoBGP v4`, кольцевой буфер последних переходов); `kubeconfig`-подобные контексты демонов (`$XDG_CONFIG_HOME/gobfd/config.yaml`, `--context`, `-A`, метки `-l`) и команды в стиле `kubectl` (`get`, `describe`, `top`, `events` с `-o wide` и `--field-selector`); полноэкранный `gobfdctl tui` (`charm.land/bubbletea/v2` `v2.2.0`, `lipgloss/v2` `v2.1.1`, `bubbles/v2` `v2.2.2`, по умолчанию read-only); полнофункциональный `gobfdctl shell` (`reeflective/console` + динамическое RPC-автодополнение `carapace`, индикатор контекста и здоровья в приглашении, история `0600` с фильтрацией секретов, отмена потоков по `Ctrl-C`); отправка Echo через Linux `AF_PACKET` (`#126`), 3-состоятельный FSM Echo `RFC 9747` (`#125`) и связка L4/HTTP-здоровья с anycast `GoBGP v4` (`#88`) | Обратная совместимость флагов `v1.0`, headless-тесты TUI, мультидемонные E2E mTLS/Unix и PCAP Echo с FRR/BIRD |
+| `v1.2` | Операторские LAG/оверлеи, `RFC 9384` и экспериментальные RFC 2026 года | `RFC 7130` Micro-BFD с multicast MAC `01:00:5E:90:00:01`, передачей на порабощённых участниках kernel-bond и двухстековыми группами LAG; динамическое включение/выключение дополнения и DF по `RFC 9764` и бесшовная ротация `AuthKeyID`; отправка подкода BGP `NOTIFICATION` Cease/`10` по `RFC 9384` через GoBGP v4; совместное владение туннелями Linux/OVS/CNI для `RFC 8971` VXLAN и `RFC 9521` Geneve; опциональный счётчик `RFC 9978` `lost_packets_total` (`delta - 1` + 64-битная маска перестановок) и опциональный `RFC 9985`/`9986` `Meticulous Keyed ISAAC` (`DetectMult <= 85`) | Захваты PCAP, побитовое совпадение KAT Table 2 `RFC 9986`, совмещение трафика данных и OAM в туннелях |
+| `v2.0` | Seamless/Multipoint BFD, бесшовный перезапуск и тракт `50k+` сессий | `RFC 7880`–`7886` `S-BFD` (отражатель и инициатор `UDP/7784`); `RFC 8562`/`8563`/`9780` Multipoint BFD (`MultipointHead`/`MultipointTail`); бесшовная передача состояния при обновлении демона (`SCM_RIGHTS` для сокетов + перенос сессий и sequence numbers); защищённый ADR пакетный/ядерный быстрый путь (`recvmmsg`/`sendmmsg`, шардированное колесо таймеров, опциональный `eBPF`/`XDP` и `io_uring`) на `50 000+` сессий на узел | Принятые ADR с бенчмарками, `0` сбросов BGP при обновлении бинарника, совместимость S-BFD |
+
 ## Дополнительная область
 
 | Возможность | Граница |
 |:---|:---|
+| Мультидемонный `kubectl`-подобный CLI, TUI и полный REPL | Запланировано в `dev` (`v1.1`): в `v1.0.0` `gobfdctl` обращается к одной конечной точке `--addr` без TUI и контекстов нескольких демонов |
 | Полный профиль RFC 9747 Unaffiliated Echo (`#125`, `#126`) | Запланировано в `dev` (`v1.1`): отправка через `AF_PACKET` на MAC соседа (`rfc5881bis-02` §2), 3-состоятельный FSM `Down -> Init -> Up`, демультиплексирование `YourDiscriminator` и аутентификация возврата |
 | Состояние HAProxy как политика anycast VIP (`#88`) | Не реализовано; существующий агент передаёт BFD в HAProxy; обратное управление маршрутами GoBGP v4 по L4/HTTP-проверкам с `hold-down` запланировано в `dev` |
-| Экспериментальные RFC 2026 года (`RFC 9978`, `RFC 9985`/`9986`) | Не реализовано; оконный счётчик потерь `RFC 9978` `lost_packets_total` (`delta - 1` с защитой от перестановки) и оценка `RFC 9986` ISAAC ведутся в `dev` |
+| Экспериментальные RFC 2026 года (`RFC 9978`, `RFC 9985`/`9986`) | Не реализовано; оконный счётчик потерь `RFC 9978` `lost_packets_total` (`delta - 1` с защитой от перестановки) и оценка `RFC 9986` ISAAC ведутся в `dev` (`v1.2`) |
 | Расширенный ExaBGP process API | Native anycast-цикл не квалифицирует ACK/reload, JSON/EOR и полную dual-stack-матрицу |
 | Проверка pending-интерфейсов | Отделена от реализованной основной pending-активации |
 | Глобальные VNI defaults в runtime | Отделены от startup defaults |

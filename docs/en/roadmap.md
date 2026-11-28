@@ -52,13 +52,37 @@ own draft creation and publication. Policy acceptance does not establish a
 published release until the reviewed release PR merges and the annotated tag
 passes `release.yml`.
 
+## Product development roadmap (`dev`)
+
+Development on `dev` is organized into three post-`v1.0.0` product horizons while `release/v1.0` remains restricted to bug and security fixes:
+
+```mermaid
+flowchart LR
+    accTitle: GoBFD post-v1.0.0 product roadmap across v1.1, v1.2 and v2.0
+    accDescr: Published v1.0.0 feeds v1.1 multi-daemon kubectl CLI, TUI, interactive shell and RFC 9747 Echo, followed by v1.2 carrier LAG and overlay integration, and v2.0 S-BFD, Multipoint BFD and 50k-session dataplane.
+    V10["v1.0.0 Stable: Go 1.27.4, GoBGP v4.11.0 (bc558130)"]:::mgt --> V11["v1.1: Multi-daemon kubectl CLI, Bubble Tea v2 TUI, REPL & RFC 9747"]:::srv
+    V11 --> V12["v1.2: Carrier Micro-BFD, VXLAN/Geneve owners, Cease/10 & RFC 9978"]:::leaf
+    V12 --> V20["v2.0: S-BFD, Multipoint BFD, warm restart & 50k-session fast path"]:::brt
+    classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
+    classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
+    classDef leaf fill:#e3f2fd,stroke:#1976d2,color:#000
+    classDef brt fill:#fff3e0,stroke:#bf360c,color:#000
+```
+
+| Horizon | Focus | Planned capabilities on `dev` | Qualification gate |
+|:---|:---|:---|:---|
+| `v1.1` | Multi-daemon operator CLI, TUI, REPL and `RFC 9747` graduation | Additive read-only `bfd.v1.DaemonService` introspection RPCs (daemon build/uptime, socket readiness and `SO_RXQ_OVFL` drops, `GOMEMLIMIT`/goroutines/threads, latency quantiles, `GoBGP v4` speaker epoch / `PeerAdminState` / dampening, recent transitions); `kubeconfig`-style multi-daemon contexts (`$XDG_CONFIG_HOME/gobfd/config.yaml`, `--context`, `-A`, `-l` labels) and `kubectl` verbs (`get`, `describe`, `top`, `events` with `-o wide` and `--field-selector`); full-screen `gobfdctl tui` (`charm.land/bubbletea/v2` `v2.2.0`, `lipgloss/v2` `v2.1.1`, `bubbles/v2` `v2.2.2`, read-only default); full-parity `gobfdctl shell` (`reeflective/console` + `carapace` RPC completion, context/health prompt, secret-safe `0600` history, `Ctrl-C` stream cancel); Linux `AF_PACKET` Echo (`#126`), 3-state `RFC 9747` Echo FSM (`#125`), and L4/HTTP health -> GoBGP v4 anycast coupling (`#88`) | Backward-compatible `v1.0` CLI flags, headless TUI + multi-daemon mTLS/Unix E2E tests, FRR/BIRD Echo PCAPs |
+| `v1.2` | Carrier LAG/overlay integration, `RFC 9384` and 2026 experimental RFCs | `RFC 7130` Micro-BFD multicast MAC `01:00:5E:90:00:01`, enslaved kernel-bond TX, dual-stack LAG groups; dynamic `RFC 9764` DF/padding enable-disable reload and hitless `AuthKeyID` rotation; wire `RFC 9384` BGP `NOTIFICATION` Cease/`10` via GoBGP v4; shared Linux/OVS/CNI tunnel ownership for `RFC 8971` VXLAN and `RFC 9521` Geneve; opt-in `RFC 9978` `lost_packets_total` (`delta - 1` + 64-bit sliding reorder bitmap) and opt-in `RFC 9985`/`9986` `Meticulous Keyed ISAAC` (`DetectMult <= 85`) | Wire PCAPs, `RFC 9986` Table 2 KAT parity, tunnel data + OAM coexistence receipts |
+| `v2.0` | Seamless/Multipoint BFD, warm restart and `50k+` dataplane | `RFC 7880`–`7886` `S-BFD` (`UDP/7784` reflector and initiator); `RFC 8562`/`8563`/`9780` Multipoint BFD (`MultipointHead`/`MultipointTail`); hitless daemon warm-restart state handoff (`SCM_RIGHTS` socket passing + session/sequence transfer); ADR-gated `recvmmsg`/`sendmmsg`, sharded timing wheel and optional `eBPF`/`XDP` / `io_uring` RX fast path for `50,000+` sessions per node | Approved benchmarked ADRs, `0` BGP flaps across live binary upgrade, vendor S-BFD interop |
+
 ## Additional scope
 
 | Capability | Boundary |
 |:---|:---|
+| Multi-daemon `kubectl` CLI, TUI and full-parity REPL | Planned on `dev` (`v1.1`): `v1.0.0` `gobfdctl` targets one `--addr` endpoint per invocation without TUI or multi-daemon contexts |
 | RFC 9747 full Unaffiliated Echo (`#125`, `#126`) | Planned on `dev` (`v1.1`): Linux `AF_PACKET` adjacent-peer send (`rfc5881bis-02` §2), 3-state `Down -> Init -> Up` FSM, `YourDiscriminator` demux and return authentication |
 | HAProxy health as anycast VIP policy (`#88`) | Not implemented; the existing agent exports BFD state to HAProxy; reverse L4/HTTP health -> GoBGP v4 route control with hold-down planned on `dev` |
-| Experimental 2026 RFCs (`RFC 9978`, `RFC 9985`/`9986`) | Not implemented; `RFC 9978` window-gated `lost_packets_total` (`delta - 1` with reorder guard) and `RFC 9986` ISAAC evaluation tracked on `dev` |
+| Experimental 2026 RFCs (`RFC 9978`, `RFC 9985`/`9986`) | Not implemented; `RFC 9978` window-gated `lost_packets_total` (`delta - 1` with reorder guard) and `RFC 9986` ISAAC evaluation tracked on `dev` (`v1.2`) |
 | Broader ExaBGP process API | A native anycast cycle does not qualify ACK/reload, JSON/EOR or the full dual-stack matrix |
 | Pending-interface validation | Separate from the implemented core pending activation |
 | Runtime global VNI defaults | Separate from startup-default behavior |

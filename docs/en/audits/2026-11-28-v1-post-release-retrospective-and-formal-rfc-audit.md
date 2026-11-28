@@ -166,16 +166,18 @@ Per Go `1.27.4` `internal/buildcfg/exp.go`, `simd/archsimd` remains gated behind
 
 ## 5. Post-`v1.0.0` (`dev` / `v1.1`) engineering plan
 
-Based on the formal audit, post-`v1.0.0` engineering on `dev` is ordered into four concrete tracks while keeping `release/v1.0` frozen to bug and security fixes:
+Based on the formal audit and operator feedback, post-`v1.0.0` engineering on `dev` is ordered into five tracks across `v1.1`–`v2.0` while keeping `release/v1.0` frozen to bug and security fixes:
 
-1. **Full `RFC 9747` Unaffiliated Echo graduation (`#125`, `#126`):**
+1. **Multi-daemon `kubectl`-style CLI, `Bubble Tea v2` TUI and full-parity interactive REPL (`v1.1`):**
+   - Introduce an additive read-only `bfd.v1.DaemonService` introspection contract (daemon version/uptime, socket readiness and `SO_RXQ_OVFL` drops, runtime memory/`GOMEMLIMIT`/goroutines, latency quantiles, `GoBGP v4` speaker epoch / `PeerAdminState` / dampening penalties, and recent transitions), `kubeconfig`-style multi-daemon contexts (`--context`, `-A`, `-l` selectors) with `get`/`describe`/`top`/`events` (`-o wide`), a read-only-by-default full-screen `gobfdctl tui` (`charm.land/bubbletea/v2` `v2.2.0`, `lipgloss/v2` `v2.1.1`, `bubbles/v2` `v2.2.2`), and an upgraded `gobfdctl shell` (`reeflective/console` + `carapace` RPC completion, secret-safe `0600` history, `Ctrl-C` stream cancellation).
+2. **Full `RFC 9747` Unaffiliated Echo graduation (`#125`, `#126`, `v1.1`):**
    - Implement `AF_PACKET` (`SOCK_DGRAM` / Ethernet neighbor-MAC egress) self-addressed Echo transmission on Linux per `draft-ietf-bfd-rfc5881bis-02` §2 so packets traverse the adjacent peer's forwarding plane instead of short-circuiting on `lo` (`#126`).
    - Upgrade the Echo state machine from 2-state `Down <-> Up` (`MyDiscriminator` demux) to the `RFC 9747` §2 3-state `Down -> Init -> Up` machine with `YourDiscriminator` demultiplexing after bootstrap and keyed/random-token return validation (`#125`), matching the `TLA+` `BFDSessionAndEcho` safety proof.
-2. **Service-health anycast coupling and reload completeness (`#88`):**
+3. **Service-health anycast coupling (`#88`, `v1.1`) and carrier LAG/overlay/Cease-10 graduation (`v1.2`):**
    - Add local TCP/HTTP backend health probing -> GoBGP v4 route announcement/withdrawal coupling with configurable hold-down and graceful drain per `RFC 4786` §4.4.1 (`#88`), complementing `gobfd-haproxy-agent`.
-   - Qualify dynamic `RFC 9764` padding enable/disable reload and coordinated `AuthKeyID` rotation without session drop.
-3. **Experimental `2026` RFC extensions (`RFC 9978`, `RFC 9985`/`9986`):**
+   - Graduate `RFC 7130` Micro-BFD multicast MAC `01:00:5E:90:00:01` and dual-stack LAG groups, dynamic `RFC 9764` padding enable/disable reload, hitless `AuthKeyID` rotation, wire `RFC 9384` BGP Cease/`10`, and shared Linux/OVS/CNI tunnel ownership for `RFC 8971` VXLAN and `RFC 9521` Geneve.
+4. **Experimental `2026` RFC extensions (`RFC 9978`, `RFC 9985`/`9986`, `v1.2`) and `v2.0` S-BFD / 50k dataplane:**
    - Prototype optional `RFC 9978` per-session `lost_packets_total` Prometheus/API telemetry on meticulous sessions (`AuthType` `3`, `5`, and opt-in `6` `NULL Auth`) using the `Z3`-verified window-gated gap formula `1 < delta <= 3*M ? delta - 1 : 0` (plus a GoBFD-defined 64-bit sliding reorder bitmap implementing the optional out-of-order handling permitted by `RFC 9978` §6.2) to prevent off-by-one overcounts and `2^32 - 1` LAG/ECMP reorder wraparound.
-   - Retain `RFC 9985`/`9986` (`AuthType` `7`/`8`) behind an experimental feature gate with double-buffered 256-word pages (`DetectMult <= 85` enforced at config validation per `Z6a`/`Z6b`) and explicit network-seed / little-endian-word packing per the Table 2 KAT verification.
-4. **Operational `v1.0` reference qualification campaigns:**
+   - Retain `RFC 9985`/`9986` (`AuthType` `7`/`8`) behind an experimental feature gate with double-buffered 256-word pages (`DetectMult <= 85` enforced at config validation per `Z6a`/`Z6b`) and explicit network-seed / little-endian-word packing per the Table 2 KAT verification; track `RFC 7880`–`7886` `S-BFD`, `RFC 8562`/`9780` Multipoint BFD, hitless warm restart, and ADR-gated `50,000+` session fast-path work for `v2.0`.
+5. **Operational `v1.0` reference qualification campaigns:**
    - Execute the 24-hour 1,000-session soak campaign on an isolated Debian runner, native `linux/amd64` + `linux/arm64` ancillary/A-B scale runs, multi-node Kubernetes containerd delivery, and physical vendor NOS interoperability (`Arista EOS`, `Cisco IOS XR`, `Juniper Junos`, `Nokia SR Linux`).

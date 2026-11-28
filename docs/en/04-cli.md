@@ -114,4 +114,4 @@ Read back the certificate identity, key agreement, chain and expiry, then verify
 
 The shell supports `session`, `capabilities`, `monitor`, `version`, `help`, `exit`/`quit`. Echo, Micro-BFD and certificate commands are noninteractive only. Select endpoint/format before entering the shell. Completion follows the shell command tree; Ctrl-D exits. Source: [shell](../../cmd/gobfdctl/commands/shell.go).
 
-Failures print `Error: …` to stderr and exit 1. Local version output does not report the daemon build or session readiness.
+Failures print `Error: …` to stderr and exit 1. Local version output does not report the daemon build or session readiness. Multi-daemon `kubeconfig`-style contexts, `kubectl`-style inspection verbs (`get`, `describe`, `top`, `events`), a full-screen terminal UI (`tui`) and full-parity RPC-autocompleted shell mode are not part of `v1.0.0` and are tracked on `dev` in the [roadmap](roadmap.md).
