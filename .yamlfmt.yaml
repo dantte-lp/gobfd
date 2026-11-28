@@ -1,3 +1,5 @@
+gitignore_excludes: true
+
 formatter:
   type: basic
   indent: 2
@@ -15,6 +17,8 @@ exclude:
   - bin/**
   - .worktrees/**
   - .archive/**
+  - .beads/**
+  - .dolt/**
   - .serena/**
   - docs/rfc/**
   - docs/tmp/**
