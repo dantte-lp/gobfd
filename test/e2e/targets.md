@@ -1,70 +1,53 @@
-# S10 E2E Target Inventory
+# E2E target inventory
 
-Current test and integration targets mapped to the S10 E2E evidence model.
+Targets are source-defined execution paths, not a list of accepted deployments. [Makefile](../../Makefile), [e2erunner](../internal/e2erunner/) and [integrationrunner](../internal/integrationrunner/runner.go) own dispatch. Domain labels do not imply one target invokes another.
 
----
+## Core and independent interop
 
-## Inventory
+| Target | Runtime/input | Evidence | Remaining boundary |
+|:---|:---|:---|:---|
+| e2e-core / e2e-core-testcontainers | Race-enabled Podman testcontainers; daemon pair, static auth, CLI/metrics/reload; 172.30.10.0/24 | reports/e2e/core/run.*; tests, captures, exact cleanup | Selected process scenarios |
+| test-integration | Dev-container in-process Manager/API/packet bridge | Verbose race test output | No daemon/UDP topology |
+| interop / interop-testcontainers | Race-enabled four peers, meticulous/crafted/TTL profiles; base 172.20.0.0/24 | Captures, config/receipt sidecars, exact resource cleanup | Final candidate/peer matrix still requires actual run |
+| interop-bgp / interop-bgp-testcontainers | Race-enabled GoBGP/FRR/BIRD3/ExaBGP; 172.21.0.0/24 | BFD/BGP/route/capture evidence | Tested scenarios only |
+| interop-rfc / interop-rfc-testcontainers | Race-enabled RFC topology; 172.22.0.0/24 | Test/capture/container evidence | 9384 action path is not Cease/10 |
 
-| Current Target | S10 Target | Owner | Runtime | Network | Inputs | Outputs | Cleanup | Current Gap |
-|---|---|---|---|---|---|---|---|---|
-| `make e2e-core` | `e2e-core` | Core E2E stack | Host Go 1.27 testcontainers-go with the Podman provider | `172.30.10.0/24` | GoBFD A/B, static simple-password auth, gobfdctl, metrics, reload, tshark | Go test JSON/log, bounded diagnostics, container logs/state, metrics checks, pcapng, packet CSV/TSV, summary | Exact test-owned container, network, and image cleanup | Authoritative Go runner; the retained `make e2e-core-testcontainers` compatibility target is the underlying gate. |
-| `make test-integration` | `e2e-core` input | Go integration tests | Dev container | In-process HTTP/test server | Go test package `./test/integration` | Verbose Go test output | Go test cleanup | No daemon-to-daemon packet evidence. |
-| `make e2e-routing` | `e2e-routing` | Routing E2E aggregate | Podman Compose plus dev container Go test | `172.20.0.0/24`, `172.21.0.0/24` | `test/interop`, `test/interop-bgp`, tshark | Aggregate Go test JSON/log, container logs/state, merged pcapng, packet CSV, suite artifacts | Exact Compose project label preflight, `down --volumes --remove-orphans`, labelled fallback removal, and empty-label verification per suite | Implemented for existing routing interop suites; shared Podman API helper extraction is deferred after S10 close. |
-| `make interop` | `e2e-routing` input | BFD interop stack | Podman Compose | `172.20.0.0/24` | GoBFD, FRR, BIRD3, Holo, Holo loader, Thoro/bfd, tshark, Go BFD invalid-vector generator | Go test output, pcap in capture container | Exact Compose project label preflight, `down --volumes --remove-orphans`, labelled fallback removal, and empty-label verification | Normalized by `make e2e-routing`. |
-| `make interop-bgp` | `e2e-routing` input | BGP+BFD interop stack | Podman Compose | `172.21.0.0/24` | GoBFD, GoBGP, FRR, BIRD3, ExaBGP, tshark | Go test output, BGP/BFD state | `down --volumes --remove-orphans` | Normalized by `make e2e-routing`; duplicated Podman API helpers remain. |
-| `make e2e-rfc` | `e2e-rfc` | RFC E2E aggregate | Podman Compose plus dev container Go test | `172.22.0.0/24` | RFC 7419, 9384, 9468, 9747 scenarios | Go test JSON/log, container logs/state, pcapng, packet CSV, summary | `down --volumes --remove-orphans` | Implemented for current RFC interop suite. |
-| `make e2e-overlay` | `e2e-overlay` | Overlay boundary E2E | Dev container Go test | In-process packet builders | VXLAN, Geneve, reserved backend matrix | Go test JSON/log, container logs/state, packet evidence CSV, summary | Go test cleanup | Implemented for userspace packet shape and fail-closed backend validation. |
-| `make e2e-linux` | `e2e-linux` | Linux dataplane ownership E2E | Compiled Go test binary in isolated Podman `--network none` container | Disposable container netns and fake sysfs | rtnetlink veth up/down, kernel-bond fake sysfs, OVS owner-policy guard, NetworkManager D-Bus owner-policy guard | Go test JSON/log, container logs/state, link event JSON, LAG backend JSON, summary | Container removal by runner cleanup | Implemented for isolated Linux ownership boundaries. |
-| `make interop-rfc` | `e2e-rfc` input | RFC interop stack | Podman Compose | `172.22.0.0/24` | RFC 7419, 9384, 9468, 9747 scenarios | Go test output, pcap in capture container | `down --volumes --remove-orphans` | Normalized by `make e2e-rfc`. |
-| `make interop-clab` | `e2e-vendor` input | Vendor NOS profile | Podman and containerlab | Containerlab topology | Primary cEOS, SR Linux, SONiC-VS, VyOS; baseline FRR; deferred XRd where images exist | Go test output and vendor command output | containerlab destroy and Podman cleanup | Manual topology execution remains image/license dependent. |
-| `make e2e-vendor` | `e2e-vendor` | Vendor profile evidence | Podman Compose plus dev container Go test | Profile manifest and image cache | Primary Arista cEOS, Nokia SR Linux, SONiC-VS, VyOS; baseline FRR; deferred Cisco XRd | Go test JSON/log, container logs/state, vendor profiles, image availability, skip summary | Go test cleanup | Implemented as skip-aware evidence; licensed or missing images are not false failures. |
-| `make int-bgp-failover` | `e2e-routing` input | BGP fast-failover Go gate | Host Go 1.27 testcontainers-go with the Podman provider | `172.22.0.0/24` | GoBFD, GoBGP v3.37.0, FRR 10.7.0, tshark | Go test JSON/log, bounded diagnostics, container logs/state, pcapng, packet CSV, summary | Exact test-owned container, network, image-tag, and content-ID cleanup | Authoritative Go runner; the operational Compose example remains available through `-up`, `-logs`, and `-down`. |
-| `make int-haproxy` | `e2e-core` optional input | Integration example | Podman Compose | Example-local network | GoBFD, HAProxy, tshark | HAProxy and BFD output, pcap | `down --volumes --remove-orphans` | Not aggregated into S10 reports. |
-| `make int-observability` | `e2e-core` optional input | Integration example | Podman Compose | Example-local network | GoBFD, Prometheus, Grafana, FRR, tshark | Metrics and pcap | `down --volumes --remove-orphans` | Not aggregated into S10 reports. |
-| `make int-exabgp-anycast` | `e2e-routing` optional input | Integration example | Podman Compose | Example-local network | GoBFD, GoBGP, ExaBGP, tshark | RIB output and pcap | `down --volumes --remove-orphans` | Not aggregated into S10 reports. |
-| `make int-k8s` | Future manual profile | Kubernetes integration | Podman image build and Kubernetes | Cluster-owned | GoBFD image and Kubernetes manifests | Kubernetes resources and logs | Cluster teardown script | Requires operator-owned cluster tooling. |
+TestSameKeyFRRTestcontainers is a separate FRR-only retirement gate with one API-owned session. It retains old/new wire epochs, claim conflicts, sender lifetime and peer recovery; it does not qualify every peer or native scale.
 
-## S10 Mapping
+## Aggregates
 
-```mermaid
-graph TD
-    TI["make test-integration"] --> CORE["make e2e-core"]
-    I["make interop"] --> ROUTING["make e2e-routing"]
-    IB["make interop-bgp"] --> ROUTING
-    IR["make interop-rfc"] --> RFC["make e2e-rfc"]
-    CLAB["make interop-clab"] --> VENDOR["make e2e-vendor"]
-    BGP["make int-bgp-failover"] --> ROUTING
-    HAP["make int-haproxy"] --> CORE
-    OBS["make int-observability"] --> CORE
-    EXA["make int-exabgp-anycast"] --> ROUTING
-    K8S["make int-k8s"] --> MANUAL["future manual profile"]
+The five aggregate launchers build bin/e2ectl in a socket-free pinned compiler and execute it on the host. One checkout directory lock covers build and runtime.
 
-    style CORE fill:#1a73e8,color:#fff
-    style ROUTING fill:#34a853,color:#fff
-    style RFC fill:#ea4335,color:#fff
-    style VENDOR fill:#6f42c1,color:#fff
-```
+| Target | Runtime/input | Evidence/cleanup | Remaining boundary |
+|:---|:---|:---|:---|
+| e2e-routing | Compose base/BGP suites, 172.20/21 networks | Joined suite artifacts and merged PCAP; exact owner snapshots | Omits race and some independent profiles |
+| e2e-rfc | Guarded Compose with race, 172.22 network | Test JSON/log, required PCAP/CSV, exact container/image cleanup | Fixed container names; 9384 action path is not Cease/10 |
+| e2e-overlay | Isolated prebuilt race test, network none, 2 CPU/2 GiB/512 PIDs | JSON/log, synthetic CSV, runtime receipts and verified ID removal | Capture lifecycle remains external |
+| e2e-linux | Prebuilt race daemon/tests, isolated netns, 2 CPU/2 GiB/512 PIDs | Link/LAG/pending-lifecycle receipts | Fake sysfs/owner-policy checks do not qualify host integration |
+| e2e-vendor | Shared manifest/policy and image evidence | profiles/images/skip JSON; no NOS topology | Five retained-unavailable NOS profiles never execute |
+| interop-clab | Independently owned FRR-only Containerlab dual stack | Typed state, captured frames, private exact-ID receipts | Native lifecycle/compiler-engine acceptance open |
 
-## S10 Status
+Routing cleanup uses interopproject.Controller locks, fixed-name/label validation and exact resource snapshots. Its merge container has unique non-Compose ownership. Containerlab retains foreign-collision checks and historic cleanup receipts; cached NOS images do not enter execution discovery.
 
-| Item | Status |
-|---|---|
-| Worktree-safe dev Compose project | Implemented in S10.1. |
-| Fixed dev `container_name` removed | Implemented in S10.1. |
-| `make e2e-help` | Implemented in S10.1. |
-| Non-implemented S10 targets fail closed | Implemented in S10.1; no S10.6 aggregate placeholder remains. |
-| Standard artifact directory contract | Implemented in S10.1 and applied by `make e2e-core` in S10.2. |
-| Core daemon E2E | Implemented in S10.2. |
-| Routing interop aggregate | Implemented in S10.3. |
-| RFC interop aggregate | Implemented in S10.4. |
-| Overlay backend boundary checks | Implemented in S10.4. |
-| Linux dataplane ownership checks | Implemented in S10.5. |
-| Vendor optional profiles | Implemented in S10.6. |
-| E2E CI artifact workflow | Implemented in S10.7. |
-| Podman API helper extraction | Deferred after S10 close. |
-| Host `go test` removal from full-cycle runners | Implemented for `e2e-routing`, `e2e-rfc`, `e2e-overlay`, `e2e-linux`, and `e2e-vendor`; `e2e-core` deliberately uses the pinned host/CI Go 1.27 toolchain to own Podman through testcontainers-go. |
+Overlay and Linux runtime cleanup in [runtime.go](../internal/e2erunner/runtime.go) verifies `io.gobfd.*` label ownership, records `runtime-plan.json`, `runtime-container.json`, `containers.json` and `containers.log`, removes the exact container ID with `podman rm -f`, verifies absence via `podman container exists` and fails the target on cleanup or readback error. The overlay launcher provides no external capture startup/readiness/join hook; see [overlay wire qualification](../../docs/en/09-development.md#overlay-wire-qualification).
 
----
+## Integration examples
 
-*Last updated: 2026-05-01*
+| Target | Path | Output | Limit |
+|:---|:---|:---|:---|
+| int-bgp-failover / -testcontainers | Assertion-based Podman gate; GoBFD/GoBGP/FRR/tshark, 172.22 network | Run report, route withdrawal/restoration, capture, exact cleanup | Separate from e2e-routing invocation |
+| int-bgp-failover-up/-logs/-down | Operational Compose example, guarded controller | Runtime observations | Requires owned lifecycle |
+| int-haproxy-testcontainers | Assertion-based report gate | Health behavior, capture and cleanup | Selected HAProxy path |
+| int-observability-testcontainers | Assertion-based report gate | Alert firing and recovery | Selected metric/alert path |
+| int-haproxy | Guarded Compose demo via host Go runner | HTTP and `gobfdctl session list` assertions; warning-only capture | No S10 report directory |
+| int-observability | Guarded Compose demo via host Go runner | Displayed metrics/alerts | Warning-only HTTP/capture observations; no S10 report |
+| int-exabgp-anycast | Guarded Compose, host Go runner | Announce/withdraw/restore assertions | Not invoked by e2e-routing; no S10 report directory |
+| int-k8s | Existing k3s, host Go runner and lease-protected `containerd` gRPC import | Active Ready pod, CLI and `gobfd_gobgp_endpoint_compatible` assertions | Existing local single-node cluster only |
+
+Example -up/-logs/-down variants follow [Makefile](../../Makefile); Kubernetes has -up/-down only. `int-k8s-down` deletes namespace `gobfd` while preserving the cluster; require exact ownership and deletion authorization. Guarded Compose lifecycles, including ExaBGP, remove run-owned service and builder-stage images on cleanup.
+
+## CI and results
+
+Use [harness contract](README.md#ci-selection) for exact profile selection. A green workflow cannot establish absent artifacts, ignored cleanup failures, unexecuted vendor profiles or final reference-load acceptance.
+
+[English guide](../../docs/en/05-interop.md), [русское руководство](../../docs/ru/05-interop.md).

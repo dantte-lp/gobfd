@@ -1,15 +1,18 @@
 package netio_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/netip"
 	"sync"
 	"sync/atomic"
 	"testing"
 
+	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/netio"
 )
 
@@ -32,6 +35,89 @@ type overlaySendRecord struct {
 
 type countWarnHandler struct {
 	warnings atomic.Int64
+}
+
+type overlayConnConstructor func() (netio.OverlayConn, error)
+
+func testOverlayConnLoopbackLifecycle(
+	t *testing.T,
+	backend string,
+	newConn overlayConnConstructor,
+) {
+	t.Helper()
+
+	conn, err := newConn()
+	if err != nil {
+		t.Skipf("%s loopback socket unavailable: %v", backend, err)
+	}
+
+	loopback := netip.MustParseAddr("127.0.0.1")
+	payload := makePayload(24)
+	if sendErr := conn.SendEncapsulated(context.Background(), payload, loopback); sendErr != nil {
+		t.Fatalf("SendEncapsulated: %v", sendErr)
+	}
+
+	gotPayload, meta, err := conn.RecvDecapsulated(context.Background())
+	if err != nil {
+		t.Fatalf("RecvDecapsulated: %v", err)
+	}
+	if !bytes.Equal(gotPayload, payload) {
+		t.Fatalf("payload = %x, want %x", gotPayload, payload)
+	}
+	if meta.VNI != 100 {
+		t.Fatalf("VNI = %d, want 100", meta.VNI)
+	}
+	if meta.TTL != 255 {
+		t.Fatalf("TTL = %d, want inner wire TTL 255", meta.TTL)
+	}
+
+	err = conn.SendEncapsulated(context.Background(), makePayload(bfd.MaxPaddedPduSize+1), loopback)
+	if !errors.Is(err, netio.ErrOverlayPayloadTooLarge) {
+		t.Fatalf("oversized SendEncapsulated error = %v, want ErrOverlayPayloadTooLarge", err)
+	}
+
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	if err := conn.SendEncapsulated(context.Background(), makePayload(24), loopback); !errors.Is(
+		err,
+		netio.ErrOverlayRecvClosed,
+	) {
+		t.Fatalf("SendEncapsulated after Close error = %v, want ErrOverlayRecvClosed", err)
+	}
+}
+
+func TestOverlayRecvRejectsWrongInnerDestination(t *testing.T) {
+	local := netip.MustParseAddr("127.0.0.1")
+	wrong := netip.MustParseAddr("127.0.0.2")
+	conn, err := netio.NewVXLANConn(local, 100, 49152, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Skipf("VXLAN loopback socket unavailable: %v", err)
+	}
+	defer conn.Close()
+
+	packet, err := netio.BuildVXLANPacket(makePayload(24), 100, wrong, wrong, 49152)
+	if err != nil {
+		t.Fatalf("build packet: %v", err)
+	}
+	sender, err := net.ListenUDP("udp4", nil)
+	if err != nil {
+		t.Fatalf("open sender: %v", err)
+	}
+	defer sender.Close()
+	if _, writeErr := sender.WriteToUDP(
+		packet,
+		net.UDPAddrFromAddrPort(netip.AddrPortFrom(local, netio.VXLANPort)),
+	); writeErr != nil {
+		t.Fatalf("send packet: %v", writeErr)
+	}
+
+	if _, _, err := conn.RecvDecapsulated(t.Context()); !errors.Is(err, netio.ErrOverlayInnerDstMismatch) {
+		t.Fatalf("RecvDecapsulated error = %v, want ErrOverlayInnerDstMismatch", err)
+	}
 }
 
 func (h *countWarnHandler) Enabled(context.Context, slog.Level) bool {
@@ -189,6 +275,7 @@ func TestOverlayReceiver_RunDemuxesValidPacket(t *testing.T) {
 					SrcAddr: netip.MustParseAddr("10.0.0.2"),
 					DstAddr: netip.MustParseAddr("10.0.0.1"),
 					VNI:     100,
+					TTL:     254,
 				}, nil
 			}
 			cancel()
@@ -216,6 +303,9 @@ func TestOverlayReceiver_RunDemuxesValidPacket(t *testing.T) {
 	if dmux.calls[0].SrcAddr != netip.MustParseAddr("10.0.0.2") {
 		t.Errorf("SrcAddr = %s, want 10.0.0.2", dmux.calls[0].SrcAddr)
 	}
+	if dmux.calls[0].TTL != 254 {
+		t.Errorf("TTL = %d, want wire metadata value 254", dmux.calls[0].TTL)
+	}
 	if dmux.calls[0].WireLen != 0 {
 		t.Errorf("WireLen = %d, want 0 for unauthenticated overlay packet", dmux.calls[0].WireLen)
 	}
@@ -224,30 +314,44 @@ func TestOverlayReceiver_RunDemuxesValidPacket(t *testing.T) {
 func TestOverlayReceiver_DropsExpectedOverlayErrorsWithoutWarn(t *testing.T) {
 	t.Parallel()
 
-	callCount := 0
-	ctx, cancel := context.WithCancel(context.Background())
-
-	conn := &testOverlayConn{
-		recvFunc: func(_ context.Context) ([]byte, netio.OverlayMeta, error) {
-			callCount++
-			if callCount == 1 {
-				return nil, netio.OverlayMeta{}, fmt.Errorf("wrapped: %w", netio.ErrOverlayVNIMismatch)
+	tests := []error{
+		netio.ErrOverlayVNIMismatch,
+		netio.ErrInnerBadUDPSourcePort,
+		netio.ErrOverlayPacketTruncated,
+		netio.ErrOverlayPayloadTooLarge,
+		netio.ErrGeneveVAPIdentityUnavailable,
+	}
+	for _, dropErr := range tests {
+		t.Run(dropErr.Error(), func(t *testing.T) {
+			t.Parallel()
+			callCount := 0
+			ctx, cancel := context.WithCancel(context.Background())
+			conn := &testOverlayConn{
+				recvFunc: func(_ context.Context) ([]byte, netio.OverlayMeta, error) {
+					callCount++
+					if callCount == 1 {
+						return nil, netio.OverlayMeta{}, fmt.Errorf("wrapped: %w", dropErr)
+					}
+					cancel()
+					return nil, netio.OverlayMeta{}, errors.New("stopped")
+				},
 			}
-			cancel()
-			return nil, netio.OverlayMeta{}, errors.New("stopped")
-		},
-	}
+			handler := &countWarnHandler{}
+			dmux := &mockDemuxer{}
+			recv := netio.NewOverlayReceiver(conn, dmux, slog.New(handler))
 
-	handler := &countWarnHandler{}
-	recv := netio.NewOverlayReceiver(conn, &mockDemuxer{}, slog.New(handler))
-
-	err := recv.Run(ctx)
-	if err != nil {
-		t.Errorf("Run returned error: %v", err)
-	}
-
-	if warnings := handler.warnings.Load(); warnings != 0 {
-		t.Errorf("warnings = %d, want 0 for expected overlay drop errors", warnings)
+			if err := recv.Run(ctx); err != nil {
+				t.Errorf("Run returned error: %v", err)
+			}
+			if warnings := handler.warnings.Load(); warnings != 0 {
+				t.Errorf("warnings = %d, want 0 for expected overlay drop errors", warnings)
+			}
+			dmux.mu.Lock()
+			defer dmux.mu.Unlock()
+			if len(dmux.calls) != 0 {
+				t.Errorf("demux calls = %d, want 0 for rejected overlay packet", len(dmux.calls))
+			}
+		})
 	}
 }
 
@@ -373,5 +477,20 @@ func TestOverlayErrors(t *testing.T) {
 				t.Errorf("error = %q, want %q", tt.err.Error(), tt.msg)
 			}
 		})
+	}
+}
+
+func TestOverlayReceiverRunReportsUnexpectedClose(t *testing.T) {
+	t.Parallel()
+
+	conn := &testOverlayConn{
+		recvFunc: func(context.Context) ([]byte, netio.OverlayMeta, error) {
+			return nil, netio.OverlayMeta{}, netio.ErrOverlayRecvClosed
+		},
+	}
+	recv := netio.NewOverlayReceiver(conn, &mockDemuxer{}, slog.New(slog.DiscardHandler))
+
+	if err := recv.Run(t.Context()); !errors.Is(err, netio.ErrOverlayRecvClosed) {
+		t.Fatalf("Run error = %v, want %v", err, netio.ErrOverlayRecvClosed)
 	}
 }

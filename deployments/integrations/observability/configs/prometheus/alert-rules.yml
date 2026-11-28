@@ -2,13 +2,22 @@ groups:
   - name: gobfd
     rules:
       - alert: BFDNoActiveSessions
-        expr: sum(gobfd_bfd_sessions) == 0
+        expr: (up{job="gobfd"} == 1) unless on(job, instance) (gobfd_bfd_sessions{job="gobfd"} > 0)
         for: 10s
         labels:
           severity: warning
         annotations:
-          summary: "No active BFD sessions"
-          description: "GoBFD has no configured active sessions. Check daemon configuration or dynamic session provisioning."
+          summary: "No active BFD Control sessions"
+          description: "GoBFD has no configured active Control sessions. Check daemon configuration or dynamic session provisioning."
+
+      - alert: BFDExporterUnavailable
+        expr: (up{job="gobfd"} == 0) or absent(up{job="gobfd"})
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "BFD metrics exporter unavailable"
+          description: "GoBFD metrics cannot be scraped or job gobfd has no scrape target. Check exporter availability and Prometheus target configuration."
 
       - alert: BFDSessionDownTransition
         expr: increase(gobfd_bfd_state_transitions_total{from_state="Up",to_state="Down"}[1m]) > 0

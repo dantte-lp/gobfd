@@ -19,10 +19,6 @@ spec:
       port: 4784
       targetPort: bfd-multihop
       protocol: UDP
-    - name: grpc
-      port: 50052
-      targetPort: grpc
-      protocol: TCP
     - name: metrics
       port: 9100
       targetPort: metrics

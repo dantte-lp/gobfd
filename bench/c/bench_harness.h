@@ -3,7 +3,7 @@
  *
  * Uses clock_gettime(CLOCK_MONOTONIC) for nanosecond-precision timing.
  * Output format: BENCH<tab>impl<tab>name<tab>ns_per_op<tab>iterations
- * This format is parsed by scripts/gen-report.sh.
+ * This format is parsed by test/cmd/benchreport.
  *
  * Anti-optimization: accumulates results into a volatile global sink
  * to prevent the compiler from eliminating benchmark code.

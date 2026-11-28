@@ -6,10 +6,12 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
@@ -17,6 +19,35 @@ import (
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 	"github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
 )
+
+type countingSenderFactory struct {
+	opens   int
+	closes  int
+	ifNames []string
+}
+
+func (f *countingSenderFactory) CreateSender(
+	_ netip.Addr,
+	ifName string,
+	_ bfd.SessionType,
+	_ bool,
+	_ *slog.Logger,
+) (bfd.PacketSender, uint16, error) {
+	f.opens++
+	f.ifNames = append(f.ifNames, ifName)
+	return countingPacketSender{}, uint16(50000 + f.opens), nil
+}
+
+func (f *countingSenderFactory) CloseSender(uint16) error {
+	f.closes++
+	return nil
+}
+
+type countingPacketSender struct{}
+
+func (countingPacketSender) SendPacket(context.Context, []byte, netip.Addr) error {
+	return nil
+}
 
 const (
 	// testPeerAddr is a documentation IP address (RFC 5737) used as peer in tests.
@@ -39,13 +70,14 @@ func setupTestServer(t *testing.T) bfdv1connect.BfdServiceClient {
 	mgr := bfd.NewManager(logger)
 	t.Cleanup(mgr.Close)
 
-	path, handler := server.New(mgr, nil, logger)
+	rpc := connect.NewServer()
+	server.Register(rpc, mgr, nil, logger)
 	mux := http.NewServeMux()
-	mux.Handle(path, handler)
+	connecthttp.Mount(mux, rpc)
 
 	srv := httptest.NewTestServer(t, mux)
 
-	return bfdv1connect.NewBfdServiceClient(srv.Client(), srv.URL)
+	return bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
 }
 
 // validAddRequest returns a valid AddSessionRequest for testing.
@@ -64,6 +96,44 @@ func validAddRequest() *bfdv1.AddSessionRequest {
 // -------------------------------------------------------------------------
 // TestAddSession
 // -------------------------------------------------------------------------
+
+func TestAddSessionRequiredMinRx(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name    string
+		rx      *durationpb.Duration
+		want    time.Duration
+		wantErr connect.Code
+	}{
+		{name: "omitted", want: time.Second},
+		{name: "explicit zero", rx: durationpb.New(0)},
+		{name: "negative", rx: durationpb.New(-time.Microsecond), wantErr: connect.CodeInvalidArgument},
+		{
+			name: "invalid normalized zero", rx: &durationpb.Duration{Seconds: 1, Nanos: -1_000_000_000},
+			wantErr: connect.CodeInvalidArgument,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			client := setupTestServer(t)
+			req := validAddRequest()
+			req.RequiredMinRxInterval = tt.rx
+			resp, err := client.AddSession(t.Context(), req)
+			if tt.wantErr != 0 {
+				if connect.CodeOf(err) != tt.wantErr {
+					t.Fatalf("AddSession error = %v, want %s", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("AddSession: %v", err)
+			}
+			if got := resp.GetSession().GetRequiredMinRxInterval().AsDuration(); got != tt.want {
+				t.Errorf("required RX = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestAddSession(t *testing.T) {
 	t.Parallel()
@@ -319,6 +389,37 @@ func TestDeleteSession(t *testing.T) {
 	}
 	if len(listResp.GetSessions()) != 0 {
 		t.Errorf("expected 0 sessions after delete, got %d", len(listResp.GetSessions()))
+	}
+}
+
+func TestDeleteSessionReleasesSenderAndSourcePortOnce(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	mgr := bfd.NewManager(logger)
+	sf := &countingSenderFactory{}
+
+	rpc := connect.NewServer()
+	server.Register(rpc, mgr, sf, logger)
+	mux := http.NewServeMux()
+	connecthttp.Mount(mux, rpc)
+	srv := httptest.NewTestServer(t, mux)
+	client := bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
+
+	addResp, err := client.AddSession(context.Background(), validAddRequest())
+	if err != nil {
+		t.Fatalf("AddSession: %v", err)
+	}
+	if sf.opens != 1 || sf.closes != 0 {
+		t.Fatalf("sender factory after AddSession = %d opens, %d closes; want 1, 0", sf.opens, sf.closes)
+	}
+
+	if _, err := client.DeleteSession(context.Background(), &bfdv1.DeleteSessionRequest{
+		LocalDiscriminator: addResp.GetSession().GetLocalDiscriminator(),
+	}); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+	mgr.Close()
+	if sf.closes != 1 {
+		t.Fatalf("sender/source-port releases after DeleteSession and Manager.Close = %d, want 1", sf.closes)
 	}
 }
 

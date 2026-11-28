@@ -1,252 +1,75 @@
-# Changelog Guide
+# Changelog and releases
 
-![Keep a Changelog](https://img.shields.io/badge/Keep_a_Changelog-1.1.0-E05735?style=for-the-badge)
-![SemVer](https://img.shields.io/badge/SemVer-2.0.0-3F4551?style=for-the-badge)
+[Russian translation](../ru/10-changelog.md).
 
-> How to maintain the project changelog following [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
+[CHANGELOG.md](../../CHANGELOG.md) is the English release history; [CHANGELOG.ru.md](../../CHANGELOG.ru.md) is the Russian translation. The [dated translation corrections](reference/changelog-errata.md) supply four omitted historical v0.5.0 entries without changing published sections. Published entries and tags remain preserved. Branch roles and publication constraints are defined in [AGENTS.md](../../AGENTS.md).
 
----
+## Maintain an entry
 
-## Table of Contents
+1. Identify the user-visible result: protocol procedure, configuration/default, API, CLI, metrics, security or compatibility.
+2. Add a concise entry to `Unreleased` in both changelogs. State resulting behavior and limitations; omit internal task IDs and tracker commands according to the [documentation standard](reference/documentation-standard.md#changelog-and-public-development-status).
+3. Use only nonempty Added, Changed, Deprecated, Removed, Fixed or Security groups.
+4. Link each change to its real contributing PR where one exists. Do not substitute an unrelated PR or invent a number for unpublished commits.
+5. Verify that both entries preserve the same conditions, identifiers, PR links and acceptance scope.
+6. Keep internal refactoring and test-only work out of user release history unless they change a supported contract.
 
-- [Format](#format)
-- [When to Add Entries](#when-to-add-entries)
-- [Section Types](#section-types)
-- [Writing Good Entries](#writing-good-entries)
-- [Release Process](#release-process)
-- [Semantic Versioning](#semantic-versioning)
-- [Examples](#examples)
+The layout follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/): newest entries first and dated releases. Version selection follows [SemVer](https://semver.org/spec/v2.0.0.html). A release entry is curated user history, not raw commit output. An implementation entry does not imply wire, native or production acceptance.
 
-### Format
+## Branch ownership
 
-The changelog file is `CHANGELOG.md` at the repository root. It follows the [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) specification:
+| Branch | Role |
+|:---|:---|
+| `dev` | Next product line; never a stable tag target |
+| `master` | Latest accepted stable state |
+| `release/vMAJOR.MINOR` | Release line (`release/v1.0` targets GoBGP v4 under [ADR-0014](adr/0014-v1-gobgp-v4-release-line-baseline.md); `release/v0.6` targets GoBGP v3.37.0) |
+| `fix/vMAJOR.MINOR-*` | Fix targeting the corresponding supported line |
 
-```markdown
-# Changelog
+The v0.6 line preserves GoBGP v3.37.0 and its public contracts. Acceptance on `dev` does not deliver a fix to a stable line.
 
-All notable changes to this project will be documented in this file.
+## Prepare a release
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+1. Select the stable or approved alpha acceptance scope. Complete its exact-candidate checks; retain branch, full commit, build identities and evidence.
+2. Verify matching branch/tag rulesets before creating either resource.
+3. Select a new unused version allowed by that channel. Bind its annotated tag to the exact reviewed release-branch HEAD; never move, delete or reuse tags.
+4. Review the Release Please release PR. Move accepted Unreleased entries into a dated version section in both languages, verify its version manifest and real contributing PR links, and update immutable tag/comparison links. Preserve published sections.
+5. Run source, critical functional, security, package and supply-chain checks against that candidate. Stable delivery additionally requires its native, wire and reference-load gates; preserve failed/skipped gates explicitly.
+6. Follow the separately authorized release workflow. Verify complete draft assets before immutable publication.
+7. Read back published assets, release flags, notes and OCI identities. Deliver accepted stable history and both changelogs to `master` for stable releases; alpha leaves the accepted stable state unchanged. Assess forward-port to `dev` separately.
 
-## [Unreleased]
+Existing `v0.1.0` through `v0.6.4` and `v1.0.0-alpha.1` tags remain unchanged. The executable process lives in [.github/workflows/release.yml](../../.github/workflows/release.yml) and [Go-owned automation](reference/automation.md). A workflow definition is not evidence of a successful release. This guide does not authorize push, tag, draft, promotion or publication.
 
-### Added
-- New feature description.
+Treat publication steps as state changes, not repeatable checks. After a failure, read back the exact tag, draft, assets and OCI aliases before selecting a recovery or retry. Preserve accepted tags and published history; the [automation contract](reference/automation.md#release-sequence) limits alias rollback and keeps postpublication verification separate.
 
-## [0.4.0] - 2026-03-15
+## Release evidence
 
-### Fixed
-- Bug fix description.
+The workflow validates preflight identities, derives notes from all maintenance sections since the preceding published stable release, verifies the merged release PR and appends its URL, builds binaries/packages/OCI products, completes the draft and verifies downloaded evidence. Stable releases then promote checked OCI aliases; alpha bypasses that mutation and rechecks versioned OCI identities. Publication is the terminal mutation. The first release in a line uses the preceding published stable release across lines.
 
-[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...HEAD
-[0.4.0]: https://github.com/dantte-lp/gobfd/releases/tag/v0.4.0
-```
+The supported OCI product is digest-pinned Debian trixie. Generic RPM generation remains available; Oracle Linux 10 is outside v1 OCI/lifecycle qualification. [Automation reference](reference/automation.md) records asset and verifier boundaries.
 
-Rules:
+After verifying the published release and its assets, replace the release PR's `autorelease: pending` label with `autorelease: tagged` and add `autorelease: published`. Keep the pending label while publication is incomplete. This postpublication bookkeeping completes the [Release Please lifecycle](https://github.com/googleapis/release-please/blob/v17.11.2/docs/customizing.md#release-lifecycle-labels); it is separate from the terminal publication command.
 
-- The `[Unreleased]` section is always present at the top.
-- Versions are listed in reverse chronological order (newest first).
-- Dates use ISO 8601 format: `YYYY-MM-DD`.
-- Comparison links at the bottom of the file enable GitHub diff navigation.
-- Each version heading is a link: `## [X.Y.Z] - YYYY-MM-DD`.
+## Prerelease boundary
 
-### When to Add Entries
+[ADR-0008](adr/0008-experimental-prerelease-boundary.md) defines the historical experimental `v1.0.0-alpha.N` channel, where `N` is a positive decimal integer without leading zeroes; [ADR-0014](adr/0014-v1-gobgp-v4-release-line-baseline.md) graduates `release/v1.0` to stable `1.0.x` proposals (`versioning: default` in `release-please-config.json`). Use `release/v1.0`; never tag `dev` or `master` for this channel. Other prerelease spellings are rejected deliberately.
 
-Every pull request that changes user-visible behavior **must** include a `CHANGELOG.md` entry under `[Unreleased]`.
+The Go-owned `cictl release-please-pr` command invokes upstream Release Please 17.11.2 in manifest mode with `skip-github-release: true` and `skip-changelog: true`. Its isolated consumer lock, pinned Node image, verified npm bootstrap, script-disabled installation, pre-token input/audit checks and temporary token file follow the [proposal contract](reference/automation.md#release-proposal). The upstream Action bundle is not the proposal dependency source. Curate both root changelogs in that same PR using `## [1.0.0] - YYYY-MM-DD` (or `## [1.0.0-alpha.N] - YYYY-MM-DD` for the historical alpha channel) with the actual release date. The manifest version and both version headings must agree. Release Please neither creates the tag nor publishes the draft. The [release-please workflow](../../.github/workflows/release-please.yml) proposes releases on `release/v1.0` pushes. Manual dispatch is available only after GitHub registers the workflow from the default branch; the release-line push remains the initial trigger.
 
-Add an entry when your PR:
+Commit the curated English/Russian sections to the release PR source branch using the maintainer identity. Confirm that all required PR checks run and pass; approve workflow runs when GitHub requires it. Do not merge an automation-created PR without those checks.
 
-- Adds a new feature, CLI command, API endpoint, or metric.
-- Changes existing behavior (config format, default values, protocol handling).
-- Fixes a bug that users could encounter.
-- Addresses a security vulnerability.
-- Deprecates or removes a feature.
+Merge the reviewed PR only after its required checks. Push the annotated tag to its exact merge commit while it remains the release-branch HEAD. `release-pr-check` rejects a missing or mismatched merged PR and appends the verified release PR URL to the notes. Notes retain links to the contributing PRs from the curated changelog. Do not rely on a `GITHUB_TOKEN` tag mutation to trigger another workflow; [GitHub event rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow) govern event recursion.
 
-Do **not** add entries for:
+GoReleaser creates a prerelease draft; the verifier checks its `isPrerelease` state, assets and versioned OCI identities. Publish alpha with `--prerelease --latest=false`. Do not call `release-promote` for alpha; it rejects prerelease tags. Preserve stable `latest` and `debian-trixie` OCI aliases and the GitHub latest release.
 
-- Internal refactoring with no user-visible effect.
-- Test-only changes.
-- CI/CD pipeline adjustments.
-- Documentation typo fixes.
+Alpha is experimental and does not promise stable API compatibility, supported scale, full RFC conformance or production readiness. Record remaining strict CPU-window, native Control/Echo A/B, calibrated reference/24-hour and final wire qualification in both languages. Functional/security failures within the advertised alpha scope still block its publication; pending stable qualification remains open.
 
-### Section Types
+## Diagnose release documentation
 
-| Section | Use When | GoBFD Example |
-|---|---|---|
-| **Added** | New feature or capability | `Added BFD multihop support per RFC 5883.` |
-| **Changed** | Existing behavior modified | `Changed default DetectMultiplier from 3 to 5.` |
-| **Deprecated** | Feature marked for future removal | `Deprecated JSON output format in favor of YAML.` |
-| **Removed** | Feature deleted | `Removed legacy configuration file format.` |
-| **Fixed** | Bug correction | `Fixed authentication sequence number wraparound at 2^32.` |
-| **Security** | Vulnerability fix | `Fixed timing side-channel in HMAC-SHA1 comparison (CVE-XXXX-YYYY).` |
+| Symptom | Check | Action |
+|:---|:---|:---|
+| Missing maintenance notes | Previous published stable tag and changelog range | Include every maintenance section in the range |
+| EN/RU mismatch | Conditions, versions, negation and acceptance claims | Correct both entries before candidate review |
+| Existing version/tag | Host release, draft and OCI identity | Select a new unused version; preserve old objects |
+| Green source gate only | Native/wire/load/package evidence | Keep release qualification open |
+| Stable history absent from master | Branch ancestry and both changelogs | Complete supported-line closeout |
 
-Only include sections that have entries. Do not add empty sections.
-
-### Writing Good Entries
-
-Write for **users**, not developers. Focus on **what** changed, not **how**.
-
-| Quality | Example |
-|---|---|
-| Bad | Refactored FSM event loop to use channel-based dispatch. |
-| Good | Improved session convergence time under high peer count. |
-| Bad | Fixed nil pointer in `manager.go:142`. |
-| Good | Fixed crash when removing a session during reconciliation. |
-| Bad | Updated protobuf dependency. |
-| Good | Fixed compatibility issue with GoBGP v3.37+ API changes. |
-
-Guidelines:
-
-- Start with a verb: Added, Changed, Fixed, Removed.
-- Reference RFC sections when relevant: `Added Echo mode per RFC 5880 Section 6.4.`
-- Reference CVEs for security fixes: `Fixed CVE-2026-XXXX.`
-- Keep entries concise -- one line per change.
-- Group related changes into a single entry when appropriate.
-
-### Release Process
-
-Branch roles remain explicit throughout release preparation:
-
-- `dev` integrates the next product line and is never tagged for a stable
-  release.
-- `master` is the default branch and contains the latest accepted stable state.
-- Supported product lines use `release/vMAJOR.MINOR`. The `release/v0.6` line
-  retains GoBGP v3.37.0 and the v0.6 public contracts.
-
-A maintenance patch starts from the applicable release branch on
-`fix/vMAJOR.MINOR-*` and returns through a reviewed pull request. After the fix
-is accepted and published, its accepted stable history and both changelogs
-must reach `master` before release closeout. Maintainers separately assess the
-applicable forward-port to `dev`. Release preparation follows the applicable
-supported line.
-
-The release-branch ruleset must be active before each new matching release
-branch is created. The tag ruleset must be active before each new matching tag
-is created, specifically before `v0.6.2`. Existing `v0.1.0` through `v0.6.1`
-tags remain unchanged and are never moved, deleted, or reused. When preparing
-v0.6.2 from `release/v0.6`:
-
-1. **Move entries** from `[Unreleased]` to a new version section:
-
-   ```markdown
-   ## [Unreleased]
-
-   ## [0.6.2] - YYYY-MM-DD
-
-   ### Fixed
-   - (entries moved from Unreleased)
-   ```
-
-2. **Update comparison links** at the bottom of the file:
-
-   ```markdown
-   [Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...HEAD
-   [0.6.2]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...v0.6.2
-   [0.6.1]: https://github.com/dantte-lp/gobfd/releases/tag/v0.6.1
-   ```
-
-3. **Commit** the changelog update:
-
-   ```bash
-   git add CHANGELOG.md
-   git commit -m "chore(release): prepare v0.6.2"
-   ```
-
-4. **Tag the exact reviewed release-branch commit and push explicit refs**:
-
-   ```bash
-   set -euo pipefail
-
-   release_sha=$(git rev-parse --verify 'refs/heads/release/v0.6^{commit}')
-   git push origin refs/heads/release/v0.6:refs/heads/release/v0.6
-
-   read -r remote_sha remote_ref < <(
-     git ls-remote --exit-code origin refs/heads/release/v0.6
-   )
-   test "$remote_ref" = refs/heads/release/v0.6
-   test "$remote_sha" = "$release_sha"
-
-   git tag -a v0.6.2 "$release_sha" -m "Release v0.6.2"
-   git push origin refs/tags/v0.6.2:refs/tags/v0.6.2
-   ```
-
-   The tag push is authorized only after the remote branch ref and commit equal
-   the reviewed local branch ref and `release_sha`. Never move, delete, or reuse
-   a release tag. A failed published release is corrected with a new patch
-   version.
-
-5. **GitHub Actions** uses draft-first publication:
-   - Runs the full test suite.
-   - Extracts every CHANGELOG.md maintenance section from version 0.6.2 back
-     to, but excluding, the previous published stable release in the same
-     line. The first cut in a new line falls back to the highest previous
-     published stable SemVer tag across lines.
-   - Adds changelog and comparison links bound to the immutable tag; a link to
-     mutable `master` is not a release note.
-   - Builds binaries (linux/amd64, linux/arm64), .deb, .rpm packages.
-   - Publishes Debian-based and Oracle Linux-based OCI images to
-     `ghcr.io/dantte-lp/gobfd`.
-   - Creates a draft GitHub Release and attaches all required assets.
-   - Verifies the draft's tag, target commit, notes, assets, checksums,
-     SBOM/provenance, packages, OCI manifests, and release report.
-   - Publishes the complete draft as the workflow's final GitHub mutation.
-
-6. **Close out the release branches** only after the published tag, assets,
-   notes, and OCI evidence pass independent verification. Deliver the accepted
-   stable history and both changelogs to `master`, forward-port applicable
-   changes to `dev`, and verify all three remote branch heads before closing
-   release tracking.
-
-### Semantic Versioning
-
-This project follows [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html): `MAJOR.MINOR.PATCH`.
-
-| Component | Increment When | GoBFD Example |
-|---|---|---|
-| **MAJOR** | Breaking changes to API, config format, or protocol | Removed deprecated config keys; changed gRPC API response structure. |
-| **MINOR** | New features, backward-compatible | Added RFC 5883 multihop support; new `gobfdctl monitor` command. |
-| **PATCH** | Bug fixes, documentation, dependency updates | Fixed detection timeout calculation; updated Go dependency. |
-
-Pre-release versions use suffixes: `v0.5.0-rc.1`, `v0.5.0-beta.2`.
-
-### Examples
-
-#### Adding a new feature (PR)
-
-Edit `CHANGELOG.md`, add under `[Unreleased]`:
-
-```markdown
-## [Unreleased]
-
-### Added
-- BFD Echo mode implementation per RFC 5880 Section 6.4.
-```
-
-#### Fixing a bug (PR)
-
-```markdown
-## [Unreleased]
-
-### Fixed
-- Detection timeout not recalculated after remote MinRxInterval change.
-```
-
-#### Security fix (PR)
-
-```markdown
-## [Unreleased]
-
-### Security
-- Enforce constant-time comparison for all authentication digests.
-```
-
-### Related Documents
-
-- [CHANGELOG.md](../../CHANGELOG.md) -- The project changelog.
-- [09-development.md](./09-development.md) -- Development workflow and contribution process.
-- [CONTRIBUTING.md](../../CONTRIBUTING.md) -- Contribution guidelines.
-
----
-
-*Last updated: 2026-08-27*
+[Development](09-development.md), [governance](../../GOVERNANCE.md), [security policy](../../SECURITY.md).

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -12,22 +13,1010 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"os"
-	"runtime/trace"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
+	"github.com/dantte-lp/gobfd/internal/gobgp"
 	"github.com/dantte-lp/gobfd/internal/netio"
 )
+
+type candidateTestSender struct{}
+
+func (candidateTestSender) SendPacket(context.Context, []byte, netip.Addr) error {
+	return nil
+}
+
+func candidateTestSenderLeaseFactory() bfd.SenderLeaseFactory {
+	return bfd.NonOwningSenderLeaseFactory(candidateTestSender{})
+}
+
+var errInjectedSenderCreation = errors.New("injected sender creation failure")
+
+type nthFailureDeclarativeSenderFactory struct {
+	failAt int
+	calls  int
+	open   map[uint16]struct{}
+	closed []uint16
+}
+
+func newNthFailureDeclarativeSenderFactory(failAt int) *nthFailureDeclarativeSenderFactory {
+	return &nthFailureDeclarativeSenderFactory{
+		failAt: failAt,
+		open:   make(map[uint16]struct{}),
+	}
+}
+
+func (f *nthFailureDeclarativeSenderFactory) createSenderForSession(
+	netip.Addr,
+	bool,
+	*slog.Logger,
+	...netio.SenderOption,
+) (bfd.PacketSender, uint16, error) {
+	f.calls++
+	if f.calls == f.failAt {
+		return nil, 0, errInjectedSenderCreation
+	}
+	port := uint16(50000 + f.calls)
+	f.open[port] = struct{}{}
+	return candidateTestSender{}, port, nil
+}
+
+func (f *nthFailureDeclarativeSenderFactory) CloseSender(port uint16) error {
+	if _, ok := f.open[port]; !ok {
+		return fmt.Errorf("close untracked test sender %d", port)
+	}
+	delete(f.open, port)
+	f.closed = append(f.closed, port)
+	return nil
+}
+
+func assertNthFailureSenderBatchClosed(t *testing.T, sf *nthFailureDeclarativeSenderFactory) {
+	t.Helper()
+
+	if sf.calls != sf.failAt {
+		t.Errorf("sender factory calls = %d, want %d", sf.calls, sf.failAt)
+	}
+	if len(sf.open) != 0 {
+		t.Errorf("uncommitted senders still open = %v, want none", sf.open)
+	}
+	if len(sf.closed) != sf.failAt-1 {
+		t.Fatalf("closed sender handles = %v, want %d handles", sf.closed, sf.failAt-1)
+	}
+	for i, port := range sf.closed {
+		want := uint16(50001 + i)
+		if port != want {
+			t.Errorf("closed sender handle %d = %d, want %d", i, port, want)
+		}
+	}
+}
+
+type nonOwningLeaseTestOverlayConn struct {
+	closes int
+}
+
+func (*nonOwningLeaseTestOverlayConn) SendEncapsulated(context.Context, []byte, netip.Addr) error {
+	return nil
+}
+
+func (*nonOwningLeaseTestOverlayConn) RecvDecapsulated(context.Context) ([]byte, netio.OverlayMeta, error) {
+	return nil, netio.OverlayMeta{}, netio.ErrOverlayRecvClosed
+}
+
+func (c *nonOwningLeaseTestOverlayConn) Close() error {
+	c.closes++
+	return nil
+}
+
+func cleanupCandidateTestSenders(t *testing.T, sf *udpSenderFactory) {
+	t.Helper()
+
+	sf.mu.Lock()
+	ports := make([]uint16, 0, len(sf.senders))
+	for port := range sf.senders {
+		ports = append(ports, port)
+	}
+	sf.mu.Unlock()
+
+	for _, port := range ports {
+		if err := sf.CloseSender(port); err != nil {
+			t.Errorf("CloseSender(%d): %v", port, err)
+		}
+	}
+}
+
+func seedDuplicateMicroBFDTestState(
+	t *testing.T,
+	mgr *bfd.Manager,
+) ([]bfd.SessionSnapshot, []bfd.MicroBFDGroupSnapshot) {
+	t.Helper()
+
+	base := bfd.SessionConfig{
+		PeerAddr:              netip.MustParseAddr("192.0.2.220"),
+		LocalAddr:             netip.MustParseAddr("127.0.0.1"),
+		Interface:             "lo",
+		Type:                  bfd.SessionTypeSingleHop,
+		Role:                  bfd.RoleActive,
+		DesiredMinTxInterval:  time.Second,
+		RequiredMinRxInterval: time.Second,
+		DetectMultiplier:      3,
+	}
+	if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{{
+		Key: "base-seed", SessionConfig: base, SenderLeaseFactory: candidateTestSenderLeaseFactory(),
+	}}); err != nil {
+		t.Fatalf("seed base session: %v", err)
+	}
+	microGroup := bfd.MicroBFDConfig{
+		LAGInterface: "bond-old", MemberLinks: []string{"old-member"},
+		PeerAddr: netip.MustParseAddr("192.0.2.221"), LocalAddr: netip.MustParseAddr("127.0.0.1"),
+		DesiredMinTxInterval: time.Second, RequiredMinRxInterval: time.Second, DetectMultiplier: 3,
+		MinActiveLinks: 1,
+	}
+	if _, err := mgr.CreateMicroBFDGroup(microGroup); err != nil {
+		t.Fatalf("seed Micro-BFD group: %v", err)
+	}
+	microSession := base
+	microSession.PeerAddr = microGroup.PeerAddr
+	microSession.Interface = "old-member"
+	microSession.Type = bfd.SessionTypeMicroBFD
+	if _, _, err := mgr.ReconcileSessionsForOwner(
+		context.Background(),
+		bfd.MicroBFDReconciliationOwner(),
+		[]bfd.ReconcileConfig{{
+			Key: "micro-seed", SessionConfig: microSession,
+			SenderLeaseFactory: candidateTestSenderLeaseFactory(),
+		}},
+	); err != nil {
+		t.Fatalf("seed Micro-BFD member claim: %v", err)
+	}
+	return mgr.Sessions(), mgr.MicroBFDGroups()
+}
+
+func assertDuplicateMicroBFDTestStateUnchanged(
+	t *testing.T,
+	mgr *bfd.Manager,
+	wantSessions []bfd.SessionSnapshot,
+	wantGroups []bfd.MicroBFDGroupSnapshot,
+) {
+	t.Helper()
+
+	gotSessions := mgr.Sessions()
+	if len(gotSessions) != len(wantSessions) {
+		t.Errorf("sessions = %d, want %d", len(gotSessions), len(wantSessions))
+	} else {
+		wantDiscriminators := make(map[uint32]struct{}, len(wantSessions))
+		for _, snapshot := range wantSessions {
+			wantDiscriminators[snapshot.LocalDiscr] = struct{}{}
+		}
+		for _, snapshot := range gotSessions {
+			if _, ok := wantDiscriminators[snapshot.LocalDiscr]; !ok {
+				t.Errorf("unexpected session discriminator %d after duplicate candidate", snapshot.LocalDiscr)
+			}
+		}
+	}
+	gotGroups := mgr.MicroBFDGroups()
+	if len(gotGroups) != len(wantGroups) ||
+		len(gotGroups) != 1 ||
+		gotGroups[0].LAGInterface != wantGroups[0].LAGInterface {
+		t.Errorf("Micro-BFD groups changed: before=%+v after=%+v", wantGroups, gotGroups)
+	}
+}
+
+func duplicateMicroBFDConfig() *config.Config {
+	cfg := config.DefaultConfig()
+	cfg.Sessions = []config.SessionConfig{{Peer: "192.0.2.230", Local: "127.0.0.1", Interface: "lo"}}
+	cfg.MicroBFD.Enabled = true
+	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{
+		{
+			LAGInterface: "bond-dup", MemberLinks: []string{"lo"},
+			PeerAddr: "192.0.2.231", LocalAddr: "127.0.0.1", MinActiveLinks: 1,
+		},
+		{
+			LAGInterface: "bond-dup", MemberLinks: []string{"lo"},
+			PeerAddr: "192.0.2.232", LocalAddr: "127.0.0.1", MinActiveLinks: 1,
+		},
+	}
+	return cfg
+}
+
+func TestCompileMicroBFDCandidatesRejectsDuplicateLAGInterface(t *testing.T) {
+	_, err := compileMicroBFDCandidates(duplicateMicroBFDConfig())
+	if err == nil {
+		t.Fatal("compileMicroBFDCandidates duplicate LAG interface succeeded")
+	}
+	if !errors.Is(err, errDuplicateMicroBFDGroupKey) {
+		t.Fatalf("compileMicroBFDCandidates error = %v, want errDuplicateMicroBFDGroupKey", err)
+	}
+}
+
+func TestReconcileAllSessionsDuplicateMicroBFDKeyPreservesState(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	wantSessions, wantGroups := seedDuplicateMicroBFDTestState(t, mgr)
+	sf := newUDPSenderFactory(config.SocketConfig{})
+	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
+
+	cfg := duplicateMicroBFDConfig()
+	reconcileAllSessions(
+		context.Background(),
+		cfg,
+		mgr,
+		sf,
+		newReconciliationCoordinator(cfg, slog.New(slog.DiscardHandler), nil),
+		slog.New(slog.DiscardHandler),
+	)
+
+	assertDuplicateMicroBFDTestStateUnchanged(t, mgr, wantSessions, wantGroups)
+}
+
+func TestReloadConfigDuplicateMicroBFDKeyPreservesStateAndLogLevel(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	wantSessions, wantGroups := seedDuplicateMicroBFDTestState(t, mgr)
+	sf := newUDPSenderFactory(config.SocketConfig{})
+	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
+	level := new(slog.LevelVar)
+	level.Set(slog.LevelInfo)
+	path := t.TempDir() + "/duplicate-micro.yml"
+	yaml := `log:
+  level: debug
+sessions:
+  - peer: 192.0.2.230
+    local: 127.0.0.1
+    interface: lo
+micro_bfd:
+  enabled: true
+  groups:
+    - lag_interface: bond-dup
+      member_links: [lo]
+      peer_addr: 192.0.2.231
+      local_addr: 127.0.0.1
+      min_active_links: 1
+    - lag_interface: bond-dup
+      member_links: [lo]
+      peer_addr: 192.0.2.232
+      local_addr: 127.0.0.1
+      min_active_links: 1
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		t.Fatalf("write duplicate Micro-BFD config: %v", err)
+	}
+
+	startup := duplicateMicroBFDConfig()
+	reloadConfig(
+		context.Background(), path, level, mgr, sf,
+		newReconciliationCoordinator(startup, slog.New(slog.DiscardHandler), nil),
+		slog.New(slog.DiscardHandler),
+	)
+
+	if got := level.Level(); got != slog.LevelInfo {
+		t.Errorf("log level after duplicate candidate = %s, want %s", got, slog.LevelInfo)
+	}
+	assertDuplicateMicroBFDTestStateUnchanged(t, mgr, wantSessions, wantGroups)
+}
+
+func TestReconcileSessionsClosesEarlierSendersWhenLaterCreationFails(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	sf := newNthFailureDeclarativeSenderFactory(3)
+	cfg := config.DefaultConfig()
+	cfg.Sessions = []config.SessionConfig{
+		{Peer: "192.0.2.240", Local: "127.0.0.1", Interface: "lo"},
+		{Peer: "192.0.2.241", Local: "127.0.0.1", Interface: "lo"},
+		{Peer: "192.0.2.242", Local: "127.0.0.1", Interface: "lo"},
+	}
+
+	reconcileSessions(context.Background(), cfg, mgr, sf, slog.New(slog.DiscardHandler))
+
+	assertNthFailureSenderBatchClosed(t, sf)
+	if got := len(mgr.Sessions()); got != 0 {
+		t.Errorf("sessions after sender batch failure = %d, want 0", got)
+	}
+}
+
+func TestReconcileSessionsUnchangedDesiredDoesNotOpenSender(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	sf := newNthFailureDeclarativeSenderFactory(0)
+	t.Cleanup(func() {
+		for port := range sf.open {
+			if err := sf.CloseSender(port); err != nil {
+				t.Errorf("CloseSender(%d): %v", port, err)
+			}
+		}
+	})
+	cfg := config.DefaultConfig()
+	cfg.Sessions = []config.SessionConfig{{
+		Peer: "192.0.2.239", Local: "127.0.0.1", Interface: "lo",
+	}}
+
+	reconcileSessions(context.Background(), cfg, mgr, sf, slog.New(slog.DiscardHandler))
+	if sf.calls != 1 {
+		t.Fatalf("sender factory calls after initial reconcile = %d, want 1", sf.calls)
+	}
+
+	reconcileSessions(context.Background(), cfg, mgr, sf, slog.New(slog.DiscardHandler))
+	if sf.calls != 1 {
+		t.Fatalf("sender factory calls after unchanged reconcile = %d, want 1", sf.calls)
+	}
+}
+
+func echoLeaseTestConfig(peers ...string) *config.Config {
+	cfg := config.DefaultConfig()
+	cfg.Echo.Enabled = true
+	cfg.Echo.DefaultTxInterval = 100 * time.Millisecond
+	cfg.Echo.DefaultDetectMultiplier = 3
+	for _, peer := range peers {
+		cfg.Echo.Peers = append(cfg.Echo.Peers, config.EchoPeerConfig{
+			Peer: peer, Local: "127.0.0.1", Interface: "lo",
+		})
+	}
+	return cfg
+}
+
+func TestReconcileEchoSessionsUnchangedDesiredDoesNotOpenSender(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	sf := newNthFailureDeclarativeSenderFactory(0)
+	cfg := echoLeaseTestConfig("192.0.2.180")
+
+	first := reconcileEchoSessions(context.Background(), cfg, mgr, sf, slog.New(slog.DiscardHandler))
+	if first.Err != nil || first.Created != 1 || first.Destroyed != 0 {
+		t.Fatalf("first echo outcome = %+v, want created=1 destroyed=0 err=nil", first)
+	}
+	second := reconcileEchoSessions(context.Background(), cfg, mgr, sf, slog.New(slog.DiscardHandler))
+	if second.Err != nil || second.Created != 0 || second.Destroyed != 0 {
+		t.Fatalf("unchanged echo outcome = %+v, want zero outcome", second)
+	}
+	if sf.calls != 1 {
+		t.Errorf("echo sender factory calls = %d, want 1", sf.calls)
+	}
+}
+
+func TestReconcileEchoSessionsNthSenderFailureRollsBackBatch(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	sf := newNthFailureDeclarativeSenderFactory(3)
+	cfg := echoLeaseTestConfig("192.0.2.181", "192.0.2.182", "192.0.2.183")
+
+	outcome := reconcileEchoSessions(context.Background(), cfg, mgr, sf, slog.New(slog.DiscardHandler))
+	if !errors.Is(outcome.Err, errInjectedSenderCreation) {
+		t.Fatalf("echo outcome error = %v, want %v", outcome.Err, errInjectedSenderCreation)
+	}
+	if outcome.Created != 0 || outcome.Destroyed != 0 {
+		t.Errorf("echo outcome = %+v, want zero counts", outcome)
+	}
+	assertNthFailureSenderBatchClosed(t, sf)
+	if got := len(mgr.EchoSessions()); got != 0 {
+		t.Errorf("echo sessions after sender failure = %d, want 0", got)
+	}
+}
+
+func TestReconcileAdaptersDoNotLogCompletionAfterDetailedFailure(t *testing.T) {
+	tests := []struct {
+		name           string
+		failureText    string
+		completionText string
+		reconcile      func(*slog.Logger)
+	}{
+		{
+			name:           "base",
+			failureText:    "session reconciliation had errors",
+			completionText: "session reconciliation complete",
+			reconcile: func(logger *slog.Logger) {
+				mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+				t.Cleanup(mgr.Close)
+				cfg := config.DefaultConfig()
+				cfg.Sessions = []config.SessionConfig{{
+					Peer: "192.0.2.220", Local: "127.0.0.1", Interface: "lo",
+				}}
+				reconcileSessions(
+					context.Background(), cfg, mgr,
+					newNthFailureDeclarativeSenderFactory(1), logger,
+				)
+			},
+		},
+		{
+			name:           "echo",
+			failureText:    "echo session reconciliation had errors",
+			completionText: "echo session reconciliation complete",
+			reconcile: func(logger *slog.Logger) {
+				mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+				t.Cleanup(mgr.Close)
+				reconcileEchoSessions(
+					context.Background(), echoLeaseTestConfig("192.0.2.221"), mgr,
+					newNthFailureDeclarativeSenderFactory(1), logger,
+				)
+			},
+		},
+		{
+			name:           "Micro-BFD member",
+			failureText:    "micro-BFD reconciliation had errors",
+			completionText: "micro-BFD reconciliation complete",
+			reconcile: func(logger *slog.Logger) {
+				mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+				t.Cleanup(mgr.Close)
+				cfg := config.DefaultConfig()
+				cfg.MicroBFD.Enabled = true
+				cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
+					LAGInterface: "bond0", MemberLinks: []string{"eth0"},
+					PeerAddr: "192.0.2.222", LocalAddr: "127.0.0.1", MinActiveLinks: 1,
+				}}
+				reconcileMicroBFDGroups(
+					context.Background(), cfg, mgr,
+					newNthFailureDeclarativeSenderFactory(1), logger,
+				)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			tt.reconcile(slog.New(slog.NewTextHandler(&logs, nil)))
+			got := logs.String()
+			if !strings.Contains(got, tt.failureText) {
+				t.Errorf("adapter log = %q, want explicit failure %q", got, tt.failureText)
+			}
+			if strings.Contains(got, tt.completionText) {
+				t.Errorf("adapter log = %q, must not contain %q after failure", got, tt.completionText)
+			}
+		})
+	}
+}
+
+func TestReconcileEchoSessionsInvalidCandidateDoesNotOpenOrMutate(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	seedFactory := newNthFailureDeclarativeSenderFactory(0)
+	seed := echoLeaseTestConfig("192.0.2.184")
+	if outcome := reconcileEchoSessions(
+		context.Background(), seed, mgr, seedFactory, slog.New(slog.DiscardHandler),
+	); outcome.Err != nil {
+		t.Fatalf("seed echo reconcile: %v", outcome.Err)
+	}
+	want := mgr.EchoSessions()
+
+	invalidFactory := newNthFailureDeclarativeSenderFactory(0)
+	invalid := echoLeaseTestConfig("192.0.2.185", "not-an-address")
+	outcome := reconcileEchoSessions(
+		context.Background(), invalid, mgr, invalidFactory, slog.New(slog.DiscardHandler),
+	)
+	if outcome.Err == nil {
+		t.Fatal("invalid echo candidate succeeded")
+	}
+	if invalidFactory.calls != 0 {
+		t.Errorf("invalid echo candidate opened %d senders, want 0", invalidFactory.calls)
+	}
+	got := mgr.EchoSessions()
+	if len(got) != len(want) || len(got) != 1 || got[0].LocalDiscr != want[0].LocalDiscr {
+		t.Errorf("echo sessions changed: before=%+v after=%+v", want, got)
+	}
+}
+
+func TestReconcileEchoSessionsDisabledRemovesOnlyDeclarative(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	apiConfig := bfd.EchoSessionConfig{
+		PeerAddr:         netip.MustParseAddr("192.0.2.186"),
+		LocalAddr:        netip.MustParseAddr("127.0.0.1"),
+		Interface:        "lo",
+		TxInterval:       time.Second,
+		DetectMultiplier: 3,
+	}
+	if _, err := mgr.CreateEchoSession(
+		context.Background(), apiConfig, candidateTestSender{},
+	); err != nil {
+		t.Fatalf("CreateEchoSession: %v", err)
+	}
+	sf := newNthFailureDeclarativeSenderFactory(0)
+	if outcome := reconcileEchoSessions(
+		context.Background(), echoLeaseTestConfig("192.0.2.187"), mgr, sf, slog.New(slog.DiscardHandler),
+	); outcome.Err != nil {
+		t.Fatalf("seed declarative echo: %v", outcome.Err)
+	}
+
+	disabled := config.DefaultConfig()
+	outcome := reconcileEchoSessions(
+		context.Background(), disabled, mgr, sf, slog.New(slog.DiscardHandler),
+	)
+	if outcome.Err != nil || outcome.Created != 0 || outcome.Destroyed != 1 {
+		t.Fatalf("disabled echo outcome = %+v, want created=0 destroyed=1 err=nil", outcome)
+	}
+	if len(sf.open) != 0 || len(sf.closed) != 1 {
+		t.Errorf("declarative echo senders open=%v closed=%v, want none open and one close", sf.open, sf.closed)
+	}
+	sessions := mgr.EchoSessions()
+	if len(sessions) != 1 || sessions[0].PeerAddr != apiConfig.PeerAddr {
+		t.Errorf("echo sessions after disable = %+v, want only API peer %s", sessions, apiConfig.PeerAddr)
+	}
+}
+
+func TestValidateCompleteControlSessionCandidateRejectsInvalidEcho(t *testing.T) {
+	cfg := echoLeaseTestConfig("192.0.2.188", "invalid")
+	if err := validateCompleteControlSessionCandidate(cfg); err == nil {
+		t.Fatal("invalid complete Echo candidate succeeded")
+	}
+}
+
+func TestReconcileMicroBFDClosesEarlierSendersWhenLaterCreationFails(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	sf := newNthFailureDeclarativeSenderFactory(3)
+	cfg := config.DefaultConfig()
+	cfg.MicroBFD.Enabled = true
+	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
+		LAGInterface: "bond0", MemberLinks: []string{"eth0", "eth1", "eth2"},
+		PeerAddr: "192.0.2.243", LocalAddr: "127.0.0.1", MinActiveLinks: 1,
+	}}
+
+	reconcileMicroBFDGroups(context.Background(), cfg, mgr, sf, slog.New(slog.DiscardHandler))
+
+	assertNthFailureSenderBatchClosed(t, sf)
+	if got := len(mgr.Sessions()); got != 0 {
+		t.Errorf("Micro-BFD sessions after sender batch failure = %d, want 0", got)
+	}
+}
+
+func TestReconcileMicroBFDGroupConflictDoesNotLogCompletion(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+
+	cfg := config.DefaultConfig()
+	original := bfd.MicroBFDConfig{
+		LAGInterface: "bond0", MemberLinks: []string{"eth0", "eth1"},
+		PeerAddr: netip.MustParseAddr("192.0.2.1"), LocalAddr: netip.MustParseAddr("192.0.2.2"),
+		DesiredMinTxInterval:  cfg.BFD.DefaultDesiredMinTx,
+		RequiredMinRxInterval: cfg.BFD.DefaultRequiredMinRx,
+		DetectMultiplier:      uint8(cfg.BFD.DefaultDetectMultiplier),
+		MinActiveLinks:        1,
+	}
+	if _, err := mgr.CreateMicroBFDGroup(original); err != nil {
+		t.Fatalf("CreateMicroBFDGroup: %v", err)
+	}
+	cfg.MicroBFD.Enabled = true
+	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
+		LAGInterface: "bond0", MemberLinks: []string{"eth0", "eth1"},
+		PeerAddr: "192.0.2.9", LocalAddr: "192.0.2.2", MinActiveLinks: 1,
+	}}
+
+	reconcileMicroBFDGroups(context.Background(), cfg, mgr, newNthFailureDeclarativeSenderFactory(0), logger)
+
+	got := logs.String()
+	if !strings.Contains(got, "micro-BFD reconciliation had errors") {
+		t.Errorf("adapter log = %q, want reconciliation error", got)
+	}
+	if strings.Contains(got, "micro-BFD reconciliation complete") {
+		t.Errorf("adapter log = %q, must not claim completion after conflict", got)
+	}
+}
+
+func TestReconcileSessionsRejectsWholeCandidateBeforeOpeningSenders(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+
+	seed := bfd.SessionConfig{
+		PeerAddr:              netip.MustParseAddr("192.0.2.1"),
+		LocalAddr:             netip.MustParseAddr("127.0.0.1"),
+		Interface:             "lo",
+		Type:                  bfd.SessionTypeSingleHop,
+		Role:                  bfd.RoleActive,
+		DesiredMinTxInterval:  time.Second,
+		RequiredMinRxInterval: time.Second,
+		DetectMultiplier:      3,
+	}
+	if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{{
+		Key:                "seed",
+		SessionConfig:      seed,
+		SenderLeaseFactory: candidateTestSenderLeaseFactory(),
+	}}); err != nil {
+		t.Fatalf("seed ReconcileSessions: %v", err)
+	}
+	before := mgr.Sessions()
+
+	sf := newUDPSenderFactory(config.SocketConfig{})
+	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
+	cfg := config.DefaultConfig()
+	cfg.Sessions = []config.SessionConfig{
+		{Peer: "198.51.100.1", Local: "127.0.0.1", Interface: "lo"},
+		{Peer: "not-an-address", Local: "127.0.0.1", Interface: "lo"},
+	}
+
+	reconcileSessions(context.Background(), cfg, mgr, sf, slog.New(slog.DiscardHandler))
+
+	sf.mu.Lock()
+	openedSenders := len(sf.senders)
+	sf.mu.Unlock()
+	if openedSenders != 0 {
+		t.Errorf("opened senders = %d, want 0", openedSenders)
+	}
+	after := mgr.Sessions()
+	if len(after) != len(before) || after[0].LocalDiscr != before[0].LocalDiscr {
+		t.Fatalf("sessions changed after invalid candidate: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestReconcileSessionsForwardsEmptyBaseDesiredSet(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+
+	cfg := bfd.SessionConfig{
+		PeerAddr:              netip.MustParseAddr("192.0.2.1"),
+		LocalAddr:             netip.MustParseAddr("192.0.2.2"),
+		Interface:             "eth0",
+		Type:                  bfd.SessionTypeSingleHop,
+		Role:                  bfd.RoleActive,
+		DesiredMinTxInterval:  time.Second,
+		RequiredMinRxInterval: time.Second,
+		DetectMultiplier:      3,
+	}
+	if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{{
+		Key:                "base",
+		SessionConfig:      cfg,
+		SenderLeaseFactory: candidateTestSenderLeaseFactory(),
+	}}); err != nil {
+		t.Fatalf("seed ReconcileSessions: %v", err)
+	}
+	shared, err := mgr.CreateSession(context.Background(), cfg, candidateTestSenderLeaseFactory())
+	if err != nil {
+		t.Fatalf("CreateSession matching compatibility claim: %v", err)
+	}
+
+	reconcileSessions(
+		context.Background(),
+		config.DefaultConfig(),
+		mgr,
+		newUDPSenderFactory(config.SocketConfig{}),
+		slog.New(slog.DiscardHandler),
+	)
+	if err := mgr.DestroySession(context.Background(), shared.LocalDiscriminator()); err != nil {
+		t.Fatalf("DestroySession compatibility claim: %v", err)
+	}
+	if got := mgr.Sessions(); len(got) != 0 {
+		t.Fatalf("wire sessions after empty base reconciliation = %d, want 0", len(got))
+	}
+}
+
+func TestReconcileMicroBFDGroupsForwardsEmptyMemberDesiredSet(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+
+	cfg := bfd.SessionConfig{
+		PeerAddr:              netip.MustParseAddr("192.0.2.10"),
+		LocalAddr:             netip.MustParseAddr("192.0.2.20"),
+		Interface:             "eth1",
+		Type:                  bfd.SessionTypeMicroBFD,
+		Role:                  bfd.RoleActive,
+		DesiredMinTxInterval:  time.Second,
+		RequiredMinRxInterval: time.Second,
+		DetectMultiplier:      3,
+	}
+	if _, _, err := mgr.ReconcileSessionsForOwner(
+		context.Background(),
+		bfd.MicroBFDReconciliationOwner(),
+		[]bfd.ReconcileConfig{{Key: "micro", SessionConfig: cfg, SenderLeaseFactory: candidateTestSenderLeaseFactory()}},
+	); err != nil {
+		t.Fatalf("seed Micro-BFD reconciliation: %v", err)
+	}
+
+	reconcileMicroBFDGroups(
+		context.Background(),
+		config.DefaultConfig(),
+		mgr,
+		newUDPSenderFactory(config.SocketConfig{}),
+		slog.New(slog.DiscardHandler),
+	)
+	if got := len(mgr.Sessions()); got != 0 {
+		t.Fatalf("wire sessions after empty Micro-BFD reconciliation = %d, want 0", got)
+	}
+}
+
+func TestReconcileOverlayTunnelsForwardsEmptyDesiredSets(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+
+	tests := []struct {
+		owner bfd.SessionOwner
+		cfg   bfd.SessionConfig
+	}{
+		{
+			owner: bfd.VXLANReconciliationOwner(),
+			cfg: bfd.SessionConfig{
+				PeerAddr:              netip.MustParseAddr("192.0.2.30"),
+				LocalAddr:             netip.MustParseAddr("192.0.2.40"),
+				Type:                  bfd.SessionTypeVXLAN,
+				Role:                  bfd.RoleActive,
+				DesiredMinTxInterval:  time.Second,
+				RequiredMinRxInterval: time.Second,
+				DetectMultiplier:      3,
+			},
+		},
+		{
+			owner: bfd.GeneveReconciliationOwner(),
+			cfg: bfd.SessionConfig{
+				PeerAddr:              netip.MustParseAddr("192.0.2.50"),
+				LocalAddr:             netip.MustParseAddr("192.0.2.60"),
+				Type:                  bfd.SessionTypeGeneve,
+				Role:                  bfd.RoleActive,
+				DesiredMinTxInterval:  time.Second,
+				RequiredMinRxInterval: time.Second,
+				DetectMultiplier:      3,
+			},
+		},
+	}
+	for _, tt := range tests {
+		if _, _, err := mgr.ReconcileSessionsForOwner(
+			context.Background(),
+			tt.owner,
+			[]bfd.ReconcileConfig{{
+				Key: tt.owner.ID, SessionConfig: tt.cfg,
+				SenderLeaseFactory: candidateTestSenderLeaseFactory(),
+			}},
+		); err != nil {
+			t.Fatalf("seed overlay owner %+v: %v", tt.owner, err)
+		}
+	}
+
+	candidate, err := compileControlSessionCandidate(config.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range []reconciliationSource{sourceVXLAN, sourceGeneve} {
+		if result := applyCompiledSource(context.Background(), source, candidate, mgr,
+			newNthFailureDeclarativeSenderFactory(0), slog.New(slog.DiscardHandler), nil); result.Err != nil {
+			t.Fatal(result.Err)
+		}
+	}
+	if got := len(mgr.Sessions()); got != 0 {
+		t.Fatalf("wire sessions after empty overlay reconciliation = %d, want 0", got)
+	}
+}
+
+func TestReconcileMicroBFDCandidateIsValidatedBeforeOpeningSenders(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	sf := newUDPSenderFactory(config.SocketConfig{})
+	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
+
+	cfg := config.DefaultConfig()
+	cfg.MicroBFD.Enabled = true
+	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{
+		{
+			LAGInterface: "bond0", MemberLinks: []string{"lo"},
+			PeerAddr: "192.0.2.70", LocalAddr: "127.0.0.1", MinActiveLinks: 1,
+		},
+		{
+			LAGInterface: "bond1", MemberLinks: []string{"lo"},
+			PeerAddr: "not-an-address", LocalAddr: "127.0.0.1", MinActiveLinks: 1,
+		},
+	}
+
+	reconcileMicroBFDGroups(
+		context.Background(), cfg, mgr, sf, slog.New(slog.DiscardHandler),
+	)
+
+	sf.mu.Lock()
+	openedSenders := len(sf.senders)
+	sf.mu.Unlock()
+	if openedSenders != 0 {
+		t.Errorf("opened Micro-BFD senders = %d, want 0", openedSenders)
+	}
+	if got := len(mgr.Sessions()); got != 0 {
+		t.Fatalf("wire sessions after invalid Micro-BFD candidate = %d, want 0", got)
+	}
+}
+
+func TestReconcileOverlayCandidateIsAtomic(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+
+	seed := bfd.SessionConfig{
+		PeerAddr:              netip.MustParseAddr("192.0.2.80"),
+		LocalAddr:             netip.MustParseAddr("192.0.2.81"),
+		Type:                  bfd.SessionTypeVXLAN,
+		Role:                  bfd.RoleActive,
+		DesiredMinTxInterval:  time.Second,
+		RequiredMinRxInterval: time.Second,
+		DetectMultiplier:      3,
+	}
+	if _, _, err := mgr.ReconcileSessionsForOwner(
+		context.Background(),
+		bfd.VXLANReconciliationOwner(),
+		[]bfd.ReconcileConfig{{Key: "seed", SessionConfig: seed, SenderLeaseFactory: candidateTestSenderLeaseFactory()}},
+	); err != nil {
+		t.Fatalf("seed VXLAN reconciliation: %v", err)
+	}
+	before := mgr.Sessions()
+
+	cfg := config.DefaultConfig()
+	cfg.VXLAN.Enabled = true
+	cfg.VXLAN.DefaultDesiredMinTx = time.Second
+	cfg.VXLAN.DefaultRequiredMinRx = time.Second
+	cfg.VXLAN.DefaultDetectMultiplier = 3
+	cfg.VXLAN.Peers = []config.VXLANPeerConfig{
+		{
+			Peer: "192.0.2.90", Local: "192.0.2.91",
+			PeerMAC: "02:00:00:00:00:90", LocalMAC: "02:00:00:00:00:91",
+		},
+		{Peer: "not-an-address", Local: "192.0.2.91"},
+	}
+	if _, err := compileControlSessionCandidate(cfg); err == nil {
+		t.Fatal("invalid VXLAN candidate compiled")
+	}
+
+	after := mgr.Sessions()
+	if len(after) != len(before) || after[0].LocalDiscr != before[0].LocalDiscr {
+		t.Fatalf("VXLAN sessions changed after invalid candidate: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestOverlaySessionLeaseDoesNotCloseSharedBackend(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	conn := &nonOwningLeaseTestOverlayConn{}
+	params := overlayTunnelParams{
+		rfc:      "RFC 8971",
+		sessType: bfd.SessionTypeVXLAN,
+		owner:    bfd.VXLANReconciliationOwner(),
+		defaults: overlayTimerDefaults{
+			desiredMinTx:  time.Second,
+			requiredMinRx: time.Second,
+			detectMult:    3,
+		},
+		entries: []overlayPeerEntry{{
+			key: "vxlan-test", peerName: "vxlan-test",
+			peerStr: "192.0.2.92", localStr: "192.0.2.93",
+		}},
+	}
+	desired, err := compileOverlaySessionCandidates(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the backend close count matters; the stub cannot complete a drain.
+	for _, candidate := range []compiledOverlayCandidate{
+		{owner: params.owner, conns: []netio.OverlayConn{conn}, desired: desired},
+		{owner: params.owner},
+	} {
+		applyCompiledOverlay(context.Background(), mgr, sourceVXLAN, candidate)
+	}
+	mgr.Close()
+
+	if conn.closes != 0 {
+		t.Fatalf("shared overlay backend closes from session leases = %d, want 0", conn.closes)
+	}
+}
+
+func TestReconcileAllSessionsValidatesLaterSourceBeforeAnyApply(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	seed := bfd.SessionConfig{
+		PeerAddr:              netip.MustParseAddr("192.0.2.100"),
+		LocalAddr:             netip.MustParseAddr("127.0.0.1"),
+		Interface:             "lo",
+		Type:                  bfd.SessionTypeSingleHop,
+		Role:                  bfd.RoleActive,
+		DesiredMinTxInterval:  time.Second,
+		RequiredMinRxInterval: time.Second,
+		DetectMultiplier:      3,
+	}
+	if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{{
+		Key: "seed", SessionConfig: seed, SenderLeaseFactory: candidateTestSenderLeaseFactory(),
+	}}); err != nil {
+		t.Fatalf("seed ReconcileSessions: %v", err)
+	}
+	before := mgr.Sessions()
+
+	sf := newUDPSenderFactory(config.SocketConfig{})
+	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
+	cfg := config.DefaultConfig()
+	cfg.Sessions = []config.SessionConfig{{
+		Peer: "192.0.2.101", Local: "127.0.0.1", Interface: "lo",
+	}}
+	cfg.MicroBFD.Enabled = true
+	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
+		LAGInterface: "bond0", MemberLinks: []string{"lo"},
+		PeerAddr: "not-an-address", LocalAddr: "127.0.0.1", MinActiveLinks: 1,
+	}}
+
+	reconcileAllSessions(
+		context.Background(), cfg, mgr, sf,
+		newReconciliationCoordinator(cfg, slog.New(slog.DiscardHandler), nil),
+		slog.New(slog.DiscardHandler),
+	)
+
+	sf.mu.Lock()
+	openedSenders := len(sf.senders)
+	sf.mu.Unlock()
+	if openedSenders != 0 {
+		t.Errorf("opened senders before later source validation = %d, want 0", openedSenders)
+	}
+	after := mgr.Sessions()
+	if len(after) != len(before) || after[0].LocalDiscr != before[0].LocalDiscr {
+		t.Fatalf("sessions changed before later source validation: before=%+v after=%+v", before, after)
+	}
+}
 
 // =========================================================================
 // 4.1 — configSessionToBFD
 // =========================================================================
+
+func TestConfigSessionRequiredMinRx(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name, defaults, peer string
+		sessions             string
+		want                 time.Duration
+		wantErr              bool
+	}{
+		{name: "omitted", want: time.Second},
+		{name: "inherited", defaults: "default_required_min_rx: 250ms", want: 250 * time.Millisecond},
+		{name: "explicit zero", peer: "required_min_rx: 0s"},
+		{name: "numeric zero", peer: "required_min_rx: 0"},
+		{name: "aligned zero", defaults: "align_intervals: true", peer: "required_min_rx: 0s"},
+		{name: "global zero", defaults: "default_required_min_rx: 0s"},
+		{name: "global null", defaults: "default_required_min_rx: null", want: time.Second},
+		{
+			name: "peer null", defaults: "default_required_min_rx: 250ms", peer: "required_min_rx: null",
+			want: 250 * time.Millisecond,
+		},
+		{
+			name: "positive override", defaults: "align_intervals: true", peer: "required_min_rx: 15ms",
+			want: 20 * time.Millisecond,
+		},
+		{name: "ignored marker", peer: "required_min_rx_set: true\n    '-': true", want: time.Second},
+		{name: "boolean peer", peer: "required_min_rx: false", wantErr: true},
+		{name: "boolean global", defaults: "default_required_min_rx: false", wantErr: true},
+		{name: "fractional peer", peer: "required_min_rx: -0.5", wantErr: true},
+		{name: "fractional global", defaults: "default_required_min_rx: -0.5", wantErr: true},
+		{name: "positive fraction", peer: "required_min_rx: 0.5", wantErr: true},
+		{name: "overflow peer", peer: "required_min_rx: 18446744073709551616", wantErr: true},
+		{name: "overflow global", defaults: "default_required_min_rx: 18446744073709551616", wantErr: true},
+		{name: "numeric positive", peer: "required_min_rx: 100000000", want: 100 * time.Millisecond},
+		{name: "singleton zero", sessions: "sessions:\n  peer: 192.0.2.1\n  required_min_rx: 0s", wantErr: true},
+		{name: "singleton marker", sessions: "sessions:\n  peer: 192.0.2.1\n  '-': true", wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			path := t.TempDir() + "/gobfd.yml"
+			data := "bfd:\n  default_desired_min_tx: 1s\n  " + tt.defaults +
+				"\nsessions:\n  - peer: 192.0.2.1\n    " + tt.peer + "\n"
+			if tt.sessions != "" {
+				data = tt.sessions
+			}
+			if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := config.Load(path)
+			if tt.wantErr {
+				wantErr := config.ErrInvalidRequiredMinRx
+				if tt.sessions != "" {
+					wantErr = config.ErrInvalidSessionShape
+				}
+				if !errors.Is(err, wantErr) {
+					t.Fatalf("Load error = %v, want %v", err, wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			got, err := configSessionToBFD(cfg.Sessions[0], cfg.BFD)
+			if err != nil {
+				t.Fatalf("configSessionToBFD: %v", err)
+			}
+			if got.RequiredMinRxInterval != tt.want {
+				t.Errorf("required RX = %s, want %s", got.RequiredMinRxInterval, tt.want)
+			}
+		})
+	}
+}
 
 func TestConfigSessionToBFD(t *testing.T) {
 	t.Parallel()
@@ -293,7 +1282,7 @@ func TestConfigSessionToBFDConfiguresAuthentication(t *testing.T) {
 	if err := cfg.Auth.Sign(state, cfg.AuthKeys, pkt, buf, 0); err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
-	if !pkt.AuthPresent || pkt.Auth == nil {
+	if !pkt.AuthPresent || pkt.Auth.IsZero() {
 		t.Fatal("signed packet missing auth section")
 	}
 	if pkt.Auth.Type != bfd.AuthTypeKeyedSHA1 {
@@ -323,7 +1312,7 @@ func TestBuildUnsolicitedPolicy(t *testing.T) {
 				Enabled:     true,
 				MaxSessions: 100,
 				Interfaces: map[string]config.UnsolicitedInterfaceConfig{
-					"eth0": {
+					"lo": {
 						Enabled:         true,
 						AllowedPrefixes: []string{"10.0.0.0/24", "172.16.0.0/16"},
 					},
@@ -342,9 +1331,9 @@ func TestBuildUnsolicitedPolicy(t *testing.T) {
 				if p.MaxSessions != 100 {
 					t.Errorf("MaxSessions = %d, want 100", p.MaxSessions)
 				}
-				ifCfg, ok := p.Interfaces["eth0"]
+				ifCfg, ok := p.Interfaces["lo"]
 				if !ok {
-					t.Fatal("missing eth0 interface")
+					t.Fatal("missing lo interface")
 				}
 				if len(ifCfg.AllowedPrefixes) != 2 {
 					t.Errorf("AllowedPrefixes count = %d, want 2", len(ifCfg.AllowedPrefixes))
@@ -356,7 +1345,7 @@ func TestBuildUnsolicitedPolicy(t *testing.T) {
 			cfg: config.UnsolicitedConfig{
 				Enabled: true,
 				Interfaces: map[string]config.UnsolicitedInterfaceConfig{
-					"eth0": {
+					"lo": {
 						Enabled:         true,
 						AllowedPrefixes: []string{"not-a-prefix"},
 					},
@@ -369,7 +1358,7 @@ func TestBuildUnsolicitedPolicy(t *testing.T) {
 			cfg: config.UnsolicitedConfig{
 				Enabled: true,
 				Interfaces: map[string]config.UnsolicitedInterfaceConfig{
-					"eth0": {Enabled: true},
+					"lo": {Enabled: true},
 				},
 				SessionDefaults: config.UnsolicitedSessionDefaultsConfig{
 					DetectMult: 256,
@@ -772,32 +1761,51 @@ func (stubOverlayConn) Close() error {
 	return nil
 }
 
-func TestBuildOverlayTunnelParamsUsesRuntimeConnections(t *testing.T) {
+func TestGeneveOverlayCandidatesKeepExactVAPIdentity(t *testing.T) {
 	t.Parallel()
 
-	vxlanConn := stubOverlayConn{}
-	geneveConn := stubOverlayConn{}
 	cfg := config.DefaultConfig()
-	cfg.VXLAN.Enabled = true
-	cfg.VXLAN.ManagementVNI = 100
-	cfg.VXLAN.Peers = []config.VXLANPeerConfig{{Peer: "10.0.0.1", Local: "10.0.0.2"}}
 	cfg.Geneve.Enabled = true
-	cfg.Geneve.DefaultVNI = 200
-	cfg.Geneve.Peers = []config.GenevePeerConfig{{Peer: "10.0.0.3", Local: "10.0.0.4"}}
-
-	params := buildOverlayTunnelParams(cfg, &overlayRuntime{
-		vxlan:  vxlanConn,
-		geneve: geneveConn,
-	}, slog.Default())
-
-	if len(params) != 2 {
-		t.Fatalf("params len = %d, want 2", len(params))
+	cfg.Geneve.DefaultVNI = 100
+	cfg.Geneve.DefaultDesiredMinTx = time.Second
+	cfg.Geneve.DefaultRequiredMinRx = time.Second
+	cfg.Geneve.DefaultDetectMultiplier = 3
+	cfg.Geneve.Peers = []config.GenevePeerConfig{
+		{
+			Peer: "198.51.100.1", Local: "198.51.100.2", VNI: 100,
+			InnerPeer: "192.0.2.1", InnerLocal: "192.0.2.2",
+			PeerMAC: "02:00:00:00:00:01", LocalMAC: "02:00:00:00:00:02",
+		},
+		{
+			Peer: "198.51.100.1", Local: "198.51.100.2", VNI: 200,
+			InnerPeer: "192.0.2.3", InnerLocal: "192.0.2.4",
+			PeerMAC: "02:00:00:00:00:03", LocalMAC: "02:00:00:00:00:04",
+		},
 	}
-	if params[0].conn != vxlanConn {
-		t.Fatalf("VXLAN param conn = %T, want runtime VXLAN conn", params[0].conn)
+	firstScope, err := geneveTransportScope(cfg, cfg.Geneve.Peers[0])
+	if err != nil {
+		t.Fatalf("geneveTransportScope(first): %v", err)
 	}
-	if params[1].conn != geneveConn {
-		t.Fatalf("Geneve param conn = %T, want runtime Geneve conn", params[1].conn)
+	secondScope, err := geneveTransportScope(cfg, cfg.Geneve.Peers[1])
+	if err != nil {
+		t.Fatalf("geneveTransportScope(second): %v", err)
+	}
+	params := buildOverlayTunnelParams(cfg)[1]
+	desired, err := compileOverlaySessionCandidates(params)
+	if err != nil {
+		t.Fatalf("compileOverlaySessionCandidates: %v", err)
+	}
+	if len(desired) != 2 {
+		t.Fatalf("compiled candidates = %d, want 2", len(desired))
+	}
+	if desired[0].SessionConfig.TransportScope == desired[1].SessionConfig.TransportScope {
+		t.Fatal("distinct Geneve VNI/VAP tuples collapsed to one transport scope")
+	}
+	if desired[0].SessionConfig.PeerAddr != firstScope.InnerPeerAddr ||
+		desired[1].SessionConfig.PeerAddr != secondScope.InnerPeerAddr {
+		t.Fatalf("inner peers = %s/%s, want %s/%s",
+			desired[0].SessionConfig.PeerAddr, desired[1].SessionConfig.PeerAddr,
+			firstScope.InnerPeerAddr, secondScope.InnerPeerAddr)
 	}
 }
 
@@ -957,8 +1965,8 @@ func TestLoadConfig(t *testing.T) {
 			path: "",
 			check: func(t *testing.T, cfg *config.Config) {
 				t.Helper()
-				if cfg.GRPC.Addr != ":50051" {
-					t.Errorf("GRPC.Addr = %q, want :50051", cfg.GRPC.Addr)
+				if cfg.GRPC.Addr != "" || cfg.GRPC.Socket.Path != "/run/gobfd/gobfd.sock" {
+					t.Errorf("GRPC = %+v, want only the /run/gobfd/gobfd.sock socket", cfg.GRPC)
 				}
 				if cfg.BFD.DefaultDetectMultiplier != 3 {
 					t.Errorf("DefaultDetectMultiplier = %d, want 3", cfg.BFD.DefaultDetectMultiplier)
@@ -977,7 +1985,7 @@ func TestLoadConfig(t *testing.T) {
 				if err != nil {
 					t.Fatalf("create temp file: %v", err)
 				}
-				if _, err := f.WriteString("grpc:\n  addr: ':9999'\n"); err != nil {
+				if _, err := f.WriteString("grpc:\n  addr: '127.0.0.1:9999'\n"); err != nil {
 					t.Fatalf("write temp file: %v", err)
 				}
 				f.Close()
@@ -985,8 +1993,8 @@ func TestLoadConfig(t *testing.T) {
 			}(),
 			check: func(t *testing.T, cfg *config.Config) {
 				t.Helper()
-				if cfg.GRPC.Addr != ":9999" {
-					t.Errorf("GRPC.Addr = %q, want :9999", cfg.GRPC.Addr)
+				if cfg.GRPC.Addr != "127.0.0.1:9999" {
+					t.Errorf("GRPC.Addr = %q, want 127.0.0.1:9999", cfg.GRPC.Addr)
 				}
 			},
 		},
@@ -1110,7 +2118,6 @@ func TestNewMetricsServerServesMetrics(t *testing.T) {
 	srv := newMetricsServer(
 		config.MetricsConfig{Addr: "127.0.0.1:0", Path: "/metrics"},
 		prometheus.NewRegistry(),
-		nil,
 	)
 	if srv.Addr != "127.0.0.1:0" {
 		t.Fatalf("Addr = %q, want 127.0.0.1:0", srv.Addr)
@@ -1131,28 +2138,17 @@ func TestNewMetricsServerServesMetrics(t *testing.T) {
 	}
 }
 
-func TestNewMetricsServerRegistersFlightRecorderEndpoint(t *testing.T) {
-	fr := trace.NewFlightRecorder(trace.FlightRecorderConfig{
-		MinAge:   flightRecorderMinAge,
-		MaxBytes: flightRecorderMaxBytes,
-	})
-	if err := fr.Start(); err != nil {
-		t.Skipf("flight recorder unavailable: %v", err)
-	}
-	defer fr.Stop()
+// gobfd-qj0.8.2.3.2: the unauthenticated metrics listener serves no debug
+// endpoint; the flight recorder moved behind the management boundary.
+func TestMetricsServerHasNoFlightRecorderEndpoint(t *testing.T) {
+	t.Parallel()
 
-	srv := newMetricsServer(
-		config.MetricsConfig{Addr: "127.0.0.1:0", Path: "/metrics"},
-		prometheus.NewRegistry(),
-		fr,
-	)
-
+	srv := newMetricsServer(config.MetricsConfig{Addr: "127.0.0.1:0", Path: "/metrics"}, prometheus.NewRegistry())
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/debug/flightrecorder", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler.ServeHTTP(rec, req)
-
-	if rec.Code == http.StatusNotFound {
-		t.Fatalf("GET /debug/flightrecorder status = %d, endpoint not registered", rec.Code)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("GET /debug/flightrecorder on the metrics listener = %d, want 404", rec.Code)
 	}
 }
 
@@ -1163,7 +2159,9 @@ func TestNewGRPCServerEnablesHTTP1AndUnencryptedHTTP2(t *testing.T) {
 	mgr := bfd.NewManager(logger)
 	t.Cleanup(mgr.Close)
 
-	srv := newGRPCServer(config.GRPCConfig{Addr: "127.0.0.1:0"}, mgr, nil, logger)
+	srv := newGRPCServer(
+		config.GRPCConfig{Addr: "127.0.0.1:0"}, false, mgr, nil, nil, newDaemonHealthChecker(), nil, logger, nil,
+	)
 	if srv.Protocols == nil {
 		t.Fatal("Protocols is nil; want explicit HTTP/1 and unencrypted HTTP/2")
 	}
@@ -1189,9 +2187,10 @@ func TestHTTPServersEnforceHeaderValueLimit(t *testing.T) {
 		"metrics": newMetricsServer(
 			config.MetricsConfig{Addr: "127.0.0.1:0", Path: "/metrics"},
 			prometheus.NewRegistry(),
-			nil,
 		),
-		"grpc": newGRPCServer(config.GRPCConfig{Addr: "127.0.0.1:0"}, mgr, nil, logger),
+		"grpc": newGRPCServer(
+			config.GRPCConfig{Addr: "127.0.0.1:0"}, false, mgr, nil, nil, newDaemonHealthChecker(), nil, logger, nil,
+		),
 	}
 	for name, srv := range servers {
 		t.Run(name, func(t *testing.T) {
@@ -1267,6 +2266,8 @@ func TestStartGoBGPHandlerWarnsForPlaintextNonLoopback(t *testing.T) {
 		new(errgroup.Group),
 		config.GoBGPConfig{Enabled: true, Addr: ""},
 		nil,
+		nil,
+		nil,
 		logger,
 	)
 	if err == nil {
@@ -1276,6 +2277,40 @@ func TestStartGoBGPHandlerWarnsForPlaintextNonLoopback(t *testing.T) {
 	got := logs.String()
 	if !strings.Contains(got, "gobgp plaintext grpc configured for non-loopback address") {
 		t.Fatalf("log output missing plaintext warning: %s", got)
+	}
+}
+
+// TestStartGoBGPHandlerRejectsIncompatibleEndpoint verifies that startup stops
+// when the configured endpoint does not serve the GoBGP v4 API, as a GoBGP v3
+// daemon does not.
+func TestStartGoBGPHandlerRejectsIncompatibleEndpoint(t *testing.T) {
+	t.Parallel()
+
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	server := grpc.NewServer()
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(listener) }()
+	t.Cleanup(func() {
+		server.Stop()
+		if serveErr := <-served; serveErr != nil {
+			t.Errorf("serve: %v", serveErr)
+		}
+	})
+
+	_, err = startGoBGPHandler(
+		t.Context(),
+		new(errgroup.Group),
+		config.GoBGPConfig{Enabled: true, Addr: listener.Addr().String(), ActionTimeout: 5 * time.Second},
+		nil,
+		nil,
+		nil,
+		slog.New(slog.DiscardHandler),
+	)
+	if !errors.Is(err, gobgp.ErrIncompatibleServer) || !strings.Contains(err.Error(), "requires GoBGP v4") {
+		t.Fatalf("startGoBGPHandler() = %v, want ErrIncompatibleServer naming GoBGP v4", err)
 	}
 }
 
@@ -1320,5 +2355,23 @@ func TestErrDetectMultOverflow(t *testing.T) {
 		0, 0, 300, overlayTimerDefaults{}, bfd.SessionTypeVXLAN)
 	if !errors.Is(err, errDetectMultOverflow) {
 		t.Errorf("buildOverlaySessionConfig: expected errDetectMultOverflow, got %v", err)
+	}
+}
+
+func TestBuildUnsolicitedPolicyAuthentication(t *testing.T) {
+	t.Parallel()
+
+	p, err := buildUnsolicitedPolicy(config.UnsolicitedConfig{
+		Enabled: true, MaxSessions: 1,
+		Auth: config.AuthConfig{Type: "meticulous_keyed_sha1", KeyID: 9, Secret: "unsolicited-sha1"},
+	})
+	if err != nil {
+		t.Fatalf("buildUnsolicitedPolicy: %v", err)
+	}
+	if p.Auth == nil || p.AuthKeys == nil {
+		t.Fatal("policy has no authenticator")
+	}
+	if key := p.AuthKeys.CurrentKey(); key.ID != 9 || key.Type != bfd.AuthTypeMeticulousKeyedSHA1 {
+		t.Fatalf("current key = %d/%v, want 9/Meticulous Keyed SHA1", key.ID, key.Type)
 	}
 }

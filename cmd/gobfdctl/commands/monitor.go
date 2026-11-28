@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/signal"
 	"syscall"
 
@@ -32,8 +33,18 @@ func monitorCmd() *cobra.Command {
 			}
 			defer stream.Close()
 
-			for stream.Receive() {
-				msg := stream.Msg()
+			for {
+				msg2, err := stream.Receive()
+				if err != nil {
+					if errors.Is(err, io.EOF) {
+						break
+					}
+					if errors.Is(err, context.Canceled) {
+						return nil
+					}
+					return fmt.Errorf("stream error: %w", err)
+				}
+				msg := msg2
 
 				out, fmtErr := formatEvent(msg, outputFormat)
 				if fmtErr != nil {
@@ -43,14 +54,7 @@ func monitorCmd() *cobra.Command {
 				fmt.Println(out)
 			}
 
-			if err := stream.Err(); err != nil {
-				// Context cancellation (Ctrl+C) is expected, not an error.
-				if errors.Is(err, context.Canceled) {
-					return nil
-				}
-
-				return fmt.Errorf("stream error: %w", err)
-			}
+			// Context cancellation (Ctrl+C) is expected, not an error.
 
 			return nil
 		},

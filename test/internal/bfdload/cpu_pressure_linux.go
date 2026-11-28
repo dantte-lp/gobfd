@@ -1,0 +1,215 @@
+//go:build linux
+
+package bfdload
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"runtime"
+	"time"
+
+	"golang.org/x/sys/unix"
+)
+
+const (
+	cpuPercentScale    = 100
+	cpuYieldQuantum    = 5 * time.Millisecond
+	cpuClockPollChunks = 4
+)
+
+// CPUPressureObservation reports generated thread CPU time, not a held host-load claim.
+type CPUPressureObservation struct {
+	RequestedPercent           uint64             `json:"requested_percent"`
+	Workers                    int                `json:"workers"`
+	PeriodNS                   int64              `json:"period_ns"`
+	ScheduledAtUTC             time.Time          `json:"scheduled_at_utc"`
+	DurationNS                 int64              `json:"duration_ns"`
+	CPUTimeNS                  int64              `json:"cpu_time_ns"`
+	WorkerWallTimeNS           int64              `json:"worker_wall_time_ns"`
+	Windows                    uint64             `json:"windows"`
+	MissedWindows              uint64             `json:"missed_windows"`
+	StartLatenessNS            int64              `json:"start_lateness_ns"`
+	EndLatenessNS              int64              `json:"end_lateness_ns"`
+	WorkChecksum               uint64             `json:"work_checksum"`
+	Completed                  bool               `json:"completed"`
+	MissedWindowSamples        []CPUWindowFailure `json:"missed_window_samples,omitempty"`
+	MissedWindowSamplesOmitted uint64             `json:"missed_window_samples_omitted,omitempty"`
+}
+
+type cpuWorkerResult struct {
+	CPUPressureObservation
+
+	err error
+}
+
+type cpuPressure struct {
+	observation CPUPressureObservation
+	results     chan cpuWorkerResult
+}
+
+func startCPUPressure(
+	ctx context.Context, profile Profile, at time.Time, failed context.CancelFunc,
+) (*cpuPressure, error) {
+	result := &cpuPressure{observation: CPUPressureObservation{
+		RequestedPercent: profile.CPULoadPercent, PeriodNS: int64(pressurePeriod),
+		ScheduledAtUTC: at.UTC(), DurationNS: int64(profile.Duration), Completed: true,
+	}}
+	if profile.CPULoadPercent == 0 {
+		return result, nil
+	}
+	workers := runtime.GOMAXPROCS(0)
+	if profile.CPULoadPercent > cpuPercentScale || profile.Duration <= 0 || workers > referenceCPUs {
+		return nil, fmt.Errorf("CPU pressure requires a valid duty and at most %d workers: %w", referenceCPUs, ErrProfile)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("start CPU pressure: %w", err)
+	}
+	result.observation.Workers = workers
+	result.results = make(chan cpuWorkerResult, workers)
+	duty := int64(profile.CPULoadPercent)
+	for worker := range workers {
+		go func() {
+			observed := runCPUWorker(ctx, at, profile.Duration, duty, worker)
+			if observed.err != nil {
+				failed()
+			}
+			result.results <- observed
+		}()
+	}
+	return result, nil
+}
+
+func (p *cpuPressure) join() (CPUPressureObservation, error) {
+	var joined error
+	for range p.observation.Workers {
+		worker := <-p.results
+		p.observation.CPUTimeNS += worker.CPUTimeNS
+		p.observation.WorkerWallTimeNS += worker.WorkerWallTimeNS
+		p.observation.Windows += worker.Windows
+		p.observation.MissedWindows += worker.MissedWindows
+		p.observation.MissedWindowSamples = append(p.observation.MissedWindowSamples, worker.MissedWindowSamples...)
+		p.observation.MissedWindowSamplesOmitted += worker.MissedWindowSamplesOmitted
+		p.observation.StartLatenessNS = max(p.observation.StartLatenessNS, worker.StartLatenessNS)
+		p.observation.EndLatenessNS = max(p.observation.EndLatenessNS, worker.EndLatenessNS)
+		p.observation.WorkChecksum ^= worker.WorkChecksum
+		p.observation.Completed = p.observation.Completed && worker.Completed
+		joined = errors.Join(joined, worker.err)
+	}
+	return p.observation, joined
+}
+
+func runCPUWorker(ctx context.Context, at time.Time, duration time.Duration, duty int64, worker int) cpuWorkerResult {
+	var result cpuWorkerResult
+	result.MissedWindowSamples = make([]CPUWindowFailure, 0, cpuFailureSampleLimit)
+	// A bounded helper thread keeps its CPU clock attributable to this worker.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	if result.err = awaitPhaseTime(ctx, at); result.err != nil {
+		return result
+	}
+	actualStart := time.Now()
+	result.StartLatenessNS = max(0, int64(actualStart.Sub(at)))
+	initial, err := threadCPUTime()
+	if err != nil {
+		result.err = err
+		return result
+	}
+	end := at.Add(duration)
+	result.WorkChecksum = 1
+	for window := at; window.Before(end); window = window.Add(pressurePeriod) {
+		until := window.Add(pressurePeriod)
+		if end.Before(until) {
+			until = end
+		}
+		budget := time.Duration(int64(until.Sub(window)) * duty / cpuPercentScale)
+		var consumed cpuWindowResult
+		consumed, result.err = burnCPUWindow(ctx, until, budget, &result.WorkChecksum)
+		result.Windows++
+		if consumed.used < budget {
+			result.recordCPUFailure(worker, at, window, until, budget, consumed)
+		}
+		if result.err != nil {
+			break
+		}
+		if result.err = awaitPhaseTime(ctx, until); result.err != nil {
+			break
+		}
+	}
+	final, finalErr := threadCPUTime()
+	result.WorkerWallTimeNS = int64(time.Since(actualStart))
+	if finalErr == nil && final >= initial {
+		result.CPUTimeNS = int64(final - initial)
+	}
+	result.EndLatenessNS = max(0, int64(time.Since(end)))
+	result.err = errors.Join(result.err, finalErr)
+	if result.err == nil && final < initial {
+		result.err = fmt.Errorf("CPU worker clock decreased: %w", errEnvironmentData)
+	}
+	result.Completed = result.err == nil && !time.Now().Before(end)
+	return result
+}
+
+func burnCPUWindow(
+	ctx context.Context, until time.Time, budget time.Duration, checksum *uint64,
+) (cpuWindowResult, error) {
+	var result cpuWindowResult
+	initial, err := threadCPUTime()
+	if err != nil {
+		result.exit = "clock_error"
+		return result, err
+	}
+	var lastYield time.Duration
+	chunksSincePoll := 0
+	for result.used < budget {
+		result.lastWall = time.Now()
+		if result.firstWall.IsZero() {
+			result.firstWall = result.lastWall
+		}
+		if !result.lastWall.Before(until) {
+			result.exit = "deadline"
+			return result, nil
+		}
+		if err := ctx.Err(); err != nil {
+			result.exit = "canceled"
+			return result, fmt.Errorf("CPU pressure interrupted: %w", err)
+		}
+		burnPressureChunk(checksum)
+		chunksSincePoll++
+		if chunksSincePoll < cpuClockPollChunks {
+			continue
+		}
+		chunksSincePoll = 0
+		current, clockErr := threadCPUTime()
+		if clockErr != nil {
+			result.exit = "clock_error"
+			return result, clockErr
+		}
+		if current < initial {
+			result.exit = "clock_regression"
+			return result, fmt.Errorf("CPU duty clock decreased: %w", errEnvironmentData)
+		}
+		result.observed, result.observedKnown = current-initial, true
+		// A late clock read cannot prove this budget was consumed inside the window.
+		result.lastWall = time.Now()
+		if !result.lastWall.Before(until) {
+			result.exit = "late_sample"
+			return result, nil
+		}
+		result.used, result.acceptedWall = result.observed, result.lastWall
+		if result.used < budget && result.used-lastYield >= cpuYieldQuantum {
+			lastYield = result.used
+			runtime.Gosched()
+		}
+	}
+	result.exit = "budget"
+	return result, nil
+}
+
+func threadCPUTime() (time.Duration, error) {
+	var now unix.Timespec
+	if err := unix.ClockGettime(unix.CLOCK_THREAD_CPUTIME_ID, &now); err != nil {
+		return 0, fmt.Errorf("read CPU worker thread clock: %w", err)
+	}
+	return time.Duration(now.Nano()), nil
+}

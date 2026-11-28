@@ -57,7 +57,7 @@ func TestManagerCreateSession(t *testing.T) {
 		defer mgr.Close()
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
@@ -92,7 +92,7 @@ func TestManagerHandleInterfaceEventMarksMatchingSessionsPathDown(t *testing.T) 
 		defer mgr.Close()
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
@@ -134,7 +134,7 @@ func TestManagerHandleInterfaceEventIgnoresOtherInterfaces(t *testing.T) {
 		defer mgr.Close()
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
@@ -225,7 +225,7 @@ func TestManagerCreateSessionValidation(t *testing.T) {
 			mgr := newTestManager(t)
 			defer mgr.Close()
 
-			_, err := mgr.CreateSession(context.Background(), tt.cfg, noopSender{})
+			_, err := mgr.CreateSession(context.Background(), tt.cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 			if err == nil {
 				t.Fatalf("expected error containing %q, got nil", tt.wantErr)
 			}
@@ -249,13 +249,13 @@ func TestManagerCreateSessionDuplicate(t *testing.T) {
 
 		cfg := defaultManagerConfig()
 
-		_, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		_, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("first CreateSession: %v", err)
 		}
 
 		// Second creation with same peer key should fail.
-		_, err = mgr.CreateSession(context.Background(), cfg, noopSender{})
+		_, err = mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err == nil {
 			t.Fatal("expected ErrDuplicateSession, got nil")
 		}
@@ -279,7 +279,7 @@ func TestManagerDestroySession(t *testing.T) {
 		defer mgr.Close()
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
@@ -339,7 +339,7 @@ func TestManagerDemuxByDiscriminator(t *testing.T) {
 		defer mgr.Close()
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
@@ -362,7 +362,7 @@ func TestManagerDemuxByDiscriminator(t *testing.T) {
 			IfName:  "eth0",
 		}
 
-		if err := mgr.Demux(pkt, meta); err != nil {
+		if _, err := mgr.Demux(pkt, meta); err != nil {
 			t.Fatalf("Demux: %v", err)
 		}
 
@@ -389,7 +389,7 @@ func TestManagerDemuxByPeerKey(t *testing.T) {
 		defer mgr.Close()
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
@@ -415,7 +415,7 @@ func TestManagerDemuxByPeerKey(t *testing.T) {
 			IfName:  "eth0",
 		}
 
-		if err := mgr.Demux(pkt, meta); err != nil {
+		if _, err := mgr.Demux(pkt, meta); err != nil {
 			t.Fatalf("Demux: %v", err)
 		}
 
@@ -485,7 +485,7 @@ func TestManagerDemuxNoMatch(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			err := mgr.Demux(tt.pkt, tt.meta)
+			_, err := mgr.Demux(tt.pkt, tt.meta)
 			if err == nil {
 				t.Fatal("expected ErrDemuxNoMatch, got nil")
 			}
@@ -529,11 +529,11 @@ func TestManagerSessions(t *testing.T) {
 			DetectMultiplier:      5,
 		}
 
-		sess1, err := mgr.CreateSession(context.Background(), cfg1, noopSender{})
+		sess1, err := mgr.CreateSession(context.Background(), cfg1, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession 1: %v", err)
 		}
-		sess2, err := mgr.CreateSession(context.Background(), cfg2, noopSender{})
+		sess2, err := mgr.CreateSession(context.Background(), cfg2, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession 2: %v", err)
 		}
@@ -610,7 +610,7 @@ func TestManagerStateChanges(t *testing.T) {
 		go mgr.RunDispatch(dispatchCtx)
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
@@ -678,7 +678,7 @@ func TestManagerReconcileSessionsCreatesNew(t *testing.T) {
 					RequiredMinRxInterval: time.Second,
 					DetectMultiplier:      3,
 				},
-				Sender: noopSender{},
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
 			},
 		}
 
@@ -711,12 +711,21 @@ func TestManagerReconcileSessionsDestroysStale(t *testing.T) {
 		defer mgr.Close()
 
 		cfg := defaultManagerConfig()
-		_, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		created, destroyed, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
+			{
+				Key:                "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig:      cfg,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
+			},
+		})
 		if err != nil {
-			t.Fatalf("CreateSession: %v", err)
+			t.Fatalf("initial ReconcileSessions: %v", err)
+		}
+		if created != 1 || destroyed != 0 {
+			t.Fatalf("initial reconcile = (%d created, %d destroyed), want (1, 0)", created, destroyed)
 		}
 
-		// Reconcile with empty desired set: existing session should be destroyed.
+		// Reconcile with empty desired set: the config-owned session should be destroyed.
 		created, destroyed, reconcileErr := mgr.ReconcileSessions(
 			context.Background(), nil,
 		)
@@ -738,6 +747,237 @@ func TestManagerReconcileSessionsDestroysStale(t *testing.T) {
 	})
 }
 
+func TestManagerConfigAndCompatibilityAPIClaimsShareSession(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg := defaultManagerConfig()
+		created, destroyed, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
+			{
+				Key:                "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig:      cfg,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
+			},
+		})
+		if err != nil {
+			t.Fatalf("ReconcileSessions: %v", err)
+		}
+		if created != 1 || destroyed != 0 {
+			t.Fatalf("reconcile = (%d created, %d destroyed), want (1, 0)", created, destroyed)
+		}
+		original := mgr.Sessions()[0]
+
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
+		if err != nil {
+			t.Fatalf("CreateSession matching config claim: %v", err)
+		}
+		if sess.LocalDiscriminator() != original.LocalDiscr {
+			t.Errorf("compatibility API discriminator = %d, want shared %d",
+				sess.LocalDiscriminator(), original.LocalDiscr)
+		}
+		if got := len(mgr.Sessions()); got != 1 {
+			t.Errorf("wire sessions = %d, want 1", got)
+		}
+	})
+}
+
+func TestManagerReleaseCompatibilityAPIClaimPreservesConfigSession(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg := defaultManagerConfig()
+		if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
+			{
+				Key:                "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig:      cfg,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
+			},
+		}); err != nil {
+			t.Fatalf("ReconcileSessions: %v", err)
+		}
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
+		if err != nil {
+			t.Fatalf("CreateSession matching config claim: %v", err)
+		}
+
+		if err := mgr.DestroySession(context.Background(), sess.LocalDiscriminator()); err != nil {
+			t.Fatalf("DestroySession: %v", err)
+		}
+		found, ok := mgr.LookupByDiscriminator(sess.LocalDiscriminator())
+		if !ok || found != sess {
+			t.Fatal("releasing compatibility API claim removed config-owned wire session")
+		}
+	})
+}
+
+func TestManagerConflictingClaimDoesNotMutateSession(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg := defaultManagerConfig()
+		if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
+			{
+				Key:                "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig:      cfg,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
+			},
+		}); err != nil {
+			t.Fatalf("ReconcileSessions: %v", err)
+		}
+		before := mgr.Sessions()[0]
+
+		conflict := cfg
+		conflict.DetectMultiplier++
+		_, err := mgr.CreateSession(context.Background(), conflict, bfd.NonOwningSenderLeaseFactory(noopSender{}))
+		if err == nil {
+			t.Fatal("CreateSession conflicting claim succeeded")
+		}
+		if !errors.Is(err, bfd.ErrSessionParameterConflict) {
+			t.Fatalf("CreateSession conflict error = %v, want ErrSessionParameterConflict", err)
+		}
+
+		after := mgr.Sessions()
+		if len(after) != 1 {
+			t.Fatalf("wire sessions after conflict = %d, want 1", len(after))
+		}
+		if after[0].LocalDiscr != before.LocalDiscr ||
+			after[0].DetectMultiplier != before.DetectMultiplier {
+			t.Errorf("session mutated after conflict: before=%+v after=%+v", before, after[0])
+		}
+	})
+}
+
+func TestManagerReconcileConflictDoesNotReleaseExistingClaims(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg1 := defaultManagerConfig()
+		cfg2 := cfg1
+		cfg2.PeerAddr = netip.MustParseAddr("198.51.100.1")
+		if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
+			{
+				Key:                "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig:      cfg1,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
+			},
+			{
+				Key:                "198.51.100.1|192.0.2.2|eth0",
+				SessionConfig:      cfg2,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
+			},
+		}); err != nil {
+			t.Fatalf("initial ReconcileSessions: %v", err)
+		}
+		before := mgr.Sessions()
+
+		conflict := cfg1
+		conflict.Role = bfd.RolePassive
+		created, destroyed, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
+			{
+				Key:                "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig:      conflict,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
+			},
+		})
+		if !errors.Is(err, bfd.ErrSessionParameterConflict) {
+			t.Fatalf("ReconcileSessions error = %v, want ErrSessionParameterConflict", err)
+		}
+		if created != 0 || destroyed != 0 {
+			t.Errorf("conflicting reconcile = (%d created, %d destroyed), want (0, 0)",
+				created, destroyed)
+		}
+
+		after := mgr.Sessions()
+		if len(after) != len(before) {
+			t.Fatalf("wire sessions after conflict = %d, want %d", len(after), len(before))
+		}
+		beforeByDiscr := make(map[uint32]bfd.SessionSnapshot, len(before))
+		for _, snapshot := range before {
+			beforeByDiscr[snapshot.LocalDiscr] = snapshot
+		}
+		for _, snapshot := range after {
+			previous, ok := beforeByDiscr[snapshot.LocalDiscr]
+			if !ok {
+				t.Errorf("unexpected discriminator %d after conflict", snapshot.LocalDiscr)
+				continue
+			}
+			if snapshot.DetectMultiplier != previous.DetectMultiplier {
+				t.Errorf("session %d detect multiplier changed from %d to %d",
+					snapshot.LocalDiscr, previous.DetectMultiplier, snapshot.DetectMultiplier)
+			}
+		}
+	})
+}
+
+func TestManagerCanonicalizesMappedIPv4ClaimIdentity(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		apiCfg := defaultManagerConfig()
+		apiCfg.PeerAddr = netip.MustParseAddr("::ffff:192.0.2.1")
+		apiCfg.LocalAddr = netip.MustParseAddr("::ffff:192.0.2.2")
+		sess, err := mgr.CreateSession(context.Background(), apiCfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+
+		configCfg := defaultManagerConfig()
+		created, destroyed, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
+			{
+				Key:                "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig:      configCfg,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
+			},
+		})
+		if err != nil {
+			t.Fatalf("ReconcileSessions: %v", err)
+		}
+		if created != 0 || destroyed != 0 {
+			t.Errorf("reconcile = (%d created, %d destroyed), want shared (0, 0)", created, destroyed)
+		}
+		if got := mgr.Sessions(); len(got) != 1 || got[0].LocalDiscr != sess.LocalDiscriminator() {
+			t.Errorf("canonical IPv4 claims did not share wire session: %+v", got)
+		}
+	})
+}
+
+func TestManagerEmptyConfigReconcilePreservesCompatibilityAPISession(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg := defaultManagerConfig()
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+
+		created, destroyed, reconcileErr := mgr.ReconcileSessions(context.Background(), nil)
+		if reconcileErr != nil {
+			t.Fatalf("ReconcileSessions: %v", reconcileErr)
+		}
+		if created != 0 {
+			t.Errorf("created = %d, want 0", created)
+		}
+		if destroyed != 0 {
+			t.Errorf("destroyed = %d, want 0", destroyed)
+		}
+
+		found, ok := mgr.LookupByDiscriminator(sess.LocalDiscriminator())
+		if !ok {
+			t.Fatal("compatibility API session removed by empty config reconciliation")
+		}
+		if found != sess {
+			t.Error("compatibility API session pointer changed after reconciliation")
+		}
+	})
+}
+
 // TestManagerReconcileSessionsKeepsExisting verifies that reconciliation
 // does not destroy sessions that exist in both current and desired sets.
 func TestManagerReconcileSessionsKeepsExisting(t *testing.T) {
@@ -746,16 +986,16 @@ func TestManagerReconcileSessionsKeepsExisting(t *testing.T) {
 		defer mgr.Close()
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
 
 		desired := []bfd.ReconcileConfig{
 			{
-				Key:           "192.0.2.1|192.0.2.2|eth0",
-				SessionConfig: cfg,
-				Sender:        noopSender{},
+				Key:                "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig:      cfg,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
 			},
 		}
 
@@ -794,13 +1034,25 @@ func TestManagerStateChangeSubscribersReceiveSameEvent(t *testing.T) {
 		defer dispatchCancel()
 		go mgr.RunDispatch(dispatchCtx)
 
-		sub1 := mgr.SubscribeStateChanges(dispatchCtx)
-		sub2 := mgr.SubscribeStateChanges(dispatchCtx)
+		sub1, err := mgr.SubscribeStateChanges(dispatchCtx)
+		if err != nil {
+			t.Fatalf("SubscribeStateChanges(sub1): %v", err)
+		}
+		sub2, err := mgr.SubscribeStateChanges(dispatchCtx)
+		if err != nil {
+			t.Fatalf("SubscribeStateChanges(sub2): %v", err)
+		}
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
+		}
+		for _, sub := range []<-chan bfd.StateChange{sub1, sub2} {
+			if added := <-sub; !added.Added || added.NewState != bfd.StateDown ||
+				added.Ref != sess.Ref() || added.Status.ObservationVersion != added.ObservationVersion {
+				t.Fatalf("registration = %+v, want Added/Down for the new session", added)
+			}
 		}
 
 		time.Sleep(2 * time.Second)
@@ -835,17 +1087,19 @@ func TestManagerDrainAllSessions(t *testing.T) {
 			DetectMultiplier:      3,
 		}
 
-		sess1, err := mgr.CreateSession(context.Background(), cfg1, noopSender{})
+		sess1, err := mgr.CreateSession(context.Background(), cfg1, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession 1: %v", err)
 		}
-		sess2, err := mgr.CreateSession(context.Background(), cfg2, noopSender{})
+		sess2, err := mgr.CreateSession(context.Background(), cfg2, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession 2: %v", err)
 		}
 
 		// Drain all sessions.
-		mgr.DrainAllSessions()
+		if err := mgr.DrainAllSessions(t.Context()); err != nil {
+			t.Fatal(err)
+		}
 		time.Sleep(10 * time.Millisecond)
 
 		// Both sessions should be AdminDown.
@@ -868,7 +1122,7 @@ func TestManagerDrainAllSessions(t *testing.T) {
 	})
 }
 
-func TestManagerDestroyUnsolicitedSessionReleasesQuota(t *testing.T) {
+func TestManagerDestroyDoesNotReleaseUnsolicitedClaim(t *testing.T) {
 	t.Parallel()
 
 	policy := &bfd.UnsolicitedPolicy{
@@ -891,7 +1145,8 @@ func TestManagerDestroyUnsolicitedSessionReleasesQuota(t *testing.T) {
 	mgr := bfd.NewManager(
 		slog.Default(),
 		bfd.WithUnsolicitedPolicy(policy),
-		bfd.WithUnsolicitedSender(noopSender{}),
+		bfd.WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
+		bfd.WithUnsolicitedSessionSender(noopSessionSender),
 	)
 	defer mgr.Close()
 
@@ -902,7 +1157,7 @@ func TestManagerDestroyUnsolicitedSessionReleasesQuota(t *testing.T) {
 		IfName:  "eth0",
 		TTL:     255,
 	}
-	if err := mgr.DemuxWithWire(first, firstMeta, nil); err != nil {
+	if _, err := mgr.DemuxWithWire(*first, firstMeta, nil); err != nil {
 		t.Fatalf("create first unsolicited session: %v", err)
 	}
 
@@ -910,15 +1165,22 @@ func TestManagerDestroyUnsolicitedSessionReleasesQuota(t *testing.T) {
 	if len(snapshots) != 1 {
 		t.Fatalf("sessions after first create = %d, want 1", len(snapshots))
 	}
-	if err := mgr.DestroySession(context.Background(), snapshots[0].LocalDiscr); err != nil {
-		t.Fatalf("destroy first unsolicited session: %v", err)
+	if err := mgr.DestroySession(context.Background(), snapshots[0].LocalDiscr); !errors.Is(
+		err, bfd.ErrSessionOwnerClaimNotFound,
+	) {
+		t.Fatalf("DestroySession error = %v, want ErrSessionOwnerClaimNotFound", err)
+	}
+	if got := mgr.Sessions(); len(got) != 1 || got[0].LocalDiscr != snapshots[0].LocalDiscr {
+		t.Fatalf("sessions after API destroy attempt = %+v, want unsolicited session preserved", got)
 	}
 
 	second := makeUnsolicitedControlPacket(200)
 	secondMeta := firstMeta
 	secondMeta.SrcAddr = netip.MustParseAddr("192.0.2.11")
-	if err := mgr.DemuxWithWire(second, secondMeta, nil); err != nil {
-		t.Fatalf("create second unsolicited session after destroy: %v", err)
+	if _, err := mgr.DemuxWithWire(*second, secondMeta, nil); !errors.Is(
+		err, bfd.ErrUnsolicitedMaxSessions,
+	) {
+		t.Fatalf("second unsolicited error = %v, want ErrUnsolicitedMaxSessions", err)
 	}
 }
 
@@ -941,7 +1203,8 @@ func TestManagerUnsolicitedCleanupRemovesDownSession(t *testing.T) {
 	mgr := bfd.NewManager(
 		slog.Default(),
 		bfd.WithUnsolicitedPolicy(policy),
-		bfd.WithUnsolicitedSender(noopSender{}),
+		bfd.WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
+		bfd.WithUnsolicitedSessionSender(noopSessionSender),
 	)
 	defer mgr.Close()
 
@@ -955,7 +1218,7 @@ func TestManagerUnsolicitedCleanupRemovesDownSession(t *testing.T) {
 		IfName:  "eth0",
 		TTL:     255,
 	}
-	if err := mgr.DemuxWithWire(makeUnsolicitedControlPacket(100), meta, nil); err != nil {
+	if _, err := mgr.DemuxWithWire(*makeUnsolicitedControlPacket(100), meta, nil); err != nil {
 		t.Fatalf("create unsolicited session: %v", err)
 	}
 
@@ -1096,7 +1359,7 @@ func TestManagerDemuxEcho(t *testing.T) {
 		}
 
 		// DemuxEcho with the echo session's discriminator should succeed.
-		if err := mgr.DemuxEcho(discr); err != nil {
+		if _, err := mgr.DemuxEcho(discr); err != nil {
 			t.Fatalf("DemuxEcho: %v", err)
 		}
 
@@ -1104,7 +1367,7 @@ func TestManagerDemuxEcho(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 
 		// After receiving an echo return, the session should transition
-		// Down -> Up (RFC 9747 Section 3.3).
+		// Down -> Up under the current two-state preview.
 		snapshots := mgr.EchoSessions()
 		if len(snapshots) != 1 {
 			t.Fatalf("expected 1 echo session, got %d", len(snapshots))
@@ -1125,7 +1388,7 @@ func TestManagerDemuxEchoNoMatch(t *testing.T) {
 	mgr := newTestManager(t)
 	defer mgr.Close()
 
-	err := mgr.DemuxEcho(99999)
+	_, err := mgr.DemuxEcho(99999)
 	if err == nil {
 		t.Fatal("expected ErrEchoDemuxNoMatch, got nil")
 	}
@@ -1240,7 +1503,7 @@ func TestManagerReconcileEchoSessionsCreatesNew(t *testing.T) {
 					TxInterval:       100 * time.Millisecond,
 					DetectMultiplier: 3,
 				},
-				Sender: noopSender{},
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
 			},
 		}
 
@@ -1264,9 +1527,9 @@ func TestManagerReconcileEchoSessionsCreatesNew(t *testing.T) {
 	})
 }
 
-// TestManagerReconcileEchoSessionsDestroysStale verifies that
-// ReconcileEchoSessions destroys echo sessions not in the desired set.
-func TestManagerReconcileEchoSessionsDestroysStale(t *testing.T) {
+// TestManagerReconcileEchoSessionsPreservesAPISessions verifies that an empty
+// declarative desired set does not destroy sessions created through the API.
+func TestManagerReconcileEchoSessionsPreservesAPISessions(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		mgr := newTestManager(t)
 		defer mgr.Close()
@@ -1277,7 +1540,7 @@ func TestManagerReconcileEchoSessionsDestroysStale(t *testing.T) {
 			t.Fatalf("CreateEchoSession: %v", err)
 		}
 
-		// Reconcile with empty desired set: existing echo session should be destroyed.
+		// Reconcile with an empty declarative desired set: the API session remains.
 		created, destroyed, reconcileErr := mgr.ReconcileEchoSessions(
 			context.Background(), nil,
 		)
@@ -1287,12 +1550,12 @@ func TestManagerReconcileEchoSessionsDestroysStale(t *testing.T) {
 		if created != 0 {
 			t.Errorf("created = %d, want 0", created)
 		}
-		if destroyed != 1 {
-			t.Errorf("destroyed = %d, want 1", destroyed)
+		if destroyed != 0 {
+			t.Errorf("destroyed = %d, want 0", destroyed)
 		}
 
-		if len(mgr.EchoSessions()) != 0 {
-			t.Error("expected 0 echo sessions after reconciliation")
+		if len(mgr.EchoSessions()) != 1 {
+			t.Error("expected API-created echo session to survive reconciliation")
 		}
 
 		time.Sleep(10 * time.Millisecond)
@@ -1445,10 +1708,12 @@ func TestManagerReconcileMicroBFDGroups(t *testing.T) {
 	mgr := newTestManager(t)
 	defer mgr.Close()
 
-	// Create an initial group.
+	// Create an initial reload-owned group.
 	cfg1 := defaultMicroBFDConfig()
-	if _, err := mgr.CreateMicroBFDGroup(cfg1); err != nil {
-		t.Fatalf("CreateMicroBFDGroup: %v", err)
+	if err := mgr.ReconcileMicroBFDGroupsDetailed(t.Context(), []bfd.MicroBFDReconcileConfig{
+		{Key: cfg1.LAGInterface, Config: cfg1, SenderLeaseFactory: microLeaseFactories()},
+	}).Err(); err != nil {
+		t.Fatalf("seed reconcile: %v", err)
 	}
 
 	// Reconcile: remove bond0, add bond1.
@@ -1464,10 +1729,10 @@ func TestManagerReconcileMicroBFDGroups(t *testing.T) {
 	}
 
 	desired := []bfd.MicroBFDReconcileConfig{
-		{Key: "bond1", Config: cfg2},
+		{Key: "bond1", Config: cfg2, SenderLeaseFactory: microLeaseFactories()},
 	}
 
-	created, destroyed, err := mgr.ReconcileMicroBFDGroups(desired)
+	created, destroyed, err := mgr.ReconcileMicroBFDGroups(t.Context(), desired)
 	if err != nil {
 		t.Fatalf("ReconcileMicroBFDGroups: %v", err)
 	}
@@ -1523,7 +1788,7 @@ func TestManagerDispatchMicroBFDCallsActuator(t *testing.T) {
 	sessCfg := defaultManagerConfig()
 	sessCfg.Type = bfd.SessionTypeMicroBFD
 	sessCfg.Interface = "eth0"
-	sess, err := mgr.CreateSession(context.Background(), sessCfg, noopSender{})
+	sess, err := mgr.CreateSession(context.Background(), sessCfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -1546,6 +1811,38 @@ func TestManagerDispatchMicroBFDCallsActuator(t *testing.T) {
 
 type recordingMicroBFDActuator struct {
 	events chan bfd.MicroBFDMemberEvent
+}
+
+func TestFullWatchAddedDoesNotActuateMicro(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		actuator := &recordingMicroBFDActuator{events: make(chan bfd.MicroBFDMemberEvent, 1)}
+		mgr := bfd.NewManager(slog.New(slog.DiscardHandler), bfd.WithMicroBFDActuator(actuator))
+		defer mgr.Close()
+		if _, err := mgr.CreateMicroBFDGroup(defaultMicroBFDConfig()); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		sub, err := mgr.SubscribeStateChanges(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := defaultManagerConfig()
+		cfg.Type, cfg.Interface, cfg.Role = bfd.SessionTypeMicroBFD, "eth0", bfd.RolePassive
+		if _, err := mgr.CreateSession(ctx, cfg, bfd.NonOwningSenderLeaseFactory(noopSender{})); err != nil {
+			t.Fatal(err)
+		}
+		go mgr.RunDispatch(ctx)
+		synctest.Wait()
+		if added := <-sub; !added.Added || added.Type != bfd.SessionTypeMicroBFD {
+			t.Fatalf("registration = %+v", added)
+		}
+		select {
+		case event := <-actuator.events:
+			t.Fatalf("registration actuated Micro-BFD: %+v", event)
+		default:
+		}
+	})
 }
 
 func (r *recordingMicroBFDActuator) HandleMicroBFDMemberEvent(
@@ -1691,4 +1988,10 @@ func searchSubstring(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// noopSessionSender hands every unsolicited session a non-owning lease on
+// noopSender.
+func noopSessionSender(bfd.PacketMeta) (*bfd.SenderLease, error) {
+	return bfd.NonOwningSenderLeaseFactory(noopSender{})()
 }

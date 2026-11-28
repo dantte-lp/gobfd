@@ -1,0 +1,869 @@
+// Command cictl owns shell-free CI workflow operations.
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/dantte-lp/gobfd/test/internal/cirunner"
+)
+
+func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	err := run(ctx, os.Args[1:], dependencies{})
+	cancel()
+
+	if err != nil {
+		slog.Error("CI command failed", "error", err)
+		os.Exit(1)
+	}
+}
+
+type dependencies struct {
+	getenv           func(string) string
+	getwd            func() (string, error)
+	environ          func() []string
+	now              func() time.Time
+	runner           cirunner.CommandRunner
+	specRunner       cirunner.SpecRunner
+	prefixRunner     cirunner.PrefixRunner
+	stdout           io.Writer
+	stderr           io.Writer
+	preparePublisher func(context.Context, cirunner.GoReleaserOptions) (publisherAuditWorkspace, error)
+}
+
+func run(ctx context.Context, arguments []string, deps dependencies) error {
+	if deps.getenv == nil {
+		deps.getenv = os.Getenv
+	}
+	if deps.now == nil {
+		deps.now = time.Now
+	}
+	if deps.getwd == nil {
+		deps.getwd = os.Getwd
+	}
+	if deps.environ == nil {
+		deps.environ = os.Environ
+	}
+	if deps.runner == nil {
+		deps.runner = cirunner.ExecRunner{Stdout: os.Stdout, Stderr: os.Stderr}
+	}
+	if deps.specRunner == nil {
+		deps.specRunner = cirunner.ExecRunner{Stdout: os.Stdout, Stderr: os.Stderr}
+	}
+	if deps.prefixRunner == nil {
+		deps.prefixRunner = cirunner.ExecRunner{Stdout: os.Stdout, Stderr: os.Stderr}
+	}
+	if deps.stdout == nil {
+		deps.stdout = os.Stdout
+	}
+	if deps.stderr == nil {
+		deps.stderr = os.Stderr
+	}
+	if len(arguments) == 0 {
+		return fmt.Errorf(
+			"usage: cictl {build|dev-ensure|lint|test-coverage|commit-policy|"+
+				"buf-fetch-base|buf-breaking|sbom|proto-verify|publisher-audit|"+
+				"benchmark-run|benchmark-base|benchmark-pair|benchmark-normalize|benchmark-report|"+
+				"local-benchmark|local-benchmark-save|local-benchmark-compare|"+
+				"release-build|release-test-report|release-benchmarks|release-benchmark-metadata|"+
+				"release-benchmark-comparison|release-reports-archive|release-preflight|release-notes|release-pr-check|"+
+				"release-please-pr|release-goreleaser|release-source-tools|"+
+				"release-upx|release-syft|release-artifacts|release-assets-upload|release-oci-evidence|release-evide"+
+				"nce|release-verify|"+
+				"release-promote|release-publish|package-build|package-lifecycle}: %w",
+			flag.ErrHelp,
+		)
+	}
+
+	command, commandArguments := arguments[0], arguments[1:]
+	if handled, err := runCoreCommand(ctx, command, commandArguments, deps); handled {
+		return err
+	}
+	if handled, err := runBenchmarkCommand(ctx, command, commandArguments, deps); handled {
+		return err
+	}
+	if handled, err := runReleaseCommand(ctx, command, commandArguments, deps); handled {
+		return err
+	}
+	if handled, err := runPackageCommand(ctx, command, commandArguments, deps); handled {
+		return err
+	}
+	return fmt.Errorf("unknown CI command %q: %w", command, flag.ErrHelp)
+}
+
+func runCoreCommand(
+	ctx context.Context, command string, arguments []string, deps dependencies,
+) (bool, error) {
+	switch command {
+	case "build":
+		return true, runBuild(ctx, arguments, deps)
+	case "dev-ensure":
+		return true, runDevEnsure(ctx, arguments, deps)
+	case "lint":
+		return true, runLint(ctx, arguments, deps)
+	case "test-coverage":
+		return true, runTestCoverage(ctx, arguments, deps)
+	case "commit-policy":
+		return true, runCommitPolicy(ctx, arguments, deps)
+	case "buf-fetch-base":
+		return true, runBufFetchBase(ctx, arguments, deps)
+	case "buf-breaking":
+		return true, runBufBreaking(ctx, arguments, deps)
+	case "sbom":
+		return true, runSBOM(ctx, arguments, deps)
+	case "proto-verify":
+		return true, runProtoVerify(ctx, arguments, deps)
+	case "publisher-audit":
+		return true, runPublisherAudit(ctx, arguments, deps)
+	default:
+		return false, nil
+	}
+}
+
+func runBenchmarkCommand(
+	ctx context.Context, command string, arguments []string, deps dependencies,
+) (bool, error) {
+	switch command {
+	case "benchmark-run":
+		return true, runBenchmark(ctx, arguments, deps)
+	case "benchmark-base":
+		return true, runBenchmarkBase(ctx, arguments, deps)
+	case "benchmark-pair":
+		return true, runBenchmarkPair(ctx, arguments, deps)
+	case "benchmark-normalize":
+		return true, runBenchmarkNormalize(arguments, deps)
+	case "benchmark-report":
+		return true, runBenchmarkReport(ctx, arguments, deps)
+	case "local-benchmark":
+		return true, runLocalBenchmark(ctx, arguments, deps)
+	case "local-benchmark-save":
+		return true, runLocalBenchmarkSave(ctx, arguments, deps)
+	case "local-benchmark-compare":
+		return true, runLocalBenchmarkCompare(ctx, arguments, deps)
+	default:
+		return false, nil
+	}
+}
+
+func runReleaseCommand(
+	ctx context.Context, command string, arguments []string, deps dependencies,
+) (bool, error) {
+	if handled, err := runReleaseReportCommand(ctx, command, arguments, deps); handled {
+		return true, err
+	}
+	if handled, err := runReleasePrerequisiteCommand(ctx, command, arguments, deps); handled {
+		return true, err
+	}
+
+	switch command {
+	case "release-build":
+		return true, runReleaseBuild(ctx, arguments, deps)
+	case "release-preflight":
+		return true, runReleasePreflight(ctx, arguments, deps)
+	case "release-pr-check":
+		return true, runReleasePullRequest(ctx, arguments, deps)
+	case "release-artifacts":
+		return true, runReleaseArtifacts(ctx, arguments, deps)
+	case "release-assets-upload":
+		return true, runReleaseAssetsUpload(ctx, arguments, deps)
+	case "release-oci-evidence":
+		return true, runReleaseOCIEvidence(ctx, arguments, deps)
+	case "release-evidence":
+		return true, runReleaseEvidence(ctx, arguments, deps)
+	case "release-verify":
+		return true, runReleaseVerify(ctx, arguments, deps)
+	case "release-promote":
+		return true, runReleasePromote(ctx, arguments, deps)
+	case "release-publish":
+		return true, runReleasePublish(ctx, arguments, deps)
+	default:
+		return false, nil
+	}
+}
+
+func runReleasePrerequisiteCommand(
+	ctx context.Context, command string, arguments []string, deps dependencies,
+) (bool, error) {
+	switch command {
+	case "release-please-pr":
+		return true, runReleasePleasePullRequest(ctx, arguments, deps)
+	case "release-upx":
+		return true, runReleaseUPX(ctx, arguments, deps)
+	case "release-syft":
+		return true, runReleaseSyft(ctx, arguments, deps)
+	case "release-goreleaser":
+		return true, runReleaseGoReleaser(ctx, arguments, deps)
+	case "release-source-tools":
+		return true, runReleaseSourceTools(ctx, arguments, deps)
+	default:
+		return false, nil
+	}
+}
+
+func runReleasePleasePullRequest(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("release-please-pr", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve release automation root: %w", err)
+	}
+	if err := cirunner.PrepareReleasePleasePullRequest(ctx, cirunner.ReleasePleaseOptions{
+		Root: root, Repository: deps.getenv("GITHUB_REPOSITORY"), Ref: deps.getenv("GITHUB_REF"),
+		Event: deps.getenv("GITHUB_EVENT_NAME"), Environment: deps.environ,
+		Token: func() string { return deps.getenv("GH_TOKEN") }, Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("prepare release pull request: %w", err)
+	}
+	return nil
+}
+
+func runReleaseReportCommand(
+	ctx context.Context, command string, arguments []string, deps dependencies,
+) (bool, error) {
+	switch command {
+	case "release-test-report":
+		return true, runReleaseTestReport(ctx, arguments, deps)
+	case "release-benchmarks":
+		return true, runReleaseBenchmarks(ctx, arguments, deps)
+	case "release-benchmark-metadata":
+		return true, runReleaseBenchmarkMetadata(ctx, arguments, deps)
+	case "release-benchmark-comparison":
+		return true, runReleaseBenchmarkComparison(ctx, arguments, deps)
+	case "release-reports-archive":
+		return true, runReleaseReportsArchive(arguments, deps)
+	case "release-notes":
+		return true, runReleaseNotes(ctx, arguments, deps)
+	default:
+		return false, nil
+	}
+}
+
+func runLint(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("lint", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve lint repository root: %w", err)
+	}
+	if err := cirunner.Lint(ctx, cirunner.LintOptions{
+		Root: root, Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("run repository lint profiles: %w", err)
+	}
+	return nil
+}
+
+func runReleasePromote(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("release-promote", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve release verifier root for OCI alias promotion: %w", err)
+	}
+	if err := cirunner.PromoteReleaseOCIAliases(ctx, cirunner.PromoteReleaseOCIAliasesOptions{
+		Root: root, ArtifactRoot: deps.getenv("RELEASE_ARTIFACT_ROOT"), RunnerTemp: deps.getenv("RUNNER_TEMP"),
+		RefName: deps.getenv("GITHUB_REF_NAME"), SHA: deps.getenv("GITHUB_SHA"),
+		Repository: deps.getenv("GITHUB_REPOSITORY"), Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("promote verified OCI aliases: %w", err)
+	}
+	return nil
+}
+
+func runReleasePublish(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("release-publish", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve release verifier root for publication: %w", err)
+	}
+	if err := cirunner.PublishVerifiedRelease(ctx, cirunner.PublishVerifiedReleaseOptions{
+		Root: root, ArtifactRoot: deps.getenv("RELEASE_ARTIFACT_ROOT"), RunnerTemp: deps.getenv("RUNNER_TEMP"),
+		RefName: deps.getenv("GITHUB_REF_NAME"), SHA: deps.getenv("GITHUB_SHA"),
+		Repository: deps.getenv("GITHUB_REPOSITORY"), Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("publish verified release: %w", err)
+	}
+	return nil
+}
+
+func runReleaseVerify(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("release-verify", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve release verifier root: %w", err)
+	}
+	if err := cirunner.VerifyReleaseDraft(ctx, cirunner.VerifyReleaseDraftOptions{
+		Root: root, ArtifactRoot: deps.getenv("RELEASE_ARTIFACT_ROOT"), RunnerTemp: deps.getenv("RUNNER_TEMP"),
+		RefName: deps.getenv("GITHUB_REF_NAME"), SHA: deps.getenv("GITHUB_SHA"),
+		Repository: deps.getenv("GITHUB_REPOSITORY"), Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("verify exact release draft: %w", err)
+	}
+	return nil
+}
+
+func runReleaseEvidence(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("release-evidence", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve release evidence verifier root: %w", err)
+	}
+	if err := cirunner.ReleaseEvidence(ctx, cirunner.ReleaseEvidenceOptions{
+		Root: root, ArtifactRoot: deps.getenv("RELEASE_ARTIFACT_ROOT"), RefName: deps.getenv("GITHUB_REF_NAME"),
+		Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("attach release evidence: %w", err)
+	}
+	return nil
+}
+
+func runReleaseOCIEvidence(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("release-oci-evidence", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve release OCI evidence root: %w", err)
+	}
+	if err := cirunner.ReleaseOCIEvidence(ctx, cirunner.ReleaseOCIEvidenceOptions{
+		Root: root, ReceiptRoot: deps.getenv("RELEASE_ARTIFACT_ROOT"), RefName: deps.getenv("GITHUB_REF_NAME"),
+		Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("record exact OCI release evidence: %w", err)
+	}
+	return nil
+}
+
+func runReleaseArtifacts(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("release-artifacts", arguments); err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseArtifacts(ctx, cirunner.ReleaseArtifactsOptions{
+		Root: deps.getenv("RELEASE_ARTIFACT_ROOT"), RunnerTemp: deps.getenv("RUNNER_TEMP"),
+		RefName: deps.getenv("GITHUB_REF_NAME"), SHA: deps.getenv("GITHUB_SHA"), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("record exact GoReleaser artifacts: %w", err)
+	}
+	return nil
+}
+
+func runReleaseAssetsUpload(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("release-assets-upload", arguments); err != nil {
+		return err
+	}
+	if err := cirunner.UploadReleaseAssets(ctx, cirunner.UploadReleaseAssetsOptions{
+		ArtifactRoot: deps.getenv("RELEASE_ARTIFACT_ROOT"), RunnerTemp: deps.getenv("RUNNER_TEMP"),
+		RefName: deps.getenv("GITHUB_REF_NAME"), Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("upload exact GoReleaser assets: %w", err)
+	}
+	return nil
+}
+
+func runReleaseUPX(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("release-upx", arguments); err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseUPX(ctx, cirunner.ReleaseUPXOptions{
+		RunnerTemp: deps.getenv("RUNNER_TEMP"), GitHubPath: deps.getenv("GITHUB_PATH"),
+		Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("verify UPX prerequisite: %w", err)
+	}
+	return nil
+}
+
+func runReleaseSyft(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("release-syft", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	compilerContainer := flags.Bool("compiler-container", false, "build Syft inside the pinned compiler container")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse release-syft flags: %w", err)
+	}
+	root, err := releaseRoot("release-syft", flags.Args(), deps)
+	if err != nil {
+		return err
+	}
+	execute := cirunner.ReleaseSyft
+	if *compilerContainer {
+		execute = cirunner.ReleaseSyftCompiler
+	}
+	if err := execute(ctx, cirunner.ReleaseSyftOptions{
+		Root: root, RunnerTemp: deps.getenv("RUNNER_TEMP"), GitHubPath: deps.getenv("GITHUB_PATH"),
+		Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("verify Syft prerequisite: %w", err)
+	}
+	return nil
+}
+
+func runReleaseGoReleaser(ctx context.Context, arguments []string, deps dependencies) error {
+	root, err := releaseRoot("release-goreleaser", arguments, deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseGoReleaser(ctx, cirunner.ReleaseSyftOptions{
+		Root: root, RunnerTemp: deps.getenv("RUNNER_TEMP"), GitHubPath: deps.getenv("GITHUB_PATH"),
+		Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("verify GoReleaser prerequisite: %w", err)
+	}
+	return nil
+}
+
+func runReleaseSourceTools(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("release-source-tools", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	compilerContainer := flags.Bool("compiler-container", false, "build both source prerequisites in compiler containers")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse source prerequisite flags: %w", err)
+	}
+	if !*compilerContainer {
+		return fmt.Errorf("source prerequisites require --compiler-container: %w", flag.ErrHelp)
+	}
+	root, err := releaseRoot("release-source-tools", flags.Args(), deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseSourceToolsCompiler(ctx, cirunner.ReleaseSyftOptions{
+		Root: root, RunnerTemp: deps.getenv("RUNNER_TEMP"), GitHubPath: deps.getenv("GITHUB_PATH"),
+		Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("verify source prerequisites: %w", err)
+	}
+	return nil
+}
+
+func runReleaseNotes(ctx context.Context, arguments []string, deps dependencies) error {
+	root, err := releaseRoot("release-notes", arguments, deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseNotes(ctx, cirunner.ReleaseNotesOptions{
+		Root: root, RefName: deps.getenv("GITHUB_REF_NAME"), Repository: deps.getenv("GITHUB_REPOSITORY"),
+		Output: deps.stdout, Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("extract release notes: %w", err)
+	}
+	return nil
+}
+
+func runReleasePreflight(ctx context.Context, arguments []string, deps dependencies) error {
+	root, err := releaseRoot("release-preflight", arguments, deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.ReleasePreflight(ctx, cirunner.ReleasePreflightOptions{
+		Root: root, RunnerTemp: deps.getenv("RUNNER_TEMP"), RefName: deps.getenv("GITHUB_REF_NAME"),
+		SHA: deps.getenv("GITHUB_SHA"), Repository: deps.getenv("GITHUB_REPOSITORY"),
+		Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("refuse mutable release identity: %w", err)
+	}
+	return nil
+}
+
+func runReleasePullRequest(ctx context.Context, arguments []string, deps dependencies) error {
+	root, err := releaseRoot("release-pr-check", arguments, deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.VerifyReleasePullRequest(ctx, cirunner.ReleasePullRequestOptions{
+		Root: root, RefName: deps.getenv("GITHUB_REF_NAME"), SHA: deps.getenv("GITHUB_SHA"),
+		Repository: deps.getenv("GITHUB_REPOSITORY"), Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("verify release pull request: %w", err)
+	}
+	return nil
+}
+
+func runReleaseBuild(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("release-build", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	output := flags.String("output", "/tmp/gobfd-release-build", "release binary output directory")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse release-build flags: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected release-build arguments: %w", flag.ErrHelp)
+	}
+	if err := cirunner.ReleaseBuild(ctx, cirunner.ReleaseBuildOptions{
+		RefName: deps.getenv("GITHUB_REF_NAME"), SHA: deps.getenv("GITHUB_SHA"),
+		Output: *output, Now: deps.now, Runner: deps.runner,
+	}); err != nil {
+		return fmt.Errorf("build release binaries: %w", err)
+	}
+	return nil
+}
+
+func runReleaseTestReport(ctx context.Context, arguments []string, deps dependencies) error {
+	root, err := releaseRoot("release-test-report", arguments, deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseTestReport(ctx, root, deps.specRunner); err != nil {
+		return fmt.Errorf("generate release test report: %w", err)
+	}
+	return nil
+}
+
+func runReleaseBenchmarks(ctx context.Context, arguments []string, deps dependencies) error {
+	root, err := releaseRoot("release-benchmarks", arguments, deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseBenchmarks(
+		ctx, root, deps.getenv("GITHUB_REF_NAME"), deps.stdout, deps.specRunner,
+	); err != nil {
+		return fmt.Errorf("run release benchmarks: %w", err)
+	}
+	return nil
+}
+
+func runReleaseBenchmarkMetadata(ctx context.Context, arguments []string, deps dependencies) error {
+	root, err := releaseRoot("release-benchmark-metadata", arguments, deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseBenchmarkMetadata(ctx, cirunner.ReleaseMetadataOptions{
+		Root: root, Version: deps.getenv("GITHUB_REF_NAME"), SHA: deps.getenv("GITHUB_SHA"),
+		Now: deps.now, Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("generate release benchmark metadata: %w", err)
+	}
+	return nil
+}
+
+func runReleaseBenchmarkComparison(ctx context.Context, arguments []string, deps dependencies) error {
+	root, err := releaseRoot("release-benchmark-comparison", arguments, deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseBenchmarkComparison(ctx, cirunner.ReleaseComparisonOptions{
+		Root: root, Version: deps.getenv("GITHUB_REF_NAME"), Runner: deps.specRunner,
+		RunnerTemp: deps.getenv("RUNNER_TEMP"), Repository: deps.getenv("GITHUB_REPOSITORY"),
+		SHA: deps.getenv("GITHUB_SHA"), Environment: deps.environ(),
+	}); err != nil {
+		return fmt.Errorf("compare release benchmarks: %w", err)
+	}
+	return nil
+}
+
+func runReleaseReportsArchive(arguments []string, deps dependencies) error {
+	root, err := releaseRoot("release-reports-archive", arguments, deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseReportsArchive(root, deps.getenv("GITHUB_REF_NAME")); err != nil {
+		return fmt.Errorf("create release reports archive: %w", err)
+	}
+	return nil
+}
+
+func releaseRoot(name string, arguments []string, deps dependencies) (string, error) {
+	if err := rejectArguments(name, arguments); err != nil {
+		return "", err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return "", fmt.Errorf("resolve repository root: %w", err)
+	}
+	return root, nil
+}
+
+func runTestCoverage(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("test-coverage", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.TestCoverage(ctx, root, deps.specRunner); err != nil {
+		return fmt.Errorf("run CI coverage tests: %w", err)
+	}
+	return nil
+}
+
+func runCommitPolicy(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("commit-policy", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.CommitPolicy(ctx, root, deps.getenv("PR_TITLE"), deps.specRunner); err != nil {
+		return fmt.Errorf("run commit policy: %w", err)
+	}
+	return nil
+}
+
+func runBufFetchBase(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("buf-fetch-base", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.BufFetchBase(ctx, root, deps.getenv("GITHUB_BASE_REF"), deps.specRunner); err != nil {
+		return fmt.Errorf("fetch Buf base branch: %w", err)
+	}
+	return nil
+}
+
+func runBufBreaking(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("buf-breaking", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.BufBreaking(ctx, root, deps.getenv("GITHUB_BASE_REF"), deps.specRunner); err != nil {
+		return fmt.Errorf("check Buf compatibility: %w", err)
+	}
+	return nil
+}
+
+func rejectArguments(name string, arguments []string) error {
+	if len(arguments) != 0 {
+		return fmt.Errorf("unexpected %s arguments: %w", name, flag.ErrHelp)
+	}
+	return nil
+}
+
+func runBenchmark(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("benchmark-run", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	output := flags.String("output", "new.txt", "raw benchmark output")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse benchmark-run flags: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected benchmark-run arguments: %w", flag.ErrHelp)
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.BenchmarkRun(ctx, cirunner.BenchmarkRunOptions{
+		Root: root, Output: *output, Regex: deps.getenv("BENCH_REGEX"), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("run head benchmarks: %w", err)
+	}
+	return nil
+}
+
+func runBenchmarkBase(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("benchmark-base", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	output := flags.String("output", "old.txt", "raw base benchmark output")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse benchmark-base flags: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected benchmark-base arguments: %w", flag.ErrHelp)
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.BenchmarkBase(ctx, cirunner.BenchmarkBaseOptions{
+		Root: root, RunnerTemp: deps.getenv("RUNNER_TEMP"),
+		Ref: "origin/" + deps.getenv("GITHUB_BASE_REF"), Output: *output,
+		Regex: deps.getenv("BENCH_REGEX"), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("run base benchmarks: %w", err)
+	}
+	return nil
+}
+
+func runBenchmarkPair(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("benchmark-pair", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	oldName := flags.String("old", "old.txt", "raw base benchmark output")
+	newName := flags.String("new", "new.txt", "raw head benchmark output")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse benchmark-pair flags: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected benchmark-pair arguments: %w", flag.ErrHelp)
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.BenchmarkPair(ctx, cirunner.BenchmarkBaseOptions{
+		Root: root, RunnerTemp: deps.getenv("RUNNER_TEMP"), Ref: "origin/" + deps.getenv("GITHUB_BASE_REF"),
+		Output: *oldName, Regex: deps.getenv("BENCH_REGEX"), Runner: deps.specRunner,
+	}, *newName); err != nil {
+		return fmt.Errorf("run paired benchmarks: %w", err)
+	}
+	return nil
+}
+
+func runBenchmarkNormalize(arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("benchmark-normalize", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	oldName := flags.String("old", "old.txt", "old benchmark input")
+	newName := flags.String("new", "new.txt", "new benchmark input")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse benchmark-normalize flags: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected benchmark-normalize arguments: %w", flag.ErrHelp)
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.NormalizeBenchmarks(root, []string{*oldName, *newName}); err != nil {
+		return fmt.Errorf("normalize benchmark inputs: %w", err)
+	}
+	return nil
+}
+
+func runBenchmarkReport(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("benchmark-report", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	oldName := flags.String("old", "old.txt", "old benchmark input")
+	newName := flags.String("new", "new.txt", "new benchmark input")
+	markdown := flags.String("markdown", "bench-report.md", "Markdown report")
+	htmlReport := flags.String("html", "bench-comparison.html", "HTML report")
+	jsonReport := flags.String("json", "bench-comparison.json", "structured JSON report")
+	csvReport := flags.String("csv", "bench-regression/bench-csv.txt", "benchstat CSV output")
+	notes := flags.String("notes", "bench-regression/benchstat-notes.txt", "benchstat notes")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse benchmark-report flags: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected benchmark-report arguments: %w", flag.ErrHelp)
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.BenchmarkReport(ctx, cirunner.BenchmarkReportOptions{
+		Root: root, Old: *oldName, New: *newName, Markdown: *markdown, HTML: *htmlReport,
+		JSON: *jsonReport, CSV: *csvReport, Notes: *notes,
+		StepSummary: deps.getenv("GITHUB_STEP_SUMMARY"), Warning: deps.stdout, Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("generate benchmark comparison reports: %w", err)
+	}
+	return nil
+}
+
+func runSBOM(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("sbom", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	reportDir := flags.String("report-dir", "reports/security", "SBOM report directory")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse SBOM flags: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected SBOM arguments: %w", flag.ErrHelp)
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve SBOM repository root: %w", err)
+	}
+	if err := cirunner.SBOM(ctx, cirunner.SBOMOptions{
+		Root: root, Environment: deps.environ(), ReportDir: *reportDir,
+		Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("generate CI SBOMs: %w", err)
+	}
+	return nil
+}
+
+func runProtoVerify(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("proto-verify", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse proto-verify flags: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected proto-verify arguments: %w", flag.ErrHelp)
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.ProtoVerify(ctx, cirunner.ProtoOptions{
+		Root:        root,
+		RunnerTemp:  deps.getenv("RUNNER_TEMP"),
+		Environment: deps.environ(),
+		Runner:      deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("verify generated protobuf code: %w", err)
+	}
+	return nil
+}
+
+func runBuild(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("build", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	sha := flags.String("sha", deps.getenv("GITHUB_SHA"), "Git commit SHA")
+	output := flags.String("output", "/tmp/gobfd-build", "binary output directory")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse build flags: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected build arguments: %w", flag.ErrHelp)
+	}
+	if err := cirunner.Build(ctx, cirunner.BuildOptions{
+		SHA:    *sha,
+		Output: *output,
+		Now:    deps.now,
+		Runner: deps.runner,
+	}); err != nil {
+		return fmt.Errorf("build CI binaries: %w", err)
+	}
+	return nil
+}
+
+func runPackageCommand(
+	ctx context.Context, command string, arguments []string, deps dependencies,
+) (bool, error) {
+	var execute func(context.Context, cirunner.PackageOptions) error
+	switch command {
+	case "package-build":
+		execute = cirunner.PackageBuild
+	case "package-lifecycle":
+		execute = cirunner.PackageLifecycle
+	default:
+		return false, nil
+	}
+	if err := rejectArguments(command, arguments); err != nil {
+		return true, err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return true, fmt.Errorf("resolve %s repository root: %w", command, err)
+	}
+	if err := execute(ctx, cirunner.PackageOptions{
+		Root: root, Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return true, fmt.Errorf("run %s: %w", command, err)
+	}
+	return true, nil
+}

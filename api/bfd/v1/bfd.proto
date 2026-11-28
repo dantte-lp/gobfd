@@ -59,7 +59,18 @@ enum SessionType {
   SESSION_TYPE_GENEVE = 6;
 }
 
-// BfdSession represents the full state of a BFD session.
+// ObservationCause identifies the committed reason for causal facts.
+enum ObservationCause {
+  OBSERVATION_CAUSE_UNSPECIFIED = 0;
+  OBSERVATION_CAUSE_REMOTE_ADMIN_DOWN = 1;
+  OBSERVATION_CAUSE_REMOTE_DOWN = 2;
+  OBSERVATION_CAUSE_DETECTION_TIMEOUT = 3;
+  OBSERVATION_CAUSE_LOCAL_ADMIN = 4;
+  OBSERVATION_CAUSE_PATH_DOWN = 5;
+  OBSERVATION_CAUSE_CONFIGURATION = 6;
+}
+
+// BfdSession contains snapshot status or partial STATE_CHANGE causal facts.
 message BfdSession {
   string peer_address = 1 [(buf.validate.field).string.ip = true];
   string local_address = 2 [(buf.validate.field).string.ip = true];
@@ -80,6 +91,17 @@ message BfdSession {
   google.protobuf.Timestamp last_state_change = 17;
   google.protobuf.Timestamp last_packet_received = 18;
   SessionCounters counters = 19;
+  // Version covers local state/diagnostic, known remote state/diagnostic,
+  // C-bits and cause only. Timers, configuration and counters are sampled.
+  uint64 observation_version = 20;
+  bool remote_known = 21;
+  DiagnosticCode remote_diagnostic = 22;
+  bool local_control_plane_independent = 23;
+  bool remote_control_plane_independent = 24;
+  ObservationCause cause = 25;
+  // Configured target PDU size in bytes; 0 disables padding. Bounds match
+  // AddSessionRequest.padded_pdu_size; authenticated PDUs may exceed the target.
+  uint32 padded_pdu_size = 26;
 }
 
 // SessionCounters contains packet and state transition counters for a session.
@@ -103,6 +125,10 @@ message AddSessionRequest {
   AuthenticationType auth_type = 8;
   uint32 auth_key_id = 9 [(buf.validate.field).uint32 = {lte: 255}];
   bytes auth_secret = 10;
+  // Target PDU size in bytes; 0 disables padding. Valid nonzero targets are
+  // 24-9000 without authentication or 26-9000 with authentication.
+  // Authentication may make the actual PDU larger than this target.
+  uint32 padded_pdu_size = 11;
 }
 
 // AddSessionResponse returns the newly created session.
@@ -121,12 +147,86 @@ message DeleteSessionResponse {}
 // ListSessionsRequest retrieves all active BFD sessions.
 message ListSessionsRequest {}
 
-// ListSessionsResponse contains all active BFD sessions.
+// DeliverySource identifies a processing stage with its own denominator.
+enum DeliverySource {
+  DELIVERY_SOURCE_UNSPECIFIED = 0;
+  DELIVERY_SOURCE_WIRE_PARSE = 1;
+  DELIVERY_SOURCE_BASE_TTL = 2;
+  DELIVERY_SOURCE_OVERLAY_DECAP = 3;
+  DELIVERY_SOURCE_DEMUX = 4;
+  DELIVERY_SOURCE_UNSOLICITED_ADMISSION = 5;
+  DELIVERY_SOURCE_PACKET_ADMISSION = 6;
+  DELIVERY_SOURCE_PACKET_OWNER = 7;
+  DELIVERY_SOURCE_PATH_DOWN_ADMISSION = 8;
+  DELIVERY_SOURCE_ADMIN_DOWN_ADMISSION = 9;
+  DELIVERY_SOURCE_CONTROL_OWNER = 10;
+  DELIVERY_SOURCE_ECHO_READ = 11;
+  DELIVERY_SOURCE_ECHO_PARSE = 12;
+  DELIVERY_SOURCE_ECHO_TTL = 13;
+  DELIVERY_SOURCE_ECHO_DEMUX = 14;
+  DELIVERY_SOURCE_ECHO_ADMISSION = 15;
+  DELIVERY_SOURCE_ECHO_OWNER = 16;
+  DELIVERY_SOURCE_CONTROL_NOTIFICATION = 17;
+  DELIVERY_SOURCE_UNSOLICITED_NOTIFICATION = 18;
+  DELIVERY_SOURCE_ECHO_NOTIFICATION = 19;
+  DELIVERY_SOURCE_NOTIFICATION_DISPATCH = 20;
+  DELIVERY_SOURCE_WATCH_RECIPIENT = 21;
+  DELIVERY_SOURCE_LEGACY_NOTIFICATION = 22;
+}
+
+// DeliveryOutcome distinguishes admission, owner commit and terminal refusals.
+enum DeliveryOutcome {
+  DELIVERY_OUTCOME_UNSPECIFIED = 0;
+  DELIVERY_OUTCOME_ACCEPTED = 1;
+  DELIVERY_OUTCOME_PARSER_REJECTED = 2;
+  DELIVERY_OUTCOME_TTL_REJECTED = 3;
+  DELIVERY_OUTCOME_POLICY_REJECTED = 4;
+  DELIVERY_OUTCOME_READ_ERROR = 5;
+  DELIVERY_OUTCOME_FOUND = 6;
+  DELIVERY_OUTCOME_UNKNOWN_SESSION = 7;
+  DELIVERY_OUTCOME_SCOPE_MISMATCH = 8;
+  DELIVERY_OUTCOME_QUEUED = 9;
+  DELIVERY_OUTCOME_QUEUE_FULL = 10;
+  DELIVERY_OUTCOME_CLOSED = 11;
+  DELIVERY_OUTCOME_CAPACITY_REJECTED = 12;
+  DELIVERY_OUTCOME_RATE_REJECTED = 13;
+  DELIVERY_OUTCOME_AUTH_UNEXPECTED = 14;
+  DELIVERY_OUTCOME_AUTH_MISSING = 15;
+  DELIVERY_OUTCOME_AUTH_FAILED = 16;
+  DELIVERY_OUTCOME_SENDER_UNAVAILABLE = 17;
+  DELIVERY_OUTCOME_CREATE_FAILED = 18;
+  DELIVERY_OUTCOME_COMMITTED = 19;
+  DELIVERY_OUTCOME_ZERO_TX = 20;
+  DELIVERY_OUTCOME_ABANDONED = 21;
+  DELIVERY_OUTCOME_CANCELED = 22;
+  DELIVERY_OUTCOME_DEADLINE = 23;
+  DELIVERY_OUTCOME_IGNORED = 24;
+  DELIVERY_OUTCOME_STALE = 25;
+  DELIVERY_OUTCOME_GAPPED = 26;
+}
+
+// DeliveryCounter samples one fixed process-lifetime bucket. Supported pairs
+// include zero counts; UNSPECIFIED is never recorded. JSON may omit zero count.
+message DeliveryCounter {
+  DeliverySource source = 1;
+  DeliveryOutcome outcome = 2;
+  uint64 count = 3;
+}
+
+// ListSessionsResponse contains active sessions and sampled delivery telemetry.
 message ListSessionsResponse {
   repeated BfdSession sessions = 1;
+  // Revision is the daemon state-change revision the snapshot covers.
+  // Revisions are scoped to one daemon process.
+  uint64 revision = 2;
+  // Counters survive session deletion and are sampled once per fixed bucket.
+  // Revision does not atomically cover counters or different pipeline stages.
+  repeated DeliveryCounter delivery_counters = 3;
 }
 
 // GetSessionRequest retrieves a single BFD session by discriminator or peer address.
+// A peer address that matches more than one session fails with
+// FAILED_PRECONDITION and lists the local discriminators to use instead.
 message GetSessionRequest {
   oneof identifier {
     uint32 local_discriminator = 1;
@@ -137,6 +237,8 @@ message GetSessionRequest {
 // GetSessionResponse returns the requested BFD session.
 message GetSessionResponse {
   BfdSession session = 1;
+  // Revision is the daemon state-change revision the snapshot covers.
+  uint64 revision = 2;
 }
 
 // WatchSessionEventsRequest starts a server-side stream of BFD session events.
@@ -148,6 +250,15 @@ message WatchSessionEventsRequest {
 
 // WatchSessionEventsResponse represents a BFD session lifecycle event
 // streamed from WatchSessionEvents RPC.
+//
+// Every state change carries a revision that increases within one daemon
+// process. A snapshot (include_current, or a resync after a gap) is a run
+// of SESSION_ADDED events followed by SYNC_COMPLETE with the revision it
+// covers; later state changes have higher revisions and may repeat state
+// already in the snapshot. When the stream falls behind, the server sends
+// GAP, then a fresh snapshot, whatever include_current was: the client
+// discards its state on GAP and rebuilds it from the snapshot. There is no
+// replay; a reconnecting client starts from a snapshot.
 message WatchSessionEventsResponse {
   // EventType classifies the session event.
   enum EventType {
@@ -155,11 +266,18 @@ message WatchSessionEventsResponse {
     EVENT_TYPE_STATE_CHANGE = 1;
     EVENT_TYPE_SESSION_ADDED = 2;
     EVENT_TYPE_SESSION_DELETED = 3;
+    // GAP: state changes were lost; a snapshot follows. No session.
+    EVENT_TYPE_GAP = 4;
+    // SYNC_COMPLETE: the snapshot ended; revision is the revision it
+    // covers. No session.
+    EVENT_TYPE_SYNC_COMPLETE = 5;
   }
   EventType type = 1;
   BfdSession session = 2;
   SessionState previous_state = 3;
   google.protobuf.Timestamp timestamp = 4;
+  // Revision is the daemon state-change revision of this event.
+  uint64 revision = 5;
 }
 
 // BfdService provides gRPC API for managing BFD sessions.

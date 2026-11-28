@@ -1,0 +1,37 @@
+{
+  "module": "github.com/goreleaser/goreleaser/v2",
+  "version": "v2.20.3",
+  "sum": "h1:u9HQ6pEw76Eu4sFXjRz8xXF/pWsVsO3HkriYgbMNggI=",
+  "go_mod_sum": "h1:pLJK4xFoo+enD9Y07RqANcgJxI4FCzvftUscIESqkDE=",
+  "source_commit": "a6edafaafe0fd15a4725e917beac26305ba67738",
+  "files": 919,
+  "bytes": 3602510,
+  "qualified_manifests": {
+    "go_mod_sha256": "46007f1378e62439be4b35e1d6b69504381ff47936062f2b9feac5829ea2c405",
+    "go_sum_sha256": "978a353c46eabfa294b970f85c33ab631ae35c1af321c0ad870b542926d5da64"
+  },
+  "source_manifests": {
+    "go_mod_sha256": "08c700ccbf5581c19eb9afd82b2fcce214fb0471e39613824e470631e5a6f8fe",
+    "go_sum_sha256": "6d2413554ea8a75081184fc2469d359a775bffe46864e43f45b62d6a7052f36d"
+  },
+  "refmt": {
+    "module": "github.com/polydawn/refmt",
+    "version": "v0.90.0",
+    "sum": "h1:58BfEsP+G4uIRD9ApJTFsag+Mw+QQlZuH9uI/lPmjfY=",
+    "go_mod_sum": "h1:XAlDMOunevTYDsZtOKQd8itHXFMsX/QtDkPHaj6ZLxk=",
+    "source_commit": "35c3f9f2719f09f226ddd74e6e4595c309b56165",
+    "files": 501,
+    "bytes": 736112,
+    "patch": {
+      "path": "cmd/refmt/helper_yaml.go",
+      "before": "\"github.com/go-yaml/yaml\"",
+      "after": "\"go.yaml.in/yaml/v2\"",
+      "before_sha256": "e9d7372bd9bc461446a4865c5ccf35cfa92245e34b19cc416115dc34b1c72bca",
+      "after_sha256": "7b5de31950659a16a072c326664f4fecf0639e38b1b6c977e7dd64bca91aab50"
+    },
+    "qualified_manifests": {
+      "go_mod_sha256": "7a1aa1b70d555accce6568516e0fb53d870f8b234b90d69aaf40df99878b79a5",
+      "go_sum_sha256": "784d140e81072f9a44d09e0fadaabeed3c55318c07a8dd4142dfc72f09974276"
+    }
+  }
+}

@@ -9,7 +9,9 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/dantte-lp/gobfd/test/internal/clabbootstrap"
 )
@@ -17,7 +19,10 @@ import (
 var errUnexpectedArguments = errors.New("unexpected positional arguments")
 
 func main() {
-	os.Exit(run(context.Background(), os.Args[1:], os.Stderr))
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	code := run(ctx, os.Args[1:], os.Stderr)
+	stop()
+	os.Exit(code)
 }
 
 func run(ctx context.Context, arguments []string, stderr io.Writer) int {
@@ -59,19 +64,33 @@ func parseOptions(projectRoot string, arguments []string, stderr io.Writer) (cla
 	flags.SetOutput(stderr)
 	verbose := flags.Bool("v", false, "enable debug logging")
 	flags.BoolVar(verbose, "verbose", false, "enable debug logging")
-	flags.StringVar(&options.Archives.Arista, "arista-image", "", "path to cEOS archive")
+	flags.StringVar(&options.Archives.Arista, "arista-image", "",
+		"retained cEOS archive input; preparation is unavailable")
 	flags.StringVar(&options.Tags.Arista, "arista-tag", options.Tags.Arista, "tag for imported cEOS image")
-	flags.StringVar(&options.Archives.Cisco, "cisco-image", "", "path to XRd archive")
+	flags.StringVar(&options.Archives.Cisco, "cisco-image", "", "retained XRd archive input; preparation is unavailable")
 	flags.StringVar(&options.Tags.Cisco, "cisco-tag", options.Tags.Cisco, "tag for imported XRd image")
-	flags.StringVar(&options.VyOSISO, "vyos-iso", "", "path to local VyOS ISO")
-	flags.StringVar(&options.VyOSVersion, "vyos-version", options.VyOSVersion, "VyOS rolling version for ISO fallback")
+	flags.StringVar(&options.VyOSISO, "vyos-iso", "", "retained VyOS ISO input; preparation is unavailable")
+	flags.StringVar(&options.VyOSVersion, "vyos-version", options.VyOSVersion,
+		"retained VyOS metadata; ISO preparation is unavailable")
 	flags.StringVar(&options.Tags.Nokia, "nokia-tag", options.Tags.Nokia, "Nokia SR Linux tag")
 	flags.StringVar(&options.Tags.Sonic, "sonic-tag", options.Tags.Sonic, "SONiC-VS tag")
 	flags.StringVar(&options.Tags.VyOS, "vyos-tag", options.Tags.VyOS, "public VyOS image tag")
-	flags.BoolVar(&options.SkipBuild, "skip-build", false, "skip GoBFD image build")
+	flags.BoolVar(
+		&options.SkipBuild,
+		"skip-build",
+		false,
+		"consume the exact staged GoBFD and FRR images from the ownership receipt",
+	)
 	flags.BoolVar(&options.SkipPull, "skip-pull", false, "skip images already present")
-	flags.BoolVar(&options.Deploy, "deploy", false, "run run.sh --up-only after preparation")
-	flags.BoolVar(&options.Test, "test", false, "run the full interop-clab runner after preparation")
+	flags.BoolVar(&options.Deploy, "deploy", false, "deploy the prepared vendor topology and leave it running")
+	flags.BoolVar(&options.Test, "test", false, "deploy, test, and clean the prepared vendor topology")
+	flags.BoolVar(&options.TestOnly, "test-only", false, "test an existing owned vendor topology")
+	flags.BoolVar(
+		&options.Down,
+		"down",
+		false,
+		"remove the owned topology and recorded GoBFD/FRR images",
+	)
 	flags.BoolVar(&options.DryRun, "dry-run", false, "show commands without executing them")
 	flags.IntVar(&options.Jobs, "jobs", options.Jobs, "maximum parallel image pulls")
 	if err := flags.Parse(arguments); err != nil {

@@ -1,14 +1,18 @@
 package server_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
@@ -30,10 +34,10 @@ func (panicHandler) AddSession(
 	panic("intentional test panic")
 }
 
-// setupServerWithInterceptors creates a test server with the given ConnectRPC handler options.
+// setupServerWithInterceptors creates a test server with the given ConnectRPC server interceptors.
 func setupServerWithInterceptors(
 	t *testing.T,
-	opts ...connect.HandlerOption,
+	interceptors ...connect.ServerInterceptor,
 ) bfdv1connect.BfdServiceClient {
 	t.Helper()
 
@@ -41,30 +45,33 @@ func setupServerWithInterceptors(
 	mgr := bfd.NewManager(logger)
 	t.Cleanup(mgr.Close)
 
-	path, handler := server.New(mgr, nil, logger, opts...)
-	mux := http.NewServeMux()
-	mux.Handle(path, handler)
-
-	srv := httptest.NewTestServer(t, mux)
-
-	return bfdv1connect.NewBfdServiceClient(srv.Client(), srv.URL)
+	rpc := connect.NewServer(interceptors...)
+	server.Register(rpc, mgr, nil, logger)
+	return serveBfdClient(t, rpc)
 }
 
 // setupPanicServer creates a test server that panics on AddSession,
-// using the given handler options (interceptors).
+// using the given server interceptors.
 func setupPanicServer(
 	t *testing.T,
-	opts ...connect.HandlerOption,
+	interceptors ...connect.ServerInterceptor,
 ) bfdv1connect.BfdServiceClient {
 	t.Helper()
 
-	path, handler := bfdv1connect.NewBfdServiceHandler(panicHandler{}, opts...)
-	mux := http.NewServeMux()
-	mux.Handle(path, handler)
+	rpc := connect.NewServer(interceptors...)
+	bfdv1connect.RegisterBfdServiceHandler(rpc, panicHandler{})
+	return serveBfdClient(t, rpc)
+}
 
+// serveBfdClient mounts rpc on a test HTTP server and returns a BfdService client for it.
+func serveBfdClient(t *testing.T, rpc *connect.Server) bfdv1connect.BfdServiceClient {
+	t.Helper()
+
+	mux := http.NewServeMux()
+	connecthttp.Mount(mux, rpc)
 	srv := httptest.NewTestServer(t, mux)
 
-	return bfdv1connect.NewBfdServiceClient(srv.Client(), srv.URL)
+	return bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
 }
 
 // -------------------------------------------------------------------------
@@ -75,7 +82,7 @@ func TestLoggingInterceptorSuccess(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.DiscardHandler)
-	client := setupServerWithInterceptors(t, server.LoggingInterceptorOption(logger))
+	client := setupServerWithInterceptors(t, server.LoggingInterceptor(logger))
 
 	resp, err := client.ListSessions(context.Background(), &bfdv1.ListSessionsRequest{})
 	if err != nil {
@@ -90,7 +97,7 @@ func TestLoggingInterceptorError(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.DiscardHandler)
-	client := setupServerWithInterceptors(t, server.LoggingInterceptorOption(logger))
+	client := setupServerWithInterceptors(t, server.LoggingInterceptor(logger))
 
 	_, err := client.DeleteSession(context.Background(), &bfdv1.DeleteSessionRequest{
 		LocalDiscriminator: 99999,
@@ -116,7 +123,7 @@ func TestRecoveryInterceptorNoPanic(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.DiscardHandler)
-	client := setupServerWithInterceptors(t, server.RecoveryInterceptorOption(logger))
+	client := setupServerWithInterceptors(t, server.RecoveryInterceptor(logger))
 
 	resp, err := client.ListSessions(context.Background(), &bfdv1.ListSessionsRequest{})
 	if err != nil {
@@ -131,7 +138,7 @@ func TestRecoveryInterceptorPanic(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.DiscardHandler)
-	client := setupPanicServer(t, server.RecoveryInterceptorOption(logger))
+	client := setupPanicServer(t, server.RecoveryInterceptor(logger))
 
 	_, err := client.AddSession(context.Background(), &bfdv1.AddSessionRequest{
 		PeerAddress:           "192.0.2.1",
@@ -163,8 +170,8 @@ func TestBothInterceptors(t *testing.T) {
 
 	logger := slog.New(slog.DiscardHandler)
 	client := setupServerWithInterceptors(t,
-		server.LoggingInterceptorOption(logger),
-		server.RecoveryInterceptorOption(logger),
+		server.LoggingInterceptor(logger),
+		server.RecoveryInterceptor(logger),
 	)
 
 	resp, err := client.ListSessions(context.Background(), &bfdv1.ListSessionsRequest{})
@@ -173,5 +180,43 @@ func TestBothInterceptors(t *testing.T) {
 	}
 	if resp == nil {
 		t.Fatal("response is nil")
+	}
+}
+
+func TestLoggingInterceptorLevels(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		err  error
+		want slog.Level
+	}{
+		{"success", nil, slog.LevelInfo},
+		{"client canceled stream", fmt.Errorf("watch session events: %w", context.Canceled), slog.LevelInfo},
+		{"canceled code", connect.NewError(connect.CodeCanceled, "canceled"), slog.LevelInfo},
+		{"handler error", connect.NewError(connect.CodeInternal, "boom"), slog.LevelWarn},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+			logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+			next := func(context.Context, connect.Spec, connect.ServerStream) error { return tc.err }
+			spec := connect.Spec{Procedure: "/bfd.v1.BfdService/WatchSessionEvents"}
+
+			err := server.LoggingInterceptor(logger)(next)(t.Context(), spec, nil)
+			if !errors.Is(err, tc.err) {
+				t.Fatalf("interceptor returned %v, want %v", err, tc.err)
+			}
+			var entry struct {
+				Level string `json:"level"`
+			}
+			if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
+				t.Fatalf("decode log %q: %v", buf.String(), err)
+			}
+			if entry.Level != tc.want.String() {
+				t.Fatalf("log level = %s, want %s", entry.Level, tc.want)
+			}
+		})
 	}
 }

@@ -1,4 +1,5 @@
 // Command bfd-fuzz sends the repository's RFC invalid-vector corpus over UDP.
+// With the "peer" argument it instead runs the crafted RFC 5880 test peer.
 package main
 
 import (
@@ -30,6 +31,12 @@ var (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "peer" {
+		os.Exit(runPeerMain(peerSingleHop))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "peer-multihop" {
+		os.Exit(runPeerMain(peerMultihopTTL))
+	}
 	os.Exit(realMain())
 }
 
@@ -43,20 +50,28 @@ func realMain() int {
 	return 0
 }
 
-func run(ctx context.Context, getenv func(string) string, output io.Writer) (runErr error) {
+func parseTarget(getenv func(string) string) (netip.Addr, error) {
 	targetText := getenv("GOBFD_IP")
 	if targetText == "" {
 		targetText = defaultTarget
 	}
 	target, parseErr := netip.ParseAddr(targetText)
 	if parseErr != nil {
-		return fmt.Errorf("parse IPv4 GOBFD_IP %q: %w", targetText, parseErr)
+		return netip.Addr{}, fmt.Errorf("parse IPv4 GOBFD_IP %q: %w", targetText, parseErr)
 	}
 	if !target.Is4() {
-		return fmt.Errorf("parse IPv4 GOBFD_IP %q: %w", targetText, errInvalidIPv4Target)
+		return netip.Addr{}, fmt.Errorf("parse IPv4 GOBFD_IP %q: %w", targetText, errInvalidIPv4Target)
+	}
+	return target, nil
+}
+
+func run(ctx context.Context, getenv func(string) string, output io.Writer) (runErr error) {
+	target, err := parseTarget(getenv)
+	if err != nil {
+		return err
 	}
 
-	sender, err := newUDPSender(target)
+	sender, err := newUDPSender(target, bfdDestinationPort)
 	if err != nil {
 		return err
 	}
@@ -98,7 +113,7 @@ type udpSender struct {
 	destination *net.UDPAddr
 }
 
-func newUDPSender(target netip.Addr) (*udpSender, error) {
+func newUDPSender(target netip.Addr, port uint16) (*udpSender, error) {
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: bfdSourcePort})
 	if err != nil {
 		return nil, fmt.Errorf("listen on BFD source port %d: %w", bfdSourcePort, err)
@@ -106,7 +121,7 @@ func newUDPSender(target netip.Addr) (*udpSender, error) {
 	return &udpSender{
 		conn:        conn,
 		ipv4:        ipv4.NewPacketConn(conn),
-		destination: net.UDPAddrFromAddrPort(netip.AddrPortFrom(target, bfdDestinationPort)),
+		destination: net.UDPAddrFromAddrPort(netip.AddrPortFrom(target, port)),
 	}, nil
 }
 

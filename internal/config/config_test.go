@@ -3,8 +3,10 @@ package config_test
 import (
 	"errors"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +15,8 @@ import (
 
 const (
 	testLocalAddr    = "10.0.0.2"
+	testPeerMAC      = "02:00:00:00:00:01"
+	testLocalMAC     = "02:00:00:00:00:02"
 	testGoBGPAddr    = "127.0.0.1:50051"
 	testStrategyPeer = "disable-peer"
 )
@@ -22,12 +26,14 @@ func TestDefaultConfig(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 
-	if cfg.GRPC.Addr != ":50051" {
-		t.Errorf("GRPC.Addr = %q, want %q", cfg.GRPC.Addr, ":50051")
+	// gobfd-330.3: fresh defaults expose only the management Unix socket.
+	if cfg.GRPC.Addr != "" || cfg.GRPC.Socket.Path != "/run/gobfd/gobfd.sock" || cfg.GRPC.UnsafeLoopbackMutations {
+		t.Errorf("GRPC = %+v, want no TCP listener, socket /run/gobfd/gobfd.sock, no unsafe mutations", cfg.GRPC)
 	}
 
-	if cfg.Metrics.Addr != ":9100" {
-		t.Errorf("Metrics.Addr = %q, want %q", cfg.Metrics.Addr, ":9100")
+	// gh-87: metrics are unauthenticated, so they bind to loopback by default.
+	if cfg.Metrics.Addr != "127.0.0.1:9100" {
+		t.Errorf("Metrics.Addr = %q, want %q", cfg.Metrics.Addr, "127.0.0.1:9100")
 	}
 
 	if cfg.Metrics.Path != "/metrics" {
@@ -68,12 +74,25 @@ func TestDefaultConfig(t *testing.T) {
 	}
 }
 
+type yamlLoadCase struct {
+	yamlContent          string
+	wantGRPCAddr         string
+	wantMetricsAddr      string
+	wantMetricsPath      string
+	wantLogLevel         string
+	wantLogFormat        string
+	wantDesiredMinTx     time.Duration
+	wantRequiredMinRx    time.Duration
+	wantDetectMultiplier uint32
+}
+
 func TestLoadFromYAML(t *testing.T) {
 	t.Parallel()
 
-	yamlContent := `
+	testLoadYAML(t, yamlLoadCase{
+		yamlContent: `
 grpc:
-  addr: ":60000"
+  addr: "127.0.0.1:60000"
 metrics:
   addr: ":9200"
   path: "/custom-metrics"
@@ -84,99 +103,74 @@ bfd:
   default_desired_min_tx: "500ms"
   default_required_min_rx: "250ms"
   default_detect_multiplier: 5
-`
-
-	path := writeTemp(t, yamlContent)
-
-	cfg, err := config.Load(path)
-	if err != nil {
-		t.Fatalf("Load(%q) error: %v", path, err)
-	}
-
-	if cfg.GRPC.Addr != ":60000" {
-		t.Errorf("GRPC.Addr = %q, want %q", cfg.GRPC.Addr, ":60000")
-	}
-
-	if cfg.Metrics.Addr != ":9200" {
-		t.Errorf("Metrics.Addr = %q, want %q", cfg.Metrics.Addr, ":9200")
-	}
-
-	if cfg.Metrics.Path != "/custom-metrics" {
-		t.Errorf("Metrics.Path = %q, want %q", cfg.Metrics.Path, "/custom-metrics")
-	}
-
-	if cfg.Log.Level != "debug" {
-		t.Errorf("Log.Level = %q, want %q", cfg.Log.Level, "debug")
-	}
-
-	if cfg.Log.Format != "text" {
-		t.Errorf("Log.Format = %q, want %q", cfg.Log.Format, "text")
-	}
-
-	if cfg.BFD.DefaultDesiredMinTx != 500*time.Millisecond {
-		t.Errorf("BFD.DefaultDesiredMinTx = %v, want %v", cfg.BFD.DefaultDesiredMinTx, 500*time.Millisecond)
-	}
-
-	if cfg.BFD.DefaultRequiredMinRx != 250*time.Millisecond {
-		t.Errorf("BFD.DefaultRequiredMinRx = %v, want %v", cfg.BFD.DefaultRequiredMinRx, 250*time.Millisecond)
-	}
-
-	if cfg.BFD.DefaultDetectMultiplier != 5 {
-		t.Errorf("BFD.DefaultDetectMultiplier = %d, want %d", cfg.BFD.DefaultDetectMultiplier, 5)
-	}
+`,
+		wantGRPCAddr:         "127.0.0.1:60000",
+		wantMetricsAddr:      ":9200",
+		wantMetricsPath:      "/custom-metrics",
+		wantLogLevel:         "debug",
+		wantLogFormat:        "text",
+		wantDesiredMinTx:     500 * time.Millisecond,
+		wantRequiredMinRx:    250 * time.Millisecond,
+		wantDetectMultiplier: 5,
+	})
 }
 
 func TestLoadMergesDefaults(t *testing.T) {
 	t.Parallel()
 
-	// Partial YAML: only override grpc.addr and log.level.
-	// Everything else should inherit from defaults.
-	yamlContent := `
+	testLoadYAML(t, yamlLoadCase{
+		yamlContent: `
 grpc:
-  addr: ":55555"
+  addr: "127.0.0.1:55555"
 log:
   level: "warn"
-`
+`,
+		wantGRPCAddr:         "127.0.0.1:55555",
+		wantMetricsAddr:      "127.0.0.1:9100",
+		wantMetricsPath:      "/metrics",
+		wantLogLevel:         "warn",
+		wantLogFormat:        "json",
+		wantDesiredMinTx:     time.Second,
+		wantRequiredMinRx:    time.Second,
+		wantDetectMultiplier: 3,
+	})
+}
 
-	path := writeTemp(t, yamlContent)
+func testLoadYAML(t *testing.T, testCase yamlLoadCase) {
+	t.Helper()
 
+	path := writeTemp(t, testCase.yamlContent)
 	cfg, err := config.Load(path)
 	if err != nil {
 		t.Fatalf("Load(%q) error: %v", path, err)
 	}
 
-	// Overridden values.
-	if cfg.GRPC.Addr != ":55555" {
-		t.Errorf("GRPC.Addr = %q, want %q", cfg.GRPC.Addr, ":55555")
+	if cfg.GRPC.Addr != testCase.wantGRPCAddr {
+		t.Errorf("GRPC.Addr = %q, want %q", cfg.GRPC.Addr, testCase.wantGRPCAddr)
 	}
-
-	if cfg.Log.Level != "warn" {
-		t.Errorf("Log.Level = %q, want %q", cfg.Log.Level, "warn")
+	if cfg.Metrics.Addr != testCase.wantMetricsAddr {
+		t.Errorf("Metrics.Addr = %q, want %q", cfg.Metrics.Addr, testCase.wantMetricsAddr)
 	}
-
-	// Default values should be preserved.
-	if cfg.Metrics.Addr != ":9100" {
-		t.Errorf("Metrics.Addr = %q, want default %q", cfg.Metrics.Addr, ":9100")
+	if cfg.Metrics.Path != testCase.wantMetricsPath {
+		t.Errorf("Metrics.Path = %q, want %q", cfg.Metrics.Path, testCase.wantMetricsPath)
 	}
-
-	if cfg.Metrics.Path != "/metrics" {
-		t.Errorf("Metrics.Path = %q, want default %q", cfg.Metrics.Path, "/metrics")
+	if cfg.Log.Level != testCase.wantLogLevel {
+		t.Errorf("Log.Level = %q, want %q", cfg.Log.Level, testCase.wantLogLevel)
 	}
-
-	if cfg.Log.Format != "json" {
-		t.Errorf("Log.Format = %q, want default %q", cfg.Log.Format, "json")
+	if cfg.Log.Format != testCase.wantLogFormat {
+		t.Errorf("Log.Format = %q, want %q", cfg.Log.Format, testCase.wantLogFormat)
 	}
-
-	if cfg.BFD.DefaultDesiredMinTx != 1*time.Second {
-		t.Errorf("BFD.DefaultDesiredMinTx = %v, want default %v", cfg.BFD.DefaultDesiredMinTx, 1*time.Second)
+	if cfg.BFD.DefaultDesiredMinTx != testCase.wantDesiredMinTx {
+		t.Errorf("BFD.DefaultDesiredMinTx = %v, want %v",
+			cfg.BFD.DefaultDesiredMinTx, testCase.wantDesiredMinTx)
 	}
-
-	if cfg.BFD.DefaultRequiredMinRx != 1*time.Second {
-		t.Errorf("BFD.DefaultRequiredMinRx = %v, want default %v", cfg.BFD.DefaultRequiredMinRx, 1*time.Second)
+	if cfg.BFD.DefaultRequiredMinRx != testCase.wantRequiredMinRx {
+		t.Errorf("BFD.DefaultRequiredMinRx = %v, want %v",
+			cfg.BFD.DefaultRequiredMinRx, testCase.wantRequiredMinRx)
 	}
-
-	if cfg.BFD.DefaultDetectMultiplier != 3 {
-		t.Errorf("BFD.DefaultDetectMultiplier = %d, want default %d", cfg.BFD.DefaultDetectMultiplier, 3)
+	if cfg.BFD.DefaultDetectMultiplier != testCase.wantDetectMultiplier {
+		t.Errorf("BFD.DefaultDetectMultiplier = %d, want %d",
+			cfg.BFD.DefaultDetectMultiplier, testCase.wantDetectMultiplier)
 	}
 }
 
@@ -189,9 +183,10 @@ func TestValidateErrors(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name: "empty grpc addr",
+			name: "no management listener",
 			modify: func(cfg *config.Config) {
 				cfg.GRPC.Addr = ""
+				cfg.GRPC.Socket.Path = ""
 			},
 			wantErr: config.ErrEmptyGRPCAddr,
 		},
@@ -215,13 +210,6 @@ func TestValidateErrors(t *testing.T) {
 				cfg.BFD.DefaultDesiredMinTx = -1 * time.Second
 			},
 			wantErr: config.ErrInvalidDesiredMinTx,
-		},
-		{
-			name: "zero required min rx",
-			modify: func(cfg *config.Config) {
-				cfg.BFD.DefaultRequiredMinRx = 0
-			},
-			wantErr: config.ErrInvalidRequiredMinRx,
 		},
 		{
 			name: "negative required min rx",
@@ -301,7 +289,7 @@ func TestLoadWithSessions(t *testing.T) {
 
 	yamlContent := `
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 sessions:
   - peer: "10.0.0.1"
     local: "10.0.0.2"
@@ -560,14 +548,14 @@ func TestLoadEnvOverrides(t *testing.T) {
 
 	yamlContent := `
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 log:
   level: "info"
 `
 	path := writeTemp(t, yamlContent)
 
 	// Set env overrides.
-	t.Setenv("GOBFD_GRPC_ADDR", ":60000")
+	t.Setenv("GOBFD_GRPC_ADDR", "127.0.0.1:60000")
 	t.Setenv("GOBFD_LOG_LEVEL", "debug")
 
 	cfg, err := config.Load(path)
@@ -575,8 +563,8 @@ log:
 		t.Fatalf("Load(%q) error: %v", path, err)
 	}
 
-	if cfg.GRPC.Addr != ":60000" {
-		t.Errorf("GRPC.Addr = %q, want %q (from env)", cfg.GRPC.Addr, ":60000")
+	if cfg.GRPC.Addr != "127.0.0.1:60000" {
+		t.Errorf("GRPC.Addr = %q, want %q (from env)", cfg.GRPC.Addr, "127.0.0.1:60000")
 	}
 
 	if cfg.Log.Level != "debug" {
@@ -587,7 +575,7 @@ log:
 func TestLoadEnvOverridesMetrics(t *testing.T) {
 	yamlContent := `
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 metrics:
   addr: ":9100"
   path: "/metrics"
@@ -608,6 +596,32 @@ metrics:
 
 	if cfg.Metrics.Path != "/custom" {
 		t.Errorf("Metrics.Path = %q, want %q (from env)", cfg.Metrics.Path, "/custom")
+	}
+}
+
+func TestLoadEnvOverridesCompoundSocketKeys(t *testing.T) {
+	yamlContent := `
+socket:
+  read_buffer_size: 2097152
+  write_buffer_size: 1048576
+`
+	path := writeTemp(t, yamlContent)
+
+	t.Setenv("GOBFD_SOCKET_READ_BUFFER_SIZE", "8388608")
+	t.Setenv("GOBFD_SOCKET_WRITE_BUFFER_SIZE", "3145728")
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load(%q) error: %v", path, err)
+	}
+
+	if cfg.Socket.ReadBufferSize != 8388608 {
+		t.Errorf("Socket.ReadBufferSize = %d, want 8388608 from environment",
+			cfg.Socket.ReadBufferSize)
+	}
+	if cfg.Socket.WriteBufferSize != 3145728 {
+		t.Errorf("Socket.WriteBufferSize = %d, want 3145728 from environment",
+			cfg.Socket.WriteBufferSize)
 	}
 }
 
@@ -692,8 +706,11 @@ func TestEchoPeerConfigLocalAddr(t *testing.T) {
 func TestVXLANPeerConfigSessionKey(t *testing.T) {
 	t.Parallel()
 
-	vc := config.VXLANPeerConfig{Peer: "10.0.0.1", Local: testLocalAddr}
-	want := "vxlan|10.0.0.1|10.0.0.2"
+	vc := config.VXLANPeerConfig{
+		Peer: "10.0.0.1", Local: testLocalAddr,
+		PeerMAC: testPeerMAC, LocalMAC: testLocalMAC,
+	}
+	want := "vxlan|10.0.0.1|10.0.0.2|02:00:00:00:00:01|02:00:00:00:00:02"
 	if got := vc.VXLANSessionKey(); got != want {
 		t.Errorf("VXLANSessionKey() = %q, want %q", got, want)
 	}
@@ -762,6 +779,17 @@ func TestGenevePeerConfigSessionKey(t *testing.T) {
 	want := "geneve|10.0.0.1|10.0.0.2"
 	if got := gc.GeneveSessionKey(); got != want {
 		t.Errorf("GeneveSessionKey() = %q, want %q", got, want)
+	}
+	canonical := config.GenevePeerConfig{
+		Peer: "10.0.0.1", Local: testLocalAddr, VNI: 100,
+		InnerPeer: "192.0.2.1", InnerLocal: "192.0.2.2",
+		PeerMAC: "02-00-00-00-00-01", LocalMAC: "02:00:00:00:00:02",
+	}
+	canonical.PeerMAC = "02:00:00:00:00:01"
+	want = canonical.GeneveSessionKey()
+	canonical.PeerMAC = "02-00-00-00-00-01"
+	if got := canonical.GeneveSessionKey(); got != want {
+		t.Errorf("GeneveSessionKey() did not canonicalize MAC: got %q, want %q", got, want)
 	}
 }
 
@@ -872,12 +900,36 @@ func TestValidateGoBGPErrors(t *testing.T) {
 			},
 		},
 		{
-			name: "valid gobgp withdraw-routes",
+			// H-31: one BGP neighbor needs one canonical BFD session.
+			name: "gobgp peer with two base sessions",
+			modify: func(cfg *config.Config) {
+				cfg.GoBGP.Enabled = true
+				cfg.GoBGP.Addr = testGoBGPAddr
+				cfg.GoBGP.Strategy = testStrategyPeer
+				cfg.Sessions = []config.SessionConfig{
+					{Peer: "10.0.0.1", Local: testLocalAddr, Interface: "eth0"},
+					{Peer: "::ffff:10.0.0.1", Local: testLocalAddr, Type: "multi_hop"},
+				}
+			},
+			wantErr: config.ErrAmbiguousGoBGPPeer,
+		},
+		{
+			name: "two base sessions to one peer without gobgp",
+			modify: func(cfg *config.Config) {
+				cfg.Sessions = []config.SessionConfig{
+					{Peer: "10.0.0.1", Local: testLocalAddr, Interface: "eth0"},
+					{Peer: "10.0.0.1", Local: testLocalAddr, Type: "multi_hop"},
+				}
+			},
+		},
+		{
+			name: "unsupported gobgp withdraw-routes",
 			modify: func(cfg *config.Config) {
 				cfg.GoBGP.Enabled = true
 				cfg.GoBGP.Addr = testGoBGPAddr
 				cfg.GoBGP.Strategy = "withdraw-routes"
 			},
+			wantErr: config.ErrUnsupportedGoBGPStrategy,
 		},
 		{
 			name: "gobgp tls ca requires tls enabled",
@@ -972,6 +1024,126 @@ func TestGoBGPPlaintextNonLoopback(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "unix triple-slash absolute socket",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:///node/speaker.sock",
+			},
+			want: false,
+		},
+		{
+			name: "unix single-slash absolute socket",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:/run/gobgp/gobgpd.sock",
+			},
+			want: false,
+		},
+		{
+			name: "unix non-empty authority",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix://node/speaker.sock",
+			},
+			want: true,
+		},
+		{
+			name: "unix root directory",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:///",
+			},
+			want: true,
+		},
+		{
+			name: "unix trailing slash directory",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:///node/speaker/",
+			},
+			want: true,
+		},
+		{
+			name: "unix empty opaque",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:",
+			},
+			want: true,
+		},
+		{
+			name: "unix relative path",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:speaker.sock",
+			},
+			want: true,
+		},
+		{
+			name: "unix abstract scheme",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix-abstract:gobgp",
+			},
+			want: true,
+		},
+		{
+			name: "unix abstract at-prefix",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:@gobgp",
+			},
+			want: true,
+		},
+		{
+			name: "unix query parameter",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:///node/speaker.sock?x=1",
+			},
+			want: true,
+		},
+		{
+			name: "unix fragment",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:///node/speaker.sock#frag",
+			},
+			want: true,
+		},
+		{
+			name: "unix percent-encoded nul",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "unix:///node/speaker%00.sock",
+			},
+			want: true,
+		},
+		{
+			name: "unix padded whitespace",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    " unix:///node/speaker.sock ",
+			},
+			want: true,
+		},
+		{
+			name: "unrecognized scheme",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "http://127.0.0.1:50051",
+			},
+			want: true,
+		},
+		{
+			name: "malformed target",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "bogus",
+			},
+			want: true,
+		},
+		{
 			name: "remote ipv4",
 			cfg: config.GoBGPConfig{
 				Enabled: true,
@@ -1016,6 +1188,45 @@ func TestGoBGPPlaintextNonLoopback(t *testing.T) {
 	}
 }
 
+func TestGoBGPStateFileConfigAndValidation(t *testing.T) {
+	t.Parallel()
+
+	defaults := config.DefaultConfig()
+	if defaults.GoBGP.StateFile != config.DefaultGoBGPStateFile {
+		t.Fatalf("default gobgp.state_file = %q, want %q", defaults.GoBGP.StateFile, config.DefaultGoBGPStateFile)
+	}
+
+	for _, tc := range []struct {
+		name      string
+		stateFile string
+		wantErr   bool
+	}{
+		{name: "default path", stateFile: config.DefaultGoBGPStateFile, wantErr: false},
+		{name: "empty disables persistence", stateFile: "", wantErr: false},
+		{name: "custom clean absolute path", stateFile: "/run/gobfd/gobgp-state.json", wantErr: false},
+		{name: "relative path rejected", stateFile: "gobgp-state.json", wantErr: true},
+		{name: "root slash rejected", stateFile: "/", wantErr: true},
+		{name: "trailing slash rejected", stateFile: "/var/lib/gobfd/", wantErr: true},
+		{name: "dot traversal rejected", stateFile: "/var/lib/gobfd/../state.json", wantErr: true},
+		{name: "nul byte rejected", stateFile: "/var/lib/gobfd/state\x00.json", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := config.DefaultConfig()
+			cfg.GoBGP.Enabled = true
+			cfg.GoBGP.StateFile = tc.stateFile
+			err := config.Validate(cfg)
+			if tc.wantErr && !errors.Is(err, config.ErrInvalidGoBGPStateFile) {
+				t.Fatalf("Validate(state_file=%q) = %v, want ErrInvalidGoBGPStateFile", tc.stateFile, err)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("Validate(state_file=%q) = %v, want nil", tc.stateFile, err)
+			}
+		})
+	}
+}
+
 func TestValidateDampeningErrors(t *testing.T) {
 	t.Parallel()
 
@@ -1049,6 +1260,34 @@ func TestValidateDampeningErrors(t *testing.T) {
 				cfg.GoBGP.Dampening.HalfLife = 0
 			},
 			wantErr: config.ErrInvalidDampeningHalfLife,
+		},
+		{
+			// v1 dampening contract: zero bounds would suppress forever.
+			name: "zero reuse threshold",
+			modify: func(cfg *config.Config) {
+				cfg.GoBGP.Enabled = true
+				cfg.GoBGP.Addr = testGoBGPAddr
+				cfg.GoBGP.Strategy = testStrategyPeer
+				cfg.GoBGP.Dampening.Enabled = true
+				cfg.GoBGP.Dampening.SuppressThreshold = 5
+				cfg.GoBGP.Dampening.ReuseThreshold = 0
+				cfg.GoBGP.Dampening.HalfLife = 15 * time.Second
+			},
+			wantErr: config.ErrInvalidDampeningThreshold,
+		},
+		{
+			name: "zero max suppress time",
+			modify: func(cfg *config.Config) {
+				cfg.GoBGP.Enabled = true
+				cfg.GoBGP.Addr = testGoBGPAddr
+				cfg.GoBGP.Strategy = testStrategyPeer
+				cfg.GoBGP.Dampening.Enabled = true
+				cfg.GoBGP.Dampening.SuppressThreshold = 5
+				cfg.GoBGP.Dampening.ReuseThreshold = 2
+				cfg.GoBGP.Dampening.HalfLife = 15 * time.Second
+				cfg.GoBGP.Dampening.MaxSuppressTime = 0
+			},
+			wantErr: config.ErrInvalidDampeningMaxSuppressTime,
 		},
 		{
 			name: "valid dampening",
@@ -1229,12 +1468,40 @@ func TestValidateVXLANErrors(t *testing.T) {
 			wantErr: config.ErrInvalidSessionDetectMult,
 		},
 		{
+			name: "missing vxlan local endpoint",
+			modify: func(cfg *config.Config) {
+				cfg.VXLAN.Enabled = true
+				cfg.VXLAN.Peers = []config.VXLANPeerConfig{{
+					Peer: "10.0.0.1", PeerMAC: testPeerMAC, LocalMAC: testLocalMAC,
+				}}
+			},
+			wantErr: config.ErrInvalidVXLANPeer,
+		},
+		{
+			name: "wildcard vxlan local endpoint",
+			modify: func(cfg *config.Config) {
+				cfg.VXLAN.Enabled = true
+				cfg.VXLAN.Peers = []config.VXLANPeerConfig{{
+					Peer: "10.0.0.1", Local: "0.0.0.0", PeerMAC: testPeerMAC, LocalMAC: testLocalMAC,
+				}}
+			},
+			wantErr: config.ErrInvalidVXLANPeer,
+		},
+		{
+			name: "missing vxlan source MAC identity",
+			modify: func(cfg *config.Config) {
+				cfg.VXLAN.Enabled = true
+				cfg.VXLAN.Peers = []config.VXLANPeerConfig{{Peer: "10.0.0.1", Local: testLocalAddr}}
+			},
+			wantErr: config.ErrVXLANEndpointIdentityUnavailable,
+		},
+		{
 			name: "duplicate vxlan session key",
 			modify: func(cfg *config.Config) {
 				cfg.VXLAN.Enabled = true
 				cfg.VXLAN.Peers = []config.VXLANPeerConfig{
-					{Peer: "10.0.0.1", Local: testLocalAddr},
-					{Peer: "10.0.0.1", Local: testLocalAddr},
+					{Peer: "10.0.0.1", Local: testLocalAddr, PeerMAC: testPeerMAC, LocalMAC: testLocalMAC},
+					{Peer: "10.0.0.1", Local: testLocalAddr, PeerMAC: testPeerMAC, LocalMAC: "02:00:00:00:00:03"},
 				}
 			},
 			wantErr: config.ErrDuplicateVXLANSessionKey,
@@ -1245,8 +1512,8 @@ func TestValidateVXLANErrors(t *testing.T) {
 				cfg.VXLAN.Enabled = true
 				cfg.VXLAN.ManagementVNI = 100
 				cfg.VXLAN.Peers = []config.VXLANPeerConfig{
-					{Peer: "10.0.0.1", Local: testLocalAddr},
-					{Peer: "10.0.0.3", Local: "10.0.0.4"},
+					{Peer: "10.0.0.1", Local: testLocalAddr, PeerMAC: testPeerMAC, LocalMAC: testLocalMAC},
+					{Peer: "10.0.0.3", Local: "10.0.0.4", PeerMAC: "02:00:00:00:00:03", LocalMAC: "02:00:00:00:00:04"},
 				}
 			},
 		},
@@ -1358,22 +1625,90 @@ func TestValidateGeneveErrors(t *testing.T) {
 			modify: func(cfg *config.Config) {
 				cfg.Geneve.Enabled = true
 				cfg.Geneve.Peers = []config.GenevePeerConfig{
-					{Peer: "10.0.0.1", Local: testLocalAddr},
-					{Peer: "10.0.0.1", Local: testLocalAddr},
+					{
+						Peer: "10.0.0.1", Local: testLocalAddr,
+						InnerPeer: "192.0.2.1", InnerLocal: "192.0.2.2",
+						PeerMAC: testPeerMAC, LocalMAC: testLocalMAC,
+					},
+					{
+						Peer: "10.0.0.1", Local: testLocalAddr,
+						InnerPeer: "192.0.2.1", InnerLocal: "192.0.2.2",
+						PeerMAC: "02-00-00-00-00-01", LocalMAC: "02-00-00-00-00-02",
+					},
 				}
 			},
 			wantErr: config.ErrDuplicateGeneveSessionKey,
 		},
 		{
-			name: "valid geneve peers",
+			name: "wildcard geneve local endpoint",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.DefaultVNI = 42
+				cfg.Geneve.Peers = []config.GenevePeerConfig{{
+					Peer: "10.0.0.1", Local: "0.0.0.0",
+					InnerPeer: "192.0.2.1", InnerLocal: "192.0.2.2",
+					PeerMAC: testPeerMAC, LocalMAC: testLocalMAC,
+				}}
+			},
+			wantErr: config.ErrInvalidGenevePeer,
+		},
+		{
+			name: "geneve peers with exact Format A VAP identity",
 			modify: func(cfg *config.Config) {
 				cfg.Geneve.Enabled = true
 				cfg.Geneve.DefaultVNI = 42
 				cfg.Geneve.Peers = []config.GenevePeerConfig{
-					{Peer: "10.0.0.1", Local: testLocalAddr, VNI: 100},
-					{Peer: "10.0.0.3", Local: "10.0.0.4"},
+					{
+						Peer: "10.0.0.1", Local: testLocalAddr, VNI: 100,
+						InnerPeer: "192.0.2.1", InnerLocal: "192.0.2.2",
+						PeerMAC: "02:00:00:00:00:01", LocalMAC: "02:00:00:00:00:02",
+					},
+					{
+						Peer: "10.0.0.1", Local: testLocalAddr,
+						InnerPeer: "192.0.2.3", InnerLocal: "192.0.2.4",
+						PeerMAC: "02:00:00:00:00:03", LocalMAC: "02:00:00:00:00:04",
+					},
 				}
 			},
+		},
+		{
+			name: "geneve unsupported inner IPv6 fails closed",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.DefaultVNI = 42
+				cfg.Geneve.Peers = []config.GenevePeerConfig{{
+					Peer: "10.0.0.1", Local: testLocalAddr,
+					InnerPeer: "2001:db8::1", InnerLocal: "192.0.2.2",
+					PeerMAC: "02:00:00:00:00:01", LocalMAC: "02:00:00:00:00:02",
+				}}
+			},
+			wantErr: config.ErrGeneveVAPIdentityUnavailable,
+		},
+		{
+			name: "geneve loopback VAP fails closed",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.DefaultVNI = 42
+				cfg.Geneve.Peers = []config.GenevePeerConfig{{
+					Peer: "10.0.0.1", Local: testLocalAddr,
+					InnerPeer: "127.0.0.1", InnerLocal: "192.0.2.2",
+					PeerMAC: testPeerMAC, LocalMAC: testLocalMAC,
+				}}
+			},
+			wantErr: config.ErrGeneveVAPIdentityUnavailable,
+		},
+		{
+			name: "geneve zero VAP MAC fails closed",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.DefaultVNI = 42
+				cfg.Geneve.Peers = []config.GenevePeerConfig{{
+					Peer: "10.0.0.1", Local: testLocalAddr,
+					InnerPeer: "192.0.2.1", InnerLocal: "192.0.2.2",
+					PeerMAC: "00:00:00:00:00:00", LocalMAC: testLocalMAC,
+				}}
+			},
+			wantErr: config.ErrGeneveVAPIdentityUnavailable,
 		},
 	}
 
@@ -1411,7 +1746,7 @@ func TestLoadWithGoBGPConfig(t *testing.T) {
 
 	yamlContent := `
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 gobgp:
   enabled: true
   addr: "127.0.0.1:50051"
@@ -1469,7 +1804,7 @@ func TestLoadWithEchoConfig(t *testing.T) {
 
 	yamlContent := `
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 echo:
   enabled: true
   peers:
@@ -1503,7 +1838,7 @@ func TestLoadWithVXLANConfig(t *testing.T) {
 
 	yamlContent := `
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 vxlan:
   enabled: true
   backend: "userspace-udp"
@@ -1511,6 +1846,8 @@ vxlan:
   peers:
     - peer: "10.0.0.1"
       local: "10.0.0.2"
+      peer_mac: "02:00:00:00:00:01"
+      local_mac: "02:00:00:00:00:02"
 `
 	path := writeTemp(t, yamlContent)
 
@@ -1534,12 +1871,12 @@ vxlan:
 	}
 }
 
-func TestLoadWithGeneveConfig(t *testing.T) {
+func TestLoadWithGeneveConfigFailsClosedWithoutVAPIdentity(t *testing.T) {
 	t.Parallel()
 
 	yamlContent := `
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 geneve:
   enabled: true
   backend: "userspace-udp"
@@ -1551,23 +1888,8 @@ geneve:
 `
 	path := writeTemp(t, yamlContent)
 
-	cfg, err := config.Load(path)
-	if err != nil {
-		t.Fatalf("Load error: %v", err)
-	}
-
-	if !cfg.Geneve.Enabled {
-		t.Error("Geneve.Enabled should be true")
-	}
-	if cfg.Geneve.DefaultVNI != 42 {
-		t.Errorf("DefaultVNI = %d, want 42", cfg.Geneve.DefaultVNI)
-	}
-	if cfg.Geneve.Backend != config.OverlayBackendUserspaceUDP {
-		t.Errorf("Geneve.Backend = %q, want %q", cfg.Geneve.Backend, config.OverlayBackendUserspaceUDP)
-	}
-
-	if err := config.Validate(cfg); err != nil {
-		t.Errorf("valid geneve config failed validation: %v", err)
+	if _, err := config.Load(path); !errors.Is(err, config.ErrGeneveVAPIdentityUnavailable) {
+		t.Fatalf("Load() error = %v, want ErrGeneveVAPIdentityUnavailable", err)
 	}
 }
 
@@ -1576,6 +1898,7 @@ func TestLoadWithMicroBFDActuatorConfig(t *testing.T) {
 
 	yamlContent := `
 micro_bfd:
+  enabled: true
   actuator:
     mode: "dry-run"
     backend: "networkmanager"
@@ -1696,7 +2019,7 @@ socket:
   read_buffer_size: 8388608
   write_buffer_size: 2097152
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 `
 	path := writeTemp(t, yaml)
 	cfg, err := config.Load(path)
@@ -1720,7 +2043,7 @@ socket:
   read_buffer_size: 0
   write_buffer_size: 0
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 `
 	path := writeTemp(t, yaml)
 	cfg, err := config.Load(path)
@@ -1737,17 +2060,116 @@ grpc:
 }
 
 // =========================================================================
-// os.Root Config Sandboxing Tests
+// Caller-Selected Paths and Final-Name Resolution
 // =========================================================================
 
-func TestLoadRejectsPathTraversal(t *testing.T) {
+func TestLoadCallerSelectedPaths(t *testing.T) {
 	t.Parallel()
 
-	// Attempt to load a config with path traversal components.
-	// os.Root should prevent accessing files outside the config directory.
-	_, err := config.Load("../../../etc/passwd")
+	path := writeTemp(t, "metrics:\n  path: /caller-selected-config\n")
+	workingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentPath, err := filepath.Rel(workingDir, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.IsAbs(parentPath) || !strings.HasPrefix(parentPath, ".."+string(filepath.Separator)) {
+		t.Fatalf("fixture lacks relative parent component: %q", parentPath)
+	}
+	nested := filepath.Join(filepath.Dir(path), "nested")
+	if err := os.Mkdir(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(t.TempDir(), "selected-directory")
+	if err := os.Symlink(filepath.Dir(path), linkDir); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct{ name, path string }{
+		{"absolute", path},
+		{"relative parent", parentPath},
+		{"absolute parent", nested + string(filepath.Separator) + ".." + string(filepath.Separator) + filepath.Base(path)},
+		{"directory symlink", filepath.Join(linkDir, filepath.Base(path))},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			cfg, err := config.Load(test.path)
+			if err != nil {
+				t.Fatalf("Load(%q): %v", test.path, err)
+			}
+			if cfg.Metrics.Path != "/caller-selected-config" {
+				t.Fatalf("Metrics.Path = %q, want temporary file value", cfg.Metrics.Path)
+			}
+		})
+	}
+}
+
+func TestLoadFinalSymlinkConfinement(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	selected := filepath.Join(dir, "selected")
+	projection := filepath.Join(selected, "..version")
+	if err := os.MkdirAll(projection, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	inside := filepath.Join(selected, "target.yml")
+	outside := filepath.Join(dir, "outside.yml")
+	for _, path := range []string{inside, outside, filepath.Join(projection, "gobfd.yml")} {
+		if err := os.WriteFile(path, []byte("metrics:\n  path: /symlink-config\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Both targets are valid configurations when selected directly by the caller.
+	for _, path := range []string{inside, outside} {
+		cfg, err := config.Load(path)
+		if err != nil || cfg.Metrics.Path != "/symlink-config" {
+			t.Fatalf("direct temporary target %q: %v", path, err)
+		}
+	}
+	if err := os.Symlink("..version", filepath.Join(selected, "..data")); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, target string
+		wantError    bool
+	}{
+		{"inside-relative", "target.yml", false},
+		{"projected-relative", filepath.Join("..data", "gobfd.yml"), false},
+		{"outside-relative", filepath.Join("..", "outside.yml"), true},
+		{"outside-absolute", outside, true},
+		{"inside-absolute", inside, true},
+	} {
+		path := filepath.Join(selected, test.name+".yml")
+		if err := os.Symlink(test.target, path); err != nil {
+			t.Fatal(err)
+		}
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			cfg, err := config.Load(path)
+			if test.wantError {
+				if _, ok := errors.AsType[*os.PathError](err); !ok {
+					t.Fatalf("Load(%q) error = %v, want file-resolution PathError", path, err)
+				}
+				return
+			}
+			if err != nil || cfg.Metrics.Path != "/symlink-config" {
+				t.Fatalf("Load(%q) did not read the in-directory target: %v", path, err)
+			}
+		})
+	}
+}
+
+func TestLoadYAMLErrorAfterFileOpen(t *testing.T) {
+	t.Parallel()
+
+	_, err := config.Load(writeTemp(t, "metrics: [\n"))
 	if err == nil {
-		t.Fatal("Load() with path traversal should return error, got nil")
+		t.Fatal("invalid YAML accepted")
+	}
+	if _, ok := errors.AsType[*os.PathError](err); ok {
+		t.Fatalf("YAML error reported as file-resolution error: %v", err)
 	}
 }
 
@@ -1756,7 +2178,7 @@ func TestLoadValidConfigFileViaOsRoot(t *testing.T) {
 
 	yamlContent := `
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 log:
   level: "info"
 `
@@ -1767,8 +2189,8 @@ log:
 		t.Fatalf("Load(%q) error: %v", path, err)
 	}
 
-	if cfg.GRPC.Addr != ":50051" {
-		t.Errorf("GRPC.Addr = %q, want %q", cfg.GRPC.Addr, ":50051")
+	if cfg.GRPC.Addr != "127.0.0.1:50051" {
+		t.Errorf("GRPC.Addr = %q, want %q", cfg.GRPC.Addr, "127.0.0.1:50051")
 	}
 }
 
@@ -1794,4 +2216,348 @@ func writeTemp(t *testing.T, content string) string {
 	}
 
 	return path
+}
+
+// RFC 9468 Section 6.1 requires bounded resource use, so an enabled
+// unsolicited mode needs a positive session limit.
+func TestValidateUnsolicitedMaxSessions(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		enabled     bool
+		maxSessions int
+		wantErr     error
+	}{
+		{true, 0, config.ErrInvalidUnsolicitedMaxSessions},
+		{true, -1, config.ErrInvalidUnsolicitedMaxSessions},
+		{true, 1, nil},
+		{false, 0, nil},
+	} {
+		cfg := enabledUnsolicitedConfig()
+		cfg.Unsolicited.Enabled = tc.enabled
+		cfg.Unsolicited.MaxSessions = tc.maxSessions
+		if err := config.Validate(cfg); !errors.Is(err, tc.wantErr) {
+			t.Errorf("enabled=%t max_sessions=%d: Validate error = %v, want %v",
+				tc.enabled, tc.maxSessions, err, tc.wantErr)
+		}
+	}
+}
+
+// RFC 9468 Section 6.2: if BFD authentication is used, the strongest
+// mechanism the implementation supports MUST be used; for GoBFD that is
+// Meticulous Keyed SHA1.
+func TestValidateUnsolicitedAuth(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		auth    config.AuthConfig
+		wantErr error
+	}{
+		{config.AuthConfig{}, nil},
+		{config.AuthConfig{Type: "meticulous_keyed_sha1", KeyID: 1, Secret: "unsolicited-sha1"}, nil},
+		{config.AuthConfig{Type: "keyed_sha1", KeyID: 1, Secret: "s"}, config.ErrInvalidUnsolicitedAuthType},
+		{config.AuthConfig{Type: "simple_password", KeyID: 1, Secret: "s"}, config.ErrInvalidUnsolicitedAuthType},
+		{config.AuthConfig{Type: "meticulous_keyed_sha1", KeyID: 1, Secret: ""}, config.ErrInvalidSessionAuthSecret},
+		{
+			config.AuthConfig{Type: "meticulous_keyed_sha1", KeyID: 1, Secret: "123456789012345678901"},
+			config.ErrInvalidSessionAuthSecret,
+		},
+		{config.AuthConfig{Type: "meticulous_keyed_sha1", KeyID: 256, Secret: "s"}, config.ErrInvalidSessionAuthKeyID},
+	} {
+		cfg := enabledUnsolicitedConfig()
+		cfg.Unsolicited.Auth = tc.auth
+		if err := config.Validate(cfg); !errors.Is(err, tc.wantErr) {
+			t.Errorf("auth %s/%d/%d bytes: Validate error = %v, want %v",
+				tc.auth.Type, tc.auth.KeyID, len(tc.auth.Secret), err, tc.wantErr)
+		}
+	}
+}
+
+// enabledUnsolicitedConfig returns a valid configuration with unsolicited BFD
+// enabled on one interface.
+func enabledUnsolicitedConfig() *config.Config {
+	cfg := config.DefaultConfig()
+	cfg.Unsolicited.Enabled = true
+	cfg.Unsolicited.MaxSessions = 1
+	cfg.Unsolicited.Interfaces = map[string]config.UnsolicitedInterfaceConfig{
+		"eth0": {Enabled: true, AllowedPrefixes: []string{"192.0.2.0/24"}},
+	}
+	return cfg
+}
+
+// H-19: an enabled unsolicited policy is validated completely at load, so a
+// policy that could not create a working session never reaches runtime.
+// RFC 9468 Section 2: session defaults SHOULD be configurable; they must
+// also be positive and representable in the 32-bit microsecond wire fields
+// (RFC 5880 Section 4.1).
+func TestValidateUnsolicitedPolicy(t *testing.T) {
+	t.Parallel()
+
+	const maxWire = time.Duration(math.MaxUint32) * time.Microsecond
+	tests := []struct {
+		name    string
+		edit    func(*config.UnsolicitedConfig)
+		wantErr error
+	}{
+		{"valid", func(*config.UnsolicitedConfig) {}, nil},
+		{"wire maximum intervals", func(u *config.UnsolicitedConfig) {
+			u.SessionDefaults.DesiredMinTx = maxWire
+			u.SessionDefaults.RequiredMinRx = maxWire
+		}, nil},
+		{"zero desired_min_tx", func(u *config.UnsolicitedConfig) {
+			u.SessionDefaults.DesiredMinTx = 0
+		}, config.ErrInvalidUnsolicitedSessionDefaults},
+		{"sub-microsecond desired_min_tx", func(u *config.UnsolicitedConfig) {
+			u.SessionDefaults.DesiredMinTx = 500 * time.Nanosecond
+		}, config.ErrInvalidUnsolicitedSessionDefaults},
+		{"desired_min_tx above wire maximum", func(u *config.UnsolicitedConfig) {
+			u.SessionDefaults.DesiredMinTx = maxWire + time.Microsecond
+		}, config.ErrInvalidUnsolicitedSessionDefaults},
+		// A passive session that asks the peer not to send never detects a
+		// failure, so it would hold a max_sessions slot forever.
+		{"zero required_min_rx", func(u *config.UnsolicitedConfig) {
+			u.SessionDefaults.RequiredMinRx = 0
+		}, config.ErrInvalidUnsolicitedSessionDefaults},
+		{"required_min_rx above wire maximum", func(u *config.UnsolicitedConfig) {
+			u.SessionDefaults.RequiredMinRx = maxWire + time.Microsecond
+		}, config.ErrInvalidUnsolicitedSessionDefaults},
+		{"zero detect_mult", func(u *config.UnsolicitedConfig) {
+			u.SessionDefaults.DetectMult = 0
+		}, config.ErrInvalidUnsolicitedSessionDefaults},
+		{"detect_mult above 255", func(u *config.UnsolicitedConfig) {
+			u.SessionDefaults.DetectMult = 256
+		}, config.ErrInvalidUnsolicitedSessionDefaults},
+		{"negative cleanup_timeout", func(u *config.UnsolicitedConfig) {
+			u.CleanupTimeout = -time.Second
+		}, config.ErrInvalidUnsolicitedCleanupTimeout},
+		{"no interfaces", func(u *config.UnsolicitedConfig) {
+			u.Interfaces = nil
+		}, config.ErrInvalidUnsolicitedInterfaces},
+		{"no enabled interface", func(u *config.UnsolicitedConfig) {
+			u.Interfaces = map[string]config.UnsolicitedInterfaceConfig{"eth0": {}}
+		}, config.ErrInvalidUnsolicitedInterfaces},
+		{"empty enabled interface", func(u *config.UnsolicitedConfig) {
+			u.Interfaces[""] = config.UnsolicitedInterfaceConfig{Enabled: true}
+		}, config.ErrInvalidUnsolicitedInterfaces},
+		{"whitespace enabled interface", func(u *config.UnsolicitedConfig) {
+			u.Interfaces[" "] = config.UnsolicitedInterfaceConfig{Enabled: true}
+		}, config.ErrInvalidUnsolicitedInterfaces},
+		{"invalid allowed prefix", func(u *config.UnsolicitedConfig) {
+			u.Interfaces = map[string]config.UnsolicitedInterfaceConfig{
+				"eth0": {Enabled: true, AllowedPrefixes: []string{"192.0.2.0/33"}},
+			}
+		}, config.ErrInvalidUnsolicitedInterfaces},
+		{"invalid prefix on a disabled interface", func(u *config.UnsolicitedConfig) {
+			u.Interfaces["eth1"] = config.UnsolicitedInterfaceConfig{AllowedPrefixes: []string{"bogus"}}
+		}, config.ErrInvalidUnsolicitedInterfaces},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := enabledUnsolicitedConfig()
+			tt.edit(&cfg.Unsolicited)
+			if err := config.Validate(cfg); !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Validate error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// The documented session defaults (1s, 1s, 3) apply to every field the file
+// omits from unsolicited.session_defaults.
+func TestLoadUnsolicitedSessionDefaults(t *testing.T) {
+	t.Parallel()
+
+	const base = `
+unsolicited:
+  enabled: true
+  max_sessions: 4
+  interfaces:
+    eth0:
+      enabled: true
+`
+	for _, tc := range []struct {
+		name, yaml string
+		want       config.UnsolicitedSessionDefaultsConfig
+	}{
+		{"omitted", base, config.UnsolicitedSessionDefaultsConfig{
+			DesiredMinTx: time.Second, RequiredMinRx: time.Second, DetectMult: 3,
+		}},
+		{"partial", base + "  session_defaults:\n    desired_min_tx: 300ms\n", config.UnsolicitedSessionDefaultsConfig{
+			DesiredMinTx: 300 * time.Millisecond, RequiredMinRx: time.Second, DetectMult: 3,
+		}},
+	} {
+		cfg, err := config.Load(writeTemp(t, tc.yaml))
+		if err != nil {
+			t.Fatalf("%s: Load: %v", tc.name, err)
+		}
+		if got := cfg.Unsolicited.SessionDefaults; got != tc.want {
+			t.Fatalf("%s: session defaults = %+v, want %+v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// Weak decoding must not truncate an out-of-range detect_mult into the
+// valid range.
+func TestLoadUnsolicitedDetectMultOverflow(t *testing.T) {
+	t.Parallel()
+
+	path := writeTemp(t, `
+unsolicited:
+  enabled: true
+  max_sessions: 4
+  session_defaults:
+    detect_mult: 4294967299
+  interfaces:
+    eth0:
+      enabled: true
+`)
+	cfg, err := config.Load(path)
+	if !errors.Is(err, config.ErrInvalidUnsolicitedSessionDefaults) {
+		t.Fatalf("Load error = %v (detect_mult %d), want ErrInvalidUnsolicitedSessionDefaults",
+			err, detectMult(cfg))
+	}
+}
+
+func detectMult(cfg *config.Config) uint32 {
+	if cfg == nil {
+		return 0
+	}
+	return cfg.Unsolicited.SessionDefaults.DetectMult
+}
+
+// gh-87, gobfd-330.3: plaintext management TCP is loopback only; a
+// non-loopback address needs mTLS. Defaults open no TCP port, so gobfd and
+// gobgpd (50051) start side by side.
+func TestValidateGRPCPlaintextNonLoopback(t *testing.T) {
+	t.Parallel()
+
+	tls := config.GRPCTLSConfig{CertFile: "/c.pem", KeyFile: "/k.pem", ClientCAFile: "/ca.pem"}
+	for _, tc := range []struct {
+		addr    string
+		tls     config.GRPCTLSConfig
+		wantErr error
+	}{
+		{"127.0.0.1:50052", config.GRPCTLSConfig{}, nil},
+		{"[::1]:50052", config.GRPCTLSConfig{}, nil},
+		{"localhost:50052", config.GRPCTLSConfig{}, nil},
+		{":50052", config.GRPCTLSConfig{}, config.ErrPlaintextNonLoopbackGRPC},
+		{"0.0.0.0:50052", config.GRPCTLSConfig{}, config.ErrPlaintextNonLoopbackGRPC},
+		{"[::]:50052", config.GRPCTLSConfig{}, config.ErrPlaintextNonLoopbackGRPC},
+		{"192.0.2.1:50052", config.GRPCTLSConfig{}, config.ErrPlaintextNonLoopbackGRPC},
+		{":50052", tls, nil},
+		{"192.0.2.1:50052", tls, nil},
+	} {
+		cfg := config.DefaultConfig()
+		cfg.GRPC.Addr, cfg.GRPC.TLS = tc.addr, tc.tls
+		if err := config.Validate(cfg); !errors.Is(err, tc.wantErr) {
+			t.Errorf("addr %q tls %t: Validate error = %v, want %v", tc.addr, tc.tls.Enabled(), err, tc.wantErr)
+		}
+	}
+}
+
+// gobfd-330.1: an optional Unix socket listener for the management API.
+func TestValidateGRPCSocket(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		edit    func(*config.GRPCConfig)
+		wantErr error
+	}{
+		{"socket by default", func(*config.GRPCConfig) {}, nil},
+		{"socket only", func(g *config.GRPCConfig) {
+			g.Addr = ""
+			g.Socket.Path = "/run/gobfd/gobfd.sock"
+		}, nil},
+		{"both disabled", func(g *config.GRPCConfig) {
+			g.Addr = ""
+			g.Socket.Path = ""
+		}, config.ErrEmptyGRPCAddr},
+		{"relative socket path", func(g *config.GRPCConfig) { g.Socket.Path = "gobfd.sock" }, config.ErrInvalidGRPCSocket},
+		{"mode not octal", func(g *config.GRPCConfig) {
+			g.Socket.Path = "/run/gobfd/gobfd.sock"
+			g.Socket.Mode = "rw-rw----"
+		}, config.ErrInvalidGRPCSocket},
+		{"mode beyond permission bits", func(g *config.GRPCConfig) {
+			g.Socket.Path = "/run/gobfd/gobfd.sock"
+			g.Socket.Mode = "4770"
+		}, config.ErrInvalidGRPCSocket},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := config.DefaultConfig()
+			tt.edit(&cfg.GRPC)
+			if err := config.Validate(cfg); !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Validate error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+	if got := config.DefaultConfig().GRPC.Socket; got.Path != "/run/gobfd/gobfd.sock" || got.Mode != "0660" {
+		t.Fatalf("default grpc.socket = %+v, want /run/gobfd/gobfd.sock with mode 0660", got)
+	}
+}
+
+// gobfd-330.2: mTLS for the TCP listener needs the server certificate, its
+// key and the client CA together, and a TCP address.
+func TestValidateGRPCTLS(t *testing.T) {
+	t.Parallel()
+
+	full := config.GRPCTLSConfig{
+		CertFile: "/etc/gobfd/tls/server.pem", KeyFile: "/etc/gobfd/tls/server.key", ClientCAFile: "/etc/gobfd/tls/ca.pem",
+	}
+	tests := []struct {
+		name    string
+		edit    func(*config.GRPCConfig)
+		wantErr error
+	}{
+		{"complete", func(g *config.GRPCConfig) {
+			g.TLS = full
+			g.Addr = ":50052"
+		}, nil},
+		{"no client CA", func(g *config.GRPCConfig) {
+			g.TLS = full
+			g.TLS.ClientCAFile = ""
+		}, config.ErrInvalidGRPCTLS},
+		{"no key", func(g *config.GRPCConfig) {
+			g.TLS = full
+			g.TLS.KeyFile = ""
+		}, config.ErrInvalidGRPCTLS},
+		{"no TCP address", func(g *config.GRPCConfig) {
+			g.TLS = full
+			g.Addr = ""
+			g.Socket.Path = "/run/gobfd/gobfd.sock"
+		}, config.ErrInvalidGRPCTLS},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := config.DefaultConfig()
+			tt.edit(&cfg.GRPC)
+			if err := config.Validate(cfg); !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Validate error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// gobfd-330.4: mutating identities restrict mTLS callers and need grpc.tls.
+func TestValidateGRPCMutatingIdentities(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.DefaultConfig()
+	cfg.GRPC.MutatingIdentities = []string{"spiffe://gobfd.test/ops"}
+	if err := config.Validate(cfg); !errors.Is(err, config.ErrInvalidGRPCTLS) {
+		t.Fatalf("mutating identities without grpc.tls: Validate error = %v, want ErrInvalidGRPCTLS", err)
+	}
+	cfg.GRPC.Addr = "127.0.0.1:50052"
+	cfg.GRPC.TLS = config.GRPCTLSConfig{CertFile: "/c.pem", KeyFile: "/k.pem", ClientCAFile: "/ca.pem"}
+	if err := config.Validate(cfg); err != nil {
+		t.Fatalf("mutating identities with grpc.tls: %v", err)
+	}
 }

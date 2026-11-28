@@ -3,9 +3,6 @@ package dependencyinventory
 
 import (
 	"context"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -29,7 +26,10 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read checked repository inventory: %v", err)
 	}
-	wantGraphCounts := map[string]int{"runtime": 196, "tools": 443}
+	wantGraphCounts := map[string]int{"runtime": 195, "tools": 745, "gopls": 44, "syft": 851, "goreleaser": 816}
+	if len(inv.ModuleGraphs) != len(wantGraphCounts) {
+		t.Fatalf("module graph count = %d, want %d", len(inv.ModuleGraphs), len(wantGraphCounts))
+	}
 	for _, graph := range inv.ModuleGraphs {
 		if len(graph.Modules) != wantGraphCounts[graph.ID] {
 			t.Fatalf("%s module count = %d, want %d", graph.ID, len(graph.Modules), wantGraphCounts[graph.ID])
@@ -59,7 +59,7 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 				t.Fatalf("deferred/stale component %s lacks tracking or review date", component.ID)
 			}
 		}
-		if component.Kind == KindTool || component.Kind == KindPythonPackage {
+		if component.Kind == KindTool {
 			if component.Assessment.License.Status != ReviewVerified {
 				t.Fatalf("%s license status = %q, want verified", component.ID, component.Assessment.License.Status)
 			}
@@ -68,8 +68,8 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 			}
 		}
 	}
-	if kindCounts[KindPythonPackage] != 40 || kindCounts[KindTool] != 21 {
-		t.Fatalf("inventory Python/tool counts = %d/%d, want 40/21", kindCounts[KindPythonPackage], kindCounts[KindTool])
+	if kindCounts[KindTool] != 16 {
+		t.Fatalf("inventory tool count = %d, want 16", kindCounts[KindTool])
 	}
 	for _, removed := range []string{
 		"tool:git_commit", "tool:bird_commit", "tool:bird_source_sha256",
@@ -86,8 +86,8 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 		inv,
 		"runtime:github.com/ovn-kubernetes/libovsdb",
 		"repository_archived",
-		ReviewVerified,
-		"active",
+		ReviewUnverified,
+		"repository archival state is not independently proven for this record",
 	)
 	assertRepositoryReview(
 		t,
@@ -102,13 +102,13 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 		inv,
 		"runtime:github.com/ovn-kubernetes/libovsdb",
 		"artifact_available",
-		ReviewVerified,
-		"available",
+		ReviewUnverified,
+		"selected identity/checksum recorded; artifact availability not independently observed",
 	)
-	assertRepositoryReview(t, inv, "github-action:actions/checkout", "license", ReviewVerified, "MIT")
+	assertRepositoryReview(t, inv, "github-action:actions/checkout", "license", ReviewUnverified, "MIT")
 	assertRepositoryReview(t, inv, "github-action:actions/checkout", "channel_current", ReviewUnverified, "immutable commit identity does not prove channel currency")
 	assertRepositoryReview(t, inv, "github-action:actions/checkout", "security", ReviewUnverified, "immutable pinning does not prove vulnerability status")
-	assertRepositoryComponent(t, inv, "oci-image:docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a", "1.27.0-trixie", "test/interop/thoro/Containerfile")
+	assertRepositoryComponent(t, inv, "oci-image:docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee", "1.27.4-trixie", "test/interop/thoro/Containerfile")
 	for _, component := range inv.Components {
 		if component.Kind == KindOCIImage && strings.Contains(strings.ToLower(component.Installed), "alpine") {
 			t.Fatalf("forbidden Alpine OCI image remains in inventory: %s", component.Installed)
@@ -474,7 +474,7 @@ func TestCompareModuleInventoryRejectsIncompleteSelectedGraph(t *testing.T) {
 	}
 }
 
-func TestSelectedModuleGraphIncludesTransitiveBuildList(t *testing.T) {
+func TestSelectedModuleGraphRejectsArbitraryLocalReplacement(t *testing.T) {
 	root := t.TempDir()
 	writeFixture(t, root, "go.mod", `module example.invalid/root
 
@@ -493,16 +493,27 @@ require example.invalid/two v1.2.0
 `)
 	writeFixture(t, root, "two/go.mod", "module example.invalid/two\n\ngo 1.27\n")
 
-	modules, err := selectedModuleGraph(context.Background(), root, ModuleGraph{ID: "runtime", Manifest: "go.mod", Sum: "go.sum"})
+	_, err := selectedModuleGraph(context.Background(), root, ModuleGraph{ID: "runtime", Manifest: "go.mod", Sum: "go.sum"})
+	if err == nil || !strings.Contains(err.Error(), "unsupported local replacement in runtime: example.invalid/one => ./one") {
+		t.Fatalf("selectedModuleGraph() error = %v, want rejected arbitrary local replacement", err)
+	}
+}
+
+func TestSelectedModuleGraphIncludesTransitiveBuildList(t *testing.T) {
+	t.Parallel()
+
+	modules, err := selectedModuleGraph(context.Background(), repositoryRoot(t),
+		ModuleGraph{ID: "runtime", Manifest: "go.mod", Sum: "go.sum"})
 	if err != nil {
 		t.Fatalf("selectedModuleGraph() error = %v", err)
 	}
-	want := []moduleIdentity{
-		{Path: "example.invalid/one", Version: "v1.0.0"},
-		{Path: "example.invalid/two", Version: "v1.2.0", Indirect: true},
-	}
-	if err := compareModuleInventory("runtime", want, modules); err != nil {
-		t.Fatalf("selectedModuleGraph() omitted transitive build-list module: %v", err)
+	for _, want := range []moduleIdentity{
+		{Path: "github.com/prometheus/client_golang", Version: "v1.25.0"},
+		{Path: "github.com/beorn7/perks", Version: "v1.0.1", Indirect: true},
+	} {
+		if !slices.Contains(modules, want) {
+			t.Errorf("selectedModuleGraph() omitted current pinned build-list module: %#v", want)
+		}
 	}
 }
 
@@ -531,7 +542,7 @@ func TestDiscoverDeclaredComponentsIgnoresRepositoryWorktrees(t *testing.T) {
 
 	root := t.TempDir()
 	writeFixture(t, root, "Containerfile", "ARG BUF_VERSION=v1.72.0\n")
-	writeFixture(t, root, ".worktrees/feature/Containerfile", "ARG UV_VERSION=0.12.6\n")
+	writeFixture(t, root, ".worktrees/feature/Containerfile", "ARG YAMLFMT_VERSION=v0.21.0\n")
 
 	components, err := discoverDeclaredComponents(context.Background(), root)
 	if err != nil {
@@ -542,34 +553,51 @@ func TestDiscoverDeclaredComponentsIgnoresRepositoryWorktrees(t *testing.T) {
 	}
 }
 
-func TestParseUVLockPackagesIncludesRegistryArtifactsAndExcludesVirtualProject(t *testing.T) {
+func TestDiscoverDeclaredComponentsIgnoresGeneratedUnitReport(t *testing.T) {
 	t.Parallel()
 
-	const locked = `version = 1
+	root := t.TempDir()
+	// gotestsum writes this event stream while the repository test is running.
+	writeFixture(t, root, "unit-report.json", strings.Repeat(" ", 4<<20)+
+		`{"Output":"docker.io/example/runtime-output:9.9.9"}`+"\n")
+	const image = "docker.io/example/router:1.2.3"
+	paths := []string{"profiles.json", "testdata/unit-report.json", "unit-report-custom.json"}
+	for _, path := range paths {
+		writeFixture(t, root, path, `{"image":"`+image+`"}`)
+	}
 
-[[package]]
-name = "example-package"
-version = "1.2.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/example.tar.gz", hash = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", size = 42 }
-
-[[package]]
-name = "example-project"
-version = "0.0.0"
-source = { virtual = "." }
-`
-	packages, err := parseUVLockPackages([]byte(locked))
+	components, err := discoverDeclaredComponents(t.Context(), root)
 	if err != nil {
-		t.Fatalf("parseUVLockPackages() error = %v", err)
+		t.Fatalf("discoverDeclaredComponents() with generated report: %v", err)
 	}
-	if len(packages) != 1 {
-		t.Fatalf("parseUVLockPackages() count = %d, want 1", len(packages))
+	if len(components) != 1 || components[0].Kind != KindOCIImage || components[0].Installed != image {
+		t.Fatalf("discoverDeclaredComponents() = %#v, want only the declared JSON image", components)
 	}
-	packageRecord := packages[0]
-	if packageRecord.ID != "python-package:example-package" || packageRecord.Kind != KindPythonPackage ||
-		packageRecord.Installed != "1.2.3" || packageRecord.Registry != "https://pypi.org/simple" ||
-		packageRecord.ArtifactHash != "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" {
-		t.Fatalf("parseUVLockPackages() = %#v", packageRecord)
+	wantSources := make([]SourceLocation, 0, len(paths))
+	for _, path := range paths {
+		wantSources = append(wantSources, SourceLocation{Path: path, Match: image})
+	}
+	if !slices.Equal(components[0].Sources, wantSources) {
+		t.Fatalf("JSON image sources = %#v, want %#v", components[0].Sources, wantSources)
+	}
+}
+
+func TestDiscoverDeclaredComponentsRejectsOversizedDependencyJSON(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{"profiles.json", "testdata/unit-report.json", "unit-report-custom.json"} {
+		t.Run(path, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeFixture(t, root, path, strings.Repeat(" ", 4<<20)+
+				`{"image":"docker.io/example/router:1.2.3"}`)
+			_, err := discoverDeclaredComponents(t.Context(), root)
+			if err == nil || !strings.Contains(err.Error(), "read dependency source "+path+":") ||
+				!strings.Contains(err.Error(), "source exceeds 4194304 bytes") {
+				t.Fatalf("discoverDeclaredComponents() error = %v, want oversized dependency source %s rejected", err, path)
+			}
+		})
 	}
 }
 
@@ -591,58 +619,193 @@ ARG BIRD_SOURCE_SHA256=0123456789abcdef0123456789abcdef0123456789abcdef012345678
 	}
 }
 
-func TestFetchPyPILicenseRejectsUntrustedReleaseEvidence(t *testing.T) {
+func TestDiscoverDeclaredComponentsIncludesReleasePleaseTool(t *testing.T) {
 	t.Parallel()
 
-	const artifactHash = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	tests := map[string]struct {
-		status int
-		body   string
-		want   string
-	}{
-		"non-2xx":           {status: http.StatusBadGateway, body: `{}`, want: "HTTP 502"},
-		"identity mismatch": {status: http.StatusOK, body: `{"info":{"name":"other","version":"1.2.3","license_expression":"MIT"},"urls":[{"digests":{"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}}]}`, want: "identity mismatch"},
-		"artifact mismatch": {status: http.StatusOK, body: `{"info":{"name":"example-package","version":"1.2.3","license_expression":"MIT"},"urls":[{"digests":{"sha256":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}}]}`, want: "artifact hash mismatch"},
-		"ambiguous license": {status: http.StatusOK, body: `{"info":{"name":"example-package","version":"1.2.3","classifiers":["License :: OSI Approved :: BSD License"]},"urls":[{"digests":{"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}}]}`, want: "ambiguous or missing license"},
-		"multiple JSON":     {status: http.StatusOK, body: `{"info":{"name":"example-package","version":"1.2.3","license_expression":"MIT"},"urls":[{"digests":{"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}}]} {}`, want: "multiple JSON"},
-		"oversized":         {status: http.StatusOK, body: strings.Repeat(" ", pypiMaxResponseBytes+1), want: "exceeds"},
+	root := t.TempDir()
+	const path = "tools/release-please/package.json"
+	writeFixture(t, root, path, releasePleaseTestManifest)
+	writeFixture(t, root, "tools/release-please/package-lock.json", releasePleaseTestLock)
+	components, err := discoverDeclaredComponents(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
-				response.WriteHeader(test.status)
-				_, _ = fmt.Fprint(response, test.body)
-			}))
-			t.Cleanup(server.Close)
+	if len(components) != 1 || components[0].ID != "tool:release_please" ||
+		components[0].Kind != KindTool || components[0].Installed != "17.11.2" ||
+		!slices.Equal(components[0].Sources, []SourceLocation{
+			{Path: "tools/release-please/package-lock.json", Match: `"lockfileVersion"`},
+			{Path: path, Match: `"release-please"`},
+		}) || !strings.HasPrefix(components[0].ContentPin.Value, "sha256:") {
+		t.Fatalf("Release Please component = %#v; want exact scoped tool declaration", components)
+	}
+	coordinates := componentCoordinates(components[0])
+	if coordinates.SourceRepository != "https://github.com/googleapis/release-please" ||
+		coordinates.PURL != "pkg:npm/release-please@17.11.2" {
+		t.Fatalf("Release Please coordinates = %#v", coordinates)
+	}
+	component := Component{ID: components[0].ID, Kind: KindTool, Record: Record{
+		Installed: "17.11.2", SourceLocations: components[0].Sources,
+		ImmutablePin: components[0].ContentPin,
+	}}
+	if compareErr := compareDeclaredComponents([]Component{component}, components); compareErr != nil {
+		t.Fatalf("current lock binding rejected: %v", compareErr)
+	}
+	// A transitive change must invalidate the old receipt even when the CLI version is unchanged.
+	writeFixture(t, root, "tools/release-please/package-lock.json", `{"lockfileVersion":3,"packages":{"":{"dependencies":{"release-please":"17.11.2"}},"node_modules/release-please":{"version":"17.11.2"},"node_modules/other":{"version":"1.0.0"}}}`)
+	changed, err := discoverDeclaredComponents(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := compareDeclaredComponents([]Component{component}, changed); err == nil {
+		t.Fatal("changed dependency closure accepted with the previous lockfile receipt")
+	}
+}
 
-			_, err := fetchPyPILicense(context.Background(), server.Client(), server.URL, pythonPackageIdentity{
-				Name: "example-package", Version: "1.2.3", ArtifactHash: artifactHash,
-			})
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("fetchPyPILicense() error = %v, want %q", err, test.want)
+func TestDiscoverDeclaredComponentsBindsNPMBootstrapArtifactsToContentPin(t *testing.T) {
+	t.Parallel()
+
+	const path = "tools/release-please/bootstrap.json"
+	data, err := os.ReadFile(filepath.Join(repositoryRoot(t), path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	writeFixture(t, root, path, string(data))
+	components, err := discoverDeclaredComponents(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(components) != 1 || components[0].ID != "tool:npm" || components[0].Installed != "12.2.1" ||
+		components[0].ContentPin.Kind != "artifact-manifest-sha256" {
+		t.Fatalf("bootstrap component = %#v; want the pinned npm bundle", components)
+	}
+	coordinates := componentCoordinates(components[0])
+	if coordinates.SourceRepository != "https://github.com/npm/cli" || coordinates.PURL != "pkg:npm/npm@12.2.1" {
+		t.Fatalf("bootstrap coordinates = %#v", coordinates)
+	}
+	component := Component{ID: components[0].ID, Kind: KindTool, Record: Record{
+		Installed: components[0].Installed, SourceLocations: components[0].Sources, ImmutablePin: components[0].ContentPin,
+	}}
+	if compareErr := compareDeclaredComponents([]Component{component}, components); compareErr != nil {
+		t.Fatalf("current bootstrap pin rejected: %v", compareErr)
+	}
+	// A different compatible patch must invalidate the receipt for the same npm version.
+	changed := strings.Replace(string(data), `"version": "6.29.1"`, `"version": "6.29.0"`, 1)
+	if changed == string(data) {
+		t.Fatal("bootstrap control did not change the undici patch")
+	}
+	writeFixture(t, root, path, changed)
+	updated, err := discoverDeclaredComponents(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compareErr := compareDeclaredComponents([]Component{component}, updated); compareErr == nil {
+		t.Fatal("changed bootstrap patch accepted with the previous content pin")
+	}
+}
+
+const (
+	releasePleaseTestManifest = `{"private":true,"dependencies":{"release-please":"17.11.2"}}`
+	releasePleaseTestPackages = `{"":{"dependencies":{"release-please":"17.11.2"}},"node_modules/release-please":{"version":"17.11.2"}}`
+	releasePleaseTestLock     = `{"lockfileVersion":3,"packages":` + releasePleaseTestPackages + `}`
+)
+
+func TestDiscoverDeclaredComponentsRejectsMutableReleasePleaseTool(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ name, document string }{
+		{name: "range", document: `{"private":true,"dependencies":{"release-please":"^17.11.2"}}`},
+		{name: "dist tag", document: `{"private":true,"dependencies":{"release-please":"latest"}}`},
+		{name: "leading zero", document: `{"private":true,"dependencies":{"release-please":"017.11.2"}}`},
+		{name: "public package", document: `{"private":false,"dependencies":{"release-please":"17.11.2"}}`},
+		{name: "missing dependency", document: `{"private":true,"dependencies":{}}`},
+		{name: "duplicate dependency", document: `{"private":true,"dependencies":{"release-please":"17.11.2","release-please":"17.11.1"}}`},
+		{name: "private alias cannot override false", document: `{"private":false,"Private":true,"dependencies":{"release-please":"17.11.2"}}`},
+		{name: "dependencies alias cannot supply missing key", document: `{"private":true,"Dependencies":{"release-please":"17.11.2"}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeFixture(t, root, "tools/release-please/package.json", tc.document)
+			writeFixture(t, root, "tools/release-please/package-lock.json", releasePleaseTestLock)
+			_, err := discoverDeclaredComponents(t.Context(), root)
+			if err == nil || strings.Contains(err.Error(), "lockfile") {
+				t.Fatalf("unsafe manifest error = %v; want manifest rejection with a valid version-3 lock", err)
 			}
 		})
 	}
 }
 
-func TestFetchPyPILicenseAcceptsExactPEP639Release(t *testing.T) {
+func TestDiscoverDeclaredComponentsRejectsInvalidReleasePleaseLock(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
-		_, _ = fmt.Fprint(response, `{"info":{"name":"example-package","version":"1.2.3","license_expression":"MIT"},"urls":[{"digests":{"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}}]}`)
-	}))
-	t.Cleanup(server.Close)
+	for _, tc := range []struct{ name, document string }{
+		{name: "version two", document: strings.Replace(releasePleaseTestLock, `"lockfileVersion":3`, `"lockfileVersion":2`, 1)},
+		{name: "root dependency mismatch", document: strings.Replace(releasePleaseTestLock, `"release-please":"17.11.2"`, `"release-please":"17.11.1"`, 1)},
+		{name: "CLI version mismatch", document: strings.Replace(releasePleaseTestLock, `"version":"17.11.2"`, `"version":"17.11.1"`, 1)},
+		{name: "missing CLI package", document: `{"lockfileVersion":3,"packages":{"":{"dependencies":{"release-please":"17.11.2"}}}}`},
+		{name: "LockfileVersion cannot override version two", document: strings.Replace(releasePleaseTestLock, `"lockfileVersion":3`, `"lockfileVersion":2,"LockfileVersion":3`, 1)},
+		{name: "Packages cannot override empty packages", document: `{"lockfileVersion":3,"packages":{},"Packages":` + releasePleaseTestPackages + `}`},
+		{name: "Dependencies cannot override empty root dependencies", document: strings.Replace(releasePleaseTestLock, `"dependencies":{"release-please":"17.11.2"}`, `"dependencies":{},"Dependencies":{"release-please":"17.11.2"}`, 1)},
+		{name: "Version cannot override wrong CLI version", document: strings.Replace(releasePleaseTestLock, `"version":"17.11.2"`, `"version":"17.11.1","Version":"17.11.2"`, 1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	result, err := fetchPyPILicense(context.Background(), server.Client(), server.URL, pythonPackageIdentity{
-		Name: "example-package", Version: "1.2.3",
-		ArtifactHash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-	})
-	if err != nil {
-		t.Fatalf("fetchPyPILicense() error = %v", err)
+			root := t.TempDir()
+			writeFixture(t, root, "tools/release-please/package.json", releasePleaseTestManifest)
+			writeFixture(t, root, "tools/release-please/package-lock.json", tc.document)
+			if _, err := discoverDeclaredComponents(t.Context(), root); err == nil {
+				t.Fatal("invalid or case-aliased Release Please lock accepted")
+			}
+		})
 	}
-	if result.License != "MIT" {
-		t.Fatalf("fetchPyPILicense() license = %q, want MIT", result.License)
+}
+
+func TestDiscoverDeclaredComponentsIgnoresUnconsumedReleasePleaseAliases(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ name, manifest, lock string }{
+		{
+			name: "Private", lock: releasePleaseTestLock,
+			manifest: strings.Replace(releasePleaseTestManifest, `"private":true`, `"private":true,"Private":false`, 1),
+		},
+		{
+			name: "Dependencies", lock: releasePleaseTestLock,
+			manifest: strings.Replace(releasePleaseTestManifest, `"dependencies":{"release-please":"17.11.2"}`, `"dependencies":{"release-please":"17.11.2"},"Dependencies":{"release-please":"17.11.1"}`, 1),
+		},
+		{
+			name: "LockfileVersion", manifest: releasePleaseTestManifest,
+			lock: strings.Replace(releasePleaseTestLock, `"lockfileVersion":3`, `"lockfileVersion":3,"LockfileVersion":2`, 1),
+		},
+		{
+			name: "Packages", manifest: releasePleaseTestManifest,
+			lock: `{"lockfileVersion":3,"packages":` + releasePleaseTestPackages + `,"Packages":{"":{"dependencies":{"release-please":"17.11.1"}}}}`,
+		},
+		{
+			name: "root Dependencies", manifest: releasePleaseTestManifest,
+			lock: strings.Replace(releasePleaseTestLock, `"dependencies":{"release-please":"17.11.2"}`, `"dependencies":{"release-please":"17.11.2"},"Dependencies":{"release-please":"17.11.1"}`, 1),
+		},
+		{
+			name: "Version", manifest: releasePleaseTestManifest,
+			lock: strings.Replace(releasePleaseTestLock, `"version":"17.11.2"`, `"version":"17.11.2","Version":"17.11.1"`, 1),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeFixture(t, root, "tools/release-please/package.json", tc.manifest)
+			writeFixture(t, root, "tools/release-please/package-lock.json", tc.lock)
+			components, err := discoverDeclaredComponents(t.Context(), root)
+			if err != nil {
+				t.Fatalf("irrelevant alias changed exact-key semantics: %v", err)
+			}
+			if len(components) != 1 || components[0].ID != "tool:release_please" || components[0].Installed != "17.11.2" {
+				t.Fatalf("irrelevant alias changed Release Please identity: %#v", components)
+			}
+		})
 	}
 }
 
@@ -651,7 +814,7 @@ func TestDiscoverDeclaredComponentsIgnoresProsePunctuationAndTemplates(t *testin
 
 	root := t.TempDir()
 	writeFixture(t, root, "CHANGELOG.md", "Uses docker.io/example/router:latest.\n")
-	writeFixture(t, root, "bootstrap.py", `template = "docker.io/example/router:{tag}"`)
+	writeFixture(t, root, "template.txt", `template = "docker.io/example/router:{tag}"`)
 	writeFixture(t, root, "compose.yml", "# image: docker.io/example/router:latest.\n")
 	writeFixture(t, root, "run.sh", "# pull docker.io/example/router:latest.\n")
 	writeFixture(t, root, "profiles.json", `{"image":"docker.io/example/router:1.2.3"}`)
@@ -696,6 +859,9 @@ func validInventory() Inventory {
 		ModuleGraphs: []ModuleGraph{
 			{ID: "runtime", Manifest: "go.mod", Sum: "go.sum"},
 			{ID: "tools", Manifest: "tools/go.mod", Sum: "tools/go.sum"},
+			{ID: "gopls", Manifest: "tools/gopls/go.mod", Sum: "tools/gopls/go.sum"},
+			{ID: "syft", Manifest: "tools/syft/go.mod", Sum: "tools/syft/go.sum"},
+			{ID: "goreleaser", Manifest: "tools/goreleaser/qualified.mod", Sum: "tools/goreleaser/qualified.sum"},
 		},
 		Components: []Component{{
 			ID:   "tool:example",
@@ -782,7 +948,10 @@ const minimalInventoryJSON = `{
         }
       ]
     },
-    {"id":"tools","manifest":"tools/go.mod","sum":"tools/go.sum","modules":[]}
+    {"id":"tools","manifest":"tools/go.mod","sum":"tools/go.sum","modules":[]},
+    {"id":"gopls","manifest":"tools/gopls/go.mod","sum":"tools/gopls/go.sum","modules":[]},
+    {"id":"syft","manifest":"tools/syft/go.mod","sum":"tools/syft/go.sum","modules":[]},
+    {"id":"goreleaser","manifest":"tools/goreleaser/qualified.mod","sum":"tools/goreleaser/qualified.sum","modules":[]}
   ],
   "components": []
 }`

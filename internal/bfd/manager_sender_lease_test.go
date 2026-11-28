@@ -1,0 +1,528 @@
+package bfd
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/netip"
+	"testing"
+	"testing/synctest"
+	"time"
+)
+
+var errSenderLeaseTestFactory = errors.New("sender lease test factory failure")
+
+type senderLeaseTestSender struct{}
+
+func (senderLeaseTestSender) SendPacket(context.Context, []byte, netip.Addr) error {
+	return nil
+}
+
+func TestManagerUnchangedReconcileDoesNotOpenSenderLease(t *testing.T) {
+	mgr := NewManager(slog.New(slog.DiscardHandler))
+	defer mgr.Close()
+
+	var opens int
+	desired := []ReconcileConfig{{
+		Key: "config",
+		SessionConfig: SessionConfig{
+			PeerAddr:              netip.MustParseAddr("192.0.2.1"),
+			LocalAddr:             netip.MustParseAddr("192.0.2.2"),
+			Interface:             "eth0",
+			Type:                  SessionTypeSingleHop,
+			Role:                  RoleActive,
+			DesiredMinTxInterval:  time.Second,
+			RequiredMinRxInterval: time.Second,
+			DetectMultiplier:      3,
+		},
+		SenderLeaseFactory: func() (*SenderLease, error) {
+			opens++
+			return NewSenderLease(senderLeaseTestSender{}, nil), nil
+		},
+	}}
+
+	if _, _, err := mgr.ReconcileSessions(context.Background(), desired); err != nil {
+		t.Fatalf("initial ReconcileSessions: %v", err)
+	}
+	if opens != 1 {
+		t.Fatalf("sender lease opens after initial reconcile = %d, want 1", opens)
+	}
+
+	if _, _, err := mgr.ReconcileSessions(context.Background(), desired); err != nil {
+		t.Fatalf("unchanged ReconcileSessions: %v", err)
+	}
+	if opens != 1 {
+		t.Fatalf("sender lease opens after unchanged reconcile = %d, want 1", opens)
+	}
+}
+
+func TestManagerCrossSourceShareDoesNotOpenAdditionalSenderLease(t *testing.T) {
+	mgr := NewManager(slog.New(slog.DiscardHandler))
+	defer mgr.Close()
+
+	cfg := senderLeaseTestConfig("192.0.2.10")
+	var configOpens, microOpens int
+	configDesired := []ReconcileConfig{{
+		Key:           "config",
+		SessionConfig: cfg,
+		SenderLeaseFactory: func() (*SenderLease, error) {
+			configOpens++
+			return NewSenderLease(senderLeaseTestSender{}, nil), nil
+		},
+	}}
+	microDesired := []ReconcileConfig{{
+		Key:           "micro",
+		SessionConfig: cfg,
+		SenderLeaseFactory: func() (*SenderLease, error) {
+			microOpens++
+			return NewSenderLease(senderLeaseTestSender{}, nil), nil
+		},
+	}}
+
+	if _, _, err := mgr.ReconcileSessionsForOwner(
+		context.Background(), ConfigReconciliationOwner(), configDesired,
+	); err != nil {
+		t.Fatalf("config reconcile: %v", err)
+	}
+	if _, _, err := mgr.ReconcileSessionsForOwner(
+		context.Background(), MicroBFDReconciliationOwner(), microDesired,
+	); err != nil {
+		t.Fatalf("micro reconcile: %v", err)
+	}
+	if configOpens != 1 || microOpens != 0 {
+		t.Fatalf("sender lease opens = config %d, micro %d; want 1, 0", configOpens, microOpens)
+	}
+}
+
+func TestManagerFailedSenderLeaseAcquisitionClosesPartialLeaseOnce(t *testing.T) {
+	mgr := NewManager(slog.New(slog.DiscardHandler))
+	defer mgr.Close()
+
+	var closes int
+	desired := []ReconcileConfig{{
+		Key:           "config",
+		SessionConfig: senderLeaseTestConfig("192.0.2.11"),
+		SenderLeaseFactory: func() (*SenderLease, error) {
+			return NewSenderLease(senderLeaseTestSender{}, func() error {
+				closes++
+				return nil
+			}), errSenderLeaseTestFactory
+		},
+	}}
+
+	if _, _, err := mgr.ReconcileSessions(context.Background(), desired); !errors.Is(
+		err, errSenderLeaseTestFactory,
+	) {
+		t.Fatalf("ReconcileSessions error = %v, want %v", err, errSenderLeaseTestFactory)
+	}
+	if closes != 1 {
+		t.Fatalf("partial sender lease closes = %d, want 1", closes)
+	}
+	if got := len(mgr.Sessions()); got != 0 {
+		t.Fatalf("sessions after failed sender factory = %d, want 0", got)
+	}
+}
+
+func TestManagerSessionConstructionFailureClosesSenderLeaseOnce(t *testing.T) {
+	mgr := NewManager(slog.New(slog.DiscardHandler))
+	defer mgr.Close()
+
+	cfg := senderLeaseTestConfig("192.0.2.111")
+	cfg.DetectMultiplier = 0
+	var closes int
+	_, err := mgr.CreateSession(
+		context.Background(), cfg,
+		func() (*SenderLease, error) {
+			return NewSenderLease(senderLeaseTestSender{}, func() error {
+				closes++
+				return nil
+			}), nil
+		},
+	)
+	if !errors.Is(err, ErrInvalidDetectMult) {
+		t.Fatalf("CreateSession error = %v, want %v", err, ErrInvalidDetectMult)
+	}
+	if closes != 1 {
+		t.Fatalf("sender lease closes after session construction failure = %d, want 1", closes)
+	}
+	if got := len(mgr.Sessions()); got != 0 {
+		t.Fatalf("sessions after construction failure = %d, want 0", got)
+	}
+}
+
+func TestManagerSenderLeaseClosesOnlyAfterLastClaimRelease(t *testing.T) {
+	mgr := NewManager(slog.New(slog.DiscardHandler))
+	defer mgr.Close()
+
+	cfg := senderLeaseTestConfig("192.0.2.12")
+	var closes int
+	desired := []ReconcileConfig{{
+		Key:           "config",
+		SessionConfig: cfg,
+		SenderLeaseFactory: func() (*SenderLease, error) {
+			return NewSenderLease(senderLeaseTestSender{}, func() error {
+				closes++
+				return nil
+			}), nil
+		},
+	}}
+	if _, _, err := mgr.ReconcileSessions(context.Background(), desired); err != nil {
+		t.Fatalf("config reconcile: %v", err)
+	}
+	sess, err := mgr.CreateSession(
+		context.Background(), cfg,
+		func() (*SenderLease, error) {
+			t.Fatal("shared API claim opened an additional sender lease")
+			return nil, errSenderLeaseTestFactory
+		},
+	)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	if err := mgr.DestroySession(context.Background(), sess.LocalDiscriminator()); err != nil {
+		t.Fatalf("DestroySession non-last claim: %v", err)
+	}
+	if closes != 0 {
+		t.Fatalf("sender lease closes after non-last release = %d, want 0", closes)
+	}
+
+	if _, _, err := mgr.ReconcileSessions(context.Background(), nil); err != nil {
+		t.Fatalf("release last config claim: %v", err)
+	}
+	if closes != 1 {
+		t.Fatalf("sender lease closes after last release = %d, want 1", closes)
+	}
+}
+
+func TestManagerDestroySessionDoesNotDoubleCloseSenderLease(t *testing.T) {
+	mgr := NewManager(slog.New(slog.DiscardHandler))
+
+	var closes int
+	sess, err := mgr.CreateSession(
+		context.Background(), senderLeaseTestConfig("192.0.2.13"),
+		func() (*SenderLease, error) {
+			return NewSenderLease(senderLeaseTestSender{}, func() error {
+				closes++
+				return nil
+			}), nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if err := mgr.DestroySession(context.Background(), sess.LocalDiscriminator()); err != nil {
+		t.Fatalf("DestroySession: %v", err)
+	}
+	if err := mgr.DestroySession(context.Background(), sess.LocalDiscriminator()); !errors.Is(
+		err, ErrSessionNotFound,
+	) {
+		t.Fatalf("second DestroySession error = %v, want %v", err, ErrSessionNotFound)
+	}
+	mgr.Close()
+	if closes != 1 {
+		t.Fatalf("sender lease closes after delete and Manager.Close = %d, want 1", closes)
+	}
+}
+
+func TestManagerCloseReleasesEveryAcceptedSenderLeaseOnce(t *testing.T) {
+	mgr := NewManager(slog.New(slog.DiscardHandler))
+	closes := make([]int, 2)
+	desired := make([]ReconcileConfig, 0, len(closes))
+	for i := range closes {
+		index := i
+		desired = append(desired, ReconcileConfig{
+			Key:           "config",
+			SessionConfig: senderLeaseTestConfig(netip.AddrFrom4([4]byte{192, 0, 2, byte(20 + i)}).String()),
+			SenderLeaseFactory: func() (*SenderLease, error) {
+				return NewSenderLease(senderLeaseTestSender{}, func() error {
+					closes[index]++
+					return nil
+				}), nil
+			},
+		})
+	}
+	if _, _, err := mgr.ReconcileSessions(context.Background(), desired); err != nil {
+		t.Fatalf("ReconcileSessions: %v", err)
+	}
+
+	mgr.Close()
+	mgr.Close()
+	for i, got := range closes {
+		if got != 1 {
+			t.Errorf("sender lease %d closes = %d, want 1", i, got)
+		}
+	}
+}
+
+// An unsolicited session owns its sender lease: cleanup closes it once and
+// Manager.Close does not close it again.
+func TestUnsolicitedCleanupClosesSessionLeaseOnce(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		policy := &UnsolicitedPolicy{
+			Enabled:     true,
+			MaxSessions: 1,
+			Interfaces: map[string]UnsolicitedInterfaceConfig{
+				"eth0": {Enabled: true},
+			},
+			SessionDefaults: UnsolicitedSessionDefaults{
+				DesiredMinTxInterval:  time.Second,
+				RequiredMinRxInterval: time.Second,
+				DetectMultiplier:      3,
+			},
+		}
+		var closes int
+		mgr := NewManager(
+			slog.New(slog.DiscardHandler),
+			WithUnsolicitedPolicy(policy),
+			WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
+			WithUnsolicitedSessionSender(func(PacketMeta) (*SenderLease, error) {
+				return NewSenderLease(senderLeaseTestSender{}, func() error {
+					closes++
+					return nil
+				}), nil
+			}),
+		)
+		defer mgr.Close()
+
+		meta := PacketMeta{
+			SrcAddr: netip.MustParseAddr("192.0.2.30"),
+			DstAddr: netip.MustParseAddr("192.0.2.254"),
+			IfName:  "eth0",
+			TTL:     255,
+		}
+		if _, err := mgr.tryCreateUnsolicited(ownershipDownPacket(301), meta, nil); err != nil {
+			t.Fatalf("tryCreateUnsolicited: %v", err)
+		}
+		// The owner applies the admitted packet asynchronously.
+		synctest.Wait()
+		snapshots := mgr.Sessions()
+		if len(snapshots) != 1 {
+			t.Fatalf("unsolicited sessions = %d, want 1", len(snapshots))
+		}
+		session, _ := mgr.LookupByDiscriminator(snapshots[0].LocalDiscr)
+		// Commit a real failed attempt; cleanup accepts only a failed attempt.
+		unsolicitedPathFailure(t, mgr, session)
+		mgr.cleanupUnsolicitedSession(context.Background(), session)
+		if closes != 1 {
+			t.Fatalf("session sender closes after cleanup = %d, want 1", closes)
+		}
+		mgr.Close()
+		if closes != 1 {
+			t.Fatalf("session sender closes after Manager.Close = %d, want 1", closes)
+		}
+	})
+}
+
+// nonOwningSessionSender hands every unsolicited session a non-owning lease
+// on sender.
+func nonOwningSessionSender(sender PacketSender) func(PacketMeta) (*SenderLease, error) {
+	return func(PacketMeta) (*SenderLease, error) { return NewSenderLease(sender, nil), nil }
+}
+
+// withCloseHook gives mgr a configured session whose sender lease Manager.Close
+// releases while the Manager is Closing and holds no Manager lock.
+func withCloseHook(t *testing.T, mgr *Manager, lease *SenderLease) {
+	t.Helper()
+
+	if _, err := mgr.CreateSession(context.Background(), senderLeaseTestConfig("192.0.2.200"),
+		func() (*SenderLease, error) { return lease, nil }); err != nil {
+		t.Fatalf("CreateSession for the close hook: %v", err)
+	}
+}
+
+func senderLeaseTestConfig(peer string) SessionConfig {
+	return SessionConfig{
+		PeerAddr:              netip.MustParseAddr(peer),
+		LocalAddr:             netip.MustParseAddr("192.0.2.254"),
+		Interface:             "eth0",
+		Type:                  SessionTypeSingleHop,
+		Role:                  RoleActive,
+		DesiredMinTxInterval:  time.Second,
+		RequiredMinRxInterval: time.Second,
+		DetectMultiplier:      3,
+	}
+}
+
+type releaseOrderMetrics struct {
+	noopMetrics
+
+	unregistered chan netip.Addr
+}
+
+func (r *releaseOrderMetrics) UnregisterSession(peer, _ netip.Addr, _ string) {
+	r.unregistered <- peer
+}
+
+func TestManagerInitiateCloseFromSenderReleaseCallbackAndConcurrentClose(t *testing.T) {
+	t.Parallel()
+
+	t.Run("during_manager_close", func(t *testing.T) {
+		t.Parallel()
+		metrics := &releaseOrderMetrics{unregistered: make(chan netip.Addr, 4)}
+		mgr := NewManager(slog.New(slog.DiscardHandler), WithManagerMetrics(metrics))
+		entered := make(chan struct{})
+		allowReturn := make(chan struct{})
+		var lease *SenderLease
+		var discr uint32
+		lease = NewSenderLease(senderLeaseTestSender{}, func() error {
+			// Verify exact sender -> discriminator -> metrics order while inside release().
+			if !mgr.discriminators.IsAllocated(discr) {
+				t.Error("discriminator was released before sender lease callback completed")
+			}
+			if len(metrics.unregistered) != 0 {
+				t.Error("metrics UnregisterSession fired before sender lease callback completed")
+			}
+			closeDone := mgr.InitiateClose()
+			leaseDone := lease.StartClose()
+			select {
+			case <-closeDone:
+				t.Error("Manager closeDone closed before active sender callback returned")
+			case <-leaseDone:
+				t.Error("SenderLease closeDone closed before active sender callback returned")
+			default:
+			}
+			close(entered)
+			<-allowReturn
+			return nil
+		})
+		sess, err := mgr.CreateSession(t.Context(), senderLeaseTestConfig("192.0.2.210"),
+			func() (*SenderLease, error) { return lease, nil })
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+		discr = sess.LocalDiscriminator()
+
+		primaryDone := make(chan struct{})
+		go func() {
+			mgr.Close()
+			close(primaryDone)
+		}()
+		<-entered
+
+		// Ordinary concurrent Close caller MUST block until release finishes.
+		concurrentDone := make(chan struct{})
+		go func() {
+			mgr.Close()
+			close(concurrentDone)
+		}()
+		select {
+		case <-concurrentDone:
+			t.Fatal("concurrent Manager.Close returned while sender release was still running")
+		case <-time.After(20 * time.Millisecond):
+		}
+
+		close(allowReturn)
+		<-primaryDone
+		<-concurrentDone
+		if mgr.discriminators.IsAllocated(discr) {
+			t.Fatal("discriminator remained allocated after Manager.Close completed")
+		}
+		if len(metrics.unregistered) != 1 {
+			t.Fatalf("metrics UnregisterSession count = %d, want 1", len(metrics.unregistered))
+		}
+	})
+
+	t.Run("during_destroy_session", func(t *testing.T) {
+		t.Parallel()
+		metrics := &releaseOrderMetrics{unregistered: make(chan netip.Addr, 4)}
+		mgr := NewManager(slog.New(slog.DiscardHandler), WithManagerMetrics(metrics))
+		var firstDiscr, secondDiscr uint32
+		var asyncDone <-chan struct{}
+		first, err := mgr.CreateSession(t.Context(), senderLeaseTestConfig("192.0.2.211"),
+			func() (*SenderLease, error) {
+				return NewSenderLease(senderLeaseTestSender{}, func() error {
+					if !mgr.discriminators.IsAllocated(firstDiscr) || len(metrics.unregistered) != 0 {
+						t.Error("DestroySession violated sender -> discriminator -> metrics release order")
+					}
+					asyncDone = mgr.InitiateClose()
+					if _, createErr := mgr.CreateSession(
+						context.Background(), senderLeaseTestConfig("192.0.2.213"),
+						NonOwningSenderLeaseFactory(senderLeaseTestSender{}),
+					); !errors.Is(createErr, ErrManagerClosing) {
+						t.Errorf("mutation after InitiateClose err = %v, want ErrManagerClosing", createErr)
+					}
+					return nil
+				}), nil
+			})
+		if err != nil {
+			t.Fatalf("CreateSession first: %v", err)
+		}
+		firstDiscr = first.LocalDiscriminator()
+
+		second, err := mgr.CreateSession(t.Context(), senderLeaseTestConfig("192.0.2.212"),
+			func() (*SenderLease, error) {
+				return NewSenderLease(senderLeaseTestSender{}, func() error {
+					if !mgr.discriminators.IsAllocated(secondDiscr) {
+						t.Error("second session discriminator released before sender lease")
+					}
+					return nil
+				}), nil
+			})
+		if err != nil {
+			t.Fatalf("CreateSession second: %v", err)
+		}
+		secondDiscr = second.LocalDiscriminator()
+
+		if err := mgr.DestroySession(t.Context(), firstDiscr); err != nil {
+			t.Fatalf("DestroySession: %v", err)
+		}
+		<-asyncDone
+		mgr.Close()
+		if mgr.discriminators.IsAllocated(firstDiscr) || mgr.discriminators.IsAllocated(secondDiscr) {
+			t.Fatal("discriminators remained allocated after InitiateClose completed")
+		}
+		if len(metrics.unregistered) != 2 {
+			t.Fatalf("metrics UnregisterSession count = %d, want 2", len(metrics.unregistered))
+		}
+	})
+}
+
+func TestSenderLeaseStartCloseReentrantAndIdempotent(t *testing.T) {
+	t.Parallel()
+
+	var nilLease *SenderLease
+	select {
+	case <-nilLease.StartClose():
+	default:
+		t.Fatal("nil SenderLease.StartClose did not return closed channel")
+	}
+
+	wantErr := errors.New("sender close failed")
+	entered := make(chan struct{})
+	unblock := make(chan struct{})
+	var lease *SenderLease
+	lease = NewSenderLease(senderLeaseTestSender{}, func() error {
+		done := lease.StartClose()
+		select {
+		case <-done:
+			t.Error("StartClose reported completion while release was still running")
+		default:
+		}
+		close(entered)
+		<-unblock
+		return wantErr
+	})
+
+	done := lease.StartClose()
+	<-entered
+
+	waiterErr := make(chan error, 1)
+	go func() {
+		waiterErr <- lease.Close()
+	}()
+	select {
+	case err := <-waiterErr:
+		t.Fatalf("concurrent Close returned early with %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(unblock)
+	<-done
+	if err := <-waiterErr; !errors.Is(err, wantErr) {
+		t.Fatalf("concurrent Close err = %v, want %v", err, wantErr)
+	}
+	if err := lease.Close(); !errors.Is(err, wantErr) {
+		t.Fatalf("idempotent Close err = %v, want %v", err, wantErr)
+	}
+}

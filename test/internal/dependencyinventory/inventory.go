@@ -24,6 +24,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dantte-lp/gobfd/test/internal/npmbootstrap"
+	"github.com/dantte-lp/gobfd/test/internal/strictjson"
 )
 
 // SchemaID is the canonical inventory schema identifier.
@@ -35,14 +38,17 @@ const (
 	depsDevAPIBase          = "https://api.deps.dev/v3"
 	depsDevMaxResponseBytes = 1 << 20
 	depsDevWorkers          = 4
-	pypiAPIBase             = "https://pypi.org/pypi"
-	pypiMaxResponseBytes    = 1 << 20
-	pypiWorkers             = 4
 )
 
 const (
+	npmToolID             = "tool:npm"
+	releasePleaseToolID   = "tool:release_please"
+	licenseApache2        = "Apache-2.0"
 	currentSchemaVersion  = 2
 	githubRepositoryParts = 2
+	snapshotObservedAt    = "2026-10-28T19:52:52Z"
+	devReviewBy           = "2026-12-31"
+	devTracking           = "https://github.com/dantte-lp/gobfd/pull/133"
 )
 
 // Kind classifies a non-Go dependency or a Go module record.
@@ -54,7 +60,6 @@ const (
 	KindGoModule      Kind = "go-module"
 	KindInteropDaemon Kind = "interop-daemon"
 	KindOCIImage      Kind = "oci-image"
-	KindPythonPackage Kind = "python-package"
 	KindRemoved       Kind = "removed"
 	KindTool          Kind = "tool"
 )
@@ -285,9 +290,19 @@ func Check(ctx context.Context, options Options) error {
 // Build constructs a deterministic inventory snapshot from the current repository manifests.
 // Online provenance is added separately by CollectLicenseEvidence during generation.
 func Build(ctx context.Context, root string) (Inventory, error) {
+	return buildInventory(ctx, root, selectedModuleGraph)
+}
+
+func buildInventory(ctx context.Context, root string,
+	collect func(context.Context, string, ModuleGraph) ([]moduleIdentity, error),
+) (Inventory, error) {
 	absoluteRoot, err := filepath.Abs(root)
 	if err != nil {
 		return Inventory{}, fmt.Errorf("resolve repository root: %w", err)
+	}
+	prior, err := readInventory(filepath.Join(absoluteRoot, "docs/supply-chain/dependency-inventory.json"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return Inventory{}, fmt.Errorf("read prior dependency inventory: %w", err)
 	}
 	packageCount, err := goPackageCount(ctx, absoluteRoot)
 	if err != nil {
@@ -296,22 +311,18 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 	inv := Inventory{
 		Schema:         SchemaID,
 		SchemaVersion:  currentSchemaVersion,
-		AuditedAt:      "2026-08-26T00:00:00Z",
+		AuditedAt:      snapshotObservedAt,
 		GoPackageCount: packageCount,
 	}
-	for _, definition := range []struct{ id, manifest, sum string }{
-		{"runtime", "go.mod", "go.sum"},
-		{"tools", "tools/go.mod", "tools/go.sum"},
-	} {
-		graph := ModuleGraph{ID: definition.id, Manifest: definition.manifest, Sum: definition.sum}
-		identities, parseErr := selectedModuleGraph(ctx, absoluteRoot, graph)
+	for _, graph := range moduleGraphDefinitions() {
+		identities, parseErr := collect(ctx, absoluteRoot, graph)
 		if parseErr != nil {
-			return Inventory{}, fmt.Errorf("parse %s: %w", definition.manifest, parseErr)
+			return Inventory{}, fmt.Errorf("parse %s: %w", graph.Manifest, parseErr)
 		}
-		// #nosec G304 -- absoluteRoot is the selected repository root and definition.sum is one of two literal paths above.
-		sumData, readErr := os.ReadFile(filepath.Join(absoluteRoot, definition.sum))
+		// #nosec G304 -- absoluteRoot is the selected repository root and graph.Sum is one of the literal module graph paths.
+		sumData, readErr := os.ReadFile(filepath.Join(absoluteRoot, graph.Sum))
 		if readErr != nil {
-			return Inventory{}, fmt.Errorf("read %s: %w", definition.sum, readErr)
+			return Inventory{}, fmt.Errorf("read %s: %w", graph.Sum, readErr)
 		}
 		for _, identity := range identities {
 			sources := []SourceLocation{}
@@ -321,36 +332,43 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 				Value:  identity.Path + "@" + identity.Version,
 			}
 			if sumPin, ok := findGoSumPin(sumData, identity.Path, identity.Version); ok {
-				sources = append(sources, SourceLocation{Path: definition.sum, Match: sumPin})
+				sources = append(sources, SourceLocation{Path: graph.Sum, Match: sumPin})
 				pin = ImmutablePin{Status: PinVerified, Kind: "go-sum", Value: sumPin}
 			}
+			if graph.ID == goreleaserGraphID && publisherLocalSource(identity.Path) != "" {
+				localSources, localPin, localErr := publisherSourcePin(absoluteRoot, graph, identity.Path)
+				if localErr != nil {
+					return Inventory{}, localErr
+				}
+				sources, pin = localSources, localPin
+			}
 			record := baseRecord(identity.Version, "https://proxy.golang.org", sources, pin)
+			if pin.Kind == "prepared-source-profile-sha256" {
+				record.DeliveryChannel = "authenticated-source-workspace"
+			}
 			record.Target = identity.Version
 			policy := "runtime-direct-audited"
 			switch {
-			case definition.id == "tools":
+			case graph.ID != runtimeGraphID:
 				policy = "tools-selected-graph"
 			case identity.Indirect:
 				policy = "runtime-transitive-selected"
 			}
-			if definition.id == "runtime" {
+			if graph.ID == runtimeGraphID {
 				record.Baseline = runtimeBaseline(identity.Path)
 			}
-			if identity.Path == "github.com/osrg/gobgp/v3" {
-				policy = "gobgp-v3-risk"
+			if identity.Path == "github.com/osrg/gobgp/v4" {
+				policy = "gobgp-v4-risk"
 			}
 			record.Coordinates = Coordinates{PURL: goModulePURL(identity.Path, identity.Version)}
 			record.Assessment = assessmentTemplate(policy)
-			if definition.id == "runtime" && policy != "gobgp-v3-risk" {
-				record.Assessment.Security.Value = "runtime vulnerability policy covers " + identity.Path + "@" + identity.Version
-			}
 			record.RepositoryState = repositoryStateTemplate(policy, pin)
-			if definition.id == "tools" {
+			if graph.ID == "tools" {
 				switch identity.Path {
 				case "github.com/tenntenn/text/transform":
 					record.Coordinates.SourceRepository = "https://github.com/tenntenn/text"
 					record.Assessment.License = Review{
-						Status: ReviewVerified, Value: "MIT", EvidenceIDs: []string{},
+						Status: ReviewUnverified, Value: "MIT", EvidenceIDs: []string{},
 					}
 					record.Assessment.Decision.LicenseException = nil
 				case "github.com/chzyer/logex":
@@ -364,9 +382,6 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 			}
 			if identity.Path == "github.com/ovn-kubernetes/libovsdb" {
 				record.Coordinates.SourceRepository = "https://github.com/ovn-kubernetes/libovsdb"
-				record.RepositoryState.RepositoryArchived = Review{
-					Status: ReviewVerified, Value: "active", EvidenceIDs: []string{},
-				}
 			}
 			module := Module{Record: record, Path: identity.Path, Version: identity.Version, Indirect: identity.Indirect}
 			graph.Modules = append(graph.Modules, module)
@@ -381,15 +396,10 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 	}
 	for _, item := range declared {
 		pin := ImmutablePin{Status: PinVerified, Kind: "ecosystem-version", Value: item.Installed}
-		assessment := "tool-version-audited"
-		if item.Kind == KindPythonPackage {
-			pin = ImmutablePin{
-				Status: PinVerified,
-				Kind:   "uv-lock-artifact",
-				Value:  strings.TrimPrefix(item.ID, "python-package:") + "@" + item.Installed + "#" + item.ArtifactHash,
-			}
-			assessment = "uv-locked-python-island"
+		if item.ContentPin.Value != "" {
+			pin = item.ContentPin
 		}
+		assessment := "tool-version-audited"
 		if item.Kind == KindGitHubAction && githubActionSHA(item.Installed) {
 			pin = ImmutablePin{Status: PinVerified, Kind: "git-commit", Value: item.Installed}
 			assessment = "github-action-audited"
@@ -404,11 +414,17 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 		record := baseRecord(item.Installed, deliveryChannel(item.Kind), item.Sources, pin)
 		record.Target = item.Installed
 		record.Coordinates = componentCoordinates(item)
+		if item.ID == releasePleaseToolID || item.ID == npmToolID {
+			record.DeliveryChannel = "https://registry.npmjs.org"
+		}
+		if item.ID == upxToolID {
+			record.DeliveryChannel = upxRepositoryURL + "/releases"
+		}
 		record.Assessment = assessmentTemplate(assessment)
 		record.RepositoryState = repositoryStateTemplate(assessment, pin)
 		if item.Kind == KindGitHubAction {
 			record.Assessment.License = Review{
-				Status: ReviewVerified, Value: githubActionLicense(actionRepository(item.Installed)), EvidenceIDs: []string{},
+				Status: ReviewUnverified, Value: githubActionLicense(actionRepository(item.Installed)), EvidenceIDs: []string{},
 			}
 			record.RepositoryState.ArtifactAvailable.Value = record.Coordinates.SourceCommit
 			record.Assessment.Decision.LicenseException = nil
@@ -422,38 +438,9 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 	applyOCILicenseEvidence(&inv)
 	sort.Slice(inv.Components, func(i, j int) bool { return inv.Components[i].ID < inv.Components[j].ID })
 	populateEvidence(&inv)
-	applyReviewExceptions(&inv)
+	reuseHistoricalEvidence(&inv, prior)
+	normalizePublicTracking(&inv)
 	return inv, nil
-}
-
-func applyReviewExceptions(inv *Inventory) {
-	apply := func(id string, record *Record) {
-		decision := &record.Assessment.Decision
-		if decision.Status != DecisionAdopted && decision.Status != DecisionRetained {
-			decision.ReviewException = nil
-			return
-		}
-		reviews := unresolvedReviewNames(*record)
-		if len(reviews) == 0 {
-			decision.ReviewException = nil
-			return
-		}
-		decision.ReviewException = &ReviewException{
-			Reviews: reviews, Owner: "maintainers", ReviewBy: "2026-09-30",
-			Reason:   fmt.Sprintf("v0.6.2 accepts %s at %s while the listed reviews remain unresolved", id, record.Installed),
-			Tracking: "gobfd-qj0.8.1.7.3",
-		}
-	}
-	for graphIndex := range inv.ModuleGraphs {
-		graph := &inv.ModuleGraphs[graphIndex]
-		for moduleIndex := range graph.Modules {
-			module := &graph.Modules[moduleIndex]
-			apply(graph.ID+":"+module.Path, &module.Record)
-		}
-	}
-	for index := range inv.Components {
-		apply(inv.Components[index].ID, &inv.Components[index].Record)
-	}
 }
 
 func unresolvedReviewNames(record Record) []string {
@@ -503,32 +490,10 @@ type moduleLicenseResult struct {
 	SourceRepository string
 }
 
-type pythonPackageIdentity struct {
-	Name         string
-	Version      string
-	ArtifactHash string
-}
-
 type packageLicenseResult struct {
 	License          string
 	SourceRepository string
 	SourceCommit     string
-}
-
-type pypiRelease struct {
-	Info struct {
-		Name              string            `json:"name"`
-		Version           string            `json:"version"`
-		LicenseExpression string            `json:"license_expression"`
-		License           string            `json:"license"`
-		Classifiers       []string          `json:"classifiers"`
-		ProjectURLs       map[string]string `json:"project_urls"`
-	} `json:"info"`
-	URLs []struct {
-		Digests struct {
-			SHA256 string `json:"sha256"`
-		} `json:"digests"`
-	} `json:"urls"`
 }
 
 type moduleLicenseOverride struct {
@@ -549,9 +514,13 @@ type ociLicenseOverride struct {
 	SecondHash       string
 }
 
-// CollectLicenseEvidence resolves exact selected Go module versions through the stable deps.dev v3 API.
+// CollectLicenseEvidence resolves exact Go module and approved npm package licenses through their owning APIs.
 // It deliberately leaves records without detected SPDX expressions unverified for explicit resolution.
 func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
+	return collectLicenseEvidence(ctx, inv, &http.Client{Timeout: 20 * time.Second})
+}
+
+func collectLicenseEvidence(ctx context.Context, inv *Inventory, client *http.Client) error {
 	identities := make([]moduleLicenseIdentity, 0)
 	seen := make(map[moduleLicenseIdentity]struct{})
 	for _, graph := range inv.ModuleGraphs {
@@ -582,7 +551,6 @@ func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 		return identities[i].Path < identities[j].Path
 	})
 
-	client := &http.Client{Timeout: 20 * time.Second}
 	results := make(map[moduleLicenseIdentity]moduleLicenseResult, len(identities))
 	jobs := make(chan moduleLicenseIdentity)
 	errCh := make(chan error, len(identities))
@@ -610,6 +578,7 @@ func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 		case <-ctx.Done():
 			close(jobs)
 			workers.Wait()
+			invalidateUnobservedLicenses(inv, results)
 			return fmt.Errorf("collect deps.dev licenses: %w", ctx.Err())
 		}
 	}
@@ -621,6 +590,7 @@ func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 		errs = append(errs, err)
 	}
 	if err := errors.Join(errs...); err != nil {
+		invalidateUnobservedLicenses(inv, results)
 		return fmt.Errorf("collect deps.dev licenses: %w", err)
 	}
 
@@ -633,8 +603,11 @@ func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 			result := results[moduleLicenseIdentity{Path: module.Path, Version: module.Version}]
 			if len(result.Licenses) == 0 {
 				if override, ok := exactModuleLicense(module.Path, module.Version); ok {
-					module.Assessment.License = Review{Status: ReviewVerified, Value: override.Value, EvidenceIDs: []string{}}
-					module.Assessment.Decision.LicenseException = nil
+					if module.Assessment.License.Value != override.Value ||
+						len(module.Assessment.License.EvidenceIDs) != 1 {
+						module.Assessment.License = Review{Status: ReviewUnverified, Value: override.Value}
+						replaceLicenseEvidence(inv, inv.ModuleGraphs[graphIndex].ID+":"+module.Path, &module.Record, nil)
+					}
 					module.Coordinates.SourceRepository = override.SourceRepository
 					module.Coordinates.SourceCommit = override.SourceCommit
 					continue
@@ -644,6 +617,7 @@ func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 					Value:       "deps.dev returned no detected SPDX license expressions for the exact module version",
 					EvidenceIDs: []string{},
 				}
+				replaceLicenseEvidence(inv, inv.ModuleGraphs[graphIndex].ID+":"+module.Path, &module.Record, nil)
 				continue
 			}
 			module.Assessment.License = Review{
@@ -655,26 +629,17 @@ func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 			if module.Coordinates.SourceRepository == "" {
 				module.Coordinates.SourceRepository = result.SourceRepository
 			}
+			observeDepsDevLicense(inv, inv.ModuleGraphs[graphIndex].ID+":"+module.Path, &module.Record,
+				moduleLicenseIdentity{Path: module.Path, Version: module.Version})
 		}
-	}
-	pypiResults, err := collectPyPILicenses(ctx, inv)
-	if err != nil {
-		return err
 	}
 	for componentIndex := range inv.Components {
 		component := &inv.Components[componentIndex]
 		var result packageLicenseResult
 		var ok bool
 		switch component.Kind {
-		case KindPythonPackage:
-			result, ok = pypiResults[pythonPackageIdentity{
-				Name: strings.TrimPrefix(component.ID, "python-package:"), Version: component.Installed,
-				ArtifactHash: component.Coordinates.Digest,
-			}]
 		case KindTool:
-			if packageName, found := declaredToolPyPIName(component.ID); found {
-				result, ok = pypiResultForTool(pypiResults, packageName, component.Installed)
-			} else if identity, found := declaredToolModule(component.ID, component.Installed); found {
+			if identity, found := declaredToolModule(component.ID, component.Installed); found {
 				moduleResult := results[identity]
 				if len(moduleResult.Licenses) > 0 {
 					result = packageLicenseResult{
@@ -683,16 +648,15 @@ func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 					component.Coordinates.PURL = goModulePURL(identity.Path, identity.Version)
 					ok = true
 				}
-			} else if override, found := exactDeclaredToolLicense(component.ID, component.Installed); found {
-				result = packageLicenseResult{
-					License: override.Value, SourceRepository: override.SourceRepository, SourceCommit: override.SourceCommit,
-				}
-				ok = true
 			}
 		case KindGitHubAction, KindGoModule, KindInteropDaemon, KindOCIImage, KindRemoved:
 			continue
 		}
 		if !ok {
+			if _, declared := declaredToolModule(component.ID, component.Installed); declared {
+				component.Assessment.License = Review{Status: ReviewUnverified, Value: "no exact-version SPDX expression returned"}
+				replaceLicenseEvidence(inv, component.ID, &component.Record, nil)
+			}
 			continue
 		}
 		component.Assessment.License = Review{Status: ReviewVerified, Value: result.License, EvidenceIDs: []string{}}
@@ -703,13 +667,16 @@ func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 		if result.SourceCommit != "" {
 			component.Coordinates.SourceCommit = result.SourceCommit
 		}
-		if component.Kind == KindTool {
-			if packageName, found := declaredToolPyPIName(component.ID); found {
-				component.Coordinates.PURL = "pkg:pypi/" + packageName + "@" + component.Installed
-			}
-		}
+		identity, _ := declaredToolModule(component.ID, component.Installed)
+		observeDepsDevLicense(inv, component.ID, &component.Record, identity)
 	}
-	populateEvidence(inv)
+	if err := collectNPMLicenseEvidence(ctx, inv, client); err != nil {
+		return err
+	}
+	if err := collectUPXLicenseEvidence(ctx, inv, client); err != nil {
+		return err
+	}
+	slices.SortFunc(inv.Evidence, func(left, right Evidence) int { return strings.Compare(left.ID, right.ID) })
 	return nil
 }
 
@@ -728,6 +695,11 @@ func fetchDepsDevLicense(
 		return moduleLicenseResult{}, fmt.Errorf("query deps.dev for %s@%s: %w", identity.Path, identity.Version, err)
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		if _, ok := exactModuleLicense(identity.Path, identity.Version); ok {
+			return moduleLicenseResult{}, nil
+		}
+	}
 	if response.StatusCode != http.StatusOK {
 		return moduleLicenseResult{}, fmt.Errorf("query deps.dev for %s@%s: HTTP %s", identity.Path, identity.Version, response.Status)
 	}
@@ -766,195 +738,6 @@ func depsDevVersionURL(path, version string) string {
 	return depsDevAPIBase + "/systems/go/packages/" + url.PathEscape(path) + "/versions/" + url.PathEscape(version)
 }
 
-func collectPyPILicenses(ctx context.Context, inv *Inventory) (map[pythonPackageIdentity]packageLicenseResult, error) {
-	identities := make([]pythonPackageIdentity, 0)
-	for _, component := range inv.Components {
-		if component.Kind != KindPythonPackage {
-			continue
-		}
-		identities = append(identities, pythonPackageIdentity{
-			Name: strings.TrimPrefix(component.ID, "python-package:"), Version: component.Installed,
-			ArtifactHash: component.Coordinates.Digest,
-		})
-	}
-	sort.Slice(identities, func(i, j int) bool {
-		if identities[i].Name != identities[j].Name {
-			return identities[i].Name < identities[j].Name
-		}
-		return identities[i].Version < identities[j].Version
-	})
-
-	client := &http.Client{Timeout: 20 * time.Second}
-	results := make(map[pythonPackageIdentity]packageLicenseResult, len(identities))
-	jobs := make(chan pythonPackageIdentity)
-	errCh := make(chan error, len(identities))
-	var resultMu sync.Mutex
-	var workers sync.WaitGroup
-	for range pypiWorkers {
-		workers.Add(1)
-		go func() {
-			defer workers.Done()
-			for identity := range jobs {
-				result, err := fetchPyPILicense(ctx, client, pypiAPIBase, identity)
-				if err != nil {
-					errCh <- err
-					continue
-				}
-				resultMu.Lock()
-				results[identity] = result
-				resultMu.Unlock()
-			}
-		}()
-	}
-	for _, identity := range identities {
-		select {
-		case jobs <- identity:
-		case <-ctx.Done():
-			close(jobs)
-			workers.Wait()
-			return nil, fmt.Errorf("collect PyPI licenses: %w", ctx.Err())
-		}
-	}
-	close(jobs)
-	workers.Wait()
-	close(errCh)
-	var errs []error
-	for err := range errCh {
-		errs = append(errs, err)
-	}
-	if err := errors.Join(errs...); err != nil {
-		return nil, fmt.Errorf("collect PyPI licenses: %w", err)
-	}
-	return results, nil
-}
-
-func fetchPyPILicense(
-	ctx context.Context,
-	client *http.Client,
-	apiBase string,
-	identity pythonPackageIdentity,
-) (packageLicenseResult, error) {
-	endpoint := pypiVersionURL(apiBase, identity.Name, identity.Version)
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return packageLicenseResult{}, fmt.Errorf("create PyPI request for %s@%s: %w", identity.Name, identity.Version, err)
-	}
-	response, err := client.Do(request)
-	if err != nil {
-		return packageLicenseResult{}, fmt.Errorf("query PyPI for %s@%s: %w", identity.Name, identity.Version, err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return packageLicenseResult{}, fmt.Errorf("query PyPI for %s@%s: HTTP %s", identity.Name, identity.Version, response.Status)
-	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, pypiMaxResponseBytes+1))
-	if err != nil {
-		return packageLicenseResult{}, fmt.Errorf("read PyPI response for %s@%s: %w", identity.Name, identity.Version, err)
-	}
-	if len(body) > pypiMaxResponseBytes {
-		return packageLicenseResult{}, fmt.Errorf("PyPI response for %s@%s exceeds %d bytes", identity.Name, identity.Version, pypiMaxResponseBytes)
-	}
-	if err := rejectDuplicateJSONFields(body); err != nil {
-		return packageLicenseResult{}, fmt.Errorf("decode PyPI response for %s@%s: %w", identity.Name, identity.Version, err)
-	}
-	var release pypiRelease
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	if err := decoder.Decode(&release); err != nil {
-		return packageLicenseResult{}, fmt.Errorf("decode PyPI response for %s@%s: %w", identity.Name, identity.Version, err)
-	}
-	if decoder.Decode(&struct{}{}) != io.EOF {
-		return packageLicenseResult{}, fmt.Errorf("PyPI response for %s@%s contains multiple JSON values", identity.Name, identity.Version)
-	}
-	if normalizePythonPackageName(release.Info.Name) != identity.Name || release.Info.Version != identity.Version {
-		return packageLicenseResult{}, fmt.Errorf("PyPI identity mismatch for %s@%s", identity.Name, identity.Version)
-	}
-	lockedHash := strings.TrimPrefix(identity.ArtifactHash, "sha256:")
-	artifactFound := false
-	for _, artifact := range release.URLs {
-		if artifact.Digests.SHA256 == lockedHash {
-			artifactFound = true
-			break
-		}
-	}
-	if !artifactFound {
-		return packageLicenseResult{}, fmt.Errorf("PyPI artifact hash mismatch for %s@%s", identity.Name, identity.Version)
-	}
-	license, ok := normalizedPyPILicense(release.Info.LicenseExpression, release.Info.License, release.Info.Classifiers)
-	if !ok {
-		if override, found := exactPyPILegacyLicense(identity.Name, identity.Version); found {
-			return packageLicenseResult{
-				License: override.Value, SourceRepository: override.SourceRepository, SourceCommit: override.SourceCommit,
-			}, nil
-		}
-		return packageLicenseResult{}, fmt.Errorf("PyPI release %s@%s has ambiguous or missing license metadata", identity.Name, identity.Version)
-	}
-	return packageLicenseResult{License: license, SourceRepository: pyPISourceRepository(release.Info.ProjectURLs)}, nil
-}
-
-func pypiVersionURL(apiBase, name, version string) string {
-	return strings.TrimSuffix(apiBase, "/") + "/" + url.PathEscape(name) + "/" + url.PathEscape(version) + "/json"
-}
-
-func normalizePythonPackageName(name string) string {
-	return pythonNameSeparator.ReplaceAllString(strings.ToLower(name), "-")
-}
-
-func normalizedPyPILicense(expression, legacy string, classifiers []string) (string, bool) {
-	expression = strings.TrimSpace(expression)
-	if expression != "" && len(expression) <= 256 && spdxExpression.MatchString(expression) {
-		return expression, true
-	}
-	legacyValues := map[string]string{
-		"Apache-2.0": "Apache-2.0", "Apache 2.0": "Apache-2.0", "BSD-2-Clause": "BSD-2-Clause",
-		"MIT": "MIT", "MPL-2.0": "MPL-2.0", "PSFL": "PSF-2.0",
-		"License :: OSI Approved :: MIT License": "MIT",
-	}
-	if value, ok := legacyValues[strings.TrimSpace(legacy)]; ok {
-		return value, true
-	}
-	classifierValues := map[string]string{
-		"License :: OSI Approved :: Apache Software License":              "Apache-2.0",
-		"License :: OSI Approved :: MIT License":                          "MIT",
-		"License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)": "MPL-2.0",
-		"License :: OSI Approved :: Python Software Foundation License":   "PSF-2.0",
-	}
-	values := make(map[string]struct{})
-	for _, classifier := range classifiers {
-		if value, ok := classifierValues[classifier]; ok {
-			values[value] = struct{}{}
-		}
-	}
-	if len(values) != 1 {
-		return "", false
-	}
-	for value := range values {
-		return value, true
-	}
-	return "", false
-}
-
-func pyPISourceRepository(projectURLs map[string]string) string {
-	for _, key := range []string{"Source", "Source Code", "Repository", "Homepage"} {
-		value := strings.TrimSuffix(projectURLs[key], "/")
-		if strings.HasPrefix(value, "https://github.com/") {
-			return value
-		}
-	}
-	return ""
-}
-
-func pypiResultForTool(
-	results map[pythonPackageIdentity]packageLicenseResult,
-	name, version string,
-) (packageLicenseResult, bool) {
-	for identity, result := range results {
-		if identity.Name == name && identity.Version == version {
-			return result, true
-		}
-	}
-	return packageLicenseResult{}, false
-}
-
 func applyOCILicenseEvidence(inv *Inventory) {
 	for index := range inv.Components {
 		record := &inv.Components[index].Record
@@ -973,76 +756,38 @@ func applyOCILicenseEvidence(inv *Inventory) {
 				Value:       "canonical image build source has no independently resolvable license grant at the pinned commit",
 				EvidenceIDs: []string{},
 			}
-			record.Assessment.Decision.LicenseException = &LicenseException{
-				Owner: "maintainers", ReviewBy: "2026-09-30",
-				Reason:   "canonical image build-source tree has no license grant at the exact commit",
-				Tracking: "gobfd-qj0.8.1.9",
-			}
 			continue
 		}
 		value := "canonical-build-source:" + license.SPDX + "; license-source-sha256:" + license.LicenseHash
 		if license.SecondFile != "" {
 			value += "; second-license-source-sha256:" + license.SecondHash
 		}
-		record.Assessment.License = Review{Status: ReviewVerified, Value: value, EvidenceIDs: []string{}}
+		record.Assessment.License = Review{Status: ReviewUnverified, Value: value, EvidenceIDs: []string{}}
 		record.Assessment.Decision.LicenseException = nil
 	}
 }
 
 func exactOCILicense(reference string) (ociLicenseOverride, bool) {
 	licenses := map[string]ociLicenseOverride{
-		"docker.io/grafana/grafana:13.2.0@sha256:3fd54ae1214669f8355f065ec9f6445d5279a3d77095ab048ca045685272429b": {
-			SourceRepository: "grafana/grafana", SourceCommit: "f681b1359f6a0b8ecb9f2c49a88ac72b75bde73b",
-			LicenseFile: "LICENSE", SPDX: "AGPL-3.0-only", LicenseHash: "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0",
-		},
-		"docker.io/jauderho/gobgp:v3.37.0@sha256:3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37": {
-			SourceRepository: "jauderho/dockerfiles", SourceCommit: "8712248e3458297472e4a4f5e4980a529c69bcf3",
-			LicenseFile: "LICENSE", SPDX: "BSD-3-Clause", LicenseHash: "78daaa3193f2a3e0dd754da96ee2fc6e63af52b350a89e7667b7bf0f0900d9ae",
-		},
-		"docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132": {
+		"docker.io/library/debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0": {
 			SourceRepository: "debuerreotype/docker-debian-artifacts", SourceCommit: "7935fc7dd049cb343df42037c152f570069d274f",
-			LicenseFile: "LICENSE", SPDX: "Apache-2.0", LicenseHash: "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
+			LicenseFile: licenseFileName, SPDX: licenseApache2, LicenseHash: "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
 		},
-		"docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a": {
-			SourceRepository: "docker-library/golang", SourceCommit: "7aa947b3fda4de2c123815ab1873e50bc810569d",
-			LicenseFile: "LICENSE", SPDX: "BSD-3-Clause", LicenseHash: "31668de690a9ecc50ba008a701b6bdb4d08ded13df7c319c49466b500eef6f69",
+		"docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee": {
+			SourceRepository: "docker-library/golang", SourceCommit: "2a78efb599931f824db4d97f50b3d2252787a6aa",
+			LicenseFile: licenseFileName, SPDX: "BSD-3-Clause", LicenseHash: "31668de690a9ecc50ba008a701b6bdb4d08ded13df7c319c49466b500eef6f69",
 		},
-		"docker.io/library/haproxy:3.4.3-trixie@sha256:4def76cf5d2610255d01fa51b37973d67ddee52f979981fc19117e8d0197bbf5": {
-			SourceRepository: "docker-library/haproxy", SourceCommit: "40955df2217f5cb77f861e709b239cedd43ff613",
-			LicenseFile: "LICENSE", SPDX: "GPL-2.0-only", LicenseHash: "ddb9db7630752f8fdc6898f7c99a99eaeeac5213627ecb093df9c82f56175dc7",
+		"docker.io/library/haproxy:3.4.6-trixie@sha256:e273915691a8eab3f105bf3e39fd4c29a4ecf334e33421903b5589d25e14db26": {
+			SourceRepository: "docker-library/haproxy", SourceCommit: "0b6d0e8c96b3e06b98929b40260f0fe8b7da6e8d",
+			LicenseFile: licenseFileName, SPDX: "GPL-2.0-only", LicenseHash: "ddb9db7630752f8fdc6898f7c99a99eaeeac5213627ecb093df9c82f56175dc7",
 		},
-		"docker.io/library/nginx:1.31.4-trixie@sha256:b34848eff6db786b6b1282d3a9c3fd0b5563dfb6d261df4923378b419e0d24f0": {
-			SourceRepository: "nginx/docker-nginx", SourceCommit: "b8590bd36b4504b9b847fcf2e98a9111dcae85fa",
-			LicenseFile: "LICENSE", SPDX: "BSD-2-Clause", LicenseHash: "5e01e80542c4ee1c1640501bea5bd55e1e2174034343b45e228465c300ce5158",
-		},
-		"docker.io/library/oraclelinux:10-slim@sha256:965eb786602f98a4bc9ca449295d44468e5c8f2ee9175ae04c29f21bf1a9809d": {
-			SourceRepository: "oracle/container-images", SourceCommit: "5c8a1c296acd6e90487cd261d16cf85fd6bcb73f",
-			LicenseFile: "LICENSE", SPDX: "LicenseRef-Oracle-Linux-Agreement", LicenseHash: "22802f1802feb6fbc19f77b89e740937d82f11806c7711a3600b23a8d47fe9d0",
-		},
-		"docker.io/library/python:3.14.7-slim-trixie@sha256:83ff1d245a3d57d04152252d3ef9cb361494d0b3395abd65a5ebe91c401c8e83": {
-			SourceRepository: "docker-library/python", SourceCommit: "228f71e70a42ba9f9a092321b971031603bb88ff",
-			LicenseFile: "LICENSE", SPDX: "MIT", LicenseHash: "0a3ffdfc4f368b76ae1140b5fbe2f2f69ee76ee00a3024e8a09ca9b2e265186f",
-		},
-		"docker.io/prom/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0": {
-			SourceRepository: "prometheus/prometheus", SourceCommit: "d7598b7141418fa35be2b5ec5d0fefb634199610",
-			LicenseFile: "LICENSE", SPDX: "Apache-2.0", LicenseHash: "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
-		},
-		"ghcr.io/astral-sh/uv:0.12.6@sha256:88bc6eb1ccd4b82efd0e1b530caffabddf50dc2bf612e66c14ea25b8ee8a4d3d": {
-			SourceRepository: "astral-sh/uv", SourceCommit: "210d1f6785e95a8c8c0d53e284408c9be1134700",
-			LicenseFile: "LICENSE-APACHE", SPDX: "Apache-2.0 OR MIT", LicenseHash: "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
-			SecondFile: "LICENSE-MIT", SecondHash: "860e3d7a86b84e6a7012c7a635fc64df475cebc6cce34dfeb73a5982ec58176c",
-		},
-		"ghcr.io/exa-networks/exabgp:5.0.13@sha256:80f64719841fe6192f5b5a3b46edc27270215521438fae8a704f28d221a4680b": {
-			SourceRepository: "Exa-Networks/exabgp", SourceCommit: "3278b32d6f40669b7465aaee93b46e295b4b2a03",
-			LicenseFile: "LICENCE.txt", SPDX: "BSD-3-Clause", LicenseHash: "19002288545f4fcb273332f0daef938a5c72c638af2de28ab440cc30ad987632",
+		"docker.io/library/nginx:1.31.6-trixie@sha256:60f0d4e986561e08804f75c211dcaf7fc5455699eada29f42cbe8a0a7253dd86": {
+			SourceRepository: "nginx/docker-nginx", SourceCommit: "a16f1329e13e7273c4103f75d863ca625b75109e",
+			LicenseFile: licenseFileName, SPDX: "BSD-2-Clause", LicenseHash: "5e01e80542c4ee1c1640501bea5bd55e1e2174034343b45e228465c300ce5158",
 		},
 		"ghcr.io/holo-routing/holo-bundle@sha256:5c1f61475b1623b3eab611921f8319fb0a10492ced3f7da05e656418abb5ca4a": {
 			SourceRepository: "holo-routing/holo", SourceCommit: "947daeb2811b0cb90f457458f35c3b1a3c989b6b",
-			LicenseFile: "LICENSE", SPDX: "MIT", LicenseHash: "eba69e1d2e51315c7bb27f9cad585e6b03829aa2d1ac38d75d1747c939443e9a",
-		},
-		"quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68": {
-			SourceRepository: "FRRouting/frr", SourceCommit: "87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef",
-			LicenseFile: "COPYING", SPDX: "GPL-2.0-or-later", LicenseHash: "7bf053957d6c38e39a06a112c60ff35b228d3bd03edbe8c9a03508b051128d16",
+			LicenseFile: licenseFileName, SPDX: "MIT", LicenseHash: "eba69e1d2e51315c7bb27f9cad585e6b03829aa2d1ac38d75d1747c939443e9a",
 		},
 	}
 	license, ok := licenses[reference]
@@ -1059,12 +804,12 @@ func exactModuleLicense(path, version string) (moduleLicenseOverride, bool) {
 	licenses := map[string]exactLicense{
 		"github.com/hinshun/vt10x": {
 			version: "v0.0.0-20220301184237-5011da428d02", repository: "hinshun/vt10x",
-			commit: "5011da428d0284a8c86b954d5ca9e4c4f9886975", file: "LICENSE", spdx: "MIT",
+			commit: "5011da428d0284a8c86b954d5ca9e4c4f9886975", file: licenseFileName, spdx: "MIT",
 			hash: "1607f32fc8a4d8c4e86cc570f2f23e7a5fd449a7c4e9c4bb2ad30a42b54e8de9",
 		},
 		"github.com/golang/freetype": {
 			version: "v0.0.0-20170609003504-e2365dfdc4a0", repository: "golang/freetype",
-			commit: "e2365dfdc4a05e4b8299a783240d4a7d5a65d4e4", file: "LICENSE",
+			commit: "e2365dfdc4a05e4b8299a783240d4a7d5a65d4e4", file: licenseFileName,
 			spdx: "FTL OR GPL-2.0-or-later",
 			hash: "d3ba056adc2b7909e95681deaae397fb37c97ed491a920f491214f07b62c41d0",
 		},
@@ -1103,6 +848,11 @@ func exactModuleLicense(path, version string) (moduleLicenseOverride, bool) {
 			commit: "6338b4c69507fb1f9edba3db33882a8e9ab9bfa8", file: "README.md", spdx: "MIT",
 			hash: "0c5c52517f13becd7a1e1234f1e8a5ba370f5a5078cee9ac058c2d534e267fcb",
 		},
+		"github.com/sbomify/ar": {
+			version: "v0.0.0-20261110120314-cac91ea00b05", repository: "sbomify/ar",
+			commit: "cac91ea00b0538f92fd42fa3ece0b15adc5ef01f", file: "COPYING", spdx: "MIT",
+			hash: "1a14eaa119dcfcb812d54ef951a72f6c72b2bac2dd247f376010303d73bfc54b",
+		},
 	}
 	license, ok := licenses[path]
 	if !ok || license.version != version {
@@ -1127,12 +877,12 @@ func declaredToolModule(id, version string) (moduleLicenseIdentity, bool) {
 		"tool:buf":                   "github.com/bufbuild/buf",
 		"tool:containerlab":          "github.com/srl-labs/containerlab",
 		"tool:docker_compose":        "github.com/docker/compose/v5",
-		"tool:gopls":                 "golang.org/x/tools/gopls",
+		goplsToolID:                  "golang.org/x/tools/gopls",
 		"tool:goreleaser":            "github.com/goreleaser/goreleaser/v2",
 		"tool:gotestsum":             "gotest.tools/gotestsum",
-		"tool:govulncheck":           "golang.org/x/vuln",
-		"tool:osv_scanner":           "github.com/google/osv-scanner/v2",
-		"tool:protoc_gen_connect_go": "connectrpc.com/connect",
+		govulncheckToolID:            "golang.org/x/vuln",
+		osvScannerToolID:             "github.com/google/osv-scanner/v2",
+		"tool:protoc_gen_connect_go": "connectrpc.com/connect/v2",
 		"tool:protoc_gen_go":         "google.golang.org/protobuf",
 		"tool:syft":                  "github.com/anchore/syft",
 		"tool:trivy":                 "github.com/aquasecurity/trivy",
@@ -1145,53 +895,6 @@ func declaredToolModule(id, version string) (moduleLicenseIdentity, bool) {
 		version = "v" + version
 	}
 	return moduleLicenseIdentity{Path: path, Version: version}, true
-}
-
-func declaredToolPyPIName(id string) (string, bool) {
-	names := map[string]string{
-		"tool:bandit":     "bandit",
-		"tool:codespell":  "codespell",
-		"tool:junit2html": "junit2html",
-		"tool:pip_audit":  "pip-audit",
-		"tool:ruff":       "ruff",
-		"tool:ty":         "ty",
-		"tool:yamllint":   "yamllint",
-	}
-	name, ok := names[id]
-	return name, ok
-}
-
-func exactDeclaredToolLicense(id, version string) (moduleLicenseOverride, bool) {
-	if id != "tool:uv" || version != "0.12.6" {
-		return moduleLicenseOverride{}, false
-	}
-	return moduleLicenseOverride{
-		Value: "Apache-2.0 OR MIT; license-source-sha256:c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4; " +
-			"second-license-source-sha256:860e3d7a86b84e6a7012c7a635fc64df475cebc6cce34dfeb73a5982ec58176c",
-		Source: "https://api.github.com/repos/astral-sh/uv/contents/LICENSE-APACHE?ref=7938ca5d53dbb9c614a4a030df406e41ff101ab9",
-		Command: "gh api 'repos/astral-sh/uv/contents/LICENSE-APACHE?ref=7938ca5d53dbb9c614a4a030df406e41ff101ab9' --jq .content | base64 -d | sha256sum && " +
-			"gh api 'repos/astral-sh/uv/contents/LICENSE-MIT?ref=7938ca5d53dbb9c614a4a030df406e41ff101ab9' --jq .content | base64 -d | sha256sum",
-		SourceRepository: "https://github.com/astral-sh/uv", SourceCommit: "7938ca5d53dbb9c614a4a030df406e41ff101ab9",
-	}, true
-}
-
-func exactPyPILegacyLicense(name, version string) (moduleLicenseOverride, bool) {
-	overrides := map[string]moduleLicenseOverride{
-		"colorama@0.4.6": {
-			Value:            "BSD-3-Clause; license-source-sha256:cac35c02686e5d04a5a7140bfb3b36e73aed496656e891102e428886d7930318",
-			Source:           "https://api.github.com/repos/tartley/colorama/contents/LICENSE.txt?ref=3de9f013df4b470069d03d250224062e8cf15c49",
-			Command:          "gh api 'repos/tartley/colorama/contents/LICENSE.txt?ref=3de9f013df4b470069d03d250224062e8cf15c49' --jq .content | base64 -d | sha256sum",
-			SourceRepository: "https://github.com/tartley/colorama", SourceCommit: "3de9f013df4b470069d03d250224062e8cf15c49",
-		},
-		"jinja2@3.1.6": {
-			Value:            "BSD-3-Clause; license-source-sha256:3b49dcee4105eb37bac10faf1be260408fe85d252b8e9df2e0979fc1e094437b",
-			Source:           "https://api.github.com/repos/pallets/jinja/contents/LICENSE.txt?ref=15206881c006c79667fe5154fe80c01c65410679",
-			Command:          "gh api 'repos/pallets/jinja/contents/LICENSE.txt?ref=15206881c006c79667fe5154fe80c01c65410679' --jq .content | base64 -d | sha256sum",
-			SourceRepository: "https://github.com/pallets/jinja", SourceCommit: "15206881c006c79667fe5154fe80c01c65410679",
-		},
-	}
-	override, ok := overrides[name+"@"+version]
-	return override, ok
 }
 
 func baseRecord(installed, channel string, sources []SourceLocation, pin ImmutablePin) Record {
@@ -1207,10 +910,10 @@ func runtimeBaseline(path string) string {
 	switch path {
 	case "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go":
 		return "v1.36.11-20260415201107-50325440f8f2.1"
-	case "connectrpc.com/connect":
-		return "v1.19.2"
-	case "connectrpc.com/grpchealth":
-		return "v1.4.0"
+	case "connectrpc.com/connect/v2":
+		return "connectrpc.com/connect@v1.19.2"
+	case "connectrpc.com/grpchealth/v2":
+		return "connectrpc.com/grpchealth@v1.4.0"
 	case "github.com/knadh/koanf/parsers/yaml":
 		return "v1.1.0"
 	case "github.com/knadh/koanf/v2":
@@ -1237,9 +940,6 @@ func runtimeBaseline(path string) string {
 }
 
 func assessmentTemplate(name string) Assessment {
-	verified := func(value string) Review {
-		return Review{Status: ReviewVerified, Value: value, EvidenceIDs: []string{}}
-	}
 	unverified := func(value string) Review {
 		return Review{Status: ReviewUnverified, Value: value, EvidenceIDs: []string{}}
 	}
@@ -1251,97 +951,71 @@ func assessmentTemplate(name string) Assessment {
 		assessment.ChannelCurrent = unverified("selected identity is recorded; channel currency is not independently evidenced")
 		assessment.UpstreamCurrent = unverified("the prior update audit is not reproduced by the offline inventory")
 		assessment.ReleaseImpact = unverified("compatibility impact is covered by release gates, not module-list evidence")
-		assessment.Security = verified("selected graph covered by the recorded vulnerability policy")
-		assessment.Decision = adoptedDecision("adopt the audited direct runtime graph for v0.6.2")
+		assessment.Security = unverified("graph-bound vulnerability scan evidence is not imported by generation")
 	case "runtime-transitive-selected":
 		assessment.ChannelCurrent = Review{Status: ReviewNotApplicable, Value: "latest channel is not the transitive selection contract", EvidenceIDs: []string{}}
 		assessment.UpstreamCurrent = Review{Status: ReviewNotApplicable, Value: "individual latest is not the transitive selection contract", EvidenceIDs: []string{}}
 		assessment.ReleaseImpact = unverified("transitive compatibility impact is covered by repository gates")
-		assessment.Security = verified("selected graph covered by the recorded vulnerability policy")
-		assessment.Decision = adoptedDecision("retain exact transitive versions selected by audited upstream requirements")
+		assessment.Security = unverified("graph-bound vulnerability scan evidence is not imported by generation")
 	case "tools-selected-graph":
 		assessment.ChannelCurrent = Review{Status: ReviewNotApplicable, Value: "latest channel is not the selected tool-closure contract", EvidenceIDs: []string{}}
 		assessment.UpstreamCurrent = Review{Status: ReviewNotApplicable, Value: "individual latest is not the transitive tool selection contract", EvidenceIDs: []string{}}
 		assessment.ReleaseImpact = unverified("tool compatibility impact is covered by repository gates")
 		assessment.Security = unverified("go list evidence does not prove vulnerability status")
-		assessment.Decision = adoptedDecision("adopt the isolated exact tools graph")
 	case "github-action-audited":
 		assessment.ChannelCurrent = unverified("immutable commit identity does not prove channel currency")
 		assessment.UpstreamCurrent = unverified("latest release is not independently evidenced per action record")
 		assessment.ReleaseImpact = unverified("workflow impact is covered by CI rather than external metadata")
 		assessment.Security = unverified("immutable pinning does not prove vulnerability status")
-		assessment.Decision = adoptedDecision("adopt audited immutable workflow action pins")
 	case "oci-digest-audited":
 		assessment.ChannelCurrent = unverified("immutable digest identity does not prove channel currency")
 		assessment.UpstreamCurrent = unverified("registry availability does not prove the latest upstream release")
 		assessment.ReleaseImpact = unverified("image compatibility impact is covered by interop gates")
 		assessment.Security = unverified("per-image vulnerability evidence remains a separate gate")
-		assessment.Decision = adoptedDecision("adopt the audited immutable OCI digest")
 	case "tool-version-audited":
 		assessment.ChannelCurrent = unverified("declared identity does not prove channel currency")
 		assessment.UpstreamCurrent = unverified("latest release is not independently evidenced per tool record")
 		assessment.ReleaseImpact = unverified("tool compatibility impact is covered by repository gates")
 		assessment.Security = unverified("tool-specific scanner evidence remains in the batch audit record")
-		assessment.Decision = adoptedDecision("adopt the audited exact tool version")
 	case "mutable-declared-deferred":
 		assessment.ChannelCurrent = unverified("mutable tag or local image reference")
 		assessment.UpstreamCurrent = unverified("mutable source requires a separate immutable-pin decision")
 		assessment.ReleaseImpact = unverified("deferred until immutable source is available")
 		assessment.Security = unverified("mutable artifact cannot support a reproducible security assessment")
 		assessment.License = unverified("mutable artifact license evidence is not stable")
-		assessment.Decision = Decision{Status: DecisionDeferred, Reason: "retain only as a tracked mutable interoperability input", Owner: "maintainers", Tracking: "gobfd-qj0.8.1.9", ReviewBy: "2026-09-30"}
-	case "uv-locked-python-island":
-		assessment.ChannelCurrent = unverified("exact current target selected in the single uv lock")
-		assessment.UpstreamCurrent = unverified("release-channel evidence is retained in the owning Bead")
-		assessment.ReleaseImpact = unverified("compatibility is covered by the Python and interop gates")
-		assessment.Security = unverified("the frozen environment is checked by the pip-audit gate")
-		assessment.License = unverified("complete transitive Python license provenance remains separately tracked")
-		assessment.Decision = Decision{
-			Status: DecisionAdopted, Reason: "adopt the single Python 3.14.7 uv lock", Owner: "maintainers",
-			Tracking: "gobfd-qj0.8.1.5.2",
-			LicenseException: &LicenseException{
-				Owner: "maintainers", ReviewBy: "2026-09-30",
-				Reason:   "complete declared tool and locked Python per-version license provenance review",
-				Tracking: "gobfd-qj0.8.1.12",
-			},
-		}
 	case "removed-direct-require":
-		assessment = Assessment{ChannelCurrent: none, UpstreamCurrent: none, ReleaseImpact: none, Security: none, License: none, Decision: Decision{Status: DecisionRemoved, Reason: "remove redundant explicit indirect requirement; full selected graphs remain authoritative", Owner: "maintainers", Tracking: "gobfd-qj0.8.1.1"}}
-	case "gobgp-v3-risk":
-		assessment.ChannelCurrent = unverified("selected v3 identity does not independently prove channel currency")
-		assessment.UpstreamCurrent = verified("v3.37.0 final v3 release")
-		assessment.ReleaseImpact = unverified("v3 compatibility is proven by repository tests, not release metadata")
-		assessment.Security = verified("GO-2026-4736; no fixed v3 release")
-		assessment.Decision = adoptedDecision("retain v3.37.0 for v0.6.2 compatibility; v4 migration is separate")
-		assessment.Decision.Status = DecisionRetained
-		assessment.Decision.Tracking = "gobfd-qj0.8.2.4"
+		assessment = Assessment{ChannelCurrent: none, UpstreamCurrent: none, ReleaseImpact: none, Security: none, License: none, Decision: Decision{Status: DecisionRemoved, Reason: "remove redundant explicit indirect requirement; full selected graphs remain authoritative", Owner: "maintainers", Tracking: devTracking}}
 	case "gobgp-v4-risk":
-		assessment.ChannelCurrent = unverified("candidate identity does not independently prove channel currency")
-		assessment.UpstreamCurrent = verified("v4.8.0")
-		assessment.ReleaseImpact = unverified("breaking migration impact remains a separate implementation review")
-		assessment.Security = unverified("candidate vulnerability status is not covered by the selected runtime scan")
-		assessment.Decision = Decision{Status: DecisionDeferred, Reason: "GoBGP v4 remains a separate v1 compatibility migration", Owner: "maintainers", Tracking: "gobfd-qj0.8.2.4", ReviewBy: "2026-09-30"}
+		assessment.ChannelCurrent = unverified("selected v4 identity does not independently prove channel currency")
+		assessment.UpstreamCurrent = unverified("current upstream release requires an independent observation")
+		assessment.ReleaseImpact = unverified("v3 /apipb.GobgpApi and v4 /api.GoBgpService are wire-incompatible; daemon consumers migrate together")
+		assessment.Security = unverified("graph-bound vulnerability scan evidence is not imported by generation")
 	default:
 		panic("unknown assessment template: " + name)
+	}
+	switch name {
+	case "removed-direct-require":
+	case "gobgp-v4-risk":
+		assessment.Decision = Decision{
+			Status: DecisionDeferred,
+			Reason: "GoBGP v4.11.0 imports only github.com/osrg/gobgp/v4/api with zero govulncheck/osv-scanner findings; " +
+				"final release-line acceptance remains gated by live BGP+BFD interoperability qualification",
+			Owner: "@dantte-lp", Tracking: devTracking, ReviewBy: "2026-12-31",
+		}
+	default:
+		assessment.Decision = devDecision()
 	}
 	return assessment
 }
 
-func adoptedDecision(reason string) Decision {
+func devDecision() Decision {
 	return Decision{
-		Status: DecisionAdopted, Reason: reason, Owner: "maintainers", Tracking: "gobfd-qj0.8.1.1",
-		LicenseException: &LicenseException{
-			Owner: "maintainers", ReviewBy: "2026-09-30",
-			Reason:   "complete declared tool and locked Python per-version license provenance review",
-			Tracking: "gobfd-qj0.8.1.12",
-		},
+		Status: DecisionDeferred, Reason: "current dev selection awaits release-line acceptance",
+		Owner: "maintainers", Tracking: devTracking, ReviewBy: devReviewBy,
 	}
 }
 
-func repositoryStateTemplate(name string, pin ImmutablePin) RepositoryState {
-	verified := func(value string) Review {
-		return Review{Status: ReviewVerified, Value: value, EvidenceIDs: []string{}}
-	}
+func repositoryStateTemplate(name string, _ ImmutablePin) RepositoryState {
 	unverified := func(value string) Review {
 		return Review{Status: ReviewUnverified, Value: value, EvidenceIDs: []string{}}
 	}
@@ -1352,27 +1026,11 @@ func repositoryStateTemplate(name string, pin ImmutablePin) RepositoryState {
 		ReleaseLineEOL:     unverified("release-line EOL is not independently proven for this record"),
 	}
 	switch name {
-	case "runtime-direct-audited":
-		state.ArtifactAvailable = verified("available")
-	case "github-action-audited":
-		state.RepositoryArchived = verified("active")
-		state.ArtifactAvailable = verified("commit available")
-	case "oci-digest-audited":
-		state.ArtifactAvailable = verified("available at immutable digest")
-	case "runtime-transitive-selected", "tools-selected-graph":
-		if pin.Kind == "go-sum" {
-			state.ArtifactAvailable = verified("available with committed go.sum checksum")
-		}
+	case "runtime-direct-audited", "runtime-transitive-selected", "tools-selected-graph", "gobgp-v4-risk":
+		state.ArtifactAvailable = unverified("selected identity/checksum recorded; artifact availability not independently observed")
+	case "github-action-audited", "oci-digest-audited":
 	case "removed-direct-require":
 		state = RepositoryState{RepositoryArchived: none, ArtifactAvailable: none, ReleaseLineEOL: none}
-	case "gobgp-v3-risk":
-		state.RepositoryArchived = verified("active repository")
-		state.ArtifactAvailable = verified("v3.37.0 available")
-		state.ReleaseLineEOL = verified("v3 release line ended at v3.37.0")
-	case "gobgp-v4-risk":
-		state.RepositoryArchived = verified("active repository")
-		state.ArtifactAvailable = verified("v4.8.0 available")
-		state.ReleaseLineEOL = verified("v4 release line active")
 	}
 	return state
 }
@@ -1395,8 +1053,6 @@ func deliveryChannel(kind Kind) string {
 		return "https://github.com"
 	case KindOCIImage:
 		return "OCI registry named by installed reference"
-	case KindPythonPackage:
-		return "https://pypi.org/simple"
 	default:
 		return "repository-declared delivery channel"
 	}
@@ -1407,6 +1063,21 @@ func goModulePURL(path, version string) string {
 }
 
 func componentCoordinates(item declaredComponent) Coordinates {
+	if item.ID == upxToolID {
+		return upxCoordinates()
+	}
+	if item.ID == npmToolID {
+		return Coordinates{
+			SourceRepository: "https://github.com/npm/cli",
+			PURL:             "pkg:npm/npm@" + item.Installed,
+		}
+	}
+	if item.ID == releasePleaseToolID {
+		return Coordinates{
+			SourceRepository: "https://github.com/googleapis/release-please",
+			PURL:             "pkg:npm/release-please@" + item.Installed,
+		}
+	}
 	switch item.Kind {
 	case KindGitHubAction:
 		repository := actionRepository(item.Installed)
@@ -1423,11 +1094,6 @@ func componentCoordinates(item declaredComponent) Coordinates {
 			coordinates.Digest = digest
 		}
 		return coordinates
-	case KindPythonPackage:
-		return Coordinates{
-			PURL:   "pkg:pypi/" + strings.TrimPrefix(item.ID, "python-package:") + "@" + item.Installed,
-			Digest: item.ArtifactHash,
-		}
 	default:
 		return Coordinates{PURL: "pkg:generic/" + strings.TrimPrefix(item.ID, "tool:") + "@" + item.Installed}
 	}
@@ -1444,25 +1110,24 @@ func actionRepository(installed string) string {
 
 func githubActionLicense(repository string) string {
 	licenses := map[string]string{
-		"SonarSource/sonarqube-scan-action": "LGPL-3.0",
-		"actions/cache":                     "MIT",
-		"actions/checkout":                  "MIT",
-		"actions/download-artifact":         "MIT",
-		"actions/github-script":             "MIT",
-		"actions/setup-go":                  "MIT",
-		"actions/setup-node":                "MIT",
-		"actions/upload-artifact":           "MIT",
-		"anchore/sbom-action":               "Apache-2.0",
-		"aquasecurity/trivy-action":         "Apache-2.0",
-		"bufbuild/buf-action":               "Apache-2.0",
-		"codecov/codecov-action":            "MIT",
-		"docker/login-action":               "Apache-2.0",
-		"docker/setup-buildx-action":        "Apache-2.0",
-		"docker/setup-qemu-action":          "Apache-2.0",
-		"github/codeql-action":              "MIT",
-		"goreleaser/goreleaser-action":      "MIT",
-		"ossf/scorecard-action":             "Apache-2.0",
-		"securego/gosec":                    "Apache-2.0",
+		"actions/cache":                "MIT",
+		"actions/checkout":             "MIT",
+		"actions/download-artifact":    "MIT",
+		"actions/github-script":        "MIT",
+		"actions/setup-go":             "MIT",
+		"actions/setup-node":           "MIT",
+		"actions/upload-artifact":      "MIT",
+		"anchore/sbom-action":          licenseApache2,
+		"aquasecurity/trivy-action":    licenseApache2,
+		"bufbuild/buf-action":          licenseApache2,
+		"codecov/codecov-action":       "MIT",
+		"docker/login-action":          licenseApache2,
+		"docker/setup-buildx-action":   licenseApache2,
+		"docker/setup-qemu-action":     licenseApache2,
+		"github/codeql-action":         "MIT",
+		"goreleaser/goreleaser-action": "MIT",
+		"ossf/scorecard-action":        licenseApache2,
+		"securego/gosec":               licenseApache2,
 	}
 	return licenses[repository]
 }
@@ -1485,6 +1150,10 @@ type recordReview struct {
 }
 
 func populateEvidence(inv *Inventory) {
+	prior := make(map[string]Evidence, len(inv.Evidence))
+	for _, evidence := range inv.Evidence {
+		prior[evidence.ID] = evidence
+	}
 	inv.Evidence = []Evidence{}
 	for graphIndex := range inv.ModuleGraphs {
 		graph := &inv.ModuleGraphs[graphIndex]
@@ -1492,20 +1161,20 @@ func populateEvidence(inv *Inventory) {
 			module := &graph.Modules[moduleIndex]
 			subject := graph.ID + ":" + module.Path
 			command := "go list -m -json all"
-			if graph.ID == "tools" {
-				command = "go list -modfile=tools/go.mod -m -json all"
+			if graph.ID != runtimeGraphID {
+				command = "go list -modfile=" + graph.Manifest + " -m -json all"
 			}
-			attachRecordEvidence(inv, subject, graph.Manifest, command, EvidenceTool{Name: "go", Version: runtime.Version()}, &module.Record)
+			attachRecordEvidence(inv, subject, graph.Manifest, command, EvidenceTool{Name: "go", Version: runtime.Version()}, &module.Record, prior)
 		}
 	}
 	for componentIndex := range inv.Components {
 		component := &inv.Components[componentIndex]
-		source := "bead:gobfd-qj0.8.1.1"
+		source := devTracking
 		if len(component.SourceLocations) > 0 {
 			source = component.SourceLocations[0].Path
 		}
 		attachRecordEvidence(inv, component.ID, source, "dependency inventory batch audit",
-			EvidenceTool{Name: "dependencyinventory", Version: "schema-v2"}, &component.Record)
+			EvidenceTool{Name: "dependencyinventory", Version: "schema-v2"}, &component.Record, prior)
 	}
 	sort.Slice(inv.Evidence, func(i, j int) bool { return inv.Evidence[i].ID < inv.Evidence[j].ID })
 }
@@ -1515,6 +1184,7 @@ func attachRecordEvidence(
 	subject, source, command string,
 	tool EvidenceTool,
 	record *Record,
+	prior map[string]Evidence,
 ) {
 	for _, binding := range recordReviews(record) {
 		if binding.review.Status != ReviewVerified && binding.review.Status != ReviewStale {
@@ -1532,6 +1202,13 @@ func attachRecordEvidence(
 			ObservedAt:     inv.AuditedAt,
 			Result:         binding.review.Value,
 			Hash:           evidenceResultHash(binding.review.Value),
+		}
+		if historical, ok := prior[evidence.ID]; ok {
+			candidate := historical
+			candidate.ObservedAt = evidence.ObservedAt
+			if candidate == evidence {
+				evidence = historical
+			}
 		}
 		binding.review.EvidenceIDs = []string{evidence.ID}
 		inv.Evidence = append(inv.Evidence, evidence)
@@ -1556,29 +1233,26 @@ func evidenceContext(
 	tool EvidenceTool,
 	record *Record,
 ) (string, string, EvidenceTool) {
-	if review == "license" && strings.HasPrefix(subject, "python-package:") {
-		name := strings.TrimPrefix(subject, "python-package:")
-		if override, ok := exactPyPILegacyLicense(name, record.Installed); ok {
-			return override.Source, override.Command, EvidenceTool{Name: "gh", Version: "2.97.0"}
+	if review == "artifact_available" && tool.Name == "go" && strings.HasPrefix(command, "go list ") {
+		return source, command, tool
+	}
+	if review == reviewLicense {
+		if subject == upxToolID {
+			return upxLicenseContext()
 		}
-		endpoint := pypiVersionURL(pypiAPIBase, name, record.Installed)
-		return endpoint, "GET " + endpoint, EvidenceTool{Name: "PyPI", Version: "JSON API"}
+		if identity, ok := declaredNPMLicense(subject, record.Installed); ok {
+			endpoint := npmLicenseURL(identity)
+			return endpoint, "GET " + endpoint, npmLicenseTool()
+		}
 	}
 	if review == "license" && strings.HasPrefix(subject, "tool:") {
-		if packageName, ok := declaredToolPyPIName(subject); ok {
-			endpoint := pypiVersionURL(pypiAPIBase, packageName, record.Installed)
-			return endpoint, "GET " + endpoint, EvidenceTool{Name: "PyPI", Version: "JSON API"}
-		}
 		if identity, ok := declaredToolModule(subject, record.Installed); ok {
 			endpoint := depsDevVersionURL(identity.Path, identity.Version)
 			return endpoint, "GET " + endpoint, EvidenceTool{Name: "deps.dev", Version: "v3"}
 		}
-		if override, ok := exactDeclaredToolLicense(subject, record.Installed); ok {
-			return override.Source, override.Command, EvidenceTool{Name: "gh", Version: "2.97.0"}
-		}
 	}
-	if (strings.HasPrefix(subject, "runtime:") || strings.HasPrefix(subject, "tools:")) && review == "license" {
-		modulePath := strings.TrimPrefix(strings.TrimPrefix(subject, "runtime:"), "tools:")
+	if identity, ok := recordModuleIdentity(subject, record); ok && review == reviewLicense {
+		modulePath := identity.Path
 		if override, ok := exactModuleLicense(modulePath, record.Installed); ok {
 			return override.Source, override.Command, EvidenceTool{Name: "gh", Version: "2.97.0"}
 		}
@@ -1618,7 +1292,7 @@ func evidenceContext(
 		return record.ImmutablePin.Value, "podman manifest inspect " + record.ImmutablePin.Value,
 			EvidenceTool{Name: "podman", Version: "5.8.2"}
 	}
-	if (subject == "runtime:github.com/osrg/gobgp/v3" || subject == "interop-daemon:gobgp-v4-candidate") &&
+	if subject == "runtime:github.com/osrg/gobgp/v4" &&
 		(review == "upstream_current" || review == "repository_archived" || review == "artifact_available" || review == "release_line_eol") {
 		query := "gh api repos/osrg/gobgp"
 		switch review {
@@ -1659,17 +1333,6 @@ func specialComponents() []Component {
 		return Component{ID: id, Kind: KindRemoved, Record: record}
 	}
 	return []Component{
-		{
-			ID: "interop-daemon:gobgp-v4-candidate", Kind: KindInteropDaemon,
-			Record: Record{
-				SourceLocations: []SourceLocation{{Path: "docs/superpowers/specs/2026-08-18-v0.6.2-dependency-refresh-design.md", Match: "GoBGP remains on v3.37.0 and GoBGP v4 remains a separate v1 migration"}},
-				Coordinates:     Coordinates{SourceRepository: "https://github.com/osrg/gobgp", PURL: "pkg:golang/github.com/osrg/gobgp/v4@v4.8.0"},
-				Installed:       "not-installed", Target: "v4.8.0", DeliveryChannel: "https://github.com/osrg/gobgp/releases",
-				Assessment:      assessmentTemplate("gobgp-v4-risk"),
-				RepositoryState: repositoryStateTemplate("gobgp-v4-risk", ImmutablePin{Status: PinNotApplicable}),
-				ImmutablePin:    ImmutablePin{Status: PinNotApplicable, Kind: "deferred-candidate", Value: "v4.8.0"},
-			},
-		},
 		removed("removed-go-mod-require:github.com/davecgh/go-spew", "v1.1.1"),
 		removed("removed-go-mod-require:github.com/dlclark/regexp2", "v1.12.0"),
 		removed("removed-go-mod-require:github.com/pmezard/go-difflib", "v1.0.0"),
@@ -1713,11 +1376,8 @@ func Validate(inv Inventory, root string) error {
 		if graph.ID == "" || graph.Manifest == "" || graph.Sum == "" {
 			return fmt.Errorf("module graph has missing id, manifest, or sum")
 		}
-		expectedFiles, ok := map[string][2]string{
-			"runtime": {"go.mod", "go.sum"},
-			"tools":   {"tools/go.mod", "tools/go.sum"},
-		}[graph.ID]
-		if !ok || graph.Manifest != expectedFiles[0] || graph.Sum != expectedFiles[1] {
+		expectedFiles, ok := moduleGraphFiles(graph.ID)
+		if !ok || graph.Manifest != expectedFiles.Manifest || graph.Sum != expectedFiles.Sum {
 			return fmt.Errorf("module graph %q has unexpected manifest or sum", graph.ID)
 		}
 		if _, exists := graphIDs[graph.ID]; exists {
@@ -1741,9 +1401,9 @@ func Validate(inv Inventory, root string) error {
 			}
 		}
 	}
-	for _, required := range []string{"runtime", "tools"} {
-		if _, ok := graphIDs[required]; !ok {
-			return fmt.Errorf("required module graph %q is missing", required)
+	for _, required := range moduleGraphDefinitions() {
+		if _, ok := graphIDs[required.ID]; !ok {
+			return fmt.Errorf("required module graph %q is missing", required.ID)
 		}
 	}
 
@@ -1758,7 +1418,7 @@ func Validate(inv Inventory, root string) error {
 	}
 	for _, component := range inv.Components {
 		if !slices.Contains([]Kind{
-			KindGitHubAction, KindInteropDaemon, KindOCIImage, KindPythonPackage, KindRemoved, KindTool,
+			KindGitHubAction, KindInteropDaemon, KindOCIImage, KindRemoved, KindTool,
 		}, component.Kind) {
 			return fmt.Errorf("dependency %q has invalid kind %q", component.ID, component.Kind)
 		}
@@ -1812,12 +1472,10 @@ func evidenceCommandProvesReview(evidence Evidence) bool {
 	case "channel_current":
 		return evidence.Tool.Name == "bd" && strings.HasPrefix(command, "bd show ")
 	case "license":
-		return (evidence.Tool.Name == "gh" &&
+		return npmLicenseCommandProvesReview(evidence) || upxLicenseCommandProvesReview(evidence) || (evidence.Tool.Name == "gh" &&
 			(strings.HasPrefix(command, "gh api repos/") || strings.HasPrefix(command, "gh api 'repos/"))) ||
 			(evidence.Tool.Name == "deps.dev" && evidence.Tool.Version == "v3" &&
-				strings.HasPrefix(evidence.Source, depsDevAPIBase+"/systems/go/packages/") && command == "GET "+evidence.Source) ||
-			(evidence.Tool.Name == "PyPI" && evidence.Tool.Version == "JSON API" &&
-				strings.HasPrefix(evidence.Source, pypiAPIBase+"/") && command == "GET "+evidence.Source)
+				strings.HasPrefix(evidence.Source, depsDevAPIBase+"/systems/go/packages/") && command == "GET "+evidence.Source)
 	case "upstream_current", "repository_archived", "release_line_eol":
 		return evidence.Tool.Name == "gh" && strings.HasPrefix(command, "gh api repos/")
 	case "release_impact":
@@ -1975,6 +1633,14 @@ func validateRecord(
 	if err := validateAssessment(id, record.Assessment, evidenceByID, referencedEvidence); err != nil {
 		return err
 	}
+	if kind == KindTool {
+		if err := validateUPXLicenseEvidence(id, record, evidenceByID); err != nil {
+			return err
+		}
+		if err := validateNPMLicenseEvidence(id, record, evidenceByID); err != nil {
+			return err
+		}
+	}
 	if err := validateRepositoryState(id, record.RepositoryState, evidenceByID, referencedEvidence); err != nil {
 		return err
 	}
@@ -2058,7 +1724,7 @@ func validateCoordinates(id string, kind Kind, record Record) error {
 	if coordinates.PURL != "" && !strings.HasPrefix(coordinates.PURL, "pkg:") {
 		return fmt.Errorf("dependency %q purl coordinate is invalid", id)
 	}
-	if coordinates.Digest != "" && !regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(coordinates.Digest) {
+	if coordinates.Digest != "" && !coordinateDigestPattern.MatchString(coordinates.Digest) {
 		return fmt.Errorf("dependency %q digest coordinate is invalid", id)
 	}
 	if kind == KindOCIImage && record.ImmutablePin.Status == PinVerified &&
@@ -2159,68 +1825,8 @@ func decodeOneJSONFile(path string, target any) error {
 }
 
 func rejectDuplicateJSONFields(data []byte) error {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if err := walkJSONValue(decoder); err != nil {
-		return err
-	}
-	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return fmt.Errorf("multiple JSON documents")
-		}
-		return fmt.Errorf("decode trailing JSON token: %w", err)
-	}
-	return nil
-}
-
-func walkJSONValue(decoder *json.Decoder) error {
-	token, tokenErr := decoder.Token()
-	if tokenErr != nil {
-		return fmt.Errorf("decode JSON token: %w", tokenErr)
-	}
-	delimiter, ok := token.(json.Delim)
-	if !ok {
-		return nil
-	}
-	switch delimiter {
-	case '{':
-		seen := make(map[string]struct{})
-		for decoder.More() {
-			keyToken, keyErr := decoder.Token()
-			if keyErr != nil {
-				return fmt.Errorf("decode JSON object key: %w", keyErr)
-			}
-			key, ok := keyToken.(string)
-			if !ok {
-				return fmt.Errorf("JSON object key is not a string")
-			}
-			if _, exists := seen[key]; exists {
-				return fmt.Errorf("duplicate JSON field %q", key)
-			}
-			seen[key] = struct{}{}
-			if valueErr := walkJSONValue(decoder); valueErr != nil {
-				return valueErr
-			}
-		}
-	case '[':
-		for decoder.More() {
-			if valueErr := walkJSONValue(decoder); valueErr != nil {
-				return valueErr
-			}
-		}
-	default:
-		return fmt.Errorf("unexpected JSON delimiter %q", delimiter)
-	}
-	closing, closingErr := decoder.Token()
-	if closingErr != nil {
-		return fmt.Errorf("decode JSON closing token: %w", closingErr)
-	}
-	want := json.Delim('}')
-	if delimiter == '[' {
-		want = ']'
-	}
-	if closing != want {
-		return fmt.Errorf("unexpected JSON closing delimiter %q", closing)
+	if err := strictjson.Validate(data); err != nil {
+		return fmt.Errorf("validate dependency JSON: %w", err)
 	}
 	return nil
 }
@@ -2239,8 +1845,17 @@ func compareModuleGraph(ctx context.Context, root string, graph ModuleGraph) err
 	got := make([]moduleIdentity, 0, len(graph.Modules))
 	for _, module := range graph.Modules {
 		got = append(got, moduleIdentity{Path: module.Path, Version: module.Version, Indirect: module.Indirect})
+		if graph.ID == goreleaserGraphID && publisherLocalSource(module.Path) != "" {
+			_, pin, pinErr := publisherSourcePin(root, graph, module.Path)
+			if pinErr != nil {
+				return pinErr
+			}
+			if module.ImmutablePin != pin {
+				return fmt.Errorf("publisher source profile pin differs for %s", module.Path)
+			}
+		}
 		if module.ImmutablePin.Status == PinVerified && module.ImmutablePin.Kind == "go-sum" {
-			// #nosec G304 -- Validate has already restricted graph.Sum to go.sum or tools/go.sum.
+			// #nosec G304 -- Validate restricts graph.Sum to the literal module graph sum paths.
 			data, readErr := os.ReadFile(filepath.Join(root, graph.Sum))
 			if readErr != nil {
 				return fmt.Errorf("read %s: %w", graph.Sum, readErr)
@@ -2263,60 +1878,67 @@ func compareModuleInventory(graphID string, want, got []moduleIdentity) error {
 }
 
 func selectedModuleGraph(ctx context.Context, root string, graph ModuleGraph) ([]moduleIdentity, error) {
+	if graph.ID == goreleaserGraphID {
+		return selectedGoReleaserGraph(ctx, root)
+	}
 	args := []string{"list"}
-	if graph.ID == "tools" {
+	if graph.ID != runtimeGraphID {
 		args = append(args, "-modfile="+graph.Manifest)
 	}
 	args = append(args, "-m", "-json", "all")
 	command := exec.CommandContext(ctx, "go", args...)
 	command.Dir = root
-	output, err := command.CombinedOutput()
+	var diagnostics bytes.Buffer
+	command.Stderr = &diagnostics
+	output, err := command.Output()
 	if err != nil {
-		return nil, fmt.Errorf("list %s selected module graph: %w: %s", graph.ID, err, strings.TrimSpace(string(output)))
+		return nil, fmt.Errorf("list %s selected module graph: %w: %s", graph.ID, err, strings.TrimSpace(diagnostics.String()))
 	}
+	return parseSelectedModuleGraph(output, graph.ID)
+}
+
+func parseSelectedModuleGraph(output []byte, graphID string) ([]moduleIdentity, error) {
 	decoder := json.NewDecoder(bytes.NewReader(output))
 	var modules []moduleIdentity
+	seen := make(map[string]bool)
+	localSources := make(map[string]bool)
+	mainCount := 0
 	for {
-		//nolint:tagliatelle // The go command emits these exact exported JSON field names.
-		var item struct {
-			Path     string `json:"Path"`
-			Version  string `json:"Version"`
-			Main     bool   `json:"Main"`
-			Indirect bool   `json:"Indirect"`
-			Replace  *struct {
-				Path    string `json:"Path"`
-				Version string `json:"Version"`
-			} `json:"Replace"`
-		}
-		if err := decoder.Decode(&item); errors.Is(err, io.EOF) {
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); errors.Is(err, io.EOF) {
 			break
 		} else if err != nil {
-			return nil, fmt.Errorf("decode %s selected module graph: %w", graph.ID, err)
+			return nil, fmt.Errorf("decode %s selected module graph: %w", graphID, err)
+		}
+		if err := strictjson.Validate(raw); err != nil {
+			return nil, fmt.Errorf("validate %s selected module graph: %w", graphID, err)
+		}
+		var item selectedModule
+		if err := json.Unmarshal(raw, &item); err != nil {
+			return nil, fmt.Errorf("decode %s selected module: %w", graphID, err)
 		}
 		if item.Main {
+			mainCount++
+			if graphID == goreleaserGraphID && (mainCount != 1 || !validPublisherMain(item)) {
+				return nil, fmt.Errorf("invalid publisher consumer main module")
+			}
 			continue
 		}
-		if item.Path == "" || item.Version == "" {
-			return nil, fmt.Errorf("decode %s selected module graph: module has missing path or version", graph.ID)
+		identity, local, err := normalizeSelectedModule(item, graphID)
+		if err != nil {
+			return nil, err
 		}
-		if item.Replace != nil {
-			if item.Replace.Path == "" {
-				return nil, fmt.Errorf(
-					"decode %s selected module graph: incomplete replacement %s@%s => %s@%s",
-					graph.ID, item.Path, item.Version, item.Replace.Path, item.Replace.Version,
-				)
-			}
-			if item.Replace.Version != "" {
-				if item.Replace.Path != item.Path {
-					return nil, fmt.Errorf(
-						"decode %s selected module graph: unsupported replacement %s@%s => %s@%s",
-						graph.ID, item.Path, item.Version, item.Replace.Path, item.Replace.Version,
-					)
-				}
-				item.Version = item.Replace.Version
-			}
+		if seen[identity.Path] {
+			return nil, fmt.Errorf("duplicate selected module in %s: %s", graphID, identity.Path)
 		}
-		modules = append(modules, moduleIdentity{Path: item.Path, Version: item.Version, Indirect: item.Indirect})
+		seen[identity.Path] = true
+		if local {
+			localSources[identity.Path] = true
+		}
+		modules = append(modules, identity)
+	}
+	if graphID == goreleaserGraphID && (mainCount != 1 || len(localSources) != 2) {
+		return nil, fmt.Errorf("publisher graph lacks its consumer or authenticated local sources")
 	}
 	return modules, nil
 }
@@ -2362,37 +1984,29 @@ func describeModuleDifference(want, got []moduleIdentity) string {
 }
 
 type declaredComponent struct {
-	ID           string
-	Kind         Kind
-	Installed    string
-	Sources      []SourceLocation
-	Registry     string
-	ArtifactHash string
+	ID         string
+	Kind       Kind
+	Installed  string
+	Sources    []SourceLocation
+	ContentPin ImmutablePin
 }
 
 var (
-	actionPattern       = regexp.MustCompile(`\buses:\s*([^@\s]+)@([^\s#]+)`)
-	containerPattern    = regexp.MustCompile(`^\s*FROM\s+([^\s]+)`)
-	imagePattern        = regexp.MustCompile(`\bimage:\s*([^\s#]+)`)
-	qualifiedImage      = regexp.MustCompile(`(?:docker\.io|quay\.io|ghcr\.io)/[A-Za-z0-9_./-]+(?::[A-Za-z0-9_.-]+)?(?:@sha256:[0-9a-f]{64})?`)
-	declaredARGPattern  = regexp.MustCompile(`^\s*ARG\s+([A-Z][A-Z0-9_]*_VERSION)=([^\s]+)`)
-	versionVarPattern   = regexp.MustCompile(`^\s*(?:readonly\s+)?([A-Z][A-Z0-9_]*_VERSION)="?\$\{[^:}]+:-([^}"]+)}`)
-	fixedVersionVar     = regexp.MustCompile(`^\s*(?:readonly\s+)?([A-Z][A-Z0-9_]*_VERSION)=["']?([^"'\s]+)["']?\s*$`)
-	workflowToolVersion = regexp.MustCompile(`^\s*(?:version|syft-version):\s*["']?([^"'#\s]+)`)
-	pythonDependency    = regexp.MustCompile(`^\s*"([a-z0-9][a-z0-9_-]*)==([^"]+)",\s*$`)
-	uvRequiredVersion   = regexp.MustCompile(`^\s*required-version\s*=\s*"==([^"]+)"\s*$`)
-	ociDigestPattern    = regexp.MustCompile(`@sha256:[0-9a-f]{64}$`)
-	actionSHAPattern    = regexp.MustCompile(`@[0-9a-f]{40}$`)
-	sourceCommitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
-	evidenceIDPattern   = regexp.MustCompile(`^ev-[0-9a-f]{24}$`)
-	uvPackageName       = regexp.MustCompile(`(?m)^name = "([a-z0-9][a-z0-9._-]*)"$`)
-	uvPackageVersion    = regexp.MustCompile(`(?m)^version = "([^"]+)"$`)
-	uvRegistrySource    = regexp.MustCompile(`(?m)^source = \{ registry = "([^"]+)" \}$`)
-	uvVirtualSource     = regexp.MustCompile(`(?m)^source = \{ virtual = "[^"]+" \}$`)
-	uvSDistHash         = regexp.MustCompile(`(?m)^sdist = \{[^\n]* hash = "(sha256:[0-9a-f]{64})"`)
-	uvArtifactHash      = regexp.MustCompile(`hash = "(sha256:[0-9a-f]{64})"`)
-	pythonNameSeparator = regexp.MustCompile(`[-_.]+`)
-	spdxExpression      = regexp.MustCompile(`^[A-Za-z0-9.+() -]+$`)
+	actionPattern           = regexp.MustCompile(`\buses:\s*([^@\s]+)@([^\s#]+)`)
+	containerPattern        = regexp.MustCompile(`^\s*FROM\s+([^\s]+)`)
+	imagePattern            = regexp.MustCompile(`\bimage:\s*([^\s#]+)`)
+	qualifiedImage          = regexp.MustCompile(`(?:docker\.io|quay\.io|ghcr\.io)/[A-Za-z0-9_./-]+(?::[A-Za-z0-9_.-]+)?(?:@sha256:[0-9a-f]{64})?`)
+	declaredARGPattern      = regexp.MustCompile(`^\s*ARG\s+([A-Z][A-Z0-9_]*_VERSION)=([^\s]+)`)
+	versionVarPattern       = regexp.MustCompile(`^\s*(?:readonly\s+)?([A-Z][A-Z0-9_]*_VERSION)="?\$\{[^:}]+:-([^}"]+)}`)
+	fixedVersionVar         = regexp.MustCompile(`^\s*(?:readonly\s+)?([A-Z][A-Z0-9_]*_VERSION)=["']?([^"'\s]+)["']?\s*$`)
+	goContainerlabVersion   = regexp.MustCompile(`^\s*ContainerlabVersion\s*=\s*"([^"]+)"`)
+	workflowToolVersion     = regexp.MustCompile(`^\s*(?:version|syft-version):\s*["']?([^"'#\s]+)`)
+	coordinateDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	npmExactVersionPattern  = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+	ociDigestPattern        = regexp.MustCompile(`@sha256:[0-9a-f]{64}$`)
+	actionSHAPattern        = regexp.MustCompile(`@[0-9a-f]{40}$`)
+	sourceCommitPattern     = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	evidenceIDPattern       = regexp.MustCompile(`^ev-[0-9a-f]{24}$`)
 )
 
 func discoverDeclaredComponents(ctx context.Context, root string) ([]declaredComponent, error) {
@@ -2442,6 +2056,26 @@ func discoverDeclaredComponentsFromRoot(
 		if err != nil {
 			return fmt.Errorf("read dependency source %s: %w", relative, err)
 		}
+		if filepath.ToSlash(relative) == "tools/release-please/package.json" {
+			if err := discoverReleasePleaseManifest(repository, components, relative, data); err != nil {
+				return err
+			}
+		}
+		if filepath.ToSlash(relative) == "tools/release-please/bootstrap.json" {
+			if err := discoverNPMBootstrapManifest(components, relative, data); err != nil {
+				return err
+			}
+		}
+		if isGoToolManifest(relative) {
+			if err := discoverGoToolManifest(ctx, root, components, relative); err != nil {
+				return err
+			}
+		}
+		if relative == upxSourcePath {
+			if err := discoverUPXDeclaration(components, data); err != nil {
+				return err
+			}
+		}
 		currentAction := ""
 		for line := range strings.SplitSeq(string(data), "\n") {
 			trimmedLine := strings.TrimSpace(line)
@@ -2471,18 +2105,16 @@ func discoverDeclaredComponentsFromRoot(
 					addTool(components, relative, match[1], match[2], strings.TrimSpace(line))
 				}
 			}
-			if relative == "pyproject.toml" {
-				if match := pythonDependency.FindStringSubmatch(line); match != nil {
-					addTool(components, relative, match[1], match[2], strings.TrimSpace(line))
-				} else if match := uvRequiredVersion.FindStringSubmatch(line); match != nil {
-					addTool(components, relative, "UV_VERSION", match[1], strings.TrimSpace(line))
+			if strings.HasSuffix(relative, ".go") {
+				if match := goContainerlabVersion.FindStringSubmatch(line); match != nil {
+					addTool(components, relative, "CONTAINERLAB_VERSION", match[1], strings.TrimSpace(line))
 				}
 			}
 			extension := filepath.Ext(relative)
-			if extension == ".sh" || extension == ".json" || extension == ".py" {
+			if extension == ".sh" || extension == ".json" {
 				for _, bounds := range qualifiedImage.FindAllStringIndex(line, -1) {
 					image := line[bounds[0]:bounds[1]]
-					if strings.HasPrefix(line[bounds[1]:], ":{") || (extension == ".py" && !ociDigestReference(image)) {
+					if strings.HasPrefix(line[bounds[1]:], ":{") {
 						continue
 					}
 					addImage(components, relative, image)
@@ -2493,21 +2125,6 @@ func discoverDeclaredComponentsFromRoot(
 	})
 	if walkErr != nil {
 		return nil, fmt.Errorf("discover declared dependencies: %w", walkErr)
-	}
-	if _, err := repository.Lstat("uv.lock"); err == nil {
-		data, readErr := readDeclaredSource(repository, "uv.lock")
-		if readErr != nil {
-			return nil, fmt.Errorf("read dependency source uv.lock: %w", readErr)
-		}
-		packages, parseErr := parseUVLockPackages(data)
-		if parseErr != nil {
-			return nil, fmt.Errorf("parse uv.lock: %w", parseErr)
-		}
-		for _, packageRecord := range packages {
-			addDeclared(components, packageRecord)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("lstat dependency source uv.lock: %w", err)
 	}
 	result := make([]declaredComponent, 0, len(components))
 	for _, component := range components {
@@ -2521,52 +2138,6 @@ func discoverDeclaredComponentsFromRoot(
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result, nil
-}
-
-func parseUVLockPackages(data []byte) ([]declaredComponent, error) {
-	sections := strings.Split(string(data), "[[package]]")
-	packages := make([]declaredComponent, 0, len(sections)-1)
-	seen := make(map[string]struct{})
-	for _, section := range sections[1:] {
-		nameMatch := uvPackageName.FindStringSubmatch(section)
-		versionMatch := uvPackageVersion.FindStringSubmatch(section)
-		if nameMatch == nil || versionMatch == nil {
-			return nil, fmt.Errorf("package entry has missing name or version")
-		}
-		if uvVirtualSource.MatchString(section) {
-			continue
-		}
-		registryMatch := uvRegistrySource.FindStringSubmatch(section)
-		if registryMatch == nil {
-			return nil, fmt.Errorf("package %s@%s has unsupported or missing source", nameMatch[1], versionMatch[1])
-		}
-		if registryMatch[1] != "https://pypi.org/simple" {
-			return nil, fmt.Errorf("package %s@%s uses unsupported registry %s", nameMatch[1], versionMatch[1], registryMatch[1])
-		}
-		hashMatch := uvSDistHash.FindStringSubmatch(section)
-		if hashMatch == nil {
-			hashMatch = uvArtifactHash.FindStringSubmatch(section)
-		}
-		if hashMatch == nil {
-			return nil, fmt.Errorf("registry package %s@%s has no SHA-256 artifact", nameMatch[1], versionMatch[1])
-		}
-		normalizedName := pythonNameSeparator.ReplaceAllString(strings.ToLower(nameMatch[1]), "-")
-		id := "python-package:" + normalizedName
-		if _, exists := seen[id]; exists {
-			return nil, fmt.Errorf("duplicate locked Python package %s", id)
-		}
-		seen[id] = struct{}{}
-		packages = append(packages, declaredComponent{
-			ID: id, Kind: KindPythonPackage, Installed: versionMatch[1], Registry: registryMatch[1],
-			ArtifactHash: hashMatch[1],
-			Sources: []SourceLocation{
-				{Path: "uv.lock", Match: "name = \"" + nameMatch[1] + "\"\nversion = \"" + versionMatch[1] + "\""},
-				{Path: "uv.lock", Match: hashMatch[1]},
-			},
-		})
-	}
-	sort.Slice(packages, func(i, j int) bool { return packages[i].ID < packages[j].ID })
-	return packages, nil
 }
 
 func scanWorkflowLine(
@@ -2606,14 +2177,19 @@ func scanWorkflowLine(
 }
 
 func shouldScanDeclaredSource(relative string) bool {
-	if relative == "pyproject.toml" {
+	if isGoToolManifest(relative) {
 		return true
+	}
+	// cirunner.TestCoverage owns this root-level gotestsum event stream, which
+	// can still be growing while dependency checks run in the same test suite.
+	if relative == "unit-report.json" {
+		return false
 	}
 	if strings.HasPrefix(filepath.Base(relative), "Containerfile") {
 		return true
 	}
 	switch filepath.Ext(relative) {
-	case ".json", ".py", ".sh", ".yaml", ".yml":
+	case ".go", ".json", ".sh", ".yaml", ".yml":
 		return true
 	default:
 		return false
@@ -2667,6 +2243,9 @@ func addDeclared(components map[string]declaredComponent, candidate declaredComp
 			existing.Sources = append(existing.Sources, source)
 		}
 	}
+	if candidate.ContentPin.Value != "" {
+		existing.ContentPin = candidate.ContentPin
+	}
 	components[candidate.ID] = existing
 }
 
@@ -2678,6 +2257,89 @@ func addImage(components map[string]declaredComponent, path, image string) {
 		ID: "oci-image:" + image, Kind: KindOCIImage, Installed: image,
 		Sources: []SourceLocation{{Path: path, Match: image}},
 	})
+}
+
+func discoverReleasePleaseManifest(repository *os.Root, components map[string]declaredComponent, path string, data []byte) error {
+	if err := rejectDuplicateJSONFields(data); err != nil {
+		return fmt.Errorf("read Release Please tool manifest: %w", err)
+	}
+	var private bool
+	var dependencies map[string]string
+	if err := decodeReleasePleaseFields(data, map[string]any{"private": &private, "dependencies": &dependencies}); err != nil {
+		return fmt.Errorf("decode Release Please tool manifest: %w", err)
+	}
+	version := dependencies["release-please"]
+	if !private || !npmExactVersionPattern.MatchString(version) {
+		return fmt.Errorf("release automation requires a private manifest and an exact stable version")
+	}
+	lockPath := filepath.Join(filepath.Dir(path), "package-lock.json")
+	lockData, err := readDeclaredSource(repository, lockPath)
+	if err != nil {
+		return fmt.Errorf("read Release Please lockfile: %w", err)
+	}
+	if err := rejectDuplicateJSONFields(lockData); err != nil {
+		return fmt.Errorf("validate Release Please lockfile: %w", err)
+	}
+	var lockVersion int
+	var packages map[string]json.RawMessage
+	if err := decodeReleasePleaseFields(lockData, map[string]any{"lockfileVersion": &lockVersion, "packages": &packages}); err != nil {
+		return fmt.Errorf("decode Release Please lockfile: %w", err)
+	}
+	var lockedDependencies map[string]string
+	if err := decodeReleasePleaseFields(packages[""], map[string]any{"dependencies": &lockedDependencies}); err != nil {
+		return fmt.Errorf("decode Release Please lockfile root: %w", err)
+	}
+	var lockedVersion string
+	if err := decodeReleasePleaseFields(packages["node_modules/release-please"], map[string]any{"version": &lockedVersion}); err != nil {
+		return fmt.Errorf("decode Release Please lockfile tool: %w", err)
+	}
+	if lockVersion != 3 || lockedDependencies["release-please"] != version || lockedVersion != version {
+		return fmt.Errorf("release automation manifest and version-3 lockfile disagree")
+	}
+	addDeclared(components, declaredComponent{
+		ID: releasePleaseToolID, Kind: KindTool, Installed: version,
+		ContentPin: ImmutablePin{Status: PinVerified, Kind: "npm-lock-sha256", Value: contentDigest(lockData)},
+		Sources:    []SourceLocation{{Path: path, Match: `"release-please"`}, {Path: lockPath, Match: `"lockfileVersion"`}},
+	})
+	return nil
+}
+
+func discoverNPMBootstrapManifest(components map[string]declaredComponent, path string, data []byte) error {
+	contract, err := npmbootstrap.Parse(data)
+	if err != nil {
+		return fmt.Errorf("decode npm bootstrap inventory declaration: %w", err)
+	}
+	addDeclared(components, declaredComponent{
+		ID: npmToolID, Kind: KindTool, Installed: contract.Artifacts[0].Version,
+		ContentPin: ImmutablePin{Status: PinVerified, Kind: "artifact-manifest-sha256", Value: contentDigest(data)},
+		Sources: []SourceLocation{
+			{Path: path, Match: `"npm"`}, {Path: path, Match: `"undici"`}, {Path: path, Match: `"ip-address"`},
+		},
+	})
+	return nil
+}
+
+func contentDigest(data []byte) string {
+	return fmt.Sprintf("sha256:%x", sha256.Sum256(data))
+}
+
+// Decode consumed npm fields by exact key; encoding/json struct matching also
+// accepts case aliases, which do not describe the package manager's declaration.
+func decodeReleasePleaseFields(data []byte, fields map[string]any) error {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return fmt.Errorf("decode npm object: %w", err)
+	}
+	for key, target := range fields {
+		value, found := object[key]
+		if !found {
+			return fmt.Errorf("npm object requires field %q", key)
+		}
+		if err := json.Unmarshal(value, target); err != nil {
+			return fmt.Errorf("decode npm field %q: %w", key, err)
+		}
+	}
+	return nil
 }
 
 func addTool(components map[string]declaredComponent, path, name, version, match string) {
@@ -2707,6 +2369,9 @@ func compareDeclaredComponents(inventory []Component, declared []declaredCompone
 		}
 		if actual.Kind != expected.Kind || actual.Installed != expected.Installed {
 			return fmt.Errorf("declared component %s is stale: inventory=%s source=%s", expected.ID, actual.Installed, expected.Installed)
+		}
+		if expected.ContentPin.Value != "" && actual.ImmutablePin != expected.ContentPin {
+			return fmt.Errorf("declared component %s content pin is stale", expected.ID)
 		}
 		for _, source := range expected.Sources {
 			if !slices.Contains(actual.SourceLocations, source) {

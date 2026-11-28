@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/v17.11.2/schemas/config.json",
+  "release-type": "go",
+  "include-component-in-tag": false,
+  "include-v-in-tag": true,
+  "skip-github-release": true,
+  "skip-changelog": true,
+  "pull-request-title-pattern": "chore: выпуск ${version}",
+  "pull-request-header": "Обновление версии стабильного выпуска ветки release/v1.0 (GoBGP v4). Перед слиянием добавить датированные разделы EN/RU changelog и проверить все обязательные проверки.",
+  "pull-request-footer": "Публикация выполняется после проверки merged PR и создания неизменяемого аннотированного тега.",
+  "packages": {
+    ".": {
+      "versioning": "default"
+    }
+  }
+}

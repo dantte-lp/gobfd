@@ -5,8 +5,11 @@ import (
 	"net/http"
 	"os"
 
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/spf13/cobra"
 
+	"github.com/dantte-lp/gobfd/internal/apiclient"
 	"github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
 )
 
@@ -20,11 +23,15 @@ var (
 	// microClient is the ConnectRPC MicroBFDService client (RFC 7130).
 	microClient bfdv1connect.MicroBFDServiceClient
 
-	// outputFormat controls the output format for all commands (table or json).
+	// outputFormat controls the output format for all commands (table, json, or yaml).
 	outputFormat string
 
-	// serverAddr is the daemon address (host:port) for the ConnectRPC connection.
+	// serverAddr is the daemon endpoint: host:port, http://, https:// or
+	// unix:///path.
 	serverAddr string
+
+	// tlsFiles are the client TLS files for an https:// endpoint.
+	tlsFiles apiclient.TLSFiles
 )
 
 // rootCmd is the top-level cobra command for gobfdctl.
@@ -33,10 +40,14 @@ var rootCmd = &cobra.Command{
 	Short: "CLI client for the GoBFD daemon",
 	Long:  "gobfdctl communicates with the gobfd daemon via ConnectRPC to manage BFD sessions.",
 	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
-		baseURL := "http://" + serverAddr
-		client = bfdv1connect.NewBfdServiceClient(http.DefaultClient, baseURL)
-		echoClient = bfdv1connect.NewEchoServiceClient(http.DefaultClient, baseURL)
-		microClient = bfdv1connect.NewMicroBFDServiceClient(http.DefaultClient, baseURL)
+		// These clients retain the transport for the lifetime of the CLI or shell.
+		rpc, _, err := managementRPC()
+		if err != nil {
+			return err
+		}
+		client = bfdv1connect.NewBfdServiceClient(rpc)
+		echoClient = bfdv1connect.NewEchoServiceClient(rpc)
+		microClient = bfdv1connect.NewMicroBFDServiceClient(rpc)
 
 		return nil
 	},
@@ -45,18 +56,42 @@ var rootCmd = &cobra.Command{
 	SilenceErrors: true,
 }
 
+func managementRPC() (*connect.Client, func(), error) {
+	ep, err := apiclient.ParseEndpoint(serverAddr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("--addr: %w", err)
+	}
+	httpClient, err := ep.HTTPClientTLS(tlsFiles)
+	if err != nil {
+		return nil, nil, fmt.Errorf("--tls-*: %w", err)
+	}
+	cleanup := func() {}
+	if httpClient != http.DefaultClient {
+		cleanup = httpClient.CloseIdleConnections
+	}
+	return connect.NewClient(connecthttp.NewTransport(httpClient, ep.BaseURL)), cleanup, nil
+}
+
 //nolint:gochecknoinits // Cobra command flags and subcommands are registered during package initialization.
 func init() {
-	rootCmd.PersistentFlags().StringVar(&serverAddr, "addr", "localhost:50051",
-		"gobfd daemon address (host:port)")
+	rootCmd.PersistentFlags().StringVar(&serverAddr, "addr", "unix:///run/gobfd/gobfd.sock",
+		"gobfd daemon endpoint: host:port, http://host:port, https://host:port or unix:///path")
+	rootCmd.PersistentFlags().StringVar(&tlsFiles.CAFile, "tls-ca", "",
+		"CA file that signed the daemon certificate (https:// endpoints)")
+	rootCmd.PersistentFlags().StringVar(&tlsFiles.CertFile, "tls-cert", "",
+		"client certificate file for mTLS (https:// endpoints)")
+	rootCmd.PersistentFlags().StringVar(&tlsFiles.KeyFile, "tls-key", "",
+		"client key file for mTLS (https:// endpoints)")
 	rootCmd.PersistentFlags().StringVar(&outputFormat, "format", "table",
 		"output format: table, json, yaml")
 
 	rootCmd.AddCommand(sessionCmd())
 	rootCmd.AddCommand(echoCmd())
 	rootCmd.AddCommand(microCmd())
+	rootCmd.AddCommand(capabilitiesCmd())
 	rootCmd.AddCommand(monitorCmd())
 	rootCmd.AddCommand(versionCmd())
+	rootCmd.AddCommand(certificateCmd())
 	rootCmd.AddCommand(shellCmd())
 }
 

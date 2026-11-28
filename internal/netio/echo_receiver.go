@@ -20,9 +20,9 @@ var ErrNoEchoListeners = fmt.Errorf("echo receiver run: %w", ErrNoListeners)
 // This interface decouples the echo receiver from the bfd.Manager.
 type EchoDemuxer interface {
 	// DemuxEcho routes a returned echo packet by MyDiscriminator.
-	// RFC 9747: echo packets are self-originated, so MyDiscriminator
-	// in the returned packet identifies the local echo session.
-	DemuxEcho(myDiscr uint32) error
+	// This preview path lacks RFC 9747's bootstrap/YourDiscriminator procedure.
+	DemuxEcho(myDiscr uint32) (bfd.DeliveryOutcome, error)
+	bfd.DeliveryReporter
 }
 
 // -------------------------------------------------------------------------
@@ -37,9 +37,9 @@ type EchoDemuxer interface {
 //   - Packet unmarshaling to extract MyDiscriminator
 //   - Context-aware graceful shutdown
 //
-// Unlike the control Receiver, the EchoReceiver does not perform full
-// packet validation (RFC 5880 Section 6.3) because echo packets are
-// self-originated. Only MyDiscriminator extraction is needed for demux.
+// The preview omits full return validation and authentication. Self-originated
+// packets remain spoofable; MyDiscriminator-only routing is an implementation
+// gap, not an exemption from RFC 9747 Section 2 or RFC 5880 Section 6.3.
 type EchoReceiver struct {
 	demuxer EchoDemuxer
 	logger  *slog.Logger
@@ -59,38 +59,28 @@ func NewEchoReceiver(demuxer EchoDemuxer, logger *slog.Logger) *EchoReceiver {
 // goroutines complete.
 //
 // Errors from individual packet reads are logged but do not stop the
-// receiver. Only context cancellation terminates the loop.
+// receiver. A listener that closes while ctx is live returns
+// ErrListenerClosed, as in Receiver.Run.
 func (r *EchoReceiver) Run(ctx context.Context, listeners ...*Listener) error {
 	if len(listeners) == 0 {
 		return ErrNoEchoListeners
 	}
-
-	done := make(chan struct{}, len(listeners))
-
-	for _, ln := range listeners {
-		go func(l *Listener) {
-			r.recvLoop(ctx, l)
-			done <- struct{}{}
-		}(ln)
-	}
-
-	for range listeners {
-		<-done
-	}
-
-	return nil
+	return runListenerLoops(ctx, listeners, r.recvLoop)
 }
 
 // recvLoop reads echo packets from a single Listener until ctx is cancelled.
-func (r *EchoReceiver) recvLoop(ctx context.Context, ln *Listener) {
+func (r *EchoReceiver) recvLoop(ctx context.Context, ln *Listener) error {
 	for {
 		if ctx.Err() != nil {
-			return
+			return nil //nolint:nilerr // Context cancellation is expected; return nil to signal clean shutdown.
 		}
 
 		if err := r.recvOne(ctx, ln); err != nil {
 			if ctx.Err() != nil {
-				return
+				return nil //nolint:nilerr // Context cancellation during recv is expected at shutdown.
+			}
+			if listenerClosed(err) {
+				return fmt.Errorf("echo %w: %w", ErrListenerClosed, err)
 			}
 			r.logger.Warn("echo recv error", slog.String("error", err.Error()))
 		}
@@ -109,20 +99,18 @@ func (r *EchoReceiver) recvOne(ctx context.Context, ln *Listener) error {
 	// RFC 9747: echo packets use standard BFD Control format.
 	var pkt bfd.ControlPacket
 	if err := bfd.UnmarshalControlPacket(received.Data, &pkt); err != nil {
+		r.demuxer.RecordDelivery(bfd.DeliveryEchoParse, bfd.DeliveryParserRejected)
 		r.logger.Debug("invalid echo packet",
 			slog.String("error", err.Error()),
 		)
 		return nil // Drop invalid packets silently.
 	}
 
-	// RFC 9747: MyDiscriminator identifies the originating echo session.
-	if pkt.MyDiscriminator == 0 {
-		r.logger.Debug("echo packet with zero MyDiscriminator, dropping")
-		return nil
-	}
+	r.demuxer.RecordDelivery(bfd.DeliveryEchoParse, bfd.DeliveryAccepted)
 
-	if err := r.demuxer.DemuxEcho(pkt.MyDiscriminator); err != nil {
+	if outcome, err := r.demuxer.DemuxEcho(pkt.MyDiscriminator); err != nil {
 		r.logger.Debug("echo demux failed",
+			slog.String("outcome", outcome.String()),
 			slog.Uint64("my_discr", uint64(pkt.MyDiscriminator)),
 			slog.String("error", err.Error()),
 		)

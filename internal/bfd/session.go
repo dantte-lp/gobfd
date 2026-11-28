@@ -103,6 +103,14 @@ type SessionConfig struct {
 	// Type distinguishes single-hop (RFC 5881) from multi-hop (RFC 5883).
 	Type SessionType
 
+	// NetworkScope identifies the process network namespace. The empty value
+	// is the current process namespace.
+	NetworkScope string
+
+	// TransportScope is the exact transport-specific identity. The zero value
+	// selects base BFD.
+	TransportScope TransportScope
+
 	// Role determines whether the session actively initiates or waits passively.
 	Role SessionRole
 
@@ -130,18 +138,40 @@ type SessionConfig struct {
 	// PaddedPduSize is the padded PDU size for BFD Large Packets (RFC 9764).
 	// When nonzero, transmitted BFD Control packets are padded with zeros to
 	// this total length. The DF bit is set to enable path MTU verification.
-	// Valid range: HeaderSize (24) to MaxPaddedPduSize (9000).
+	// Valid range: 24-9000 without auth, 26-9000 with auth (v1 policy).
 	// Zero means no padding (default behavior).
 	PaddedPduSize uint16
+
+	// MultiHopMaxHops is the multihop hop policy: a received TTL or Hop Limit
+	// below 255 - MultiHopMaxHops is discarded. Zero selects one hop (254).
+	// RFC 5883 defines no receive TTL rule; the policy follows the
+	// non-normative RFC 5082 Appendix A. Valid only for multihop sessions.
+	MultiHopMaxHops uint8
+
+	// IfIndex is the receive interface index a single-hop session requires
+	// (RFC 5881 Section 3). Zero lets Manager resolve it at creation; with
+	// no resolver no index check applies.
+	IfIndex int
 }
 
-// StateChange is emitted when a session FSM transitions between states.
+// StateChange reports a session observation, registration or removal.
 type StateChange struct {
+	// Private owner notifications never reach subscribers or actuators.
+	unsolicitedFailure bool
+	unsolicitedAttempt uint64
+	// Status freezes session status at publication.
+	Status SessionSnapshot
+
+	// Added marks registration, without an FSM transition or actuator action.
+	Added bool
 	// LocalDiscr is the local discriminator of the session.
 	LocalDiscr uint32
 
 	// PeerAddr is the remote system's IP address.
 	PeerAddr netip.Addr
+
+	// LocalAddr is the local system's IP address.
+	LocalAddr netip.Addr
 
 	// OldState is the session state before the transition.
 	OldState State
@@ -151,6 +181,16 @@ type StateChange struct {
 
 	// Diag is the current diagnostic code after the transition.
 	Diag Diag
+
+	RemoteKnown        bool
+	RemoteState        State
+	RemoteDiag         Diag
+	LocalC             bool
+	RemoteC            bool
+	Cause              Cause
+	ObservationVersion uint64
+	Ref                SessionRef
+	TransitionTiming   TransitionTiming
 
 	// Timestamp is when the transition occurred.
 	Timestamp time.Time
@@ -162,6 +202,19 @@ type StateChange struct {
 	// Interface is the network interface name.
 	// Used for micro-BFD dispatch: identifies the LAG member link.
 	Interface string
+
+	// Revision is the Manager dispatch revision, increasing by one per
+	// dispatched change. Zero before dispatch.
+	Revision uint64
+
+	// Deleted marks removal of the wire session after its last owner releases it.
+	// State fields describe its final state, not a new FSM transition.
+	Deleted bool
+
+	// Gap marks a subscriber-only marker: events before Revision were lost
+	// and the subscriber must resync from its authoritative registry snapshot.
+	// Other fields except Timestamp are zero.
+	Gap bool
 }
 
 // PacketSender abstracts sending BFD Control packets over the network.
@@ -191,8 +244,11 @@ func WithMetrics(mr MetricsReporter) SessionOption {
 // Session Errors
 // -------------------------------------------------------------------------
 
-// Sentinel errors for Session configuration validation.
+// Sentinel errors for Session operations and configuration validation.
 var (
+	// ErrSessionStopped indicates that the session owner has exited.
+	ErrSessionStopped = errors.New("session stopped")
+
 	// ErrInvalidDetectMult indicates the detect multiplier is zero.
 	ErrInvalidDetectMult = errors.New("detect multiplier must be >= 1")
 
@@ -200,7 +256,7 @@ var (
 	ErrInvalidTxInterval = errors.New("desired min TX interval must be > 0")
 
 	// ErrInvalidRxInterval indicates the required min RX interval is invalid.
-	ErrInvalidRxInterval = errors.New("required min RX interval must be > 0")
+	ErrInvalidRxInterval = errors.New("required min RX interval must be >= 0")
 
 	// ErrInvalidWireInterval indicates an interval cannot be represented in BFD wire format.
 	ErrInvalidWireInterval = errors.New("wire interval must fit uint32 microseconds")
@@ -215,10 +271,22 @@ var (
 	ErrInvalidDiscriminator = errors.New("local discriminator must be nonzero")
 
 	// ErrInvalidPaddedPduSize indicates the padded PDU size is out of range.
-	ErrInvalidPaddedPduSize = errors.New("padded PDU size must be 0 or between 24 and 9000")
+	ErrInvalidPaddedPduSize = errors.New("padded PDU size must be 0, 24-9000 without auth, or 26-9000 with auth")
 
 	// ErrMissingAuthKeyStore indicates authentication was configured without keys.
 	ErrMissingAuthKeyStore = errors.New("auth key store is required when auth is configured")
+
+	// ErrInvalidMultiHopInterface rejects an interface binding on a multihop
+	// session; RFC 5883 multihop paths are not bound to one interface.
+	ErrInvalidMultiHopInterface = errors.New("multihop session cannot set an interface")
+
+	// ErrInvalidMultiHopMaxHops rejects a hop policy outside 1-254 or on a
+	// session that is not multihop.
+	ErrInvalidMultiHopMaxHops = errors.New("multihop max hops must be 1-254 on a multihop session")
+
+	// ErrInvalidSessionZone rejects a link-local zone that differs from the
+	// session interface or from the zone of the other address.
+	ErrInvalidSessionZone = errors.New("session address zone must match the session interface")
 )
 
 // -------------------------------------------------------------------------
@@ -256,7 +324,7 @@ const (
 // Session implements a single BFD session as described in RFC 5880.
 //
 // All mutable state is owned by the session goroutine started via Run().
-// External reads use atomic operations (State, RemoteState, LocalDiag).
+// External reads use a packed atomic local pair or a locked Observation copy.
 // Incoming packets are delivered via RecvPacket() through a buffered channel.
 //
 // The session implements:
@@ -268,18 +336,21 @@ const (
 //   - RFC 5880 Section 6.8.7: packet transmission (jitter, cached packet)
 //   - RFC 5880 Section 6.5: Poll Sequence
 type Session struct {
-	mu sync.RWMutex
+	mu          sync.RWMutex
+	adminDrain  *adminDrainProgress
+	senderLease *SenderLease
 
 	// --- RFC 5880 Section 6.8.1 state variables ---
 
-	// state is bfd.SessionState. Atomic for lock-free external reads.
-	state atomic.Uint32
-
-	// remoteState is bfd.RemoteSessionState. Atomic for external reads.
-	remoteState atomic.Uint32
-
-	// localDiag is bfd.LocalDiag. Atomic for external reads.
-	localDiag atomic.Uint32
+	// localPair publishes state and diagnostic in one lock-free read.
+	localPair atomic.Uint32
+	// observation and clock are protected by mu. The owner stages received
+	// remote facts separately until its final local pair can commit with them.
+	observation      Observation
+	observationClock *atomic.Uint64
+	transitionTiming TransitionTiming
+	stagedRemote     Observation
+	remoteStaged     bool
 
 	// localDiscr is bfd.LocalDiscr — unique nonzero discriminator.
 	localDiscr uint32
@@ -313,14 +384,40 @@ type Session struct {
 	// pollActive is true when a Poll Sequence is in progress.
 	pollActive bool
 
+	// pollSent records a successful Poll-only send in this sequence. Goroutine-confined.
+	pollSent bool
+
 	// pendingFinal is true when we received a Poll and need to send Final.
 	pendingFinal bool
 
-	// pendingDesiredMinTx holds the new value awaiting poll completion.
-	pendingDesiredMinTx time.Duration
+	// Ownership intent uses mu/updateWake; active policy is loop-owned.
+	unsolicitedClaimWanted bool
+	unsolicitedOnlyWanted  bool
+	unsolicitedOnly        bool
+	unsolicitedStopped     bool
+	unsolicitedRetiring    bool
+	unsolicitedAttempt     uint64
+	unsolicitedStarted     time.Time
+	unsolicitedDeadline    time.Time
 
-	// pendingRequiredMinRx holds the new value awaiting poll completion.
-	pendingRequiredMinRx time.Duration
+	// Timer intent and snapshots are protected by mu. Only the loop changes
+	// active wire/effective values; admission writes the latest waiting slot.
+	timerUpdate   timerUpdateStatus
+	waitingUpdate timerProposal
+	activeUpdate  timerProposal
+	timerRevision uint64
+	updateWake    chan struct{}
+	updateNotify  chan<- struct{}
+	updateClosed  bool
+	// Poll exchange timestamps and recovery gates are loop-owned, under mu
+	// when changed because admission must see the serialization gate.
+	pollStarted          time.Time
+	separateUntil        time.Time
+	failedPollSeparation bool
+	floorHeld            bool
+	recoverOnUp          bool
+	// Owner-loop receive time retains monotonic timing; lastPacketRecv is wall-clock telemetry.
+	lastValidRecv time.Time
 
 	// --- Session identity ---
 
@@ -330,8 +427,16 @@ type Session struct {
 	localAddr   netip.Addr
 	ifName      string
 
+	// receiveBinding publishes confirmed RX scope or a pending owner barrier.
+	receiveBinding atomic.Pointer[receiveBinding]
+	// minTTL is the multihop hop-policy floor, 255 - MultiHopMaxHops.
+	minTTL uint8
+
 	// --- Cached packet (FRR bfdd pattern) ---
 	cachedPacket []byte
+	// waitingPacket is the latest proposal's preallocated growth buffer.
+	// Admission owns it under mu; only the event loop installs it for TX.
+	waitingPacket []byte
 
 	// paddedPduSize is the RFC 9764 padded PDU size. Zero means no padding.
 	paddedPduSize uint16
@@ -352,6 +457,7 @@ type Session struct {
 
 	packetsSent      atomic.Uint64
 	packetsReceived  atomic.Uint64
+	packetDrops      [deliveryOutcomeCount]atomic.Uint64
 	stateTransitions atomic.Uint64
 
 	// lastStateChange stores the Unix nanosecond timestamp of the most
@@ -364,31 +470,43 @@ type Session struct {
 
 	// --- Hot-path optimizations ---
 
+	// lastPacketSent is the last successful transmission, including monotonic
+	// time, for peer-driven TX deadline changes. Goroutine-confined.
+	lastPacketSent time.Time
+
 	// jitterRng is a session-local PRNG for jitter calculations.
 	// Goroutine-confined to the session goroutine — no synchronization needed.
 	jitterRng jitterRNG
 
-	// cachedState mirrors s.state for hot-path reads within the session goroutine.
+	// cachedState mirrors the local pair for owner-loop hot-path reads.
 	// Updated in executeFSMActions on every state change. Avoids
 	// atomic.Uint32.Load() on every timer recalculation.
 	cachedState State
 
 	// --- Runtime ---
 
-	sender   PacketSender
-	metrics  MetricsReporter
-	logger   *slog.Logger
-	recvCh   chan recvItem
-	ctrlCh   chan sessionControl
-	notifyCh chan<- StateChange
-	running  atomic.Bool
+	sender         PacketSender
+	metrics        MetricsReporter
+	timerEvent     timerObservation
+	delivery       *Manager
+	cleanupWake    chan<- struct{}
+	publicLossWake chan<- struct{}
+	logger         *slog.Logger
+	recvCh         chan recvItem
+	ctrlCh         chan sessionControl
+	ctrlSpace      chan struct{}
+	ownerDone      chan struct{}
+	notifyCh       chan<- StateChange
+	running        atomic.Bool
 }
 
 // recvItem carries a received BFD Control packet along with the raw
 // wire bytes needed for authentication verification (RFC 5880 Section 6.7).
 type recvItem struct {
-	pkt  *ControlPacket
-	wire []byte // raw wire bytes for auth digest verification
+	pkt     ControlPacket
+	wire    []byte // raw wire bytes for auth digest verification
+	timing  ReceiveTiming
+	binding *receiveBinding
 }
 
 type sessionControlKind uint8
@@ -396,10 +514,13 @@ type sessionControlKind uint8
 const (
 	controlPathDown sessionControlKind = iota + 1
 	controlAdminDown
+	controlInterfaceBinding
 )
 
 type sessionControl struct {
-	kind sessionControlKind
+	kind    sessionControlKind
+	receipt chan struct{}
+	binding *interfaceBindingRequest
 }
 
 // -------------------------------------------------------------------------
@@ -429,10 +550,7 @@ func NewSession(
 	}
 
 	// RFC 9764: allocate a buffer large enough for padded packets.
-	pktBufSize := MaxPacketSize
-	if cfg.PaddedPduSize > uint16(pktBufSize) {
-		pktBufSize = int(cfg.PaddedPduSize)
-	}
+	pktBufSize := max(MaxPacketSize, int(cfg.PaddedPduSize))
 
 	s := &Session{
 		localDiscr:            localDiscr,
@@ -445,6 +563,7 @@ func NewSession(
 		peerAddr:              cfg.PeerAddr,
 		localAddr:             cfg.LocalAddr,
 		ifName:                cfg.Interface,
+		minTTL:                multiHopMinTTL(cfg),
 		auth:                  cfg.Auth,
 		authKeys:              cfg.AuthKeys,
 		paddedPduSize:         cfg.PaddedPduSize,
@@ -455,6 +574,9 @@ func NewSession(
 		notifyCh:              notifyCh,
 		recvCh:                make(chan recvItem, recvChSize),
 		ctrlCh:                make(chan sessionControl, 4),
+		ctrlSpace:             make(chan struct{}, 1),
+		ownerDone:             make(chan struct{}),
+		updateWake:            make(chan struct{}, 1),
 		cachedPacket:          make([]byte, pktBufSize),
 		logger: logger.With(
 			slog.String("peer", cfg.PeerAddr.String()),
@@ -462,16 +584,16 @@ func NewSession(
 		),
 	}
 
+	s.receiveBinding.Store(&receiveBinding{ifIndex: cfg.IfIndex})
 	for _, opt := range opts {
 		opt(s)
 	}
 
 	// RFC 5880 Section 6.8.1: bfd.SessionState MUST be initialized to Down.
-	s.state.Store(uint32(StateDown))
+	s.localPair.Store(packStateDiag(StateDown, DiagNone))
 	// RFC 5880 Section 6.8.1: bfd.RemoteSessionState MUST be initialized to Down.
-	s.remoteState.Store(uint32(StateDown))
+	s.observation = Observation{State: StateDown, RemoteState: StateDown, ObservationVersion: 1}
 	// RFC 5880 Section 6.8.1: bfd.LocalDiag MUST be initialized to zero.
-	s.localDiag.Store(uint32(DiagNone))
 
 	// Initialize auth state if authentication is configured.
 	if err := s.initAuth(cfg); err != nil {
@@ -491,8 +613,16 @@ func validateSessionConfig(cfg SessionConfig, localDiscr uint32) error {
 	if cfg.DesiredMinTxInterval <= 0 {
 		return fmt.Errorf("desired min TX interval %v: %w", cfg.DesiredMinTxInterval, ErrInvalidTxInterval)
 	}
-	if cfg.RequiredMinRxInterval <= 0 {
+	if cfg.RequiredMinRxInterval < 0 {
 		return fmt.Errorf("required min RX interval %v: %w", cfg.RequiredMinRxInterval, ErrInvalidRxInterval)
+	}
+	if cfg.DesiredMinTxInterval < time.Microsecond {
+		return fmt.Errorf("desired min TX interval %v is below one wire microsecond: %w",
+			cfg.DesiredMinTxInterval, ErrInvalidWireInterval)
+	}
+	if cfg.RequiredMinRxInterval > 0 && cfg.RequiredMinRxInterval < time.Microsecond {
+		return fmt.Errorf("required min RX interval %v is below one wire microsecond: %w",
+			cfg.RequiredMinRxInterval, ErrInvalidWireInterval)
 	}
 	if cfg.DesiredMinTxInterval > MaxWireInterval {
 		return fmt.Errorf(
@@ -519,14 +649,79 @@ func validateSessionConfig(cfg SessionConfig, localDiscr uint32) error {
 	if localDiscr == 0 {
 		return fmt.Errorf("local discriminator: %w", ErrInvalidDiscriminator)
 	}
-	// RFC 9764: PaddedPduSize must be 0 (disabled) or within [HeaderSize, MaxPaddedPduSize].
-	if cfg.PaddedPduSize != 0 && (cfg.PaddedPduSize < HeaderSize || cfg.PaddedPduSize > MaxPaddedPduSize) {
-		return fmt.Errorf("padded PDU size %d: %w", cfg.PaddedPduSize, ErrInvalidPaddedPduSize)
-	}
-	if err := validateSessionAuthConfig(cfg); err != nil {
+	if err := ValidatePaddedPduSize(cfg.PaddedPduSize, cfg.Auth != nil); err != nil {
 		return err
 	}
+	if err := validateSessionTransport(cfg); err != nil {
+		return err
+	}
+	return validateSessionAuthConfig(cfg)
+}
+
+// maxMultiHopHops keeps the hop-policy floor 255 - N at TTL 1 or above.
+const maxMultiHopHops = singleHopTTL - 1
+
+// validateSessionTransport rejects an interface binding on multihop sessions
+// (RFC 5883 Section 4.1 demultiplexes by address pair) and a hop policy
+// outside 1-254 or on a session that is not multihop.
+func validateSessionTransport(cfg SessionConfig) error {
+	if cfg.Type == SessionTypeMultiHop && cfg.Interface != "" {
+		return fmt.Errorf("interface %q: %w", cfg.Interface, ErrInvalidMultiHopInterface)
+	}
+	if cfg.MultiHopMaxHops != 0 && (cfg.Type != SessionTypeMultiHop || cfg.MultiHopMaxHops > maxMultiHopHops) {
+		return fmt.Errorf("multihop max hops %d: %w", cfg.MultiHopMaxHops, ErrInvalidMultiHopMaxHops)
+	}
+	return validateSessionZones(cfg)
+}
+
+// validateSessionZones requires the link-local zones of a single-hop session
+// to name its interface, so a zone never contradicts the RX and TX binding.
+func validateSessionZones(cfg SessionConfig) error {
+	if cfg.Type != SessionTypeSingleHop {
+		return nil
+	}
+	ifName := SingleHopInterface(cfg.Interface, cfg.LocalAddr, cfg.PeerAddr)
+	for _, addr := range [...]netip.Addr{cfg.LocalAddr, cfg.PeerAddr} {
+		if zone := addr.Zone(); zone != "" && zone != ifName {
+			return fmt.Errorf("address %s on interface %q: %w", addr, ifName, ErrInvalidSessionZone)
+		}
+	}
 	return nil
+}
+
+// multiHopMinTTL returns the receive TTL floor of a multihop session with
+// reading A of the hop policy, 255 - N (1/2/5 hops: 254/253/250; zero means
+// one hop). It is not an RFC 5883 rule: RFC 5883 Section 3 defers spoofing
+// protection to authentication, and RFC 5082 Appendix A is non-normative.
+// Other session types return zero.
+func multiHopMinTTL(cfg SessionConfig) uint8 {
+	if cfg.Type != SessionTypeMultiHop {
+		return 0
+	}
+	hops := cfg.MultiHopMaxHops
+	if hops == 0 {
+		hops = 1
+	}
+	return singleHopTTL - hops
+}
+
+// ValidatePaddedPduSize applies the v1 configured-target policy. RFC 9764 also
+// permits raising a smaller target to the actual session minimum instead.
+func ValidatePaddedPduSize(size uint16, authenticated bool) error {
+	minimum := uint16(MinPacketSizeNoAuth)
+	if authenticated {
+		minimum = MinPacketSizeWithAuth
+	}
+	if size != 0 && (size < minimum || size > MaxPaddedPduSize) {
+		return ErrInvalidPaddedPduSize
+	}
+	return nil
+}
+
+// ValidateSessionConfig validates a session candidate without allocating a
+// discriminator or starting runtime resources.
+func ValidateSessionConfig(cfg SessionConfig) error {
+	return validateSessionConfig(cfg, 1)
 }
 
 func validateSessionAuthConfig(cfg SessionConfig) error {
@@ -590,17 +785,25 @@ func (s *Session) LocalDiscriminator() uint32 { return s.localDiscr }
 
 // State returns the current session state (atomic read).
 func (s *Session) State() State {
-	return State(s.state.Load()) // #nosec G115 -- session transitions store only valid State values 0-3.
+	state, _ := s.pairedStateDiag()
+	return state
 }
 
-// RemoteState returns the last reported remote session state (atomic read).
-func (s *Session) RemoteState() State {
-	return State(s.remoteState.Load()) // #nosec G115 -- packet decoding yields only valid State values 0-3.
-}
+// RemoteState returns the last committed remote state under the observation lock.
+func (s *Session) RemoteState() State { return s.Observation().RemoteState }
 
 // LocalDiag returns the current local diagnostic code (atomic read).
 func (s *Session) LocalDiag() Diag {
-	return Diag(s.localDiag.Load()) // #nosec G115 -- session transitions store only valid Diag values 0-8.
+	_, diag := s.pairedStateDiag()
+	return diag
+}
+
+// RemoteMinRxInterval returns bfd.RemoteMinRxInterval from the last
+// received packet.
+func (s *Session) RemoteMinRxInterval() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.remoteMinRxInterval
 }
 
 // RemoteDiscriminator returns the remote discriminator learned from the peer.
@@ -623,8 +826,53 @@ func (s *Session) Interface() string { return s.ifName }
 // Type returns the session type (single-hop or multi-hop).
 func (s *Session) Type() SessionType { return s.sessionType }
 
+// transportOutcome checks a demultiplexed packet against the session transport:
+// the transport class for every session type, the bound interface for
+// single-hop and the hop policy for multihop. It returns DeliveryFound,
+// DeliveryScopeMismatch or DeliveryTTLRejected. The multihop floor is sampled
+// under mu; the remaining transport identity is immutable.
+func (s *Session) transportOutcome(meta PacketMeta) DeliveryOutcome {
+	return s.transportOutcomeAt(meta, s.receiveBinding.Load())
+}
+
+func (s *Session) transportOutcomeAt(meta PacketMeta, binding *receiveBinding) DeliveryOutcome {
+	if (s.sessionType == SessionTypeMultiHop) != meta.MultiHop {
+		return DeliveryScopeMismatch
+	}
+	switch s.sessionType {
+	case SessionTypeSingleHop:
+		if binding != nil && binding.pending {
+			return DeliveryScopeMismatch
+		}
+		// RFC 5881 Section 5; the 3784 listener pre-filters the same rule.
+		if meta.TTL != singleHopTTL {
+			return DeliveryTTLRejected
+		}
+		// meta.IfName is the listener device binding, empty when unbound.
+		if s.ifName != "" && meta.IfName != "" && meta.IfName != s.ifName {
+			return DeliveryScopeMismatch
+		}
+		if binding != nil && binding.ifIndex != 0 && meta.IfIndex != binding.ifIndex {
+			return DeliveryScopeMismatch
+		}
+	case SessionTypeMultiHop:
+		s.mu.RLock()
+		floor := s.minTTL
+		s.mu.RUnlock()
+		if meta.TTL < floor {
+			return DeliveryTTLRejected
+		}
+	default:
+	}
+	return DeliveryFound
+}
+
 // PaddedPduSize returns the RFC 9764 padded PDU size. Zero means no padding.
-func (s *Session) PaddedPduSize() uint16 { return s.paddedPduSize }
+func (s *Session) PaddedPduSize() uint16 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.paddedPduSize
+}
 
 // AuthType returns the RFC 5880 authentication type configured for this session.
 func (s *Session) AuthType() AuthType {
@@ -649,7 +897,11 @@ func (s *Session) RequiredMinRxInterval() time.Duration {
 }
 
 // DetectMultiplier returns the configured detection multiplier.
-func (s *Session) DetectMultiplier() uint8 { return s.detectMult }
+func (s *Session) DetectMultiplier() uint8 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.detectMult
+}
 
 // NegotiatedTxInterval returns the current negotiated TX interval.
 // RFC 5880 Section 6.8.7: max(bfd.DesiredMinTxInterval, bfd.RemoteMinRxInterval).
@@ -695,56 +947,131 @@ func (s *Session) LastPacketReceived() time.Time {
 
 // RecvPacket delivers a received BFD Control packet to the session for
 // processing. This is safe to call from any goroutine. If the receive
-// channel is full, the packet is dropped (logged at debug level).
+// channel is full or admission is closed, the packet is counted as dropped.
+// Queued confirms admission, not owner validation or commit. The header is
+// copied; authenticated wire storage must remain immutable after admission.
 //
 // wire is the raw packet bytes needed for auth verification. It may be
 // nil if no authentication is configured.
-func (s *Session) RecvPacket(pkt *ControlPacket, wire ...[]byte) {
+func (s *Session) RecvPacket(pkt *ControlPacket, wire ...[]byte) DeliveryOutcome {
 	var w []byte
 	if len(wire) > 0 {
 		w = wire[0]
 	}
-	select {
-	case s.recvCh <- recvItem{pkt: pkt, wire: w}:
-	default:
-		s.logger.Debug("recv channel full, dropping packet")
-	}
+	return s.recvPacket(pkt, w, ReceiveTiming{}, s.receiveBinding.Load())
 }
 
-// SetAdminDown transitions the session to AdminDown with DiagAdminDown.
+func (s *Session) recvPacket(
+	pkt *ControlPacket, wire []byte, timing ReceiveTiming, binding *receiveBinding,
+) DeliveryOutcome {
+	s.mu.Lock()
+	outcome := DeliveryClosed
+	if !s.updateClosed && s.receiveBinding.Load() == binding && (binding == nil || !binding.pending) {
+		select {
+		case s.recvCh <- recvItem{pkt: *pkt, wire: wire, timing: timing, binding: binding}:
+			outcome = DeliveryQueued
+		default:
+			outcome = DeliveryQueueFull
+		}
+	}
+	s.mu.Unlock()
+	s.recordDelivery(DeliveryPacketAdmission, outcome)
+	if outcome != DeliveryQueued {
+		s.recordPacketDrop(outcome)
+	}
+	return outcome
+}
+
+// SetAdminDown waits for the owner to commit AdminDown with DiagAdminDown.
 // RFC 5880 Section 6.8.16: the local system sets bfd.SessionState to
 // AdminDown and bfd.LocalDiag to 7 (Administratively Down).
 //
-// This is used during graceful shutdown to signal the remote peer that
-// the session is being administratively disabled, not failing. The session
-// goroutine will rebuild the cached packet and transmit the AdminDown
-// state on the next TX interval.
-//
-// Thread-safe: when the session goroutine is running, routes the transition
-// through ctrlCh so the goroutine-confined cached state stays coherent.
-func (s *Session) SetAdminDown() {
-	if s.running.Load() {
+// Before Run, requests queue until an owner starts. ctx bounds admission and
+// the commit wait; a timeout does not revoke an admitted request. Success
+// confirms state/diagnostic commit, not packet transmission or peer receipt.
+func (s *Session) SetAdminDown(ctx context.Context) error {
+	receipt, err := s.enqueueAdminDown(ctx)
+	if err != nil {
+		return fmt.Errorf("request AdminDown: %w", err)
+	}
+	return s.waitAdminDown(ctx, receipt)
+}
+
+func (s *Session) enqueueAdminDown(ctx context.Context) (<-chan struct{}, error) {
+	receipt := make(chan struct{})
+	// Pass a coalesced free-slot wake to another waiter on every exit.
+	defer s.signalControlSpace()
+	for {
+		if err := ctx.Err(); err != nil {
+			outcome := DeliveryCanceled
+			if errors.Is(err, context.DeadlineExceeded) {
+				outcome = DeliveryDeadline
+			}
+			s.recordDelivery(DeliveryAdminDownAdmission, outcome)
+			return nil, fmt.Errorf("admit AdminDown: %w", err)
+		}
+		s.mu.Lock()
+		if s.updateClosed {
+			s.mu.Unlock()
+			s.recordDelivery(DeliveryAdminDownAdmission, DeliveryClosed)
+			return nil, ErrSessionStopped
+		}
 		select {
-		case s.ctrlCh <- sessionControl{kind: controlAdminDown}:
-			return
+		case s.ctrlCh <- sessionControl{kind: controlAdminDown, receipt: receipt}:
+			s.mu.Unlock()
+			s.recordDelivery(DeliveryAdminDownAdmission, DeliveryQueued)
+			return receipt, nil
 		default:
-			s.logger.Warn("session control channel full, applying AdminDown directly")
+			s.mu.Unlock()
+		}
+		select {
+		case <-s.ctrlSpace:
+		case <-s.ownerDone:
+		case <-ctx.Done():
 		}
 	}
+}
 
-	s.localDiag.Store(uint32(DiagAdminDown))
-	s.state.Store(uint32(StateAdminDown))
-	s.logger.Info("session set to AdminDown for graceful drain")
+func (s *Session) signalControlSpace() {
+	select {
+	case s.ctrlSpace <- struct{}{}:
+	default:
+	}
+}
+
+func (s *Session) waitAdminDown(ctx context.Context, receipt <-chan struct{}) error {
+	var err error
+	select {
+	case <-receipt:
+		return nil
+	case <-s.ownerDone:
+		err = ErrSessionStopped
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
+	// A completed commit wins over concurrent cancellation or owner exit.
+	select {
+	case <-receipt:
+		return nil
+	default:
+		return fmt.Errorf("wait for AdminDown commit: %w", err)
+	}
 }
 
 // SetPathDown asks the session goroutine to transition the session to Down
-// with DiagPathDown. It returns false if the control channel is full.
-func (s *Session) SetPathDown() bool {
-	select {
-	case s.ctrlCh <- sessionControl{kind: controlPathDown}:
-		return true
-	default:
-		s.logger.Warn("session control channel full, dropping path-down event")
-		return false
+// with DiagPathDown. Queued confirms admission only.
+func (s *Session) SetPathDown() DeliveryOutcome {
+	s.mu.Lock()
+	outcome := DeliveryClosed
+	if !s.updateClosed {
+		select {
+		case s.ctrlCh <- sessionControl{kind: controlPathDown}:
+			outcome = DeliveryQueued
+		default:
+			outcome = DeliveryQueueFull
+		}
 	}
+	s.mu.Unlock()
+	s.recordDelivery(DeliveryPathDownAdmission, outcome)
+	return outcome
 }

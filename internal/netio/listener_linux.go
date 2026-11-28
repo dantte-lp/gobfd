@@ -4,32 +4,44 @@ package netio
 
 import (
 	"context"
+	"errors"
 	"fmt"
+
+	"github.com/dantte-lp/gobfd/internal/bfd"
 )
 
 // NewListener creates a Listener from the given configuration.
 // Returns an error if the underlying socket cannot be created.
 // When ReadBufferSize is set, SO_RCVBUF is applied to reduce packet loss.
 func NewListener(cfg ListenerConfig) (*Listener, error) {
+	clock := bfd.NewReceiveClock()
 	conn, err := createConn(cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	// Apply read buffer tuning if configured.
-	if cfg.ReadBufferSize > 0 {
-		if setter, ok := conn.(interface{ SetReadBuffer(bytes int) error }); ok {
-			if err := setter.SetReadBuffer(cfg.ReadBufferSize); err != nil {
-				_ = conn.Close() //nolint:gosec // G104: already returning primary error
-				return nil, fmt.Errorf("set read buffer to %d: %w", cfg.ReadBufferSize, err)
+	if setter, ok := conn.(interface{ SetReadBuffer(bytes int) error }); ok && cfg.ReadBufferSize > 0 {
+		if err := setter.SetReadBuffer(cfg.ReadBufferSize); err != nil {
+			closeErr := conn.Close()
+			if closeErr != nil {
+				closeErr = fmt.Errorf("close listener after read buffer failure: %w", closeErr)
 			}
+			return nil, errors.Join(
+				fmt.Errorf("set read buffer to %d: %w", cfg.ReadBufferSize, err),
+				closeErr,
+			)
 		}
 	}
 
 	return &Listener{
-		conn:        conn,
-		multiHop:    cfg.MultiHop,
-		expectedTTL: cfg.ExpectedTTL,
+		conn:         conn,
+		multiHop:     cfg.MultiHop,
+		expectedTTL:  cfg.ExpectedTTL,
+		delivery:     cfg.Delivery,
+		echo:         cfg.Port == PortEcho,
+		receiveClock: clock,
+		socketDrops:  newSocketDropObserver(cfg.Delivery, true),
 	}, nil
 }
 

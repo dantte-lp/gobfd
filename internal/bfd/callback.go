@@ -1,6 +1,9 @@
 package bfd
 
-import "net/netip"
+import (
+	"net/netip"
+	"time"
+)
 
 // StateCallback is a function invoked when a BFD session changes state.
 //
@@ -27,9 +30,9 @@ import "net/netip"
 // This decoupled design avoids import cycles between the bfd package and
 // protocol-specific integration packages (e.g., internal/gobgp).
 //
-// For BFD flap dampening (RFC 5882 Section 3.2), the callback consumer
-// should implement exponential backoff before propagating rapid Down->Up->Down
-// oscillations to routing protocols.
+// A callback consumer may implement local hysteresis or dampening before
+// propagating rapid Down->Up->Down oscillations to routing protocols. RFC 5882
+// Section 3.1 permits hysteresis but does not define a penalty algorithm.
 type StateCallback func(change StateChange)
 
 // MetricsReporter is a consumer interface for reporting BFD protocol metrics.
@@ -50,12 +53,18 @@ type MetricsReporter interface {
 	IncPacketsSent(peer, local netip.Addr)
 
 	// IncPacketsReceived increments the received packets counter.
-	// Called after each successfully demultiplexed BFD Control packet.
+	// Called after owner validation of each BFD Control packet.
 	IncPacketsReceived(peer, local netip.Addr)
 
 	// IncPacketsDropped increments the dropped packets counter.
 	// Called when a packet fails validation or cannot be delivered.
 	IncPacketsDropped(peer, local netip.Addr)
+	IncAuthFailures(peer, local netip.Addr)
+	DeliveryReporter
+	// ObserveReceiveTiming records exactly one outcome after a Control owner commit.
+	ObserveReceiveTiming(outcome ReceiveTimingOutcome, latency time.Duration)
+	// ObserveTimerEvent separates timer dispatch from a successful TX or timeout Down effect.
+	ObserveTimerEvent(kind TimerKind, event TimerEvent, delay time.Duration)
 
 	// RecordStateTransition increments the state transition counter.
 	// Called on each FSM state change with the old and new state names.
@@ -75,9 +84,14 @@ type MetricsReporter interface {
 // on the hot path beyond the interface dispatch.
 type noopMetrics struct{}
 
+func (noopMetrics) ObserveReceiveTiming(ReceiveTimingOutcome, time.Duration) { /* no-op */ }
+func (noopMetrics) ObserveTimerEvent(TimerKind, TimerEvent, time.Duration)   { /* no-op */ }
+
 func (noopMetrics) IncPacketsSent(_, _ netip.Addr)                     { /* no-op */ }
 func (noopMetrics) IncPacketsReceived(_, _ netip.Addr)                 { /* no-op */ }
 func (noopMetrics) IncPacketsDropped(_, _ netip.Addr)                  { /* no-op */ }
+func (noopMetrics) IncAuthFailures(_, _ netip.Addr)                    { /* no-op */ }
+func (noopMetrics) RecordDelivery(DeliverySource, DeliveryOutcome)     { /* no-op */ }
 func (noopMetrics) RecordStateTransition(_, _ netip.Addr, _, _ string) { /* no-op */ }
 func (noopMetrics) RegisterSession(_, _ netip.Addr, _ string)          { /* no-op */ }
 func (noopMetrics) UnregisterSession(_, _ netip.Addr, _ string)        { /* no-op */ }

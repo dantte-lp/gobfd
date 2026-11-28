@@ -1,324 +1,186 @@
 # Architecture
 
-![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)
-![RFC 5880](https://img.shields.io/badge/RFC-5880-1a73e8?style=for-the-badge)
-![ConnectRPC](https://img.shields.io/badge/ConnectRPC-gRPC-ea4335?style=for-the-badge)
-![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?style=for-the-badge&logo=prometheus)
-![Linux](https://img.shields.io/badge/Linux-Raw_Sockets-FCC624?style=for-the-badge&logo=linux&logoColor=black)
+[Russian translation](../ru/01-architecture.md).
 
-> System architecture of GoBFD: package dependencies, packet flow, session lifecycle, and goroutine model.
+GoBFD separates Bidirectional Forwarding Detection (BFD) state machines, Linux UDP input/output (I/O), management authorization and routing actuators. A physical session belongs to the session Manager; configuration and API principals hold claims on that session. A claim does not own an independent protocol instance. Sources: [session identity](../../internal/bfd/session_identity.go), [Manager](../../internal/bfd/manager.go).
 
----
+A finite state machine (FSM) owns protocol transitions. Receive (RX) and transmit (TX) identify packet directions; time to live (TTL) is the IPv4 hop bound, and IPv6 uses Hop Limit. A protocol data unit (PDU) is the declared BFD packet. VXLAN network identifiers (VNIs) separate overlay scopes; link aggregation groups (LAGs) contain member links. Mutual TLS (mTLS) authenticates both management endpoints.
 
-## Table of Contents
-
-- [System Overview](#system-overview)
-- [Package Dependency Diagram](#package-dependency-diagram)
-- [Dependency Rules](#dependency-rules)
-- [Packet RX Flow](#packet-rx-flow)
-- [Packet TX Flow](#packet-tx-flow)
-- [Demultiplexing](#demultiplexing)
-- [Three-Way Handshake](#three-way-handshake)
-- [Goroutine Model](#goroutine-model)
-- [Graceful Shutdown](#graceful-shutdown)
-- [Project Structure](#project-structure)
-- [Technology Stack](#technology-stack)
-
-### System Overview
-
-GoBFD is a production-oriented BFD (Bidirectional Forwarding Detection) protocol daemon. It consists of four binaries:
-
-- **gobfd** -- the daemon that manages BFD sessions, sends/receives BFD Control packets, and integrates with GoBGP
-- **gobfdctl** -- the CLI client that communicates with gobfd via ConnectRPC
-- **gobfd-haproxy-agent** -- HAProxy agent-check bridge (BFD state to TCP agent responses)
-- **gobfd-exabgp-bridge** -- ExaBGP process API bridge (BFD state to route announcements)
+## System Overview
 
 ```mermaid
-graph TB
-    subgraph "gobfd daemon"
-        MAIN["cmd/gobfd<br/>main.go"]
-        CFG["internal/config<br/>koanf/v2"]
-        SRV["internal/server<br/>ConnectRPC"]
-        BFD["internal/bfd<br/>FSM + Sessions"]
-        NET["internal/netio<br/>Raw Sockets"]
-        MET["internal/metrics<br/>Prometheus"]
-        BGP["internal/gobgp<br/>GoBGP Client"]
-        PB["pkg/bfdpb<br/>Generated Proto"]
-    end
-
-    subgraph "gobfdctl CLI"
-        CLI["cmd/gobfdctl<br/>Cobra + reeflective/console"]
-    end
-
-    subgraph "External"
-        GOBGP["GoBGP<br/>gRPC :50052"]
-        PROM["Prometheus<br/>:9100/metrics"]
-        PEER["BFD Peers<br/>UDP 3784/4784/3785/6784/4789/6081/7784"]
-    end
-
-    MAIN --> CFG
-    MAIN --> SRV
-    MAIN --> NET
-    MAIN --> MET
-    MAIN --> BGP
-    SRV --> BFD
-    SRV --> PB
-    NET --> BFD
-    CLI --> SRV
-    BGP --> GOBGP
-    MET --> PROM
-    NET --> PEER
-
-    style BFD fill:#1a73e8,color:#fff
-    style NET fill:#34a853,color:#fff
-    style SRV fill:#ea4335,color:#fff
+flowchart LR
+    accTitle: Component ownership and message flow
+    accDescr: Configuration and management feed the Manager; session owners receive packets, transmit through leases and publish observations.
+    cli["gobfdctl and bridges"]:::mgt --> rpc["Management API"]:::mgt
+    cfg["Validated configuration"]:::mgt --> rec["Reconciliation coordinator"]:::srv
+    rpc --> mgr["Session Manager"]:::srv
+    rec --> mgr
+    peer["BFD peer"]:::brt --> rx["Listener and receiver"]:::leaf
+    rx --> mgr
+    mgr --> owner["Session owner: FSM and timers"]:::srv
+    owner --> tx["Sender lease"]:::leaf
+    tx --> peer
+    owner --> events["Observation and dispatch"]:::srv
+    events --> rpc
+    events -.-> act["GoBGP and external actuators"]:::brt
+    owner -.-> met["Prometheus collectors"]:::mgt
+    classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
+    classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
+    classDef leaf fill:#e3f2fd,stroke:#1976d2,color:#000
+    classDef brt fill:#fff3e0,stroke:#bf360c,color:#000
 ```
 
-### Package Dependency Diagram
+The diagram shows process boundaries and message direction. It does not assert that the monitored path fate-shares with any routing or overlay dataplane. [RFC 5882](../rfc/rfc5882.txt) defines client interactions; [ADR-0003](adr/0003-linux-advanced-bfd-applicability.md) constrains Linux ownership.
 
-```mermaid
-graph TB
-    subgraph "cmd/"
-        GOBFD["cmd/gobfd<br/>main.go"]
-        GOBFDCTL["cmd/gobfdctl<br/>main.go + commands/"]
-    end
+## Package Dependency Diagram
 
-    subgraph "internal/"
-        CFG["config<br/>koanf/v2"]
-        SRV["server<br/>ConnectRPC"]
-        BFD["bfd<br/>FSM, Session,<br/>Packet, Auth"]
-        NET["netio<br/>Raw Sockets,<br/>UDP Listeners"]
-        MET["metrics<br/>Prometheus"]
-        BGP["gobgp<br/>gRPC Client"]
-        VER["version<br/>Build Info"]
-    end
-
-    PB["pkg/bfdpb<br/>Generated Proto"]
-
-    GOBFD --> CFG
-    GOBFD --> SRV
-    GOBFD --> NET
-    GOBFD --> MET
-    GOBFD --> BGP
-    GOBFD --> VER
-    SRV --> BFD
-    SRV --> PB
-    NET --> BFD
-    GOBFDCTL --> PB
-
-    style BFD fill:#1a73e8,color:#fff
-```
+| Package | Responsibility | Boundary |
+|:---|:---|:---|
+| [`internal/bfd`](../../internal/bfd) | Codec, authentication, FSM, owners, claims, delivery ledger | No Linux socket ownership |
+| [`internal/netio`](../../internal/netio) | UDP sockets, ancillary metadata, overlays, interface monitor, LAG backends | Adapts I/O to core interfaces |
+| [`internal/config`](../../internal/config) | Decode and validate YAML, environment and defaults | Produces complete candidate |
+| [`internal/server`](../../internal/server) | API conversion, authorization, Watch, capabilities | Principal comes from transport |
+| [`internal/overlay`](../../internal/overlay) | Shared backend vocabulary | Standard-library leaf package |
+| [`internal/gobgp`](../../internal/gobgp) | BFD-to-BGP action policy | External action has a deadline |
+| [`cmd/gobfd`](../../cmd/gobfd) | Startup, resource owners, reload, readiness, shutdown | Composes runtime services |
+| [`api/bfd/v1`](../../api/bfd/v1) | Public protobuf schema | Generated clients are in `pkg/bfdpb` |
 
 ### Dependency Rules
 
-- `internal/bfd` has **zero** dependency on `internal/server`, `internal/netio`, or `internal/config`
-- `internal/server` depends on `internal/bfd` (Manager, Session, types) and `pkg/bfdpb`
-- `internal/netio` reuses the BFD packet codec, pool, packet metadata, sender
-  interface, and Micro-BFD state/event types from `internal/bfd`
-- `pkg/bfdpb` is generated code -- never edited manually
+The FSM returns actions; the session executes them. Socket adapters depend on core interfaces. Configuration and network I/O share overlay names through the leaf package. Generated protobuf code is not edited directly. See [FSM](../../internal/bfd/fsm.go), [receiver interface](../../internal/netio/receiver.go), [ADR-0004](adr/0004-overlay-backend-vocabulary.md).
 
-### Packet RX Flow
+## Packet RX Flow
 
 ```mermaid
 flowchart TD
-    NET["Network<br/>UDP 3784 / 4784"] --> LISTEN["netio.Listener<br/>ReadBatch<br/>PacketPool.Get()"]
-    LISTEN --> UNMARSHAL["bfd.UnmarshalControlPacket<br/>RFC 5880 steps 1-7<br/>version, length, detect mult,<br/>multipoint, discriminators"]
-    UNMARSHAL --> DEMUX["Manager.DemuxWithWire<br/>Tier 1: YourDiscr (O1 map)<br/>Tier 2: PeerKey (SrcIP, DstIP, If)"]
-    DEMUX --> RECV["Session.RecvPkt<br/>buffered chan"]
-    RECV --> HANDLE["handleRecvPacket<br/>RFC 5880 steps 8-18:<br/>auth, FSM event, timer reset"]
+    accTitle: Control receive pipeline
+    accDescr: A datagram passes transport checks, decoding, lookup, admission and owner validation before state commit and notification.
+    socket["UDP datagram and ancillary metadata"]:::leaf --> transport["Length, truncation and transport checks"]:::leaf
+    transport --> codec["Decode Control header and auth shape"]:::srv
+    codec --> scope["Discriminator or initial-key lookup"]:::srv
+    scope --> gate["Exact scope, interface and TTL admission"]:::srv
+    gate --> queue["Bounded owner queue"]:::srv
+    queue --> validate["Owner authentication and protocol validation"]:::srv
+    validate --> commit["FSM, timers and coherent observation commit"]:::srv
+    commit --> notify["Metrics and notification"]:::mgt
+    classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
+    classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
+    classDef leaf fill:#e3f2fd,stroke:#1976d2,color:#000
 ```
 
-The 13-step validation from RFC 5880 Section 6.8.6 is split across two layers:
+[Receiver](../../internal/netio/receiver.go) returns the pooled datagram buffer after demultiplexing. Authenticated input retains an owned copy of the complete wire payload for owner verification. Decoded authentication metadata and up to 20 payload bytes belong to the packet value; this does not remove the wire requirement. [ADR-0011](adr/0011-bfd-auth-inline-payload.md) defines the lifetime.
 
-| Layer | Steps | Responsibility |
-|---|---|---|
-| **Codec** (`packet.go`) | 1-7 | Version, length, detect mult, multipoint, discriminators (stateless) |
-| **Session** (`session.go`) | 8-18 | Auth verification, FSM event, timer update, state variable update |
+`Queued` confirms admission only. Full, closed and stopped paths return typed outcomes. A common admission/stop barrier prevents enqueue after terminal drain; owner shutdown accounts abandoned entries. [Delivery accounting](../../internal/bfd/delivery.go) keeps stage denominators separate; a sum of all stages is not a packet total.
 
-This split allows the listener to discard invalid packets before any session lock is acquired.
+## Packet TX Flow
 
-### Packet TX Flow
+The owner builds or updates its cached Control packet, signs it when authentication is enabled, applies the configured transport-padding target and sends through `PacketSender`. The sender lease fixes the source-port and resource lifetime. Padding is outside the declared BFD Length and authentication domain; transmission never truncates an authenticated PDU. Sources: [packet construction](../../internal/bfd/session_packet.go), [send loop](../../internal/bfd/session_loop.go), [UDP sender](../../internal/netio/sender.go).
 
-```mermaid
-flowchart TD
-    TIMER["txTimer fires<br/>jittered per RFC 5880 6.8.7"] --> CHECK["maybeSendControl<br/>passive role check,<br/>RemoteMinRx check"]
-    CHECK --> REBUILD["rebuildCachedPacket<br/>pre-serialized 24-byte header<br/>rebuilt only on param change"]
-    REBUILD --> SEND["PacketSender.SendPacket<br/>raw UDP socket"]
-```
+## Demultiplexing
 
-**Cached Packet Pattern** (inspired by FRR bfdd): each session maintains a pre-serialized `cachedPacket []byte` that is rebuilt only when parameters change (state transition, Poll/Final, timer negotiation). On each TX interval, the cached bytes are sent directly without re-encoding. For authenticated sessions, the auth sequence number is updated in the cached packet on each transmission without full re-serialization.
+A nonzero Your Discriminator selects a candidate session. Zero uses the initial transport-aware address key. Selection alone is insufficient: transport class, ingress interface, exact overlay scope and TTL are checked before queue delivery. Single-hop packets cannot enter multihop sessions through a known discriminator. Overlay identity includes the outer endpoints, VNI and supported inner IP/MAC tuple. Sources: [Manager receive path](../../internal/bfd/manager_session.go), [overlay checks](../../internal/netio/overlay_inner.go), [identity tests](../../internal/bfd/overlay_identity_test.go).
 
-### Demultiplexing
+The single-hop implementation binds numbered multiaccess sessions to one explicit or derived receive interface. Point-to-point initial acceptance from an arbitrary source remains outside the qualified profile. IPv6 link-local zones select the interface but do not enter the initial demux key. See [RFC coverage](08-rfc-compliance.md#rfc-5881-implementation-notes).
 
-Two-tier lookup per RFC 5880 Section 6.8.6:
+## Session Identity and Ownership
 
-1. **Tier 1** -- Your Discriminator is nonzero: O(1) map lookup by discriminator. Fast path for established sessions.
-2. **Tier 2** -- Your Discriminator is zero AND state is Down/AdminDown: lookup by composite key (SrcIP, DstIP, Interface). Used only during initial session establishment.
+| Object | Identity or policy | Lifetime |
+|:---|:---|:---|
+| `SessionKey` | Type, family, normalized peer/local addresses, interface, network scope, transport scope | One physical Control wire |
+| `SessionOwner` | Typed source and source-local owner ID | One claim |
+| Effective parameters | Role, timer tuple, TTL, padding, auth type and immutable key fingerprint | Must agree for shared claims |
+| `SenderLease` | Accepted sender plus idempotent release | Retained through owner drain and join |
+| Echo key | Structured peer/local addresses and exact interface | One shared Echo wire |
 
-### Three-Way Handshake
+IPv4-mapped addresses are unmapped. Compatibility API, authenticated API principal, configuration and unsolicited claims remain distinct. A matching claim shares the existing session and discriminator; release removes only that owner's claim. Unknown key-store semantics fail closed. Sources: [identity and effective parameters](../../internal/bfd/session_identity.go), [authentication store](../../internal/bfd/auth.go), [Echo ownership](../../internal/bfd/manager_echo.go).
 
-BFD sessions use a three-way handshake (RFC 5880 Section 6.2):
+Lock order is lifecycle, ownership, then registry. No Manager mutation lock spans peer notification drain or release callbacks. The retiring exact key remains reserved until owner join, lease/discriminator release and metrics cleanup finish, including failure. A conflicting Add returns `AlreadyExists`; retry after Delete completes. See [replacement lifecycle](../../internal/bfd/manager_replace.go) and [ADR-0006](adr/0006-session-preserving-reload-policy.md).
+
+### Reconciliation and receive ownership
+
+Startup and SIGHUP share one serialized coordinator. A candidate must satisfy the retained startup-runtime contract and complete session validation before a desired generation is published. Authentication admission compares both retained accepted intent and the live registry. Rejection preserves the accepted configuration, generation and log level.
+
+Each receipt covers five sources: base, Echo, Micro-BFD, VXLAN and Geneve. Each source prepares desired claims and receive resources before releasing stale claims. Failed or resource-pending preparation preserves old claims; timer negotiation is a separate pending class. The applied generation advances only after all sources converge. A partial apply does not roll back another source's accepted changes.
+
+The listener owner shares sockets among source and physical-session claims. API Add acquires RX and TX together. Physical base SingleHop/MultiHop and Echo sender leases retain one RX claim until teardown; configuration withdrawal cannot remove RX while an API claim survives, regardless of creation order. A repeated or shared claim acquires no additional physical sender or RX lease. Overlay backends are shared per tunnel kind and outer local address; each physical sender holds an exact-scope reference through drain. Scope preflight precedes backend open and `SetScopes`; unequal live same-wire scopes require explicit removal/recreation.
+
+Sources: [coordinator](../../cmd/gobfd/reconciliation.go), [listener owner](../../cmd/gobfd/listeners.go), [overlay owner](../../cmd/gobfd/overlay_owner.go), [reload admission](../../internal/bfd/manager_auth_reload.go).
+
+### Recovery and readiness
+
+Linux link/address notifications and resync request bounded, generation-scoped retries. Only typed unavailable-interface/address errors become resource pending; other failures remain failed. A shared two-second availability check covers all five sources. Inventory errors require a new explicit SIGHUP. The non-Linux monitor supplies no automatic recovery.
+
+Aggregate health is `NOT_SERVING` before first convergence, while desired differs from applied, or when required runtime/listener state is lost. Named BFD/Echo/Micro-BFD health describes each source. In `enforce` mode, `bfd.v1.MicroBFDService` and aggregate health report `NOT_SERVING` while a live Micro-BFD group actuation is failing (retrying with `50ms..5s` backoff). Unexpected receiver or dispatch loss is fail-stop. `READY=1` is process/listener readiness and does not imply configuration convergence. Sources: [interface events](../../cmd/gobfd/interface_events.go), [readiness](../../cmd/gobfd/readiness.go), [ADR-0001](adr/0001-link-state-rtnetlink.md).
+
+## Three-Way Handshake
 
 ```mermaid
 sequenceDiagram
-    participant A as Peer A (Down)
-    participant B as Peer B (Down)
-
-    A->>B: Control(State=Down)
-    Note over B: Down -> Init
-    B->>A: Control(State=Down)
-    Note over A: Down -> Init
-
-    A->>B: Control(State=Init)
-    Note over B: Init -> Up
-    B->>A: Control(State=Init)
-    Note over A: Init -> Up
-
-    A->>B: Control(State=Up)
-    B->>A: Control(State=Up)
-    Note over A,B: Both peers Up
+    accTitle: Asynchronous Control startup
+    accDescr: Endpoint A sends Down, endpoint B replies Init and both endpoints progress to Up with learned discriminators.
+    participant A as Endpoint A
+    participant B as Endpoint B
+    A->>B: Down, Your Discriminator=0
+    B->>A: Init, Your Discriminator=A
+    A->>B: Up, Your Discriminator=B
+    B->>A: Up
 ```
 
-FSM transitions in sequence:
+This is one permitted asynchronous startup ordering. Simultaneous Down/Init exchanges follow the same [RFC 5880 §6.8.6](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.6) FSM. A local Up event does not establish route convergence.
 
-1. A(Down) sends State=Down. B(Down) receives State=Down --> B transitions to Init.
-2. B(Init) sends State=Init. A(Down) receives State=Init --> A transitions to Up.
-3. A(Up) sends State=Up. B(Init) receives State=Up --> B transitions to Up.
+## Goroutine Model
 
-### Goroutine Model
+One winning `Run` owns each Control session's packet processing, timers and administrative commands. One owner runs each Echo wire. Receivers run per listener; Manager dispatch fans out notifications. Current Control/Echo owners do not permanently pin an OS thread. Native A/B, thread bounds and scale acceptance remain separate. Sources: [Control loop](../../internal/bfd/session_loop.go), [Echo loop](../../internal/bfd/echo.go), [ADR-0008](adr/0008-experimental-prerelease-boundary.md).
 
-Each BFD session runs as an independent goroutine with its own timers and
-state. Its context is detached from the daemon signal context so SIGTERM does
-not stop it before the AdminDown drain. `Manager.Close()` cancels the
-per-session context explicitly.
+An observation commits local state/diagnostic, known remote facts, C-bits, cause and version coherently. Diagnostic-only changes advance the observation without a state-transition count. Manager versions identify semantic changes and physical identity; dispatch revision orders delivery separately. Neither is an atomic telemetry watermark. Counters, timers and configuration in API snapshots are sampled. See [observation model](../../internal/bfd/session_observation.go), [public schema](../../api/bfd/v1/bfd.proto).
 
-```mermaid
-graph TB
-    subgraph "Manager"
-        M["Manager goroutine<br/>session CRUD"]
-    end
+Raw notification and subscription queues use the bounded policy `min(65536, 64 + 3*N)` at construction. They do not resize on reload. GAP means lost original events and requires consumer resynchronization; it does not count as a delivered original. Per-stage counters survive session deletion. [ADR-0007](adr/0007-workload-phase-accounting.md) defines sizing and completeness.
 
-    subgraph "Session N goroutines"
-        S1["Session 1<br/>TX timer + RX channel"]
-        S2["Session 2<br/>TX timer + RX channel"]
-        SN["Session N<br/>TX timer + RX channel"]
-    end
+GoBGP and bridges act after state publication. A successful local observation, notification delivery and successful external action are different measurements. BGP disable/enable policy and deadlines are in the [handler](../../internal/gobgp/handler.go); generic route withdrawal is not implemented.
 
-    subgraph "Shared Receivers"
-        L["netio.Listener<br/>ReadBatch goroutine"]
-        R["netio.Receiver<br/>demux + dispatch"]
-        ER["netio.EchoReceiver<br/>port 3785"]
-        OR["netio.OverlayReceiver<br/>VXLAN 4789 / Geneve 6081"]
-        MD["MicroBFD Dispatch<br/>port 6784 per-member"]
-    end
+## Graceful Shutdown
 
-    L --> R
-    R --> S1
-    R --> S2
-    R --> SN
-    ER --> S1
-    OR --> S2
-    MD --> SN
-    M --> S1
-    M --> S2
-    M --> SN
-```
+Default `Manager.Close` may abandon queued state notifications. The workload Owner opts into draining registered physical-session changes to live subscribers before EOF; this performs no external actuation and does not guarantee lossless delivery to canceled or slow subscribers. See [shutdown policy](adr/0007-workload-phase-accounting.md#down-journal).
 
-### Graceful Shutdown
+1. On SIGTERM/SIGINT, the daemon requests `Manager.DrainAllSessions` with one fresh ten-second budget.
+2. The drain waits for owner AdminDown/7 commit, the first successful permitted write and the negotiated notification window; failed writes retry on the normal TX timer.
+3. Shutdown closes the Manager, joins owners and dispatch, releases sender leases, then shuts down HTTP and receive resources.
 
-On SIGTERM/SIGINT (RFC 5880 Section 6.8.16):
+The notification window begins at the first successful write and covers the larger of local receive Detection Time and `localDetectMult * max(advertisedAdminDownTX, remoteMinRX)`. A default multiplier of three and the one-second non-Up floor produce a three-second window. Earlier cancellation or insufficient time returns `DrainIncompleteError`. Local write completion is not peer acknowledgement.
 
-1. `Manager.DrainAllSessions()` -- set all sessions to AdminDown with Diag = Administratively Down (7)
-2. Wait the fixed two-second `drainTimeout` window for an AdminDown transmit
-3. `Manager.Close()` -- cancel all session goroutines
-4. Close listener sockets
-5. Shut down HTTP servers (gRPC, metrics)
+An incomplete drain retains any pending interface binding observed during that shared drain, including a binding restored before the deadline. Shutdown preserves this local cause as an error; it does not downgrade it to a peer-only warning when the peer also suppresses transmission or remains unknown. `SendErr` continues to identify an actual failed write. A completed notification window retains success precedence over historical binding constraints. Sources: [drain attribution](../../internal/bfd/session_drain.go), [binding transitions](../../internal/bfd/session_binding.go), [shutdown policy](../../cmd/gobfd/shutdown.go).
 
-This is a best-effort notification window. The current implementation does not
-acknowledge transmission or prove that every peer received AdminDown; atomic
-AdminDown completion remains part of the v1 contract.
+Final Control-claim release uses the same drain outside Manager locks. Sole unsolicited failure cleanup cancels without this administrative exchange; Echo and group-only Micro-BFD removal do not own a Control AdminDown exchange. Shared overlay leases do not interrupt a backend used by other sessions. Arbitrary external sender callbacks have no universal shutdown bound. Sources: [drain](../../internal/bfd/session_drain.go), [Manager lifecycle](../../internal/bfd/manager.go), [RFC 5882 §8](https://www.rfc-editor.org/rfc/rfc5882.html#section-8).
 
-### Project Structure
+## Project Structure
 
-```
-gobfd/
-+-- api/bfd/v1/bfd.proto          # Protobuf service definitions (buf managed)
-+-- cmd/
-|   +-- gobfd/main.go             # Daemon entry point
-|   +-- gobfdctl/                 # CLI client
-|   |   +-- main.go
-|   |   +-- commands/             # Cobra commands + reeflective/console shell
-|   +-- gobfd-haproxy-agent/      # HAProxy agent-check bridge
-|   +-- gobfd-exabgp-bridge/      # ExaBGP process API bridge
-+-- internal/
-|   +-- bfd/                      # Core protocol (FSM, session, packet, auth)
-|   +-- config/                   # koanf/v2 configuration
-|   +-- gobgp/                    # GoBGP gRPC client + flap dampening
-|   +-- metrics/                  # Prometheus collectors
-|   +-- netio/                    # Raw sockets, UDP listeners, overlay tunnels (Linux)
-|   +-- sdnotify/                 # systemd readiness/watchdog notifications
-|   +-- server/                   # ConnectRPC server + interceptors
-|   +-- version/                  # Build info
-+-- pkg/bfdpb/                    # Generated protobuf types (public API)
-+-- test/interop/                 # 4-peer interop tests (FRR, BIRD3, Holo, Thoro/bfd)
-+-- test/interop-bgp/            # BGP+BFD interop tests (GoBGP, FRR, BIRD3, ExaBGP)
-+-- test/interop-rfc/            # RFC-specific interop tests (7419, 9384, 9468)
-+-- test/interop-clab/           # Vendor NOS interop tests (Nokia, Arista, Cisco, FRR, SONiC, VyOS)
-+-- test/integration/            # Integration tests (datapath, CLI, server)
-+-- configs/                      # Example configuration
-+-- deployments/
-|   +-- compose/                  # Podman Compose (dev + prod stacks)
-|   +-- docker/                   # Containerfile + debug image
-|   +-- systemd/                  # systemd unit file
-|   +-- nfpm/                     # deb/rpm install scripts
-|   +-- integrations/            # 5 integration examples (BGP, HAProxy, observability, ExaBGP, k8s)
-+-- docs/                         # Documentation + RFC texts
-```
+Keep protocol logic in `internal/bfd`, Linux resources in `internal/netio`, runtime composition in `cmd/gobfd`, public contracts in `api/bfd/v1` and executable qualification in `test`. [ADR index](adr/README.md) owns accepted decisions.
 
-### Technology Stack
+## Technology Stack
 
-| Component | Technology | Purpose |
-|---|---|---|
-| Language | Go 1.27 | Green Tea GC, `testing/synctest`, flight recorder |
-| Network I/O | `x/net/ipv4`, `x/net/ipv6`, `x/sys/unix` | Raw sockets, TTL control, `SO_BINDTODEVICE` |
-| RPC Server | ConnectRPC | gRPC + Connect + gRPC-Web from one handler |
-| RPC Client | `google.golang.org/grpc` | GoBGP integration (gRPC client) |
-| CLI | Cobra + reeflective/console | Non-interactive + interactive shell |
-| Configuration | koanf/v2 | YAML + env vars + flags, hot reload |
-| Metrics | Prometheus `client_golang` | Counters, gauges, histograms |
-| Logging | `log/slog` (stdlib) | Structured JSON/text logging |
-| Protobuf | buf CLI | Lint, breaking detection, code generation |
-| Lint | golangci-lint v2.13.1 | 92 signal-bearing linters, schema and build-tag matrix gates |
-| Release | GoReleaser v2 | Binaries + deb/rpm + container images |
-| Containers | Podman + Podman Compose | Development and testing |
-| systemd | Type=notify, watchdog | Production daemon lifecycle |
+The [runtime manifest](../../go.mod) and [tools manifest](../../tools/go.mod) declare dependencies. The [repository contract](../../AGENTS.md) owns compiler and container policies. A manifest pin is a source input, not compatibility or deployment evidence.
 
-### UDP Port Map
+## UDP Port Map
 
-| Port | Protocol | RFC | Direction | Status |
-|---|---|---|---|---|
-| 3784 | BFD Single-Hop | RFC 5881 | TX + RX | Active |
-| 4784 | BFD Multi-Hop | RFC 5883 | TX + RX | Active |
-| 3785 | BFD Echo | RFC 9747 | TX + RX | Active |
-| 6784 | Micro-BFD (LAG) | RFC 7130 | TX + RX | Active |
-| 4789 | VXLAN BFD (outer) | RFC 8971 | TX + RX | Active |
-| 6081 | Geneve BFD (outer) | RFC 9521 | TX + RX | Active |
-| 7784 | S-BFD Reflector | RFC 7881 | RX (reflector) + TX (initiator) | Planned |
+| Destination port | Transport | Scope |
+|---:|:---|:---|
+| 3784 | Single-hop Control | IPv4/IPv6 numbered multiaccess profile |
+| 4784 | Multihop Control | Configured address pair and receive-hop policy |
+| 3785 | Unaffiliated Echo | Default-off preview |
+| 6784 | Micro-BFD | Default-off per-member preview |
+| 4789 | VXLAN outer UDP | `userspace-udp` preview |
+| 6081 | Geneve outer UDP | `userspace-udp` IPv4 Format A preview |
 
-### TCP/HTTP Port Map
+Ordinary UDP senders require a fixed source port in 49152–65535, including Echo as a product policy. Source: [sender constructor](../../internal/netio/sender.go).
 
-| Port | Protocol | Purpose | Status |
-|---|---|---|---|
-| 50051 | ConnectRPC (gRPC) | Session management API | Active |
-| 9100 | HTTP | Prometheus metrics (`/metrics`) | Active |
+## TCP/HTTP Port Map
 
-### Related Documents
+Management endpoints and metrics bind addresses are configuration, not BFD protocol constants. Default management uses the Unix socket; TCP is disabled until configured. Plaintext TCP is loopback-only; non-loopback TCP requires mTLS. See [defaults and validation](../../internal/config/config.go), [configuration](03-configuration.md), [security](15-security.md).
 
-- [02-protocol.md](./02-protocol.md) -- BFD protocol details (FSM, timers, packet format)
-- [03-configuration.md](./03-configuration.md) -- Configuration reference
-- [06-deployment.md](./06-deployment.md) -- Production deployment
-- [09-development.md](./09-development.md) -- Development workflow
+## Related Documents
 
----
-
-*Last updated: 2026-08-27*
+- [Protocol](02-protocol.md) — wire fields, state transitions and timing.
+- [RFC coverage](08-rfc-compliance.md) — implementation and qualification boundaries.
+- [Vendor BFD references](reference/vendor-bfd.md) — official peer documentation.
+- [Performance analysis](14-performance-analysis.md) — measurements and workload limits.

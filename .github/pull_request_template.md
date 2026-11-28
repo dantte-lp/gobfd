@@ -1,38 +1,20 @@
-## Summary
+## Change
 
--
+Describe the triggering condition and resulting behavior. State the affected
+component and compatibility boundary.
 
-## Change Type
+## Verification
 
-- [ ] `feat`
-- [ ] `fix`
-- [ ] `docs`
-- [ ] `test`
-- [ ] `refactor`
-- [ ] `chore`
-- [ ] `ci`
-- [ ] `deps`
+| Command or profile | Measured result and evidence |
+|:---|:---|
+| | |
 
-## Validation
+## Protocol and security
 
-- [ ] `make verify`
-- [ ] `make lint-docs`
-- [ ] `make interop`
-- [ ] `make interop-rfc`
-- [ ] `make interop-bgp`
-- [ ] Not applicable; reason:
-
-## Protocol and Security Impact
-
-- [ ] No protocol behavior change
-- [ ] RFC section referenced:
-- [ ] Security impact reviewed
-- [ ] `SECURITY.md` update required
+Identify applicable RFC sections, wire/API changes and trust-boundary effects.
+State remaining qualification or approval conditions when applicable.
 
 ## Documentation
 
-- [ ] `README.md` updated
-- [ ] `docs/en/` updated
-- [ ] `docs/ru/` updated
-- [ ] `CHANGELOG.md` updated
-- [ ] `CHANGELOG.ru.md` updated
+Identify updated English references and Russian counterparts. Record any
+user-visible changelog change and explain a language or document exemption.

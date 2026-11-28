@@ -1,27 +1,35 @@
-# GoBFD Documentation / Документация GoBFD
+# GoBFD documentation
 
-![Version](https://img.shields.io/badge/Version-0.6.1-1a73e8?style=for-the-badge)
-![Language](https://img.shields.io/badge/Lang-EN%20%2F%20RU-ea4335?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
+| Language | Manual |
+|:---|:---|
+| English — canonical | [Operator and developer manual](en/README.md) |
+| Русский — перевод | [Руководство оператора и разработчика](ru/README.md) |
 
-Global documentation index. Canonical documentation lives in `docs/en/`;
-Russian translations live in `docs/ru/`. Architecture decision records
-live in `docs/en/adr/`. Auxiliary technical references live in
-`docs/en/reference/`.
+Use documentation from the binary's commit. These pages describe the
+`release/v1.0` (`v1.0.0`, GoBGP `v4.11.0`) product line; `release/v0.6`
+(GoBGP `v3.37.0`) and `dev` have separate configuration and compatibility
+contracts. Consult the [RFC matrix](en/08-rfc-compliance.md) before selecting
+a profile and the [vendor reference guide](en/reference/vendor-bfd.md)
+before configuring an equipment peer.
 
-Глобальный индекс документации. Каноничная документация находится в
-`docs/en/`; русский перевод -- в `docs/ru/`. Architecture decision
-records находятся в `docs/en/adr/`. Дополнительные технические
-справочники -- в `docs/en/reference/`.
+Использовать документацию commit развёрнутого бинарника. Эти страницы описывают
+ветку `release/v1.0` (`v1.0.0`, GoBGP `v4.11.0`); `release/v0.6` (GoBGP
+`v3.37.0`) и `dev` имеют отдельные контракты конфигурации и совместимости.
+Выбрать профиль по [матрице RFC](ru/08-rfc-compliance.md), параметры
+оборудования — по [документам производителей](ru/reference/vendor-bfd.md).
 
-| Language | Index |
-|---|---|
-| English | [docs/en/README.md](./en/README.md) |
-| Русский | [docs/ru/README.md](./ru/README.md) |
+## Sources and records
 
-Current release roadmap: [English](./en/roadmap.md) |
-[Русский](./ru/roadmap.md).
+| Material | Purpose |
+|:---|:---|
+| [RFC texts](rfc/) | Verbatim normative inputs; file presence does not imply implementation |
+| [ADRs EN](en/adr/README.md), [ADR RU](ru/adr/README.md) | Decisions, constraints and acceptance boundaries |
+| [Status EN](en/roadmap.md), [Статус RU](ru/roadmap.md) | Dated qualification boundaries |
+| [Contract EN](en/reference/production-contract.md), [контракт RU](ru/reference/production-contract.md) | Product requirements and explicit acceptance boundaries |
+| [Design records EN](en/reference/design-records.md), [решения RU](ru/reference/design-records.md) | Historical technical decisions and current canonical owners |
+| [Standard EN](en/reference/documentation-standard.md), [стандарт RU](ru/reference/documentation-standard.md) | Prose, Markdown, diagrams, sources and translation |
+| `en/audits/`, `ru/audits/` | Dated audit evidence; not a live support matrix |
 
-Full RFC source texts used by the documentation are stored in
-[`docs/rfc/`](./rfc/). Полные исходные тексты RFC хранятся в
-[`docs/rfc/`](./rfc/).
+Historical design, audit and release records retain their factual content.
+Current operational procedures belong in the manual; qualification claims
+require evidence for the exact candidate and deployment profile.

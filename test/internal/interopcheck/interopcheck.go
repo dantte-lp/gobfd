@@ -16,7 +16,7 @@ import (
 
 const maxEpochLineSize = 1 << 20
 
-// GoBGP v3 PeerState_SessionState values from api/gobgp.proto.
+// GoBGP v4 PeerState.SessionState values from proto/api/gobgp.proto (same as v3).
 const (
 	goBGPStateUnknown     = 0
 	goBGPStateIdle        = 1
@@ -52,7 +52,7 @@ type GapResult struct {
 	Gap    float64
 }
 
-// GoBGPNeighborState returns the lowercase GoBGP v3 session state for peer.
+// GoBGPNeighborState returns the lowercase GoBGP v4 session state for peer.
 func GoBGPNeighborState(input []byte, peer string) (string, error) {
 	var neighbors []struct {
 		State struct {

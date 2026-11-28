@@ -1,100 +1,39 @@
-# ADR-0002: Нативный OVSDB-клиент для OVS LAG backend
+<a id="adr-0002-нативный-ovsdb-клиент-для-ovs-lag-backend"></a>
 
-| Field | Value |
-|---|---|
-| Status | Accepted |
-| Date | 2026-05-01 |
+# ADR-0002: Нативный клиент OVSDB для реализации OVS LAG
 
-## Context
+[Английский оригинал](../../en/adr/0002-ovs-backend-ovsdb.md).
 
-Enforcement RFC 7130 Micro-BFD на bonded-портах Open vSwitch требует
-добавления и удаления member-интерфейсов из bond. Первая реализация
-GoBFD вызывала `ovs-vsctl` из демона. `ovs-vsctl` -- это schema-aware
-CLI-клиент, который соединяется с OVSDB-сервером и меняет
-конфигурационную базу `ovs-vswitchd`. Это не примитивный API.
+| Поле | Значение |
+|:---|:---|
+| Статус | Принято |
+| Дата | 2026-05-01 |
 
-Open vSwitch предоставляет OVSDB -- управляющий JSON-RPC протокол,
-описанный в RFC 7047 и реализованный в `ovsdb-server`. Нативный
-OVSDB-клиент устраняет порождение процессов, исключения review для
-shell-injection, парсинг stdout/stderr и зависимость от PATH.
+## Контекст
 
-## Decision
+Применение Micro-BFD меняет набор участников агрегированного порта. Запуск CLI конфигурации добавляет демону зависимости от процессов, PATH и разбора вывода. [RFC 7047](https://www.rfc-editor.org/rfc/rfc7047.html) задаёт протокол управления OVSDB.
 
-GoBFD использует нативный OVSDB-клиент для дефолтного OVS LAG backend.
-`ovs-vsctl` оставлен как явный fallback или путь диагностики.
-Owner-policy для OVS-managed устройств остаётся явной до тех пор, пока
-backend не сможет подтвердить ownership через OVSDB или через сетевой
-менеджер более высокого уровня.
+## Решение
 
-Production-адаптер использует `github.com/ovn-kubernetes/libovsdb` `v0.8.1`.
-Прежний репозиторий `ovn-org` архивирован; активный владелец сохранил
-используемый transaction API и исправил deadlock в reconnect и inactivity
-probe. Ядро GoBFD
-зависит от узкого локального интерфейса, чтобы тесты не требовали
-работающий OVSDB-сервер.
+Выбирать нативный `OVSDBLAGBackend` для настроенного применения OVS. Сохранить `OVSLAGBackend` как явно создаваемый резервный или диагностический тип CLI; конфигурация демона его не выбирает. Сохранить явную политику владельца до доказательства владения фактическим управляющим компонентом.
 
-## Consequences
+Ядро использует `BondLAGClient` с ограниченными контекстом `RemoveBondInterface` и `AddBondInterface`. [Производственный адаптер](../../../internal/netio/lag_ovsdb.go) владеет внешним клиентом; [манифест рабочей среды](../../../go.mod) задаёт его закрепление.
 
-### Требуемые операции OVSDB
+| Операция | Намерение в базе данных | Проверка |
+|:---|:---|:---|
+| Найти bond | Найти `Port` по запрошенному имени | Требовать существующую однозначную цель |
+| Участник Down | Удалить UUID Interface из `Port.interfaces` | Проверить транзакцию и затронутые строки |
+| Участник Up | Найти/создать именованный `Interface`, добавить его UUID | Проверить форму UUID и результаты всех операций |
 
-CLI-backend отображал переходы RFC 7130 в эти операции:
+## Последствия
 
-| Micro-BFD transition | CLI operation | OVSDB intent |
-|---|---|---|
-| `Up -> non-Up` | `ovs-vsctl --if-exists del-bond-iface <bond> <iface>` | Удаление UUID Interface из `Port.interfaces` |
-| `non-Up -> Up` | `ovs-vsctl --may-exist add-bond-iface <bond> <iface>` | Вставка UUID Interface в `Port.interfaces`; создание Interface при необходимости |
+Конечная точка по умолчанию — `unix:/var/run/openvswitch/db.sock`; переопределение — `micro_bfd.actuator.ovsdb_endpoint`. Проверить имена интерфейсов до обеих операций. Создание реализации повторно использует политику LAG и проверку входа.
 
-Нативный backend работает со схемой `Open_vSwitch`:
+Профили, принадлежащие NetworkManager, используют отдельную реализацию D-Bus. Доступ OVSDB сам по себе не подтверждает право менять bond под внешним управлением. Проверка зависимостей, проверка уязвимостей, локальные тесты транзакций и квалификация реального владельца OVS и обмена участника остаются отдельными требованиями выпуска.
 
-- Таблица `Port`: поиск строки по `name == lagInterface`.
-- Таблица `Interface`: поиск или создание строки по
-  `name == memberInterface`.
-- `Port.interfaces`: мутация множества UUID-ссылок Interface.
-- Результат транзакции: проверка результатов всех операций до
-  объявления успеха.
+## Источники
 
-### Интерфейсы backend
-
-```go
-type OVSDBLAGBackend struct {
-    client OVSDBClient
-}
-
-type OVSDBLAGClient interface {
-    RemoveBondInterface(ctx context.Context, bond, iface string) error
-    AddBondInterface(ctx context.Context, bond, iface string) error
-}
-```
-
-Backend переиспользует валидацию и политику RFC 7130, уже применяемые
-в kernel-bond и в CLI-backed OVS пути.
-
-### Конфигурация и ownership
-
-- Дефолтный endpoint OVSDB -- `unix:/var/run/openvswitch/db.sock`.
-- Distro-специфичные пути задаются через
-  `micro_bfd.actuator.ovsdb_endpoint`.
-- Устройства, управляемые NetworkManager, используют отдельный D-Bus
-  backend, потому что NetworkManager владеет connection-профилями и
-  выставляет состояние устройств через D-Bus. Эти два backend нельзя
-  смешивать.
-
-### Риски
-
-- Подключение `libovsdb` увеличивает поверхность зависимостей и должно
-  пройти `make verify`, vulnerability audit и ревью модуля до релиза,
-  где `libovsdb` становится дефолтом.
-- `ovs-vsctl` остаётся в кодовой базе как fallback-тип, а не как
-  дефолтный backend, выбираемый конфигурацией.
-
-## References
-
-- RFC 7047: <https://datatracker.ietf.org/doc/html/rfc7047>
-- Open vSwitch `ovsdb(7)`:
-  <https://docs.openvswitch.org/en/stable/ref/ovsdb.7/>
-- Open vSwitch `ovs-vsctl(8)`:
-  <https://www.openvswitch.org/support/dist-docs/ovs-vsctl.8.html>
-- `github.com/ovn-kubernetes/libovsdb`:
-  <https://pkg.go.dev/github.com/ovn-kubernetes/libovsdb>
-- Релиз v0.8.1:
-  <https://github.com/ovn-kubernetes/libovsdb/releases/tag/v0.8.1>
+- [Выбор реализации](../../../internal/netio/lag_backend.go).
+- [Нативный адаптер и проверка транзакции](../../../internal/netio/lag_ovsdb.go).
+- [Тесты OVSDB](../../../internal/netio/lag_ovsdb_test.go).
+- [Применимость в Linux](0003-linux-advanced-bfd-applicability.md).

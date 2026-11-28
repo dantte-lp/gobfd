@@ -40,6 +40,8 @@ var (
 	errLibpodInspectStatus  = errors.New("libpod container inspect returned non-success status")
 	errImageInspectStatus   = errors.New("image inspect returned non-success status")
 	errImageIDEmpty         = errors.New("image inspect returned empty content ID")
+	errImageListStatus      = errors.New("image list returned non-success status")
+	errStageFilterInvalid   = errors.New("stage image filter requires non-empty run and test kind")
 	errImageRemoveStatus    = errors.New("image remove returned non-success status")
 	errVolumeInspectStatus  = errors.New("volume inspect returned non-success status")
 	errListContainersStatus = errors.New("container list returned non-success status")
@@ -69,6 +71,12 @@ type ContainerSummary struct {
 	ID     string            `json:"Id"`     //nolint:tagliatelle // Docker-compatible API field.
 	Names  []string          `json:"Names"`  //nolint:tagliatelle // Docker-compatible API field.
 	Labels map[string]string `json:"Labels"` //nolint:tagliatelle // Docker-compatible API field.
+}
+
+// ImageMetadata retains image identity and labels without environment or runtime configuration.
+type ImageMetadata struct {
+	ID     string            `json:"id"`
+	Labels map[string]string `json:"labels"`
 }
 
 // NewClient creates a Podman REST API client bound to a Unix socket path.
@@ -368,34 +376,92 @@ func (c *Client) VolumeExists(ctx context.Context, volume string) (bool, error) 
 // ImageID returns the immutable content ID for an exact image tag and fails
 // closed when Podman omits the ID or returns a non-success response.
 func (c *Client) ImageID(ctx context.Context, image string) (string, error) {
+	metadata, err := c.ImageMetadata(ctx, image)
+	return metadata.ID, err
+}
+
+// ImageMetadata reads image identity and labels from the Docker-compatible inspection.
+func (c *Client) ImageMetadata(ctx context.Context, image string) (ImageMetadata, error) {
 	resp, err := c.do(ctx, http.MethodGet, "/images/"+url.PathEscape(image)+"/json")
 	if err != nil {
-		return "", fmt.Errorf("inspect image ID %s: %w", image, err)
+		return ImageMetadata{}, fmt.Errorf("inspect image ID %s: %w", image, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, readErr := readBody(resp.Body, "image ID inspect error body")
 		if readErr != nil {
-			return "", readErr
+			return ImageMetadata{}, readErr
 		}
-		return "", fmt.Errorf("%w: image %s status %d: %s", errImageInspectStatus, image, resp.StatusCode, body)
+		return ImageMetadata{}, fmt.Errorf("%w: image %s status %d: %s", errImageInspectStatus, image, resp.StatusCode, body)
 	}
 	var inspection struct {
-		ID string `json:"Id"` //nolint:tagliatelle // Docker-compatible API field.
+		ID     string `json:"Id"` //nolint:tagliatelle // Docker-compatible API field.
+		Config struct {
+			Labels map[string]string `json:"Labels"` //nolint:tagliatelle // Docker-compatible API field.
+		} `json:"Config"` //nolint:tagliatelle // Docker-compatible API field.
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&inspection); err != nil {
-		return "", fmt.Errorf("decode image ID inspection for %s: %w", image, err)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBodySize)).Decode(&inspection); err != nil {
+		return ImageMetadata{}, fmt.Errorf("decode image ID inspection for %s: %w", image, err)
 	}
 	if inspection.ID == "" {
-		return "", fmt.Errorf("%w: image %s", errImageIDEmpty, image)
+		return ImageMetadata{}, fmt.Errorf("%w: image %s", errImageIDEmpty, image)
 	}
-	return inspection.ID, nil
+	return ImageMetadata{ID: inspection.ID, Labels: inspection.Config.Labels}, nil
 }
 
-// RemoveImage removes an image owned by a test without forcing removal of
-// images that still have consumers.
+// StageImages lists intermediate builder images carrying exact stage ownership labels.
+func (c *Client) StageImages(ctx context.Context, runID, testKind string) ([]ImageMetadata, error) {
+	if strings.TrimSpace(runID) == "" || strings.TrimSpace(testKind) == "" {
+		return nil, errStageFilterInvalid
+	}
+	filterJSON, err := json.Marshal(map[string][]string{
+		"label": {
+			"io.gobfd.stage-run=" + runID,
+			"io.gobfd.stage-test=" + testKind,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal stage image filter: %w", err)
+	}
+	resp, reqErr := c.do(ctx, http.MethodGet, "/images/json?all=true&filters="+url.QueryEscape(string(filterJSON)))
+	if reqErr != nil {
+		return nil, fmt.Errorf("list stage images for %s: %w", runID, reqErr)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, readErr := readBody(resp.Body, "stage image list error body")
+		if readErr != nil {
+			return nil, readErr
+		}
+		return nil, fmt.Errorf("%w: status %d: %s", errImageListStatus, resp.StatusCode, body)
+	}
+	var summaries []struct {
+		ID     string            `json:"Id"`     //nolint:tagliatelle // Docker-compatible API field.
+		Labels map[string]string `json:"Labels"` //nolint:tagliatelle // Docker-compatible API field.
+	}
+	if decodeErr := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBodySize)).Decode(&summaries); decodeErr != nil {
+		return nil, fmt.Errorf("decode stage image list for %s: %w", runID, decodeErr)
+	}
+	stages := make([]ImageMetadata, 0, len(summaries))
+	for _, item := range summaries {
+		if strings.TrimSpace(item.ID) == "" {
+			return nil, fmt.Errorf("%w: stage list for %s", errImageIDEmpty, runID)
+		}
+		if item.Labels["io.gobfd.stage-run"] != runID ||
+			item.Labels["io.gobfd.stage-test"] != testKind ||
+			item.Labels["io.gobfd.image"] != "" {
+			continue
+		}
+		id := "sha256:" + strings.TrimPrefix(item.ID, "sha256:")
+		stages = append(stages, ImageMetadata{ID: id, Labels: item.Labels})
+	}
+	slices.SortFunc(stages, func(a, b ImageMetadata) int { return strings.Compare(a.ID, b.ID) })
+	return stages, nil
+}
+
+// RemoveImage removes a test-owned image without forcing removal or pruning parents.
 func (c *Client) RemoveImage(ctx context.Context, image string) error {
-	resp, err := c.do(ctx, http.MethodDelete, "/images/"+url.PathEscape(image)+"?force=false")
+	resp, err := c.do(ctx, http.MethodDelete, "/images/"+url.PathEscape(image)+"?force=false&noprune=true")
 	if err != nil {
 		return fmt.Errorf("remove image %s: %w", image, err)
 	}
@@ -468,10 +534,10 @@ func DemuxDockerStream(r io.Reader) (string, string, error) {
 	for {
 		_, readErr := io.ReadFull(r, header)
 		if readErr != nil {
-			if errors.Is(readErr, io.EOF) || errors.Is(readErr, io.ErrUnexpectedEOF) {
+			if errors.Is(readErr, io.EOF) {
 				break
 			}
-			return out.String(), errOut.String(), readErr
+			return out.String(), errOut.String(), fmt.Errorf("read docker stream header: %w", readErr)
 		}
 
 		size := int(header[4])<<24 | int(header[5])<<16 | int(header[6])<<8 | int(header[7])
@@ -489,7 +555,7 @@ func DemuxDockerStream(r io.Reader) (string, string, error) {
 
 		payload := make([]byte, size)
 		if _, readErr := io.ReadFull(r, payload); readErr != nil {
-			return out.String(), errOut.String(), readErr
+			return out.String(), errOut.String(), fmt.Errorf("read docker stream payload: %w", readErr)
 		}
 
 		switch header[0] {

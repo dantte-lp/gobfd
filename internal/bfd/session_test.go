@@ -108,6 +108,47 @@ func makeControlPacket(
 // TestNewSession — RFC 5880 Section 6.8.1 initial state
 // -------------------------------------------------------------------------
 
+// TestSessionZeroRequiredMinRx preserves asynchronous operation with RX zero.
+func TestSessionZeroRequiredMinRx(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		cfg := defaultSessionConfig()
+		cfg.RequiredMinRxInterval = 0
+		sender := &mockSender{}
+		sess := mustNewSession(t, cfg, 42, sender, nil, slog.New(slog.DiscardHandler))
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		go sess.Run(ctx)
+		synctest.Sleep(time.Second)
+		if pkt := sender.lastPacket(t); pkt.RequiredMinRxInterval != 0 || pkt.Demand {
+			t.Fatalf("initial packet RX = %d, Demand = %t", pkt.RequiredMinRxInterval, pkt.Demand)
+		}
+		sess.RecvPacket(makeControlPacket(bfd.StateInit, 99, 42))
+		synctest.Wait()
+		if sess.State() != bfd.StateUp || sess.DetectionTime() != 300*time.Millisecond {
+			t.Fatalf("state = %s, detection = %s", sess.State(), sess.DetectionTime())
+		}
+		before := sender.packetCount()
+		synctest.Sleep(100 * time.Millisecond)
+		if sender.packetCount() <= before {
+			t.Fatal("local RX zero suppressed local periodic transmission")
+		}
+		poll := makeControlPacket(bfd.StateUp, 99, 42)
+		poll.Poll = true
+		before = sender.packetCount()
+		sess.RecvPacket(poll)
+		synctest.Wait()
+		pkt := sender.lastPacket(t)
+		if sender.packetCount() != before+1 || !pkt.Final || pkt.Poll || pkt.RequiredMinRxInterval != 0 {
+			t.Fatalf("Poll did not receive an immediate Final with RX zero: %+v", pkt)
+		}
+		synctest.Sleep(300 * time.Millisecond)
+		if sess.State() != bfd.StateDown || sess.LocalDiag() != bfd.DiagControlTimeExpired {
+			t.Fatalf("asynchronous detection did not expire: %s, %s", sess.State(), sess.LocalDiag())
+		}
+	})
+}
+
 // TestNewSession verifies that all initial state variables match
 // RFC 5880 Section 6.8.1 mandatory initialization values.
 func TestNewSession(t *testing.T) {
@@ -189,14 +230,14 @@ func TestNewSessionValidationErrors(t *testing.T) {
 			wantErr:    "desired min TX interval",
 		},
 		{
-			name: "zero RX interval",
+			name: "negative RX interval",
 			cfg: bfd.SessionConfig{
 				PeerAddr:              netip.MustParseAddr("192.0.2.1"),
 				LocalAddr:             netip.MustParseAddr("192.0.2.2"),
 				Type:                  bfd.SessionTypeSingleHop,
 				Role:                  bfd.RoleActive,
 				DesiredMinTxInterval:  time.Second,
-				RequiredMinRxInterval: 0,
+				RequiredMinRxInterval: -time.Microsecond,
 				DetectMultiplier:      3,
 			},
 			localDiscr: 1,
@@ -564,7 +605,9 @@ func TestSessionSetAdminDownSendsAdminDownPacket(t *testing.T) {
 		sender.packets = nil
 		sender.mu.Unlock()
 
-		sess.SetAdminDown()
+		if err := sess.SetAdminDown(t.Context()); err != nil {
+			t.Fatal(err)
+		}
 		time.Sleep(2 * time.Second)
 
 		if sess.State() != bfd.StateAdminDown {
@@ -679,6 +722,31 @@ func TestApplyJitter(t *testing.T) {
 		result := bfd.ApplyJitter(0, 3)
 		if result != 0 {
 			t.Errorf("jitter of zero interval = %v, want 0", result)
+		}
+	})
+
+	t.Run("sub-hundred-nanosecond ceiling for detectMult=1 and max duration overflow safety", func(t *testing.T) {
+		t.Parallel()
+		for _, oddInterval := range []time.Duration{
+			10 * time.Nanosecond,
+			11 * time.Nanosecond,
+			81 * time.Nanosecond,
+			1999 * time.Nanosecond,
+		} {
+			for range iterations {
+				got := bfd.ApplyJitter(oddInterval, 1)
+				if int64(got)*100 < int64(oddInterval)*75 || int64(got)*10 > int64(oddInterval)*9 {
+					t.Fatalf("ApplyJitter(%v, 1) = %v, violates exact [75%%, 90%%] RFC 5880 §6.8.7 bound", oddInterval, got)
+				}
+			}
+		}
+		const maxDur = time.Duration(1<<63 - 1)
+		for _, mult := range []uint8{1, 3} {
+			got := bfd.ApplyJitter(maxDur, mult)
+			minAllowed := (maxDur / 100) * 75
+			if got < minAllowed || got > maxDur {
+				t.Fatalf("ApplyJitter(MaxInt64, %d) = %v, overflowed outside [%v, %v]", mult, got, minAllowed, maxDur)
+			}
 		}
 	})
 }
@@ -1106,7 +1174,7 @@ func TestSessionCachedPacketIncludesAuthSection(t *testing.T) {
 		if !pkt.AuthPresent {
 			t.Fatal("AuthPresent = false, want true")
 		}
-		if pkt.Auth == nil {
+		if pkt.Auth.IsZero() {
 			t.Fatal("Auth = nil, want simple password section")
 		}
 		if pkt.Auth.Type != bfd.AuthTypeSimplePassword {
@@ -1115,8 +1183,8 @@ func TestSessionCachedPacketIncludesAuthSection(t *testing.T) {
 		if pkt.Auth.KeyID != 7 {
 			t.Fatalf("Auth.KeyID = %d, want 7", pkt.Auth.KeyID)
 		}
-		if string(pkt.Auth.AuthData) != "s10-core-auth" {
-			t.Fatalf("AuthData = %q, want s10-core-auth", string(pkt.Auth.AuthData))
+		if string(pkt.Auth.Data[:pkt.Auth.DataLen]) != "s10-core-auth" {
+			t.Fatalf("Data = %q, want s10-core-auth", string(pkt.Auth.Data[:pkt.Auth.DataLen]))
 		}
 	})
 }

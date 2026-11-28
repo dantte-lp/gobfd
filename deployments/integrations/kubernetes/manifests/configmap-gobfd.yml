@@ -10,8 +10,8 @@ data:
     # No static sessions: BFD sessions are added dynamically via gobfdctl
     # after discovering other node IPs.
 
-    grpc:
-      addr: ":50052"
+    # Management API: only the default Unix socket /run/gobfd/gobfd.sock.
+    # With hostNetwork a TCP listener would reach every host process.
 
     metrics:
       addr: ":9100"

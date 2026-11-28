@@ -8,17 +8,20 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
 
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"go.yaml.in/yaml/v3"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/dantte-lp/gobfd/internal/apiclient"
 	appversion "github.com/dantte-lp/gobfd/internal/version"
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 	"github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
@@ -34,7 +37,7 @@ func main() {
 }
 
 func parseFlags() (string, string) {
-	addr := flag.String("gobfd-addr", envOrDefault("GOBFD_ADDR", "http://127.0.0.1:50052"), "GoBFD gRPC address")
+	addr := flag.String("gobfd-addr", envOrDefault("GOBFD_ADDR", "unix:///run/gobfd/gobfd.sock"), "GoBFD gRPC address")
 	cfg := flag.String("config", "", "path to YAML config file")
 	showVersion := flag.Bool("version", false, "print version information and exit")
 	flag.Parse()
@@ -53,6 +56,7 @@ func run() int {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	var backends []backendConfig
+	var listenAddr string
 	if configPath != "" {
 		cfg, err := loadConfig(configPath)
 		if err != nil {
@@ -63,6 +67,7 @@ func run() int {
 			gobfdAddr = cfg.GoBFDAddr
 		}
 		backends = cfg.Backends
+		listenAddr = cfg.ListenAddr
 	}
 
 	if len(backends) == 0 {
@@ -73,10 +78,13 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// BFD state tracker: maps peer address to current session state.
-	states := &stateMap{m: make(map[string]bfdv1.SessionState)}
+	states := newStateMap(backends)
 
-	client := bfdv1connect.NewBfdServiceClient(http.DefaultClient, gobfdAddr)
+	client, err := newBFDClient(gobfdAddr)
+	if err != nil {
+		logger.Error("invalid GoBFD endpoint", slog.String("error", err.Error()))
+		return 1
+	}
 
 	g, gCtx := errgroup.WithContext(ctx)
 
@@ -88,7 +96,8 @@ func run() int {
 	// Start TCP agent-check listeners for each backend.
 	for _, b := range backends {
 		g.Go(func() error {
-			return serveAgentCheck(gCtx, b.Peer, b.AgentPort, states, logger)
+			return serveAgentCheck(gCtx, strconv.Itoa(b.AgentPort),
+				agentCheckListenAddr(listenAddr, b.AgentPort), states, logger)
 		})
 	}
 
@@ -106,10 +115,22 @@ func run() int {
 	return 0
 }
 
-// stateMap is a concurrent-safe map of peer addresses to BFD session states.
+// stateMap publishes selected backend states atomically to agent-check readers.
 type stateMap struct {
-	mu sync.RWMutex
-	m  map[string]bfdv1.SessionState
+	mu        sync.RWMutex
+	m         map[string]bfdv1.SessionState
+	selectors map[string]apiclient.SessionSelector
+}
+
+func newStateMap(backends []backendConfig) *stateMap {
+	states := &stateMap{
+		m:         make(map[string]bfdv1.SessionState),
+		selectors: make(map[string]apiclient.SessionSelector, len(backends)),
+	}
+	for _, backend := range backends {
+		states.selectors[strconv.Itoa(backend.AgentPort)] = backend.selector
+	}
+	return states
 }
 
 func (s *stateMap) set(peer string, state bfdv1.SessionState) {
@@ -131,34 +152,49 @@ func watchEvents(
 	states *stateMap,
 	logger *slog.Logger,
 ) error {
-	stream, err := client.WatchSessionEvents(ctx, &bfdv1.WatchSessionEventsRequest{
-		IncludeCurrent: true,
-	})
-	if err != nil {
-		return fmt.Errorf("watch session events: %w", err)
-	}
-
-	for stream.Receive() {
-		msg := stream.Msg()
-		if msg.GetSession() == nil {
-			continue
+	err := apiclient.WatchSessions(ctx, client, func(sessions []*bfdv1.BfdSession) error {
+		current := make(map[string]bfdv1.SessionState, len(states.selectors))
+		for backend, selector := range states.selectors {
+			session, err := selector.Select(sessions)
+			if err != nil {
+				logger.Warn("backend session is ambiguous", slog.String("backend", backend), slog.Any("error", err))
+				continue
+			}
+			current[backend] = session.GetLocalState()
 		}
-
-		peer := msg.GetSession().GetPeerAddress()
-		state := msg.GetSession().GetLocalState()
-		states.set(peer, state)
-
-		logger.Info("BFD state updated",
-			slog.String("peer", peer),
-			slog.String("state", state.String()),
-			slog.String("event_type", msg.GetType().String()),
-		)
-	}
-
-	if err := stream.Err(); err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) {
-		return fmt.Errorf("event stream error: %w", err)
+		states.mu.Lock()
+		states.m = current
+		states.mu.Unlock()
+		return nil
+	}, logger)
+	if err != nil {
+		return fmt.Errorf("watch HAProxy backend sessions: %w", err)
 	}
 	return nil
+}
+
+// newBFDClient builds the GoBFD client for a unix://, http://, https:// or
+// host:port endpoint.
+func newBFDClient(addr string) (bfdv1connect.BfdServiceClient, error) {
+	ep, err := apiclient.ParseEndpoint(addr)
+	if err != nil {
+		return nil, fmt.Errorf("gobfd endpoint: %w", err)
+	}
+	httpClient, err := ep.HTTPClientTLS(apiclient.TLSFilesFromEnv())
+	if err != nil {
+		return nil, fmt.Errorf("gobfd endpoint TLS: %w", err)
+	}
+	return bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(httpClient, ep.BaseURL))), nil
+}
+
+// agentCheckListenAddr returns the agent-check listen address for host and
+// port; an empty host binds to loopback because the listener is
+// unauthenticated.
+func agentCheckListenAddr(host string, port int) string {
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 // serveAgentCheck listens on the given TCP port and responds to HAProxy
@@ -166,11 +202,10 @@ func watchEvents(
 func serveAgentCheck(
 	ctx context.Context,
 	peer string,
-	port int,
+	addr string,
 	states *stateMap,
 	logger *slog.Logger,
 ) error {
-	addr := fmt.Sprintf(":%d", port)
 	lc := net.ListenConfig{}
 
 	ln, err := lc.Listen(ctx, "tcp", addr)
@@ -256,12 +291,20 @@ func handleAgentCheck(conn net.Conn, peer string, states *stateMap, logger *slog
 // backendConfig maps a BFD peer to an HAProxy agent-check port.
 type backendConfig struct {
 	Peer      string `yaml:"peer"`
+	Local     string `yaml:"local"`
+	Interface string `yaml:"interface"`
+	Type      string `yaml:"type"`
 	AgentPort int    `yaml:"agent_port"`
+	selector  apiclient.SessionSelector
 }
 
 type agentConfig struct {
-	GoBFDAddr string          `yaml:"gobfd_addr"`
-	Backends  []backendConfig `yaml:"backends"`
+	GoBFDAddr string `yaml:"gobfd_addr"`
+	// ListenAddr is the host the agent-check listeners bind to; empty means
+	// loopback. HAProxy agent-addr may point at a remote agent, which then
+	// needs an explicit address.
+	ListenAddr string          `yaml:"listen_addr"`
+	Backends   []backendConfig `yaml:"backends"`
 }
 
 func loadConfig(path string) (*agentConfig, error) {
@@ -287,6 +330,19 @@ func loadConfig(path string) (*agentConfig, error) {
 	cfg := &agentConfig{}
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
+	}
+	ports := make(map[int]struct{}, len(cfg.Backends))
+	for i := range cfg.Backends {
+		backend := &cfg.Backends[i]
+		if _, duplicate := ports[backend.AgentPort]; duplicate || backend.AgentPort < 1 || backend.AgentPort > 65535 {
+			return nil, fmt.Errorf("backend %d agent_port %d: %w", i, backend.AgentPort, errors.ErrUnsupported)
+		}
+		ports[backend.AgentPort] = struct{}{}
+		selector, err := apiclient.ParseSessionSelector(backend.Peer, backend.Local, backend.Interface, backend.Type)
+		if err != nil {
+			return nil, fmt.Errorf("backend %d: %w", i, err)
+		}
+		backend.selector = selector
 	}
 
 	return cfg, nil

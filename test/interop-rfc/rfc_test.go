@@ -18,7 +18,7 @@
 //	go test -tags interop_rfc -v -count=1 -timeout 300s ./test/interop-rfc/
 //
 // Prerequisites:
-//   - podman compose -f test/interop-rfc/compose.yml up --build -d
+//   - make interop-rfc-up (owned Compose topology), then make interop-rfc-test.
 //   - All containers must be running.
 package interop_rfc_test
 
@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/dantte-lp/gobfd/test/internal/frrjson"
+	"github.com/dantte-lp/gobfd/test/internal/interopcheck"
 )
 
 // =========================================================================
@@ -76,7 +77,7 @@ func gobgpCmd(ctx context.Context, args ...string) (string, error) {
 	return containerExec(ctx, gobgpRFCContainer, append([]string{"gobgp"}, args...)...)
 }
 
-// bgpSessionStateName maps a GoBGP v3 protobuf session_state number to its name.
+// bgpSessionStateName maps a GoBGP v4 protobuf session_state number to its name.
 func bgpSessionStateName(state int) string {
 	switch state {
 	case 0:
@@ -126,12 +127,11 @@ func gobgpNeighborState(ctx context.Context, peerIP string) (string, error) {
 
 // gobgpRouteExists checks if a prefix exists in the GoBGP global RIB.
 func gobgpRouteExists(ctx context.Context, prefix string) (bool, error) {
-	output, err := gobgpCmd(ctx, "global", "rib")
+	output, err := gobgpCmd(ctx, "global", "rib", "-j")
 	if err != nil {
-		// If no routes exist, gobgp returns an error; treat as empty RIB.
-		return false, nil //nolint:nilerr // empty RIB is not an error
+		return false, fmt.Errorf("query GoBGP global RIB: %w", err)
 	}
-	return strings.Contains(output, prefix), nil
+	return interopcheck.GoBGPRouteExists([]byte(output), prefix)
 }
 
 // =========================================================================
@@ -191,39 +191,10 @@ func cleanTsharkOutput(output string) string {
 	return strings.Join(cleaned, "\n")
 }
 
-func tsharkLiveFields(
-	ctx context.Context,
-	captureDuration time.Duration,
-	filter string,
-	fields []string,
-	maxCount int,
-) ([][]string, error) {
-	if captureDuration < time.Second {
-		captureDuration = time.Second
-	}
-	args := []string{
-		"tshark",
-		"-i", "any",
-		"-f", "udp port 3784 or udp port 3785 or udp port 4784",
-		"-a", fmt.Sprintf("duration:%d", int(captureDuration.Seconds())),
-		"-Y", filter,
-		"-T", "fields",
-	}
-	for _, f := range fields {
-		args = append(args, "-e", f)
-	}
-	args = append(args, "-E", "separator=\t", "-E", "header=n")
-	if maxCount > 0 {
-		args = append(args, "-c", strconv.Itoa(maxCount))
-	}
-
-	output, err := containerExec(ctx, tsharkRFCContainer, args...)
-	if err != nil {
-		return nil, err
-	}
+func parseTsharkRows(output string, maxCount int) [][]string {
 	output = strings.TrimSpace(cleanTsharkOutput(output))
 	if output == "" {
-		return nil, nil
+		return nil
 	}
 
 	var rows [][]string
@@ -233,7 +204,81 @@ func tsharkLiveFields(
 		}
 		rows = append(rows, strings.Split(line, "\t"))
 	}
-	return rows, nil
+	return truncateTsharkRows(rows, maxCount)
+}
+
+func truncateTsharkRows(rows [][]string, maxCount int) [][]string {
+	if maxCount > 0 && len(rows) > maxCount {
+		return rows[:maxCount]
+	}
+	return rows
+}
+
+func tsharkLiveFields(
+	ctx context.Context,
+	captureDuration time.Duration,
+	filter string,
+	fields []string,
+	maxCount int,
+) ([][]string, error) {
+	output, err := containerExecStdout(ctx, tsharkRFCContainer,
+		tsharkLiveArgs(captureDuration, filter, fields)...)
+	if err != nil {
+		return nil, err
+	}
+	rows := parseTsharkRows(output, maxCount)
+	if len(rows) > 0 {
+		return rows, nil
+	}
+	pcapRows, pcapErr := tsharkPcapFields(ctx, filter, fields, maxCount)
+	if pcapErr == nil && len(pcapRows) > 0 {
+		return pcapRows, nil
+	}
+	return nil, nil
+}
+
+func tsharkPcapFields(
+	ctx context.Context,
+	filter string,
+	fields []string,
+	maxCount int,
+) ([][]string, error) {
+	args := make([]string, 0, 9+2*len(fields))
+	args = append(args, "tshark", "-r", "/captures/bfd.pcapng", "-Y", filter, "-T", "fields")
+	for _, f := range fields {
+		args = append(args, "-e", f)
+	}
+	args = append(args, "-E", "separator=\t", "-E", "header=n")
+	output, err := containerExecStdout(ctx, tsharkRFCContainer, args...)
+	if err != nil {
+		return nil, err
+	}
+	return parseTsharkRows(output, maxCount), nil
+}
+
+// tsharkLiveArgs builds a live capture of BFD ports for captureDuration
+// (at least one second) without raw packet-count autostop flags (-c or
+// -a packets:), because dumpcap stops capturing before tshark applies -Y
+// and would terminate on unrelated BFD sessions in the shared namespace.
+func tsharkLiveArgs(captureDuration time.Duration, filter string, fields []string) []string {
+	if captureDuration < time.Second {
+		captureDuration = time.Second
+	}
+	args := make([]string, 0, 14+2*len(fields))
+	args = append(args,
+		"tshark",
+		"-q",
+		"-i", "any",
+		"-f", "udp port 3784 or udp port 3785 or udp port 4784",
+		"-a", fmt.Sprintf("duration:%d", int(captureDuration.Seconds())),
+		"-Y", filter,
+		"-T", "fields",
+	)
+	for _, f := range fields {
+		args = append(args, "-e", f)
+	}
+	args = append(args, "-E", "separator=\t", "-E", "header=n")
+	return args
 }
 
 type (
@@ -414,7 +459,8 @@ func dumpGoBGPState(t *testing.T) {
 
 func dumpTsharkCapture(t *testing.T, count int) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	// Cleanup runs after t.Context is canceled.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	output, err := containerExec(

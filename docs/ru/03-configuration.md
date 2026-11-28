@@ -1,552 +1,252 @@
 # Конфигурация
 
-![YAML](https://img.shields.io/badge/YAML-Config-cb171e?style=for-the-badge&logo=yaml)
-![koanf](https://img.shields.io/badge/koanf-v2-00ADD8?style=for-the-badge)
-![ENV](https://img.shields.io/badge/ENV-Override-ffc107?style=for-the-badge)
-![SIGHUP](https://img.shields.io/badge/SIGHUP-Hot_Reload-34a853?style=for-the-badge)
+[Английский оригинал](../en/03-configuration.md).
 
-> Полный справочник конфигурации демона GoBFD: формат YAML-файла, переопределение через переменные окружения, декларативные сессии, интеграция с GoBGP и горячая перезагрузка через SIGHUP.
+Демон принимает только `-config PATH` и `-version`. С `-config` применяются встроенные значения, YAML и поддерживаемые переменные среды, по порядку. Без него действуют встроенные значения, а переменные среды игнорируются. Источники: [схема, значения по умолчанию, проверка, переменные среды](../../internal/config/config.go), [загрузчик](../../cmd/gobfd/handlers.go), [комментированный пример](../../configs/gobfd.example.yml).
 
----
+TX и RX обозначают интервалы передачи и приёма. Protocol data unit (PDU) — объявленный пакет BFD; флаг Don’t Fragment (DF) управляет фрагментацией IPv4. Взаимная TLS-аутентификация (mTLS) проверяет обе конечные точки через центр сертификации (CA) и альтернативные имена субъекта (SAN); PEM задаёт текстовое кодирование сертификата и ключа. Идентификатор пользователя Unix (UID) поступает от ядра.
 
-## Содержание
+## Минимальная декларативная конфигурация
 
-- [Источники конфигурации](#источники-конфигурации)
-- [Полный пример конфигурации](#полный-пример-конфигурации)
-- [Секции конфигурации](#секции-конфигурации)
-- [Настройка буферов сокетов](#настройка-буферов-сокетов)
-- [Переменные окружения](#переменные-окружения)
-- [Декларативные сессии](#декларативные-сессии)
-- [Интеграция с GoBGP](#интеграция-с-gobgp)
-- [Горячая перезагрузка (SIGHUP)](#горячая-перезагрузка-sighup)
-- [Правила валидации](#правила-валидации)
-- [Значения по умолчанию](#значения-по-умолчанию)
-
-### Источники конфигурации
-
-GoBFD загружает конфигурацию из трёх источников в порядке приоритета:
-
-1. **Значения по умолчанию** -- разумные production-defaults
-2. **YAML-файл** -- указывается через `-config /путь/к/gobfd.yml`
-3. **Переменные окружения** -- с префиксом `GOBFD_`
-
-Каждый последующий источник перекрывает предыдущий.
-
-### Полный пример конфигурации
+Следующий YAML является иллюстративным примером, а не применённым развёртыванием.
 
 ```yaml
-# Конфигурация демона GoBFD
-# См.: configs/gobfd.example.yml
-
 grpc:
-  addr: ":50051"
-
+  socket:
+    path: /run/gobfd/gobfd.sock
+    mode: "0660"
+    group: gobfd-admin
 metrics:
-  addr: ":9100"
-  path: "/metrics"
-
+  addr: 127.0.0.1:9100
+  path: /metrics
 log:
-  level: "info"       # debug, info, warn, error
-  format: "json"      # json, text
-
-bfd:
-  default_desired_min_tx: "1s"
-  default_required_min_rx: "1s"
-  default_detect_multiplier: 3
-  align_intervals: false
-  default_padded_pdu_size: 0       # RFC 9764: 0 = без дополнения
-
-# Unsolicited BFD (RFC 9468)
-unsolicited:
-  enabled: false
-
-# Echo (RFC 9747)
-echo:
-  enabled: false
-
-# Micro-BFD (RFC 7130)
-micro_bfd:
-  groups: []
-
-# VXLAN BFD (RFC 8971)
-vxlan:
-  enabled: false
-
-# Geneve BFD (RFC 9521)
-geneve:
-  enabled: false
-
-# Интеграция с GoBGP (RFC 5882 Section 4.3)
-gobgp:
-  enabled: true
-  addr: "127.0.0.1:50052"
-  strategy: "disable-peer"   # или "withdraw-routes"
-  action_timeout: "5s"
-  tls:
-    enabled: false            # включите для удалённого/non-loopback GoBGP API
-    ca_file: ""               # опциональный PEM bundle корневых CA
-    server_name: ""           # опциональное имя для проверки сертификата
-  dampening:
-    enabled: true
-    suppress_threshold: 3
-    reuse_threshold: 2
-    max_suppress_time: "60s"
-    half_life: "15s"
-
-# Настройка буферов сокетов (снижает потерю пакетов при большом количестве сессий)
-socket:
-  read_buffer_size: 4194304    # SO_RCVBUF: 4 МиБ (0 = значение ОС)
-  write_buffer_size: 4194304   # SO_SNDBUF: 4 МиБ (0 = значение ОС)
-
-# Декларативные сессии (реконсилируются при SIGHUP)
+  level: info
+  format: json
 sessions:
-  - peer: "10.0.0.1"
-    local: "10.0.0.2"
-    interface: "eth0"
+  - peer: 192.0.2.2
+    local: 192.0.2.1
+    interface: eth0
     type: single_hop
-    desired_min_tx: "100ms"
-    required_min_rx: "100ms"
+    desired_min_tx: 300ms
+    required_min_rx: 300ms
     detect_mult: 3
-    auth:
-      type: keyed_sha1
-      key_id: 7
-      secret: "change-me"
-  - peer: "10.0.1.1"
-    local: "10.0.1.2"
-    type: multi_hop
-    desired_min_tx: "300ms"
-    required_min_rx: "300ms"
-    detect_mult: 5
-    padded_pdu_size: 128             # RFC 9764: дополнение PDU per-session
 ```
 
-### Секции конфигурации
-
-#### `grpc` -- ConnectRPC-сервер
-
-| Ключ | Тип | По умолчанию | Описание |
-|---|---|---|---|
-| `addr` | string | `":50051"` | Адрес прослушивания gRPC (ConnectRPC) |
-
-#### `metrics` -- Endpoint Prometheus
-
-| Ключ | Тип | По умолчанию | Описание |
-|---|---|---|---|
-| `addr` | string | `":9100"` | HTTP-адрес для метрик |
-| `path` | string | `"/metrics"` | URL-путь для скрапинга Prometheus |
-
-#### `log` -- Логирование
-
-| Ключ | Тип | По умолчанию | Описание |
-|---|---|---|---|
-| `level` | string | `"info"` | Уровень лога: `debug`, `info`, `warn`, `error` |
-| `format` | string | `"json"` | Формат: `json` (production), `text` (разработка) |
-
-Уровень лога можно изменить в runtime через SIGHUP без перезапуска демона.
-
-#### `bfd` -- Параметры BFD по умолчанию
-
-| Ключ | Тип | По умолчанию | Описание |
-|---|---|---|---|
-| `default_desired_min_tx` | duration | `"1s"` | Desired Min TX Interval по умолчанию |
-| `default_required_min_rx` | duration | `"1s"` | Required Min RX Interval по умолчанию |
-| `default_detect_multiplier` | uint32 | `3` | Множитель обнаружения (ОБЯЗАН быть >= 1) |
-| `align_intervals` | bool | `false` | RFC 7419: выравнивание таймеров до ближайшего общего интервала |
-| `default_padded_pdu_size` | uint16 | `0` | RFC 9764: дополнение BFD-пакетов до этого размера с битом DF (0 = отключено, допустимо: 24-9000) |
-
-При `align_intervals: true` значения `DesiredMinTxInterval` и `RequiredMinRxInterval` округляются вверх до ближайшего общего интервала RFC 7419 (3.3мс, 10мс, 20мс, 50мс, 100мс, 1с). Это предотвращает несовпадения при согласовании с аппаратными реализациями BFD.
-
-> **Примечание**: По RFC 5880 Section 6.8.3, когда сессия не в состоянии Up, TX-интервал принудительно устанавливается не менее 1 секунды.
-
-#### `unsolicited` -- RFC 9468 Unsolicited BFD
-
-| Ключ | Тип | По умолчанию | Описание |
-|---|---|---|---|
-| `unsolicited.enabled` | bool | `false` | Включить unsolicited BFD (ОБЯЗАН быть выключен по умолчанию по RFC 9468) |
-| `unsolicited.max_sessions` | int | `0` | Макс. динамически созданных сессий (0 = без ограничений) |
-| `unsolicited.cleanup_timeout` | duration | `"0s"` | Время ожидания перед удалением Down пассивных сессий |
-| `unsolicited.session_defaults.desired_min_tx` | duration | `"1s"` | TX-интервал для автосозданных сессий |
-| `unsolicited.session_defaults.required_min_rx` | duration | `"1s"` | RX-интервал для автосозданных сессий |
-| `unsolicited.session_defaults.detect_mult` | uint32 | `3` | Множитель обнаружения для автосозданных сессий |
-| `unsolicited.interfaces.<name>.enabled` | bool | `false` | Включить unsolicited на этом интерфейсе |
-| `unsolicited.interfaces.<name>.allowed_prefixes` | []string | `[]` | Ограничение исходных адресов (CIDR) |
-
-Пример:
-```yaml
-unsolicited:
-  enabled: true
-  max_sessions: 10
-  cleanup_timeout: "30s"
-  session_defaults:
-    desired_min_tx: "300ms"
-    required_min_rx: "300ms"
-    detect_mult: 3
-  interfaces:
-    "":
-      enabled: true
-      allowed_prefixes: ["10.0.0.0/8"]
-```
-
-> **Примечание**: Ключ с пустой строкой `""` соответствует слушателю по умолчанию (без привязки к интерфейсу).
-
-#### `echo` -- RFC 9747 Unaffiliated BFD Echo
-
-| Ключ | Тип | По умолчанию | Описание |
-|---|---|---|---|
-| `echo.enabled` | bool | `false` | Включить echo-сессии BFD |
-| `echo.default_tx_interval` | duration | -- | Интервал передачи echo по умолчанию |
-| `echo.default_detect_multiplier` | uint32 | -- | Множитель обнаружения echo по умолчанию |
-| `echo.peers[].peer` | string | -- | IP удалённой системы (цель echo) |
-| `echo.peers[].local` | string | -- | IP локальной системы |
-| `echo.peers[].interface` | string | -- | Сетевой интерфейс для `SO_BINDTODEVICE` (опционально) |
-| `echo.peers[].tx_interval` | duration | -- | Переопределение `default_tx_interval` для этого пира |
-| `echo.peers[].detect_mult` | uint32 | -- | Переопределение `default_detect_multiplier` для этого пира |
-
-Echo-сессии обнаруживают отказы forwarding-path без необходимости запуска BFD на удалённой стороне. Локальная система отправляет BFD Control пакеты на UDP порт 3785 удалённой стороны, которая пересылает их обратно через обычную IP-маршрутизацию.
-
-Echo-пиры реконсилируются при SIGHUP. Ключ сессии: `(peer, local, interface)`.
-
-Пример:
-```yaml
-echo:
-  enabled: true
-  default_tx_interval: "100ms"
-  default_detect_multiplier: 3
-  peers:
-    - peer: "10.0.0.1"
-      local: "10.0.0.2"
-      interface: "eth0"
-      tx_interval: "50ms"
-      detect_mult: 5
-```
-
-#### `micro_bfd` -- RFC 7130 Micro-BFD для LAG
-
-| Ключ | Тип | По умолчанию | Описание |
-|---|---|---|---|
-| `micro_bfd.groups[].lag_interface` | string | -- | Имя логического LAG-интерфейса (напр., "bond0") |
-| `micro_bfd.groups[].member_links` | []string | -- | Имена физических member-линков |
-| `micro_bfd.groups[].peer_addr` | string | -- | IP удалённой системы для всех member-сессий |
-| `micro_bfd.groups[].local_addr` | string | -- | IP локальной системы |
-| `micro_bfd.groups[].desired_min_tx` | duration | -- | Интервал BFD-таймера для member-сессий |
-| `micro_bfd.groups[].required_min_rx` | duration | -- | Минимальный допустимый RX-интервал |
-| `micro_bfd.groups[].detect_mult` | uint32 | -- | Множитель времени обнаружения |
-| `micro_bfd.groups[].min_active_links` | int | -- | Минимум Up member-ов для LAG Up (>= 1) |
-| `micro_bfd.actuator.mode` | string | `disabled` | `disabled`, `dry-run` или `enforce` |
-| `micro_bfd.actuator.backend` | string | `auto` | `auto`, `kernel-bond`, `ovs` или `networkmanager` |
-| `micro_bfd.actuator.ovsdb_endpoint` | string | `""` | OVSDB endpoint для `backend: ovs`; пустое значение использует `unix:/var/run/openvswitch/db.sock` |
-| `micro_bfd.actuator.owner_policy` | string | `refuse-if-managed` | Политика owner: отказ при внешнем владельце, разрешение внешнего владельца или NetworkManager D-Bus |
-| `micro_bfd.actuator.down_action` | string | `remove-member` | Действие после перехода member из Up в non-Up |
-| `micro_bfd.actuator.up_action` | string | `add-member` | Действие после возврата member в Up |
-
-Micro-BFD запускает независимые BFD-сессии на каждом member link LAG (UDP порт 6784) с `SO_BINDTODEVICE` на каждый member. Агрегатное состояние LAG = Up, когда `upCount >= min_active_links`.
-
-RFC 7130 enforcement защищён блоком `micro_bfd.actuator`. Режим по умолчанию
-`disabled` означает только detect/report. `dry-run` подключает daemon к policy
-layer и логирует планируемые действия с member. `enforce` сейчас требует
-`owner_policy: allow-external` с `backend: kernel-bond` или `backend: ovs`.
-Kernel-bond backend пишет RFC 7130 remove/add команды через Linux bonding
-sysfs. OVS backend использует native OVSDB transactions против
-`Port.interfaces` на существующем OVS bond port. Задайте
-`micro_bfd.actuator.ovsdb_endpoint`, если локальный OVSDB socket отличается от
-дефолта `unix:/var/run/openvswitch/db.sock`. `backend: networkmanager`
-реализован через NetworkManager D-Bus и требует `owner_policy:
-networkmanager-dbus`. Он деактивирует активный bond port profile, когда member
-переходит в Down, и активирует remembered или available bond port profile при
-восстановлении member. В остальных случаях оставляйте политику отказа при
-внешнем владельце для disabled и dry-run режимов.
-
-Группы реконсилируются при SIGHUP. Ключ группы: `lag_interface`.
-
-Пример:
-```yaml
-micro_bfd:
-  actuator:
-    mode: "dry-run"
-    backend: "kernel-bond"
-    ovsdb_endpoint: ""
-    owner_policy: "refuse-if-managed"
-    down_action: "remove-member"
-    up_action: "add-member"
-  groups:
-    - lag_interface: "bond0"
-      member_links: ["eth0", "eth1"]
-      peer_addr: "10.0.0.2"
-      local_addr: "10.0.0.1"
-      desired_min_tx: "100ms"
-      required_min_rx: "100ms"
-      detect_mult: 3
-      min_active_links: 1
-```
-
-#### `vxlan` -- RFC 8971 BFD для VXLAN
-
-| Ключ | Тип | По умолчанию | Описание |
-|---|---|---|---|
-| `vxlan.enabled` | bool | `false` | Включить VXLAN BFD-сессии |
-| `vxlan.backend` | string | `userspace-udp` | Overlay backend. Реализован только `userspace-udp`; `kernel`, `ovs`, `ovn`, `cilium`, `calico` и `nsx` зарезервированы и не проходят validation |
-| `vxlan.management_vni` | uint32 | -- | Management VNI для BFD control (24 бит, макс. 16777215) |
-| `vxlan.default_desired_min_tx` | duration | -- | TX-интервал для VXLAN-сессий по умолчанию |
-| `vxlan.default_required_min_rx` | duration | -- | RX-интервал для VXLAN-сессий по умолчанию |
-| `vxlan.default_detect_multiplier` | uint32 | -- | Множитель обнаружения по умолчанию |
-| `vxlan.peers[].peer` | string | -- | IP удалённого VTEP |
-| `vxlan.peers[].local` | string | -- | IP локального VTEP |
-| `vxlan.peers[].desired_min_tx` | duration | -- | Переопределение TX-интервала для этого пира |
-| `vxlan.peers[].required_min_rx` | duration | -- | Переопределение RX-интервала для этого пира |
-| `vxlan.peers[].detect_mult` | uint32 | -- | Переопределение множителя обнаружения для этого пира |
-
-BFD Control пакеты инкапсулируются в VXLAN (внешний UDP порт 4789) с
-выделенным Management VNI. Внутренний стек включает Ethernet (dst MAC
-`00:52:02:00:00:00`), IPv4 (TTL=255) и UDP (dst 3784) заголовки. Текущий
-backend `userspace-udp` владеет `local:4789`; если kernel VXLAN, OVS/OVN,
-Cilium, Calico, NSX или другой dataplane уже владеет тем же socket, нужен будущий
-owner-specific backend.
-
-Пиры реконсилируются при SIGHUP. Ключ сессии: `(peer, local)`.
-
-Пример:
-```yaml
-vxlan:
-  enabled: true
-  backend: "userspace-udp"
-  management_vni: 16777215
-  default_desired_min_tx: "1s"
-  default_required_min_rx: "1s"
-  default_detect_multiplier: 3
-  peers:
-    - peer: "10.0.0.2"
-      local: "10.0.0.1"
-    - peer: "10.0.0.3"
-      local: "10.0.0.1"
-      desired_min_tx: "300ms"
-      required_min_rx: "300ms"
-      detect_mult: 5
-```
-
-#### `geneve` -- RFC 9521 BFD для Geneve
-
-| Ключ | Тип | По умолчанию | Описание |
-|---|---|---|---|
-| `geneve.enabled` | bool | `false` | Включить Geneve BFD-сессии |
-| `geneve.backend` | string | `userspace-udp` | Overlay backend. Реализован только `userspace-udp`; `kernel`, `ovs`, `ovn`, `cilium`, `calico` и `nsx` зарезервированы и не проходят validation |
-| `geneve.default_vni` | uint32 | -- | VNI Geneve по умолчанию (24 бит, макс. 16777215) |
-| `geneve.default_desired_min_tx` | duration | -- | TX-интервал для Geneve-сессий по умолчанию |
-| `geneve.default_required_min_rx` | duration | -- | RX-интервал для Geneve-сессий по умолчанию |
-| `geneve.default_detect_multiplier` | uint32 | -- | Множитель обнаружения по умолчанию |
-| `geneve.peers[].peer` | string | -- | IP удалённого NVE |
-| `geneve.peers[].local` | string | -- | IP локального NVE |
-| `geneve.peers[].vni` | uint32 | -- | Переопределение `default_vni` для этого пира (0 = по умолчанию) |
-| `geneve.peers[].desired_min_tx` | duration | -- | Переопределение TX-интервала для этого пира |
-| `geneve.peers[].required_min_rx` | duration | -- | Переопределение RX-интервала для этого пира |
-| `geneve.peers[].detect_mult` | uint32 | -- | Переопределение множителя обнаружения для этого пира |
-
-BFD Control пакеты инкапсулируются в Geneve (внешний UDP порт 6081) с Format A
-(Ethernet payload, Protocol Type 0x6558). По RFC 9521 Section 4: O бит
-(control) = 1, C бит (critical) = 0. Текущий backend `userspace-udp` владеет
-`local:6081`; если kernel Geneve, OVS/OVN, NSX или другой dataplane уже
-владеет тем же socket, нужен будущий owner-specific backend.
-
-Пиры реконсилируются при SIGHUP. Ключ сессии: `(peer, local)`.
-
-Пример:
-```yaml
-geneve:
-  enabled: true
-  backend: "userspace-udp"
-  default_vni: 100
-  default_desired_min_tx: "1s"
-  default_required_min_rx: "1s"
-  default_detect_multiplier: 3
-  peers:
-    - peer: "10.0.0.2"
-      local: "10.0.0.1"
-    - peer: "10.0.0.3"
-      local: "10.0.0.1"
-      vni: 200
-      desired_min_tx: "300ms"
-      required_min_rx: "300ms"
-      detect_mult: 5
-```
-
-#### `socket` -- Настройка буферов сокетов
-
-| Ключ | Тип | По умолчанию | Описание |
-|---|---|---|---|
-| `socket.read_buffer_size` | int | `4194304` (4 МиБ) | Размер `SO_RCVBUF` в байтах для сокетов слушателей. Увеличенные буферы снижают потерю пакетов при большом количестве сессий. `0` = значение ОС по умолчанию. |
-| `socket.write_buffer_size` | int | `4194304` (4 МиБ) | Размер `SO_SNDBUF` в байтах для сокетов отправителей. Увеличенные буферы снижают ошибки `sendto` при всплесках нагрузки. `0` = значение ОС по умолчанию. |
-
-Размеры буферов применяются ко всем BFD-сокетам слушателей и отправителей при создании. Значения передаются напрямую в `setsockopt(SO_RCVBUF)` и `setsockopt(SO_SNDBUF)`.
-
-**Рекомендации по размерам:**
-
-- **< 100 сессий**: значений ОС по умолчанию обычно достаточно (установите оба в `0`)
-- **100-1000 сессий**: 4 МиБ (по умолчанию) обеспечивает запас для всплесков трафика
-- **> 1000 сессий**: рассмотрите 8-16 МиБ; мониторьте `netstat -su` на предмет ошибок приёма UDP
-
-> **Примечание**: Ядро может ограничить эффективный размер буфера значением `net.core.rmem_max` / `net.core.wmem_max`. Для увеличения буферов поднимите эти sysctl-параметры:
-> ```bash
-> sysctl -w net.core.rmem_max=16777216
-> sysctl -w net.core.wmem_max=16777216
-> ```
-
-### Переменные окружения
-
-Все ключи конфигурации можно переопределить через переменные окружения с префиксом `GOBFD_`. Правило маппинга: убрать префикс, привести к нижнему регистру, заменить `_` на `.`.
-
-| Переменная | Ключ конфигурации | Пример |
-|---|---|---|
-| `GOBFD_GRPC_ADDR` | `grpc.addr` | `":50051"` |
-| `GOBFD_METRICS_ADDR` | `metrics.addr` | `":9100"` |
-| `GOBFD_METRICS_PATH` | `metrics.path` | `"/metrics"` |
-| `GOBFD_LOG_LEVEL` | `log.level` | `"debug"` |
-| `GOBFD_LOG_FORMAT` | `log.format` | `"text"` |
-
-### Декларативные сессии
-
-Сессии, определённые в секции `sessions:`, создаются при старте демона и реконсилируются при SIGHUP:
-
-- **Новые сессии** (есть в конфиге, нет запущенных) -- создаются
-- **Удалённые сессии** (запущены, но нет в конфиге) -- уничтожаются
-- **Существующие сессии** (совпадающий ключ) -- остаются без изменений
-
-Ключ сессии -- кортеж: `(peer, local, interface)`.
-
-| Ключ | Тип | Обязательный | Описание |
-|---|---|---|---|
-| `peer` | string | Да | IP-адрес удалённой системы |
-| `local` | string | Да | IP-адрес локальной системы |
-| `interface` | string | Нет | Сетевой интерфейс для `SO_BINDTODEVICE` |
-| `type` | string | Нет | `single_hop` (по умолчанию) или `multi_hop` |
-| `desired_min_tx` | duration | Нет | Переопределение TX-интервала |
-| `required_min_rx` | duration | Нет | Переопределение RX-интервала |
-| `detect_mult` | uint32 | Нет | Переопределение множителя обнаружения |
-| `padded_pdu_size` | uint16 | Нет | RFC 9764: дополнение BFD-пакетов до этого размера (переопределяет `bfd.default_padded_pdu_size`) |
-| `auth.type` | string | Нет | Тип аутентификации RFC 5880: `simple_password`, `keyed_md5`, `meticulous_keyed_md5`, `keyed_sha1`, `meticulous_keyed_sha1` |
-| `auth.key_id` | uint32 | Если auth включён | Auth Key ID, допустимый диапазон 0-255 |
-| `auth.secret` | string | Если auth включён | Секрет: 1-16 байт для Simple Password/MD5, 1-20 байт для SHA1 |
-
-Аутентификация настраивается через декларативные YAML-сессии или через поля
-gRPC `AddSession`: `auth_type`, `auth_key_id` и `auth_secret`. `auth_key_id`
-должен помещаться в однобайтный диапазон RFC 5880. `auth_secret` должен быть
-1-16 байт для Simple Password/MD5-режимов и 1-20 байт для SHA1-режимов.
-Запросы с key material без включённого `auth_type`, либо с включённой
-аутентификацией без секрета, отклоняются.
-
-Типы сессий определяют UDP-порт и обработку TTL:
-
-| Тип | Порт | Исходящий TTL | Проверка входящего TTL |
-|---|---|---|---|
-| `single_hop` | 3784 | 255 (GTSM) | ОБЯЗАН быть 255 (RFC 5881) |
-| `multi_hop` | 4784 | 255 | ОБЯЗАН быть >= 254 (RFC 5883) |
-
-### Интеграция с GoBGP
-
-При включении изменения состояния BFD передаются в GoBGP через gRPC API (RFC 5882 Section 4.3):
-
-- **BFD Down** --> Отключение BGP-пира (`DisablePeer()`) или отзыв маршрутов (`DeletePath()`)
-- **BFD Up** --> Включение BGP-пира (`EnablePeer()`) или восстановление маршрутов (`AddPath()`)
-
-| Ключ | Тип | По умолчанию | Описание |
-|---|---|---|---|
-| `gobgp.enabled` | bool | `false` | Включить/выключить интеграцию с GoBGP |
-| `gobgp.addr` | string | `"127.0.0.1:50051"` | Адрес gRPC API GoBGP |
-| `gobgp.strategy` | string | `"disable-peer"` | Стратегия: `disable-peer` или `withdraw-routes` |
-| `gobgp.action_timeout` | duration | `"5s"` | Максимальное время на один вызов GoBGP API |
-| `gobgp.tls.enabled` | bool | `false` | Использовать TLS для GoBGP gRPC соединения |
-| `gobgp.tls.ca_file` | string | `""` | Опциональный PEM bundle корневых CA; пустое значение использует системные roots |
-| `gobgp.tls.server_name` | string | `""` | Опциональное имя сервера для проверки TLS-сертификата |
-
-Plaintext GoBGP gRPC сохранён для совместимости с типичными localhost
-развёртываниями. Для удалённых или non-loopback GoBGP API endpoints включайте
-`gobgp.tls.enabled`. Если GoBGP включён без TLS и `gobgp.addr` не указывает на
-loopback/localhost, GoBFD пишет предупреждение при старте.
-
-#### Демпфирование flap-ов (RFC 5882 Section 3.2)
-
-Предотвращает чрезмерную осцилляцию BGP-маршрутов при быстрых колебаниях BFD:
-
-| Ключ | Тип | По умолчанию | Описание |
-|---|---|---|---|
-| `gobgp.dampening.enabled` | bool | `false` | Включить демпфирование |
-| `gobgp.dampening.suppress_threshold` | float64 | `3` | Штраф, выше которого события подавляются |
-| `gobgp.dampening.reuse_threshold` | float64 | `2` | Штраф, ниже которого подавление снимается |
-| `gobgp.dampening.max_suppress_time` | duration | `"60s"` | Максимальная длительность подавления |
-| `gobgp.dampening.half_life` | duration | `"15s"` | Период полураспада штрафа |
-
-### Горячая перезагрузка (SIGHUP)
-
-```bash
-# Перезагрузка конфигурации
-sudo systemctl reload gobfd
-# или
-kill -HUP $(pidof gobfd)
-```
-
-При перезагрузке:
-1. YAML-файл перечитывается и валидируется
-2. Уровень лога обновляется динамически
-3. Декларативные сессии реконсилируются (добавление/удаление)
-4. Echo-сессии реконсилируются (добавление/удаление)
-5. Группы Micro-BFD реконсилируются (добавление/удаление, изменение member-линков)
-6. VXLAN-туннельные сессии реконсилируются (добавление/удаление)
-7. Geneve-туннельные сессии реконсилируются (добавление/удаление)
-8. Ошибки при перезагрузке логируются -- предыдущая конфигурация остаётся в силе
-
-### Правила валидации
-
-| Правило | Ошибка |
-|---|---|
-| `grpc.addr` не должен быть пустым | `ErrEmptyGRPCAddr` |
-| `bfd.default_detect_multiplier` должен быть >= 1 | `ErrInvalidDetectMultiplier` |
-| `bfd.default_desired_min_tx` должен быть > 0 | `ErrInvalidDesiredMinTx` |
-| `bfd.default_required_min_rx` должен быть > 0 | `ErrInvalidRequiredMinRx` |
-| `gobgp.addr` не должен быть пустым при включённой интеграции | `ErrEmptyGoBGPAddr` |
-| `gobgp.strategy` должен быть `disable-peer` или `withdraw-routes` | `ErrInvalidGoBGPStrategy` |
-| `gobgp.action_timeout` должен быть > 0 при включённой интеграции | `ErrInvalidGoBGPActionTimeout` |
-| `gobgp.tls.ca_file` / `server_name` требуют `gobgp.tls.enabled: true` | `ErrInvalidGoBGPTLS` |
-| `gobgp.dampening.suppress_threshold` должен быть > `reuse_threshold` | `ErrInvalidDampeningThreshold` |
-| `gobgp.dampening.half_life` должен быть > 0 при включённом демпфировании | `ErrInvalidDampeningHalfLife` |
-| `peer` сессии должен быть валидным IP-адресом | `ErrInvalidSessionPeer` |
-| `type` сессии должен быть `single_hop` или `multi_hop` | `ErrInvalidSessionType` |
-| `detect_mult` сессии должен быть >= 1 | `ErrInvalidSessionDetectMult` |
-| Нет дублирующих ключей сессий (peer, local, interface) | `ErrDuplicateSessionKey` |
-| Echo `peer` должен быть валидным IP-адресом | `ErrInvalidEchoPeer` |
-| Echo `detect_mult` должен быть >= 1 | `ErrInvalidEchoDetectMult` |
-| Нет дублирующих ключей echo-сессий | `ErrDuplicateEchoSessionKey` |
-| VXLAN `management_vni` должен быть <= 16777215 (24 бит) | `ErrInvalidVXLANVNI` |
-| VXLAN `backend` должен быть `userspace-udp`; зарезервированные non-userspace names fail closed | `ErrInvalidOverlayBackend`, `ErrUnsupportedOverlayBackend` |
-| VXLAN `peer` должен быть валидным IP-адресом | `ErrInvalidVXLANPeer` |
-| Нет дублирующих ключей VXLAN-сессий | `ErrDuplicateVXLANSessionKey` |
-| Geneve `default_vni` и per-peer `vni` должны быть <= 16777215 | `ErrInvalidGeneveVNI` |
-| Geneve `backend` должен быть `userspace-udp`; зарезервированные non-userspace names fail closed | `ErrInvalidOverlayBackend`, `ErrUnsupportedOverlayBackend` |
-| Geneve `peer` должен быть валидным IP-адресом | `ErrInvalidGenevePeer` |
-| Нет дублирующих ключей Geneve-сессий | `ErrDuplicateGeneveSessionKey` |
-
-### Значения по умолчанию
-
-| Ключ | Значение | Обоснование |
-|---|---|---|
-| `grpc.addr` | `:50051` | Стандартный порт gRPC |
-| `metrics.addr` | `:9100` | Стандартный порт экспортёра |
-| `metrics.path` | `/metrics` | Конвенция Prometheus |
-| `log.level` | `info` | Production по умолчанию |
-| `log.format` | `json` | Машиночитаемый |
-| `bfd.default_desired_min_tx` | `1s` | RFC 5880 Section 6.8.3 медленная скорость |
-| `bfd.default_required_min_rx` | `1s` | Консервативная начальная точка |
-| `bfd.default_detect_multiplier` | `3` | 3x время обнаружения |
-| `gobgp.enabled` | `false` | Opt-in интеграция |
-| `gobgp.strategy` | `disable-peer` | Наиболее безопасное действие BGP |
-| `gobgp.action_timeout` | `5s` | Ограничивает внешние вызовы GoBGP API |
-| `gobgp.tls.enabled` | `false` | Совместимый default для localhost GoBGP |
-| `socket.read_buffer_size` | `4194304` (4 МиБ) | Запас для 100+ сессий |
-| `socket.write_buffer_size` | `4194304` (4 МиБ) | Запас для 100+ сессий |
-
-### Связанные документы
-
-- [04-cli.md](./04-cli.md) -- Команды CLI для управления сессиями
-- [06-deployment.md](./06-deployment.md) -- Развёртывание в production с systemd
-- [configs/gobfd.example.yml](../../configs/gobfd.example.yml) -- Аннотированный пример конфигурации
-
----
-
-*Последнее обновление: 2026-02-24*
+Заменить адреса/интерфейс значениями управляемой среды. Задавать длительности с единицами. Интервалы пакета выражены в микросекундах ([RFC 5880 раздел 4.1](https://www.rfc-editor.org/rfc/rfc5880.html#section-4.1)). YAML использует подчёркивания в именах типов, CLI — дефисы.
+
+## Управление, метрики и журнал
+
+| Ключ YAML | Встроенное значение | Условие |
+|:---|:---|:---|
+| `grpc.addr` | пусто | TCP отключён; открытый TCP только на loopback; удалённый TCP требует mTLS |
+| `grpc.socket.path` | `/run/gobfd/gobfd.sock` | Абсолютный путь Unix; пустое значение отключает сокет |
+| `grpc.socket.mode` | `0660` | Восьмеричные права |
+| `grpc.socket.group` | пусто | Группа демона; пакетный пример задаёт `gobfd-admin` |
+| `grpc.tls.cert_file` | пусто | Сертификат сервера PEM |
+| `grpc.tls.key_file` | пусто | Закрытый ключ PEM |
+| `grpc.tls.client_ca_file` | пусто | CA PEM для обязательной проверки клиента |
+| `grpc.mutating_identities` | `[]` | URI SAN или `dns:NAME` с правом записи; требует TLS |
+| `grpc.unsafe_loopback_mutations` | `false` | Анонимная запись через прямой незашифрованный loopback; проверка управления `NOT_SERVING` |
+| `grpc.flight_recorder` | `false` | Защищённый `/debug/flightrecorder`, доступный только через управление |
+| `metrics.addr` | `127.0.0.1:9100` | HTTP без аутентификации |
+| `metrics.path` | `/metrics` | Путь Prometheus |
+| `log.level` | `info` | `debug`, `info`, `warn`, `error` |
+| `log.format` | `json` | `json` или `text`; требует перезапуска |
+
+TLS требует все три файла и TCP-адрес. Файлы перечитываются при каждом установлении соединения: замена содержимого не требует перезапуска, изменение путей требует. Субъект доступа Unix получает UID от ядра; mTLS использует первый URI SAN, иначе первый DNS SAN. Сохранить хотя бы один транспорт управления. См. [безопасность](15-security.md).
+
+## Control-сессии
+
+| Глобальный ключ | Значение | Условие |
+|:---|:---|:---|
+| `bfd.default_desired_min_tx` | `1s` | Желаемый TX |
+| `bfd.default_required_min_rx` | `1s` | Требуемый RX; явный ноль сохраняется |
+| `bfd.default_detect_multiplier` | `3` | 1–255 |
+| `bfd.align_intervals` | `false` | Округление вверх до поддерживаемых интервалов RFC 7419 |
+| `bfd.default_padded_pdu_size` | `0` | Без дополнения; ненулевой размер 24–9000 байт |
+| `sessions` | `[]` | Декларативные заявки на владение Control |
+
+| Ключ `sessions[]` | Значение | Условие |
+|:---|:---|:---|
+| `peer` | обязательно | IP соседа |
+| `local`, `interface` | пусто | Локальный IP и односкачковая привязка к устройству |
+| `type` | `single_hop` | `single_hop` или `multi_hop` |
+| `desired_min_tx` | наследуется | Положительный TX |
+| `required_min_rx` | наследуется | Неотрицательный RX; явный `0s` остаётся нулём |
+| `detect_mult` | наследуется | 1–255 после подстановки |
+| `padded_pdu_size` | `0` | Ноль наследует глобальное дополнение; размер включает аутентификацию |
+| `multihop_max_hops` | `1` | Только многоскачковый режим, 1–254; минимум TTL `255 - value` |
+| `auth.type` | пусто | Пусто/`none`, `simple_password`, `keyed_md5`, `meticulous_keyed_md5`, `keyed_sha1`, `meticulous_keyed_sha1` |
+| `auth.key_id` | `0` | 0–255 |
+| `auth.secret` | пусто | 1–16 байт для пароля/MD5; 1–20 байт для SHA1 |
+
+Односкачковый режим требует TTL/Hop Limit 255. Многоскачковый TTL — политика GoBFD, а не требование RFC 5883. Дополнение запрашивает DF и нижнюю границу полезной нагрузки: длина передачи — `max(actual PDU, target)`. Аутентифицированный PDU может превышать целевой размер и не усекается. Источник: [формирование пакета](../../internal/bfd/session_packet.go). Ссылки: [RFC 5881](https://www.rfc-editor.org/rfc/rfc5881.html), [RFC 5883 раздел 6](https://www.rfc-editor.org/rfc/rfc5883.html#section-6), [RFC 7419](https://www.rfc-editor.org/rfc/rfc7419.html), [RFC 9764](https://www.rfc-editor.org/rfc/rfc9764.html).
+
+## Буферы UDP и QoS передачи
+
+Качество обслуживания (QoS) использует differentiated services code point (DSCP) и биты explicit congestion notification (ECN). Все поля `socket` задаются при запуске. QoS относится к обычным отправителям BFD; внешние сокеты оверлея его не наследуют. Источники: [QoS](../../internal/config/socket_qos.go), [буферы](../../internal/config/socket_buffer.go).
+
+| Ключ `socket` | Значение | Условие |
+|:---|---:|:---|
+| `read_buffer_size`, `write_buffer_size` | `4194304` каждый | Байты буфера; ноль сохраняет значение ОС |
+| `ipv4_dscp` | `48` | DSCP 0–63 без ECN |
+| `ipv6_traffic_class` | `192` | Полный октет 0–255 |
+| `priority` | `0` | Очередь Linux независимо от DSCP |
+| `mark` | `0` | Ноль пропускает операцию установки метки маршрутизации |
+| `priority_required`, `mark_required` | `true` | Отказ отправителя при ошибке запрошенного параметра |
+
+CS6 — эксплуатационная политика, не требование RFC 5881. Проверить действующие буферы и маркировку захватом; запрос настройки не доказывает обработку QoS сетью.
+
+`mark_required: false` разрешает передачу при ошибке запрошенного mark, возможно без нужной политики маршрутизации. Сохранить `true`, когда mark выбирает маршрут. Необязательный priority также допускает отправку без запрошенного приоритета; успех маркировки этим не подтверждается.
+
+## Предварительные профили
+
+Все профили отключены по умолчанию. Зрелость, включение и готовность независимы; `ready` не доказывает исправность соседа, соответствие RFC или применение действия исполнителем.
+
+<!-- BEGIN GOBFD PREVIEW CAPABILITIES -->
+| Профиль | RFC | Зрелость |
+|:---|---:|:---|
+| unsolicited | 9468 | preview; unsafe |
+| echo | 9747 | preview; неполная квалификация RFC |
+| micro_bfd | 7130 | preview; неполная интеграция с владельцем L2 |
+| vxlan | 8971 | preview; unsafe; неполная интеграция с владельцем |
+| geneve | 9521 | preview; unsafe; неполная реализация IPv4 Format A |
+<!-- END GOBFD PREVIEW CAPABILITIES -->
+
+<a id="unsolicited-control"></a>
+
+### Незапрошенный Control
+
+| Ключ `unsolicited` | Значение | Условие |
+|:---|:---|:---|
+| `enabled` | `false` | Включение требует перезапуска |
+| `max_sessions` | `0` | Не менее 1 при включении |
+| `cleanup_timeout` | `0s` | Задержка удаления Down-сессии; ноль удаляет сразу |
+| `interfaces` | `{}` | Словарь принимающих интерфейсов |
+| `interfaces.NAME.enabled` | `false` | Допуск на интерфейсе |
+| `interfaces.NAME.allowed_prefixes` | `[]` | Ограничение источника вместе с подсетью локального адреса |
+| `session_defaults.desired_min_tx`, `session_defaults.required_min_rx` | `1s` | Таймеры пассивной сессии |
+| `session_defaults.detect_mult` | `3` | Множитель пассивной сессии |
+| `auth` | отключено | Структура аутентификации Control; допустим только `meticulous_keyed_sha1` |
+
+Допуск требует TTL 255 и подходящую локальную подсеть. Общий ограничитель допускает 10 сессий/с со всплеском до 20. Не включать на анонимном общем сегменте. Источники: [допуск](../../internal/bfd/unsolicited.go), [RFC 9468 раздел 6](https://www.rfc-editor.org/rfc/rfc9468.html#section-6).
+
+### Echo
+
+`echo` содержит `enabled` (false), `default_tx_interval` (ноль), `default_detect_multiplier` (ноль), `peers` (пусто). Поля соседа: `peer`, `local`, `interface`, `tx_interval`, `detect_mult`. Ненулевые значения заменяют значения профиля по умолчанию; задать положительный TX и множитель 1–255.
+
+Echo использует UDP 3785 без настройки аутентификации. Аутентификация Control не защищает Echo. Совместимые заявки API и конфигурации разделяют физическую сессию; освобождение одной сохраняет остальных владельцев. Источники: [сверка](../../cmd/gobfd/reload.go), [ADR-0009](adr/0009-echo-principal-claims.md), [RFC 9747](https://www.rfc-editor.org/rfc/rfc9747.html).
+
+### Micro-BFD
+
+Группа агрегации линий (LAG) объединяет участников. Протокол Open vSwitch Database (OVSDB) управляет реализацией OVS.
+
+| Ключ `micro_bfd` | Значение | Варианты |
+|:---|:---|:---|
+| `enabled` | `false` | Включение требует перезапуска |
+| `groups` | `[]` | Группы LAG |
+| `actuator.mode` | `disabled` | `disabled`, `dry-run`, `enforce` |
+| `actuator.backend` | `auto` | `auto`, `kernel-bond`, `ovs`, `networkmanager` |
+| `actuator.ovsdb_endpoint` | пусто | Конечная точка нативного OVSDB |
+| `actuator.owner_policy` | `refuse-if-managed` | Также `allow-external`, `networkmanager-dbus` |
+| `actuator.down_action` | `remove-member` | `none`, `remove-member`, `add-member` |
+| `actuator.up_action` | `add-member` | `none`, `remove-member`, `add-member` |
+
+Группа содержит `lag_interface`, `member_links`, `peer_addr`, `local_addr`, `desired_min_tx`, `required_min_rx`, `detect_mult`, `min_active_links`. Таймеры наследуют значения BFD по умолчанию; минимум активных — 1…число участников. Режим enforce требует явного поддерживаемого владельца и реализации: kernel-bond или OVS с `allow-external`, NetworkManager с `networkmanager-dbus`. Журнал dry-run не доказывает применение. Источники: [схема и проверка](../../internal/config/config.go), [RFC 7130](https://www.rfc-editor.org/rfc/rfc7130.html).
+
+### VXLAN и Geneve
+
+Идентификатор сети VXLAN (VNI) — 24-битный идентификатор оверлея.
+
+| Профиль | Глобальные поля | Поля соседа |
+|:---|:---|:---|
+| `vxlan` | `enabled`, `backend`, `management_vni`, `default_desired_min_tx`, `default_required_min_rx`, `default_detect_multiplier`, `peers` | `peer`, `local`, `peer_mac`, `local_mac`, `desired_min_tx`, `required_min_rx`, `detect_mult` |
+| `geneve` | `enabled`, `backend`, `default_vni`, `default_desired_min_tx`, `default_required_min_rx`, `default_detect_multiplier`, `peers` | `peer`, `local`, `vni`, `inner_peer`, `inner_local`, `peer_mac`, `local_mac`, `desired_min_tx`, `required_min_rx`, `detect_mult` |
+
+`userspace-udp` — значение по умолчанию и единственная реализация оверлея. Резервные `kernel`, `ovs`, `ovn`, `cilium`, `calico`, `nsx` отклоняются. Таймеры/VNI профиля по умолчанию нулевые; задать допустимые итоговые значения. Ноль таймера наследует профиль; ноль Geneve VNI наследует `default_vni`. VNI занимает 24 бита. Format A требует явные одноадресные MAC; Geneve также требует явные одноадресные внутренние IPv4. UDP 4789/6081 должны быть свободны в выбранном пространстве имён и на выбранном адресе. Источники: [проверка](../../internal/config/config.go), [Format A](../../internal/netio/overlay_inner.go), [RFC 8971](https://www.rfc-editor.org/rfc/rfc8971.html), [RFC 9521](https://www.rfc-editor.org/rfc/rfc9521.html).
+
+## Интеграция GoBGP
+
+| Ключ `gobgp` | Значение | Условие |
+|:---|:---|:---|
+| `enabled` | `false` | Управление соседями |
+| `addr` | `127.0.0.1:50051` | Loopback/удалённый TCP `host:port` либо локальный файловый `unix:///abs/path` (`unix:/abs/path`) |
+| `strategy` | `disable-peer` | Единственная реализованная стратегия; `withdraw-routes` отклоняется |
+| `state_file` | `/var/lib/gobfd/gobgp-ownership.json` | Нормализованный абсолютный путь квитанций владения для Unix-спикера; пустое значение отключает запись на диск |
+| `action_timeout` | `5s` | Срок одного действия |
+| `tls.enabled` | `false` | TLS с проверкой сервера для удалённых TCP-адресов |
+| `tls.ca_file`, `tls.server_name` | пусто | Набор CA (системные корни при пустом), замена имени |
+| `dampening.enabled` | `false` | Удержание восстановления; Down применяется сразу |
+| `dampening.suppress_threshold`, `dampening.reuse_threshold` | `3`, `2` | Пороги подавления/возврата |
+| `dampening.max_suppress_time`, `dampening.half_life` | `60s`, `15s` | Максимальное удержание и полураспад штрафа |
+
+Реализация требует GoBGP v4 API и отклоняет конфликт с нативным владельцем BFD. Локальные файловые Unix-сокеты (`unix:///abs/path` и `unix:/abs/path`) классифицируются как локальный IPC и не вызывают предупреждение о незашифрованном адресе вне loopback, тогда как незашифрованный удалённый TCP, `unix-abstract:` и некорректные цели формируют предупреждение при запуске. При подключении через локальный Unix-сокет подтверждённое владение `DisablePeer` сохраняется в `gobgp.state_file` с привязкой к эпохе спикера GoBGP ([ADR-0013](adr/0013-gobgp-restart-disable-ownership.md)). Несколько базовых сессий к одному BGP-адресу исключают однозначное управление. Административный переход не означает отказ пути. Источники: [предварительная проверка и выбор](../../cmd/gobfd/handlers.go), [применение](../../internal/gobgp/handler.go), [RFC 5882 раздел 10.2](https://www.rfc-editor.org/rfc/rfc5882.html#section-10.2).
+
+## Переменные среды
+
+Добавить `GOBFD_` к суффиксу. Поддерживаются только точные соответствия, общего преобразования подчёркиваний в точки нет.
+
+| Суффиксы | Назначение |
+|:---|:---|
+| `GRPC_ADDR` | `grpc.addr` |
+| `METRICS_ADDR`, `METRICS_PATH` | `metrics.addr`, `metrics.path` |
+| `LOG_LEVEL`, `LOG_FORMAT` | `log.level`, `log.format` |
+| `UNSOLICITED_ENABLED`, `ECHO_ENABLED`, `MICRO_BFD_ENABLED` | `.enabled` профиля |
+| `VXLAN_ENABLED`, `VXLAN_BACKEND`, `GENEVE_ENABLED`, `GENEVE_BACKEND` | `.enabled`/`.backend` профиля |
+| `GOBGP_ENABLED`, `GOBGP_ADDR`, `GOBGP_STRATEGY`, `GOBGP_STATE_FILE` | Соответствующие поля `gobgp` |
+| `GOBGP_TLS_ENABLED`, `GOBGP_DAMPENING_ENABLED` | `gobgp.tls.enabled`, `gobgp.dampening.enabled` |
+| `SOCKET_READ_BUFFER_SIZE`, `SOCKET_WRITE_BUFFER_SIZE` | Буферы `socket` |
+| `SOCKET_IPV4_DSCP`, `SOCKET_IPV6_TRAFFIC_CLASS` | Маркировка `socket` |
+| `SOCKET_PRIORITY`, `SOCKET_MARK` | `socket.priority`, `socket.mark` |
+| `SOCKET_PRIORITY_REQUIRED`, `SOCKET_MARK_REQUIRED` | Политика ошибок параметров |
+
+## Перечитывание SIGHUP
+
+<a id="проверка-и-идентичность-listener"></a>
+
+### Проверка и идентичность слушающего сокета
+
+| Ввод | Условие |
+|:---|:---|
+| `log.level`, `log.format` | Уровень не зависит от регистра; формат — `json`/`text` в нижнем регистре; явные пустые/пробельные значения отклоняются |
+| Скалярные поля сокета | Целые неотрицательные буферы; priority 0–2147483647; mark 0–4294967295; строгая политика логических значений |
+| Множитель/дополнение | Дроби, логические значения, переполнение и имена, конфликтующие после свёртки регистра, отклоняются до декодирования |
+| Коллекции соседей/групп | Списки отображений без преобразования одиночного отображения и повторных идентичностей |
+| Многоскачковый режим | Без `interface`; `multihop_max_hops` только для `multi_hop` |
+| Зоны IPv6 | Зоны соседа и локального адреса совпадают с действующим односкачковым интерфейсом |
+| Незапрошенные сессии | Есть включённый непустой интерфейс; префиксы допустимы; таймеры 1 мкс…uint32 мкс; задержка очистки неотрицательная |
+| Подавление колебаний | Порог подавления > порог возврата > 0; время полураспада/максимальная длительность положительны |
+
+Идентичность слушающего сокета Control в YAML — `(parsed local address, multi-hop flag)`; Echo — разобранный локальный адрес. Записи одного слушающего сокета должны иметь одинаковый интерфейс, включая пустой. Ключ приёма среды исполнения добавляет интерфейс, порт назначения и нормализованный адрес. Порты — 3784/4784/3785/6784. Совместимая заявка API разделяет точный ключ; другое устройство не использует чужой сокет. Источники: [проверка](../../internal/config/listener_binding.go), [владелец ресурсов исполнения](../../cmd/gobfd/listeners.go).
+
+VXLAN/Geneve требуют конкретные внешние конечные точки IPv4; MAC Format A — ненулевые одноадресные. Минимальное дополнение с аутентификацией — 26 байт; фактический аутентифицированный PDU не усекается. Это ограничения проверки и реализации, а не приёмка оверлея в нативной среде.
+
+### Применение и сходимость
+
+SIGHUP загружает тот же путь и среду процесса. Полная проверка предшествует применению. Недопустимый кандидат и изменения полей запуска сохраняют принятую генерацию. Ошибка применения в среде исполнения может оставить ожидающие ресурсы; проверить работоспособность сверки и журнал.
+
+| Перечитывается | Требует перезапуска |
+|:---|:---|
+| `log.level` | Все `grpc`, `metrics`, `socket`, `gobgp`, `unsolicited`; `log.format` |
+| Желаемый набор Control, таймеры, множитель, дополнение | Аутентификация сохранённой идентичности Control |
+| Включение Echo, значения по умолчанию, соседи | `micro_bfd.enabled` и политика исполнителя |
+| Группы Micro-BFD | Реализация VXLAN/Management VNI; реализация Geneve/VNI по умолчанию |
+| Включение VXLAN/Geneve, таймеры, соседи | Все поля запуска `startup_contract.go` |
+
+Ключ сверки YAML — `(peer, local, interface)`. Каноническая идентичность обмена на линии также включает тип сессии, семейство адресов, сетевую и точную транспортную области; их изменение не является обычным обновлением таймера сохранённой идентичности. Совместимое изменение таймера сохраняет сессию и дискриминатор. Удаление освобождает заявку конфигурации и сохраняет чужие заявки. Ротация аутентификации требует согласованного перезапуска или освобождения и повторного создания с перерывом. Источники: [каноническая идентичность](../../internal/bfd/session_identity.go), [контракт запуска](../../cmd/gobfd/startup_contract.go), [координатор](../../cmd/gobfd/reconciliation.go), [ADR-0006](adr/0006-session-preserving-reload-policy.md).
+
+Обновление политики пакетов на месте требует единственного совместимого владельца конфигурации. Дополнение допускает только переход положительный→положительный размер с подготовленным отправителем, неизменной аутентификацией и асинхронным режимом; переходы ноль↔ненулевое значение, неподготовленный отправитель и изменения, зависящие от Demand, отклоняются. MinTTL — локальная многоскачковая политика. Таймеры, зависящие от Poll, остаются в ожидании до завершения транзакции; допуск не равен завершению. См. [обновление владельцем](../../internal/bfd/session_update.go), [протокол](02-protocol.md).
+
+Базовый источник, Echo, Micro-BFD, VXLAN и Geneve сверяются без общей атомарности. Допустимые независимые изменения могут сохраниться при отказе другого источника. Отсутствие локального адреса или интерфейса сохраняет желаемую генерацию и заявки, снимает готовность и вызывает повтор при восстановлении; проверка каждые две секунды дополняет события интерфейсов. Постоянные ошибки и ошибки инвентаризации требуют явного SIGHUP. Принятая генерация с ожидающими таймерами или ресурсами не сошлась. Получение ресурсов оверлея в рамках источника сохраняет действующие и завершающие работу аренды реализации при отказе. Проверить ограниченные квитанции по источникам, общую и именованные проверки работоспособности; бесшовный откат и непрерывность связи с соседом не гарантируются.
+
+Для экземпляра Linux под управлением systemd использовать учётную запись с правом замены конфигурации и перечитывания службы и авторизованного субъекта управления. До изменения одного выбранного экземпляра зафиксировать сошедшуюся принятую генерацию, состояние соседа и независимый сеанс восстановления. Остановиться при неизвестном пути конфигурации, владении или исходной работоспособности.
+
+1. Сохранить принятую конфигурацию и инвентаризацию сессий и дискриминаторов. Проверить доступность и защиту копии восстановления до замены действующего файла.
+2. Установить защищённый кандидат по тому же пути. Сохранить владельца и права файла; остановиться, если установленное содержимое отличается от проверенного кандидата.
+3. Выполнить `systemctl reload gobfd` для перечитываемых полей. При ошибке команды проверить действующее состояние до повтора; успех подтверждает только отправку сигнала.
+4. Проверить `journalctl -u gobfd --since '-2 min'`, `gobfdctl session list`, работоспособность сверки и соседа. Требовать совпадения желаемой и применённой генераций, ожидаемых сохранённых дискриминаторов и таймеров; остановиться при отказавшем или ожидающем источнике либо неожиданном изменении соседа или пересылки.
+5. При расхождении восстановить принятый файл и перечитать. Повторить те же проверки работоспособности, сессий и соседа относительно исходного состояния. Если сходимость не восстановлена, использовать независимый сеанс восстановления и эксплуатационный регламент; для полей запуска назначить перезапуск в окно обслуживания.
+
+Повтор SIGHUP запрашивает сверку и не является атомарным откатом либо гарантированным отсутствием изменений. Проверить предыдущую квитанцию до повтора; не подавать новые кандидаты при ожидающей транзакции или ресурсе.
+
+Процедура выведена из кода и не является записью производственной приёмки. См. [регламент](16-production-runbooks.md).

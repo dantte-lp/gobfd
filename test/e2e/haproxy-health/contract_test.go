@@ -4,7 +4,6 @@ package haproxy_health_test
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -20,20 +19,6 @@ import (
 	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
 
-type successfulBuiltImageClient struct {
-	imageID string
-}
-
-func (client successfulBuiltImageClient) ImageExists(context.Context, string) (bool, error) {
-	return true, nil
-}
-
-func (client successfulBuiltImageClient) ImageID(context.Context, string) (string, error) {
-	return client.imageID, nil
-}
-
-func (successfulBuiltImageClient) RemoveImage(context.Context, string) error { return nil }
-
 func TestHAProxyHealthContract(t *testing.T) {
 	root := repositoryRoot(t)
 	contract := newHAProxyHealthContract(root)
@@ -43,12 +28,12 @@ func TestHAProxyHealthContract(t *testing.T) {
 		contract.backend1IP != "172.23.0.30" || contract.backend2IP != "172.23.0.40" {
 		t.Fatalf("HAProxy topology addressing = %+v, want exact operational IPAM", contract)
 	}
-	if contract.haproxyImage != "docker.io/library/haproxy:3.4.3-trixie@sha256:"+
-		"4def76cf5d2610255d01fa51b37973d67ddee52f979981fc19117e8d0197bbf5" {
+	if contract.haproxyImage != "docker.io/library/haproxy:3.4.6-trixie@sha256:"+
+		"e273915691a8eab3f105bf3e39fd4c29a4ecf334e33421903b5589d25e14db26" {
 		t.Fatalf("HAProxy image = %q, want immutable operational pin", contract.haproxyImage)
 	}
-	if contract.nginxImage != "docker.io/library/nginx:1.31.4-trixie@sha256:"+
-		"b34848eff6db786b6b1282d3a9c3fd0b5563dfb6d261df4923378b419e0d24f0" {
+	if contract.nginxImage != "docker.io/library/nginx:1.31.6-trixie@sha256:"+
+		"60f0d4e986561e08804f75c211dcaf7fc5455699eada29f42cbe8a0a7253dd86" {
 		t.Fatalf("nginx image = %q, want immutable operational pin", contract.nginxImage)
 	}
 	for _, path := range []string{
@@ -84,7 +69,7 @@ func TestHAProxyHealthContract(t *testing.T) {
 		t.Fatalf("read bounded GoBFD Containerfile: %v", err)
 	}
 	for _, required := range [][]byte{
-		[]byte("docker.io/library/golang:1.27.0-trixie@sha256:"),
+		[]byte("docker.io/library/golang:1.27.4-trixie@sha256:"),
 		[]byte("./cmd/gobfd"), []byte("./cmd/gobfdctl"), []byte("./cmd/gobfd-haproxy-agent"),
 	} {
 		if !bytes.Contains(containerfile, required) {
@@ -106,25 +91,6 @@ func TestRuntimeOwnerIPv4Contract(t *testing.T) {
 		"monitor", inspection, "haproxy-test-net", "172.23.0.10",
 	); err == nil {
 		t.Fatal("wrong selected-endpoint monitor IPv4 accepted")
-	}
-}
-
-func TestSuccessfulBuildInspectsAndRecordsContentID(t *testing.T) {
-	const imageID = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	var recorded []string
-	err := inspectAndRecordBuiltImage(
-		t.Context(), "localhost/gobfd-haproxy-health:test-owned",
-		successfulBuiltImageClient{imageID: imageID},
-		func(got string) error {
-			recorded = append(recorded, got)
-			return nil
-		},
-	)
-	if err != nil {
-		t.Fatalf("inspect and record successful build: %v", err)
-	}
-	if len(recorded) != 1 || recorded[0] != imageID {
-		t.Fatalf("recorded content IDs = %v, want exact %s", recorded, imageID)
 	}
 }
 
@@ -181,6 +147,13 @@ func TestRuntimeContractStartupFailureWraps(t *testing.T) {
 }
 
 func TestBFDSessionJSONGo127Compatibility(t *testing.T) {
+	valid := `{"peer_address":"172.23.0.30","local_address":"172.23.0.10","type":"SingleHop",` +
+		`"observation_version":42,"remote_known":true,"remote_diagnostic":"None",` +
+		`"local_control_plane_independent":true,"remote_control_plane_independent":true,` +
+		`"cause":"RemoteStateChange","padded_pdu_size":0,"local_state":"Up","remote_state":"Up"}`
+	if _, err := parseBFDSessionJSON(valid, "172.23.0.30"); err != nil {
+		t.Fatalf("decode current CLI session JSON: %v", err)
+	}
 	tests := map[string]struct {
 		input string
 		peer  string
@@ -255,34 +228,5 @@ func TestResourceSnapshotReplacesWithPrivateMode(t *testing.T) {
 	}
 	if bytes.Contains(contents, []byte("stale")) || !bytes.Contains(contents, []byte("owned-network")) {
 		t.Fatalf("resource snapshot = %q, want atomically replaced content", contents)
-	}
-}
-
-func TestHAProxyCompatibilityMakeRecipeContract(t *testing.T) {
-	contents, err := os.ReadFile(filepath.Join(repositoryRoot(t), "Makefile"))
-	if err != nil {
-		t.Fatalf("read Makefile: %v", err)
-	}
-	start := strings.Index(string(contents), "int-haproxy-testcontainers:")
-	if start < 0 {
-		t.Fatal("Makefile lacks int-haproxy-testcontainers target")
-	}
-	recipe := string(contents[start:])
-	if next := strings.Index(recipe[1:], "\nint-haproxy-up:"); next >= 0 {
-		recipe = recipe[:next+1]
-	}
-	for _, required := range []string{
-		"umask 077;", "./test/e2e/haproxy-health", `test_status="$${PIPESTATUS[0]}"`,
-		`test -s "$${report_dir}/go-test.json"`,
-	} {
-		if !strings.Contains(recipe, required) {
-			t.Fatalf("compatibility recipe lacks %q:\n%s", required, recipe)
-		}
-	}
-	if strings.Contains(recipe, " -run ") {
-		t.Fatalf("compatibility recipe filters tagged package tests:\n%s", recipe)
-	}
-	if got := strings.Count(recipe, "go test "); got != 1 {
-		t.Fatalf("compatibility recipe go test invocations = %d, want one:\n%s", got, recipe)
 	}
 }

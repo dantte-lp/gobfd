@@ -1,0 +1,140 @@
+package cirunner
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec" //nolint:depguard // CI invokes only fixed commands assembled by this package.
+	"strings"
+	"time"
+)
+
+const podmanName = "podman"
+
+var errCommandNotAllowed = errors.New("CI command is not allowlisted")
+
+// CommandSpec describes one direct child process invocation.
+type CommandSpec struct {
+	Name string
+	Args []string
+	Dir  string
+	Env  []string
+	// Executable binds an allowlisted command to an already verified file.
+	Executable *os.File
+	// Stdin overrides the child process's standard input.
+	Stdin io.Reader
+	// Stdout and Stderr override the runner streams for artifact-producing commands.
+	Stdout io.Writer
+	Stderr io.Writer
+	// WaitDelay bounds inherited I/O pipes after cancellation or process exit.
+	WaitDelay time.Duration
+}
+
+func withoutEnvironmentKeys(environment []string, names ...string) []string {
+	blocked := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		blocked[name] = struct{}{}
+	}
+	result := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		name, _, found := strings.Cut(entry, "=")
+		if _, remove := blocked[name]; found && remove {
+			continue
+		}
+		result = append(result, entry)
+	}
+	return result
+}
+
+// SpecRunner executes a typed command without a shell.
+type SpecRunner interface {
+	RunCommand(ctx context.Context, spec CommandSpec) error
+}
+
+// RunCommand executes a typed direct child command and preserves its output streams.
+func (r ExecRunner) RunCommand(ctx context.Context, spec CommandSpec) error {
+	if spec.Name != prebuiltLintPath {
+		switch spec.Name {
+		case "buf", "docker", "gh", "git", "go", goreleaserName, "node", podmanName, syftName, "upx", "xz":
+		default:
+			return fmt.Errorf("run CI command %q: %w", spec.Name, errCommandNotAllowed)
+		}
+	}
+	executable, extraFiles, err := spec.boundExecutable()
+	if err != nil {
+		return err
+	}
+	// #nosec G204 -- the executable is selected from the fixed allowlist above.
+	command := exec.CommandContext(ctx, executable, spec.Args...)
+	command.Dir = spec.Dir
+	command.Env = spec.Env
+	command.ExtraFiles = extraFiles
+	command.Stdin = spec.Stdin
+	command.WaitDelay = spec.WaitDelay
+	command.Stdout = r.Stdout
+	if spec.Stdout != nil {
+		command.Stdout = spec.Stdout
+	}
+	command.Stderr = r.Stderr
+	if spec.Stderr != nil {
+		command.Stderr = spec.Stderr
+	}
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("run %s command: %w", spec.Name, err)
+	}
+	return nil
+}
+
+func (spec CommandSpec) boundExecutable() (string, []*os.File, error) {
+	executable := spec.Name
+	var extraFiles []*os.File
+	if spec.Executable != nil {
+		if spec.Name != "upx" && spec.Name != syftName && spec.Name != goreleaserName {
+			return "", nil, fmt.Errorf("bind executable for CI command %q: %w", spec.Name, errInvalidConfig)
+		}
+		info, err := spec.Executable.Stat()
+		if err != nil {
+			return "", nil, fmt.Errorf("inspect bound %s executable: %w", spec.Name, err)
+		}
+		if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+			return "", nil, fmt.Errorf("bound %s executable has mode %s: %w", spec.Name, info.Mode(), errInvalidConfig)
+		}
+		executable = "/proc/self/fd/3"
+		extraFiles = []*os.File{spec.Executable}
+	} else if spec.Name == "upx" || spec.Name == syftName || spec.Name == goreleaserName {
+		return "", nil, fmt.Errorf("%s command requires a bound executable: %w", spec.Name, errInvalidConfig)
+	}
+	return executable, extraFiles, nil
+}
+
+// PrefixRunner executes an explicit direct command vector without a shell.
+type PrefixRunner interface {
+	RunPrefix(ctx context.Context, spec CommandSpec) error
+}
+
+// RunPrefix executes a direct command vector without a shell for local Make targets.
+func (r ExecRunner) RunPrefix(ctx context.Context, spec CommandSpec) error {
+	if spec.Name == "" || hasControl(spec.Name) {
+		return fmt.Errorf("run prefix command %q: %w", spec.Name, errInvalidConfig)
+	}
+	// #nosec G204 G702 -- Local Makefile recipes pass explicit direct command vectors without invoking a shell.
+	command := exec.CommandContext(ctx, spec.Name, spec.Args...)
+	command.Dir = spec.Dir
+	command.Env = spec.Env
+	command.Stdin = spec.Stdin
+	command.WaitDelay = spec.WaitDelay
+	command.Stdout = r.Stdout
+	if spec.Stdout != nil {
+		command.Stdout = spec.Stdout
+	}
+	command.Stderr = r.Stderr
+	if spec.Stderr != nil {
+		command.Stderr = spec.Stderr
+	}
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("run %s command: %w", spec.Name, err)
+	}
+	return nil
+}

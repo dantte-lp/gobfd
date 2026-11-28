@@ -134,6 +134,42 @@ func TestDBusNetworkManagerLAGClientAddErrorsWhenConnectionCannotBeFound(t *test
 	}
 }
 
+func TestDBusNetworkManagerLAGClientJoinsCloseError(t *testing.T) {
+	t.Parallel()
+
+	closeFailure := errors.New("dbus close failure")
+	nm := newFakeNetworkManagerDBus()
+	nm.closeErr = closeFailure
+	client := testDBusNetworkManagerLAGClient(nm)
+
+	if err := client.RemoveBondInterface(context.Background(), "bond0", "eth0"); !errors.Is(err, closeFailure) {
+		t.Fatalf("RemoveBondInterface close error = %v, want %v", err, closeFailure)
+	}
+
+	missingNM := newFakeNetworkManagerDBus()
+	missingNM.activeConnection = dbusNoObjectPath
+	missingNM.availableConnections = nil
+	missingNM.closeErr = closeFailure
+	err := testDBusNetworkManagerLAGClient(missingNM).AddBondInterface(context.Background(), "bond0", "eth0")
+	if !errors.Is(err, ErrNetworkManagerConnectionNotFound) || !errors.Is(err, closeFailure) {
+		t.Fatalf("AddBondInterface joined error = %v, want both not-found and close error", err)
+	}
+
+	panicNM := newFakeNetworkManagerDBus()
+	panicNM.panicOnLookup = true
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("expected panic from fake DeviceByIPInterface")
+			}
+		}()
+		_ = testDBusNetworkManagerLAGClient(panicNM).RemoveBondInterface(context.Background(), "bond0", "eth0")
+	}()
+	if !panicNM.closed {
+		t.Fatal("withBondDeviceState did not close NetworkManager D-Bus client on panic")
+	}
+}
+
 func TestNetworkManagerSettingsMatchBondPort(t *testing.T) {
 	t.Parallel()
 
@@ -253,6 +289,9 @@ type fakeNetworkManagerDBus struct {
 	activatedConnection  dbus.ObjectPath
 	activatedDevice      dbus.ObjectPath
 	closed               bool
+	closeErr             error
+	panicOnLookup        bool
+	uuidError            error
 }
 
 func newFakeNetworkManagerDBus() *fakeNetworkManagerDBus {
@@ -275,6 +314,9 @@ func (f *fakeNetworkManagerDBus) DeviceByIPInterface(
 	_ context.Context,
 	iface string,
 ) (dbus.ObjectPath, error) {
+	if f.panicOnLookup {
+		panic("injected D-Bus lookup panic")
+	}
 	if iface != "eth0" {
 		return "", errors.New("unexpected iface")
 	}
@@ -332,9 +374,21 @@ func (f *fakeNetworkManagerDBus) ConnectionSettings(
 	return settings, nil
 }
 
+func (f *fakeNetworkManagerDBus) ConnectionByUUID(_ context.Context, uuid string) (dbus.ObjectPath, error) {
+	if f.uuidError != nil {
+		return "", f.uuidError
+	}
+	for path, settings := range f.settings {
+		if value, ok := settings["connection"]["uuid"]; ok && value.Value() == uuid {
+			return path, nil
+		}
+	}
+	return "", dbus.Error{Name: "org.freedesktop.NetworkManager.Settings.InvalidConnection"}
+}
+
 func (f *fakeNetworkManagerDBus) Close() error {
 	f.closed = true
-	return nil
+	return f.closeErr
 }
 
 func testDBusNetworkManagerLAGClient(nm *fakeNetworkManagerDBus) *dbusNetworkManagerLAGClient {

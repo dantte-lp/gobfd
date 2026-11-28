@@ -64,6 +64,11 @@ linters:
     - wsl_v5 # Cosmetic whitespace policy overlaps gofumpt and obscures semantic diffs.
 
   settings:
+    gomoddirectives:
+      # Exact upstream security pins for inherited tool-module metadata.
+      replace-allow-list:
+        - github.com/go-jose/go-jose/v4
+        - github.com/yuin/goldmark
     cyclop:
       max-complexity: 15
       package-average: 0.0
@@ -126,6 +131,12 @@ linters:
     loggercheck:
       require-string-key: true
       no-printf-like: true
+    wrapcheck:
+      # Connect constructors create protocol errors; WithCause preserves their
+      # original cause. Keep unrelated external errors subject to wrapping.
+      extra-ignore-sigs:
+        - connectrpc.com/connect/v2.NewError(
+        - (*connectrpc.com/connect/v2.Error).WithCause(
     mnd:
       # Configuration/default tables legitimately contain values. Require
       # named constants where numbers affect branching or arithmetic instead.
@@ -187,7 +198,6 @@ linters:
         linters:
           - cyclop
           - gosec
-          - dupl
           - funlen
           - gocognit
           - err113
@@ -209,7 +219,7 @@ linters:
       # Cobra command state, ldflags targets, or test-export bridges. Both path
       # and diagnostic text are bounded so any newly added global still fails.
       - path: ^cmd/gobfdctl/commands/
-        text: '^(client|echoClient|microClient|outputFormat|serverAddr|rootCmd|shellCommands) is a global variable'
+        text: '^(client|echoClient|microClient|outputFormat|serverAddr|tlsFiles|rootCmd|shellCommands) is a global variable'
         linters:
           - gochecknoglobals
       - path: ^internal/bfd/packet\.go$
@@ -225,7 +235,7 @@ linters:
         linters:
           - gochecknoglobals
       - path: ^internal/config/config\.go$
-        text: '^(validOverlayBackends|ValidGoBGPStrategies|ValidSessionTypes|ValidAuthTypes) is a global variable'
+        text: '^(validOverlayBackends|ValidSessionTypes|ValidAuthTypes) is a global variable'
         linters:
           - gochecknoglobals
       - path: ^internal/netio/overlay_inner\.go$
@@ -263,6 +273,24 @@ linters:
       # The containerlab bootstrap executes a fixed allowlist through
       # exec.CommandContext; keep the exception on the single boundary file.
       - path: test/internal/clabbootstrap/runner.go
+        text: "import 'os/exec' is not allowed"
+        linters:
+          - depguard
+      # The repository-owned gopls gate executes only fixed go and gopls
+      # argv without a shell; keep the exception on this single boundary.
+      - path: test/internal/repoquality/gopls.go
+        text: "import 'os/exec' is not allowed"
+        linters:
+          - depguard
+      # Tool bootstrap executes only fixed sudo/podman argv and the verified
+      # Compose provider path without a shell.
+      - path: test/internal/toolbootstrap/runner.go
+        text: "import 'os/exec' is not allowed"
+        linters:
+          - depguard
+      # The package lifecycle owner executes only fixed systemd command argv;
+      # keep the exception on its single process boundary.
+      - path: ^internal/cmd/gobfd-package-lifecycle/main\.go$
         text: "import 'os/exec' is not allowed"
         linters:
           - depguard

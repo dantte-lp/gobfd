@@ -319,9 +319,9 @@ func TestFSMDetectionTimeout(t *testing.T) {
 		})
 	}
 
-	// Down + TimerExpired should be ignored (already Down).
+	// Held erratum 5205 sets Diag=1 without a state edge.
 	// RFC 5880 Section 6.2 diagram: "UP, ADMIN DOWN, TIMER" self-loop on Down.
-	t.Run("Down+TimerExpired->ignored", func(t *testing.T) {
+	t.Run("Down+TimerExpired->diagnostic-only", func(t *testing.T) {
 		t.Parallel()
 
 		result := bfd.ApplyEvent(bfd.StateDown, bfd.EventTimerExpired)
@@ -330,6 +330,9 @@ func TestFSMDetectionTimeout(t *testing.T) {
 		}
 		if result.NewState != bfd.StateDown {
 			t.Errorf("Down + TimerExpired: NewState = %s, want Down", result.NewState)
+		}
+		if len(result.Actions) != 1 || result.Actions[0] != bfd.ActionSetDiagTimeExpired {
+			t.Fatalf("Down timeout actions = %v, want diagnostic 1", result.Actions)
 		}
 	})
 
@@ -481,9 +484,6 @@ func TestFSMUnknownEvent(t *testing.T) {
 		// Down ignores recv AdminDown (already Down, no state change needed).
 		{"Down+RecvAdminDown", bfd.StateDown, bfd.EventRecvAdminDown},
 
-		// Down ignores timer expired (already Down).
-		{"Down+TimerExpired", bfd.StateDown, bfd.EventTimerExpired},
-
 		// AdminUp from non-AdminDown states.
 		{"Down+AdminUp", bfd.StateDown, bfd.EventAdminUp},
 		{"Init+AdminUp", bfd.StateInit, bfd.EventAdminUp},
@@ -557,6 +557,7 @@ func TestActionString(t *testing.T) {
 		{bfd.ActionSetDiagTimeExpired, "SetDiagTimeExpired"},
 		{bfd.ActionSetDiagNeighborDown, "SetDiagNeighborDown"},
 		{bfd.ActionSetDiagAdminDown, "SetDiagAdminDown"},
+		{bfd.ActionSetDiagPathDown, "SetDiagPathDown"},
 		{bfd.Action(0), "Unknown"},
 		{bfd.Action(255), "Unknown"},
 	}

@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/netip"
+	"sync"
+	"time"
 )
 
 // -------------------------------------------------------------------------
@@ -14,59 +15,205 @@ import (
 
 // CreateSession creates a new BFD session with the given configuration.
 //
-// The session is registered in both lookup maps (by discriminator and by
-// peer key) and its Run goroutine is started. The session begins in Down
-// state per RFC 5880 Section 6.8.1.
-//
-// Returns ErrDuplicateSession if a session already exists for the same
-// peer key (peerAddr, localAddr, interface).
+// CreateSession is the compatibility/API ownership path. An exact session
+// already claimed by another source is shared; a second compatibility claim
+// for the same session returns ErrDuplicateSession.
 func (m *Manager) CreateSession(
 	ctx context.Context,
 	cfg SessionConfig,
-	sender PacketSender,
+	senderFactory SenderLeaseFactory,
 ) (*Session, error) {
-	if !cfg.PeerAddr.IsValid() {
-		return nil, fmt.Errorf("%s: %w", createSessionErrPrefix, ErrInvalidPeerAddr)
-	}
+	return m.CreateSessionAs(ctx, cfg, senderFactory, compatibilityAPISessionOwner())
+}
 
-	key := sessionKey{
-		peerAddr:  cfg.PeerAddr,
-		localAddr: cfg.LocalAddr,
-		ifName:    cfg.Interface,
-	}
-
-	if err := m.checkDuplicate(key, cfg.PeerAddr); err != nil {
-		return nil, err
-	}
-
-	discr, sess, err := m.allocateAndBuild(cfg, sender)
+// CreateSessionAs claims a session for an API owner (see APISessionOwner).
+// A matching session claimed by other owners is shared; a second claim by
+// the same owner returns ErrDuplicateSession.
+// An exact key still retiring also returns ErrDuplicateSession before sender
+// acquisition; callers may retry after its destruction finishes.
+func (m *Manager) CreateSessionAs(
+	ctx context.Context,
+	cfg SessionConfig,
+	senderFactory SenderLeaseFactory,
+	owner SessionOwner,
+) (*Session, error) {
+	op, err := m.beginOperation()
 	if err != nil {
 		return nil, err
 	}
+	defer op.finish()
 
-	if err := m.registerAndStart(ctx, key, discr, sess); err != nil {
-		m.discriminators.Release(discr)
-		return nil, err
+	m.ownershipMu.Lock()
+	sess, _, unusedLease, err := m.claimSession(
+		ctx, canonicalSessionConfig(cfg), senderFactory, owner, false,
+	)
+	m.ownershipMu.Unlock()
+	op.unlockMutation()
+	if closeErr := closeSenderLeaseError(unusedLease); closeErr != nil {
+		err = errors.Join(err, closeErr)
 	}
-
-	m.logSessionCreated(cfg, discr)
-
-	return sess, nil
+	return sess, err
 }
 
-// checkDuplicate verifies no session exists for the given peer key.
-func (m *Manager) checkDuplicate(key sessionKey, peerAddr netip.Addr) error {
-	m.mu.RLock()
-	_, exists := m.sessionsByPeer[key]
-	m.mu.RUnlock()
+func (m *Manager) claimSession(
+	ctx context.Context,
+	cfg SessionConfig,
+	senderFactory SenderLeaseFactory,
+	owner SessionOwner,
+	idempotent bool,
+) (*Session, bool, *SenderLease, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, nil, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
+	}
+	key, err := sessionKeyFromConfig(cfg)
+	if err != nil {
+		return nil, false, nil, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
+	}
+	cfg = canonicalSessionConfig(cfg)
+	effective, err := normalizeEffectiveSessionConfig(cfg)
+	if err != nil {
+		return nil, false, nil, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
+	}
 
-	if exists {
-		return fmt.Errorf(
-			"create session for peer %s: %w",
-			peerAddr, ErrDuplicateSession,
-		)
+	if sess, found, claimErr := m.claimExisting(ctx, key, effective, owner, idempotent); found {
+		return sess, false, nil, claimErr
+	}
+	if cfg, err = m.resolveSessionIfIndex(cfg); err != nil {
+		return nil, false, nil, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
+	}
+
+	lease, err := acquireSenderLease(senderFactory)
+	if err != nil {
+		return nil, false, lease, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
+	}
+	if err = ctx.Err(); err != nil {
+		return nil, false, lease, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
+	}
+	if err = m.verifySessionInterface(cfg); err != nil {
+		return nil, false, lease, err
+	}
+
+	discr, sess, err := m.allocateAndBuild(cfg, lease.Sender())
+	if err != nil {
+		return nil, false, lease, err
+	}
+
+	registered, created, err := m.registerAndStart(
+		ctx, key, cfg, effective, owner, idempotent, discr, sess, lease,
+	)
+	if !created {
+		m.discriminators.Release(discr)
+	}
+	if err != nil {
+		return nil, false, lease, err
+	}
+	if created {
+		m.logSessionCreated(cfg, discr)
+		return registered, true, nil, nil
+	}
+
+	return registered, false, lease, nil
+}
+
+// resolveSessionIfIndex resolves the initial receive interface (RFC 5881 Section 3).
+// RefreshInterfaceBindings restores retained sessions after interface recreation.
+func (m *Manager) resolveSessionIfIndex(cfg SessionConfig) (SessionConfig, error) {
+	if cfg.Type != SessionTypeSingleHop || cfg.IfIndex != 0 || m.resolveIfIndex == nil {
+		return cfg, nil
+	}
+	ifIndex, err := m.resolveIfIndex(cfg.LocalAddr, cfg.Interface)
+	if err != nil {
+		return cfg, fmt.Errorf("resolve receive interface of %s (iface=%q): %w: %w",
+			cfg.LocalAddr, cfg.Interface, ErrInterfaceUnresolved, err)
+	}
+	cfg.IfIndex = ifIndex
+	return cfg, nil
+}
+
+func (m *Manager) verifySessionInterface(cfg SessionConfig) error {
+	if cfg.Type != SessionTypeSingleHop || cfg.IfIndex == 0 || m.resolveIfIndex == nil {
+		return nil
+	}
+	index, err := m.resolveIfIndex(cfg.LocalAddr, cfg.Interface)
+	if err != nil || index != cfg.IfIndex {
+		return fmt.Errorf("verify receive interface after sender acquisition: %w",
+			errors.Join(ErrInterfaceUnresolved, err))
 	}
 	return nil
+}
+
+func acquireSenderLease(factory SenderLeaseFactory) (*SenderLease, error) {
+	if factory == nil {
+		return nil, ErrSenderLeaseFactoryNil
+	}
+	lease, err := factory()
+	if err != nil {
+		return lease, err
+	}
+	if lease == nil {
+		return nil, ErrSenderLeaseNil
+	}
+	if lease.Sender() == nil {
+		return lease, ErrSenderLeaseSenderNil
+	}
+	return lease, nil
+}
+
+func closeSenderLeaseError(lease *SenderLease) error {
+	if err := lease.Close(); err != nil {
+		return fmt.Errorf("close sender lease: %w", err)
+	}
+	return nil
+}
+
+func (m *Manager) claimExisting(
+	ctx context.Context,
+	key SessionKey,
+	effective effectiveSessionConfig,
+	owner SessionOwner,
+	idempotent bool,
+) (*Session, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, true, fmt.Errorf("claim existing session: %w", err)
+	}
+	if _, retiring := m.retiringSessions[key]; retiring {
+		return nil, true, fmt.Errorf("claim retiring session: %w", ErrDuplicateSession)
+	}
+
+	entry, exists := m.sessionsByKey[key]
+	if !exists {
+		return nil, false, nil
+	}
+	session, err := entry.claimExisting(key, effective, owner, idempotent)
+	return session, true, err
+}
+
+// claimExisting requires Manager.mu and is shared by both registration checks.
+func (entry *sessionEntry) claimExisting(
+	key SessionKey, effective effectiveSessionConfig, owner SessionOwner, idempotent bool,
+) (*Session, error) {
+	status := entry.refreshTimerSnapshot()
+	_, owned := entry.owners[owner]
+	if status.Unresolved && !owned {
+		return nil, ErrSessionParameterConflict
+	}
+	if entry.effective != effective {
+		return nil, fmt.Errorf("claim session %+v for owner %+v: %w",
+			key, owner, ErrSessionParameterConflict)
+	}
+	if _, owned := entry.owners[owner]; owned {
+		if idempotent {
+			return entry.session, nil
+		}
+		return nil, fmt.Errorf("claim session %+v for owner %+v: %w",
+			key, owner, ErrDuplicateSession)
+	}
+
+	entry.owners[owner] = struct{}{}
+	entry.publishUnsolicitedOwnership()
+	return entry.session, nil
 }
 
 // allocateAndBuild allocates a discriminator and constructs the session.
@@ -82,6 +229,7 @@ func (m *Manager) allocateAndBuild(
 
 	sess, err := NewSession(cfg, discr, sender, m.rawNotifyCh, m.logger,
 		WithMetrics(m.metrics),
+		withManagerDelivery(m),
 	)
 	if err != nil {
 		m.discriminators.Release(discr)
@@ -96,33 +244,115 @@ func (m *Manager) allocateAndBuild(
 // between the initial RLock check and this WLock.
 func (m *Manager) registerAndStart(
 	ctx context.Context,
-	key sessionKey,
+	key SessionKey,
+	cfg SessionConfig,
+	effective effectiveSessionConfig,
+	owner SessionOwner,
+	idempotent bool,
 	discr uint32,
 	sess *Session,
-) error {
+	senderLease *SenderLease,
+) (*Session, bool, error) {
+	demuxKey := demuxKeyFromSessionConfig(cfg)
+
 	m.mu.Lock()
-	if _, dup := m.sessionsByPeer[key]; dup {
+	if err := ctx.Err(); err != nil {
 		m.mu.Unlock()
-		return fmt.Errorf(
+		return nil, false, fmt.Errorf("register session: %w", err)
+	}
+	if owner.Source == SessionOwnerSourceUnsolicited && !m.unsolicitedIngressCurrent(cfg.Interface, cfg.IfIndex) {
+		m.mu.Unlock()
+		return nil, false, fmt.Errorf("register unsolicited receive interface: %w", ErrInterfaceUnresolved)
+	}
+	if _, retiring := m.retiringSessions[key]; retiring {
+		m.mu.Unlock()
+		return nil, false, fmt.Errorf("register retiring session: %w", ErrDuplicateSession)
+	}
+	if entry, exists := m.sessionsByKey[key]; exists {
+		session, err := entry.claimExisting(key, effective, owner, idempotent)
+		m.mu.Unlock()
+		return session, false, err
+	}
+	if _, dup := m.sessionsByPeer[demuxKey]; dup {
+		m.mu.Unlock()
+		return nil, false, fmt.Errorf(
 			"create session for peer %s: %w",
-			key.peerAddr, ErrDuplicateSession,
+			key.PeerAddr, ErrDuplicateSession,
 		)
 	}
+	counts := m.insertSessionLocked(ctx, key, demuxKey, effective, owner, discr, sess, senderLease)
+	m.mu.Unlock()
+	m.reportFanoutDelivery(counts)
 
-	entry := &sessionEntry{session: sess, key: key}
+	return sess, true, nil
+}
+
+// insertSessionLocked installs a prepared session after both registry keys have
+// been checked. Caller holds Manager.mu and the ownership mutation guard.
+func (m *Manager) insertSessionLocked(
+	ctx context.Context, key SessionKey, demuxKey packetDemuxKey,
+	effective effectiveSessionConfig, owner SessionOwner, discr uint32,
+	sess *Session, senderLease *SenderLease,
+) fanoutDelivery {
+	entry := &sessionEntry{
+		session:     sess,
+		senderLease: senderLease,
+		key:         key,
+		demuxKey:    demuxKey,
+		effective:   effective,
+		owners:      map[SessionOwner]struct{}{owner: {}},
+		done:        make(chan struct{}),
+	}
+	sess.mu.Lock()
+	sess.updateNotify = m.timerUpdateCh
+	sess.observationClock = &m.observationClock
+	sess.observation.ObservationVersion = sess.nextObservationVersionLocked()
+	entry.publishUnsolicitedOwnershipLocked()
+	sess.mu.Unlock()
 	// Decouple session lifetime from the parent context so that SIGTERM
 	// does not immediately cancel sessions. Graceful shutdown first sets
 	// AdminDown (DrainAllSessions), waits for packets to be sent, and
 	// only then calls Manager.Close which cancels each session explicitly.
 	sessCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	entry.cancel = cancel
-	go sess.Run(sessCtx)
-
+	senderLease.bindInterrupt(sessCtx)
+	sess.senderLease = senderLease
 	m.sessions[discr] = entry
-	m.sessionsByPeer[key] = entry
-	m.mu.Unlock()
+	m.sessionsByPeer[demuxKey] = entry
+	m.sessionsByKey[key] = entry
+	status := snapshotOf(sess)
+	added := stateChangeOf(status, status.State)
+	added.Added = true
+	counts := m.broadcastStateChange(added)
+	m.startSession(sessCtx, entry, sess)
+	return counts
+}
 
-	return nil
+func (m *Manager) startSession(ctx context.Context, entry *sessionEntry, sess *Session) {
+	m.workers.Go(func() {
+		defer close(entry.done)
+		sess.Run(ctx)
+	})
+}
+
+// packetDemuxKeyFromMeta builds the initial demux key of a received packet.
+// Zones are dropped on both sides: ifName already identifies the link, and
+// IPV6_PKTINFO reports an unzoned destination.
+func packetDemuxKeyFromMeta(meta PacketMeta) packetDemuxKey {
+	return packetDemuxKey{
+		peerAddr: meta.SrcAddr.Unmap().WithZone(""), localAddr: meta.DstAddr.Unmap().WithZone(""),
+		ifName: meta.IfName, transportScope: packetTransportScope(meta.TransportScope),
+	}
+}
+
+func demuxKeyFromSessionConfig(cfg SessionConfig) packetDemuxKey {
+	cfg = canonicalSessionConfig(cfg)
+	return packetDemuxKey{
+		peerAddr:       cfg.PeerAddr.WithZone(""),
+		localAddr:      cfg.LocalAddr.WithZone(""),
+		ifName:         cfg.Interface,
+		transportScope: packetTransportScope(cfg.TransportScope),
+	}
 }
 
 // logSessionCreated logs the successful creation of a BFD session and
@@ -147,35 +377,107 @@ func (m *Manager) logSessionCreated(cfg SessionConfig, discr uint32) {
 // Session CRUD — Destroy
 // -------------------------------------------------------------------------
 
-// DestroySession stops and removes the session identified by localDiscr.
-//
-// The session goroutine is cancelled, the session is removed from both
-// lookup maps, and the discriminator is released for reuse.
+// DestroySession releases the compatibility/API claim identified by
+// localDiscr. The wire session is destroyed only when that was its last claim.
 //
 // Returns ErrSessionNotFound if no session exists with the given discriminator.
-func (m *Manager) DestroySession(_ context.Context, localDiscr uint32) error {
+func (m *Manager) DestroySession(ctx context.Context, localDiscr uint32) error {
+	return m.DestroySessionAs(ctx, localDiscr, compatibilityAPISessionOwner())
+}
+
+// DestroySessionAs releases the claim of one API owner. It returns
+// ErrSessionOwnerClaimNotFound when that owner holds no claim on the
+// session, so one principal cannot release another's session.
+func (m *Manager) DestroySessionAs(ctx context.Context, localDiscr uint32, owner SessionOwner) error {
+	op, err := m.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer op.finish()
+
+	m.ownershipMu.Lock()
+	_, retired, err := m.detachSessionClaimByDiscriminator(localDiscr, owner)
+	m.ownershipMu.Unlock()
+	op.unlockMutation()
+	if retired != nil {
+		cleanupErr := errors.Join(m.finishRetiredSessions(ctx, []retiredSession{*retired})...)
+		err = errors.Join(err, cleanupErr)
+	}
+	return err
+}
+
+func (m *Manager) detachSessionClaimByDiscriminator(
+	localDiscr uint32,
+	owner SessionOwner,
+) (bool, *retiredSession, error) {
 	m.mu.Lock()
 	entry, ok := m.sessions[localDiscr]
 	if !ok {
 		m.mu.Unlock()
-		return fmt.Errorf(
-			"destroy session with discriminator %d: %w",
-			localDiscr, ErrSessionNotFound,
-		)
+		return false, nil, fmt.Errorf("destroy session with discriminator %d: %w",
+			localDiscr, ErrSessionNotFound)
+	}
+	if _, owned := entry.owners[owner]; !owned {
+		m.mu.Unlock()
+		return false, nil, fmt.Errorf("release session %d for owner %+v: %w",
+			localDiscr, owner, ErrSessionOwnerClaimNotFound)
+	}
+	if owner.Source == SessionOwnerSourceUnsolicited {
+		entry.unsolicited = false
+		if m.unsolicited != nil {
+			m.unsolicited.release()
+		}
+	}
+	if len(entry.owners) > 1 {
+		delete(entry.owners, owner)
+		entry.publishUnsolicitedOwnership()
+		m.mu.Unlock()
+		return false, nil, nil
 	}
 
-	// Remove from both maps.
-	delete(m.sessions, localDiscr)
-	delete(m.sessionsByPeer, entry.key)
+	// Detach the public wire identity after its last claim.
+	counts := m.removeSessionLocked(localDiscr, entry)
 	m.mu.Unlock()
+	m.reportFanoutDelivery(counts)
 
-	if entry.unsolicited && m.unsolicited != nil {
-		m.unsolicited.release()
+	return true, &retiredSession{localDiscr: localDiscr, entry: entry}, nil
+}
+
+// removeSessionLocked detaches one physical identity. Its owner drains and
+// releases the captured entry after all Manager locks have been released.
+func (m *Manager) removeSessionLocked(localDiscr uint32, entry *sessionEntry) fanoutDelivery {
+	m.retiringSessions[entry.key] = entry
+	delete(m.sessions, localDiscr)
+	delete(m.sessionsByPeer, entry.demuxKey)
+	delete(m.sessionsByKey, entry.key)
+	session := entry.session
+	session.mu.Lock()
+	observation := session.observation
+	observation.ObservationVersion = session.nextObservationVersionLocked()
+	session.mu.Unlock()
+	deleted := stateChangeOf(snapshotForObservation(session, observation), observation.State)
+	deleted.Deleted = true
+	return m.broadcastStateChange(deleted)
+}
+
+func (m *Manager) finishSessionDestroy(localDiscr uint32, entry *sessionEntry) {
+	if err := m.finishSessionDestroyError(localDiscr, entry); err != nil {
+		return
 	}
+}
 
+func (m *Manager) finishSessionDestroyError(localDiscr uint32, entry *sessionEntry) error {
 	// Cancel session goroutine (outside lock to avoid holding lock during
 	// goroutine teardown).
 	entry.cancel()
+	<-entry.done
+	closeErr := entry.senderLease.Close()
+	if closeErr != nil {
+		m.logger.Warn("failed to close session sender lease",
+			slog.Uint64("local_discr", uint64(localDiscr)),
+			slog.String("error", closeErr.Error()),
+		)
+	}
 
 	// Release discriminator for reuse.
 	m.discriminators.Release(localDiscr)
@@ -185,12 +487,19 @@ func (m *Manager) DestroySession(_ context.Context, localDiscr uint32) error {
 		entry.session.LocalAddr(),
 		entry.session.Type().String(),
 	)
+	m.mu.Lock()
+	if m.retiringSessions[entry.key] == entry {
+		delete(m.retiringSessions, entry.key)
+	}
+	m.mu.Unlock()
 
 	m.logger.Info("session destroyed",
 		slog.String("peer", entry.session.PeerAddr().String()),
 		slog.Uint64("local_discr", uint64(localDiscr)),
 	)
-
+	if closeErr != nil {
+		return fmt.Errorf("destroy session %d sender lease: %w", localDiscr, closeErr)
+	}
 	return nil
 }
 
@@ -205,7 +514,7 @@ func (m *Manager) HandleInterfaceEvent(ifName string, up bool) int {
 	m.mu.RLock()
 	matches := make([]*Session, 0)
 	for _, entry := range m.sessions {
-		if entry.key.ifName == ifName {
+		if entry.key.Interface == ifName {
 			matches = append(matches, entry.session)
 		}
 	}
@@ -213,7 +522,7 @@ func (m *Manager) HandleInterfaceEvent(ifName string, up bool) int {
 
 	affected := 0
 	for _, sess := range matches {
-		if sess.SetPathDown() {
+		if sess.SetPathDown() == DeliveryQueued {
 			affected++
 		}
 	}
@@ -248,7 +557,7 @@ func (m *Manager) LookupByDiscriminator(discr uint32) (*Session, bool) {
 // LookupByPeer returns the session matching the given peer key.
 // This is the fallback lookup for initial packets where Your Discriminator == 0
 // (RFC 5880 Section 6.8.6).
-func (m *Manager) LookupByPeer(key sessionKey) (*Session, bool) {
+func (m *Manager) LookupByPeer(key packetDemuxKey) (*Session, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -274,159 +583,240 @@ func (m *Manager) LookupByPeer(key sessionKey) (*Session, bool) {
 //
 // Returns ErrDemuxNoMatch if no session matches. The caller (listener loop)
 // should log and discard the packet.
-func (m *Manager) Demux(pkt *ControlPacket, meta PacketMeta) error {
-	// Tier 1: lookup by Your Discriminator (RFC 5880 Section 6.8.6).
+func (m *Manager) Demux(pkt *ControlPacket, meta PacketMeta) (DeliveryOutcome, error) {
 	if pkt.YourDiscriminator != 0 {
-		sess, ok := m.LookupByDiscriminator(pkt.YourDiscriminator)
-		if !ok {
-			return fmt.Errorf(
-				"demux: your discriminator %d not found: %w",
-				pkt.YourDiscriminator, ErrDemuxNoMatch,
-			)
+		return m.demuxByDiscr(pkt, meta, nil)
+	}
+	key := packetDemuxKeyFromMeta(meta)
+	sess, ok := m.LookupByPeer(key)
+	if !ok {
+		m.RecordDelivery(DeliveryDemux, DeliveryUnknownSession)
+		return DeliveryUnknownSession, fmt.Errorf("demux: peer %s -> %s (iface=%s): %w",
+			meta.SrcAddr, meta.DstAddr, meta.IfName, ErrDemuxNoMatch)
+	}
+	outcome, binding, err := m.checkSessionTransport(sess, meta)
+	if err != nil {
+		return outcome, err
+	}
+	return admitControlPacket(sess, pkt, nil, meta.ReceiveTiming, binding)
+}
+
+// DemuxWithWire returns Queued only for admission, never owner commit. A
+// non-nil ancillary lease-close error can accompany a Queued outcome.
+func (m *Manager) DemuxWithWire(pkt ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
+	if pkt.YourDiscriminator != 0 {
+		return m.demuxByDiscr(&pkt, meta, wire)
+	}
+	return m.demuxByPeer(&pkt, meta, wire)
+}
+
+func (m *Manager) demuxByDiscr(pkt *ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
+	m.mu.RLock()
+	entry, ok := m.sessions[pkt.YourDiscriminator]
+	m.mu.RUnlock()
+	if !ok {
+		m.RecordDelivery(DeliveryDemux, DeliveryUnknownSession)
+		return DeliveryUnknownSession, fmt.Errorf("demux: your discriminator %d not found: %w",
+			pkt.YourDiscriminator, ErrDemuxNoMatch)
+	}
+	if entry.demuxKey.transportScope != packetTransportScope(meta.TransportScope) {
+		m.RecordDelivery(DeliveryDemux, DeliveryScopeMismatch)
+		return DeliveryScopeMismatch, fmt.Errorf("demux: discriminator %d transport scope mismatch: %w",
+			pkt.YourDiscriminator, ErrDemuxNoMatch)
+	}
+	outcome, binding, err := m.checkSessionTransport(entry.session, meta)
+	if err != nil {
+		return outcome, err
+	}
+	return admitControlPacket(entry.session, pkt, wire, meta.ReceiveTiming, binding)
+}
+
+func (m *Manager) demuxByPeer(pkt *ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
+	key := packetDemuxKeyFromMeta(meta)
+	sess, ok := m.LookupByPeer(key)
+	// A configured address listener can have no interface binding.
+	if !ok && m.unsolicited != nil && meta.IfName == "" && !meta.MultiHop {
+		if names := m.unsolicited.interfaceNames.Load(); names != nil {
+			meta.IfName = (*names)[meta.IfIndex]
 		}
-		sess.RecvPacket(pkt)
-		return nil
+		if meta.IfName != "" {
+			key.ifName = meta.IfName
+			sess, ok = m.LookupByPeer(key)
+		}
 	}
-
-	// Tier 2: lookup by peer key when Your Discriminator == 0.
-	// RFC 5880 Section 6.8.6: Your Discriminator may be zero only when
-	// State is Down or AdminDown (validated by UnmarshalControlPacket step 7b).
-	key := sessionKey{
-		peerAddr:  meta.SrcAddr,
-		localAddr: meta.DstAddr,
-		ifName:    meta.IfName,
-	}
-
-	sess, ok := m.LookupByPeer(key)
-	if !ok {
-		return fmt.Errorf(
-			"demux: no session for peer %s -> %s (iface=%s): %w",
-			meta.SrcAddr, meta.DstAddr, meta.IfName, ErrDemuxNoMatch,
-		)
-	}
-
-	sess.RecvPacket(pkt)
-	return nil
-}
-
-// DemuxWithWire routes a packet like Demux but also passes raw wire
-// bytes to the session for authentication verification (RFC 5880 Section 6.7).
-func (m *Manager) DemuxWithWire(
-	pkt *ControlPacket,
-	meta PacketMeta,
-	wire []byte,
-) error {
-	// Tier 1: lookup by Your Discriminator (RFC 5880 Section 6.8.6).
-	if pkt.YourDiscriminator != 0 {
-		return m.demuxByDiscr(pkt, wire)
-	}
-
-	// Tier 2: lookup by peer key when Your Discriminator == 0.
-	return m.demuxByPeer(pkt, meta, wire)
-}
-
-// demuxByDiscr routes a packet by Your Discriminator (tier 1).
-func (m *Manager) demuxByDiscr(pkt *ControlPacket, wire []byte) error {
-	sess, ok := m.LookupByDiscriminator(pkt.YourDiscriminator)
-	if !ok {
-		return fmt.Errorf(
-			"demux: your discriminator %d not found: %w",
-			pkt.YourDiscriminator, ErrDemuxNoMatch,
-		)
-	}
-	sess.RecvPacket(pkt, wire)
-	return nil
-}
-
-// demuxByPeer routes a packet by peer key (tier 2).
-// If no matching session exists and unsolicited BFD is enabled (RFC 9468),
-// attempts to auto-create a passive session for the peer.
-func (m *Manager) demuxByPeer(
-	pkt *ControlPacket,
-	meta PacketMeta,
-	wire []byte,
-) error {
-	key := sessionKey{
-		peerAddr:  meta.SrcAddr,
-		localAddr: meta.DstAddr,
-		ifName:    meta.IfName,
-	}
-
-	sess, ok := m.LookupByPeer(key)
 	if ok {
-		sess.RecvPacket(pkt, wire)
-		return nil
+		outcome, binding, err := m.checkSessionTransport(sess, meta)
+		if err != nil {
+			return outcome, err
+		}
+		return admitControlPacket(sess, pkt, wire, meta.ReceiveTiming, binding)
 	}
-
-	// RFC 9468: attempt unsolicited session creation.
+	m.RecordDelivery(DeliveryDemux, DeliveryUnknownSession)
 	if m.unsolicited != nil {
 		return m.tryCreateUnsolicited(pkt, meta, wire)
 	}
-
-	return fmt.Errorf(
-		"demux: no session for peer %s -> %s (iface=%s): %w",
-		meta.SrcAddr, meta.DstAddr, meta.IfName, ErrDemuxNoMatch,
-	)
+	return DeliveryUnknownSession, fmt.Errorf("demux: peer %s -> %s (iface=%s): %w",
+		meta.SrcAddr, meta.DstAddr, meta.IfName, ErrDemuxNoMatch)
 }
 
-// tryCreateUnsolicited validates the unsolicited policy and creates a
-// passive BFD session for the incoming packet (RFC 9468 Section 2).
-func (m *Manager) tryCreateUnsolicited(
-	pkt *ControlPacket,
-	meta PacketMeta,
-	wire []byte,
-) error {
-	// RFC 9468 Section 6.1: unsolicited BFD is single-hop only.
-	// Multi-hop packets arrive on port 4784; single-hop on 3784.
-	// We use the interface name as a proxy: multi-hop sessions have no interface.
-	// Also validate via policy.
-
-	if err := m.unsolicited.reserve(meta.SrcAddr, meta.IfName); err != nil {
-		return fmt.Errorf(
-			"unsolicited: peer %s on %s: %w",
-			meta.SrcAddr, meta.IfName, err,
-		)
+// checkSessionTransport applies the per-session transport contract after demux
+// and records the demux outcome. A multihop (RFC 5883) packet never reaches
+// a single-hop session and vice versa (RFC 5881 Section 5); a single-hop
+// session accepts only its bound interface (RFC 5881 Section 3); a multihop
+// session applies its hop policy per session (RFC 5082 Section 3).
+func (m *Manager) checkSessionTransport(sess *Session, meta PacketMeta) (DeliveryOutcome, *receiveBinding, error) {
+	binding := sess.receiveBinding.Load()
+	outcome := sess.transportOutcomeAt(meta, binding)
+	m.RecordDelivery(DeliveryDemux, outcome)
+	if outcome == DeliveryScopeMismatch {
+		return outcome, binding, fmt.Errorf("demux: session %d transport class or interface mismatch "+
+			"(multihop=%t iface=%s ifindex=%d): %w",
+			sess.LocalDiscriminator(), meta.MultiHop, meta.IfName, meta.IfIndex, ErrDemuxNoMatch)
 	}
+	if outcome == DeliveryTTLRejected {
+		return outcome, binding, fmt.Errorf("demux: session %d TTL %d outside its hop policy: %w",
+			sess.LocalDiscriminator(), meta.TTL, ErrDemuxTTLRejected)
+	}
+	return outcome, binding, nil
+}
 
-	defaults := m.unsolicited.policy.SessionDefaults
-	cfg := SessionConfig{
-		PeerAddr:              meta.SrcAddr,
+func admitControlPacket(
+	sess *Session, pkt *ControlPacket, wire []byte, timing ReceiveTiming, binding *receiveBinding,
+) (DeliveryOutcome, error) {
+	outcome := sess.recvPacket(pkt, wire, timing, binding)
+	switch outcome {
+	case DeliveryQueued:
+		return outcome, nil
+	case DeliveryQueueFull:
+		return outcome, ErrDeliveryQueueFull
+	default:
+		return outcome, errors.Join(ErrDeliveryClosed, ErrSessionStopped)
+	}
+}
+
+func (m *Manager) tryCreateUnsolicited(pkt *ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
+	op, err := m.beginOperation()
+	if err != nil {
+		m.RecordDelivery(DeliveryUnsolicitedAdmission, DeliveryClosed)
+		return DeliveryClosed, err
+	}
+	defer op.finish()
+	m.ownershipMu.Lock()
+	if admitErr := m.unsolicited.admit(pkt, meta, wire); admitErr != nil {
+		m.ownershipMu.Unlock()
+		outcome := unsolicitedRejection(m.unsolicited.policy, pkt, admitErr)
+		m.RecordDelivery(DeliveryUnsolicitedAdmission, outcome)
+		return outcome, fmt.Errorf("unsolicited: peer %s on %s: %w", meta.SrcAddr, meta.IfName, admitErr)
+	}
+	cfg := unsolicitedSessionConfig(meta, m.unsolicited.policy)
+	if m.unsolicitedSessionSender == nil {
+		m.unsolicited.release()
+		m.ownershipMu.Unlock()
+		m.RecordDelivery(DeliveryUnsolicitedAdmission, DeliverySenderUnavailable)
+		return DeliverySenderUnavailable, fmt.Errorf("unsolicited: no sender for peer %s: %w",
+			meta.SrcAddr, ErrUnsolicitedDisabled)
+	}
+	senderFactory := func() (*SenderLease, error) { return m.unsolicitedSessionSender(meta) }
+	sess, _, unusedLease, err := m.claimSession(context.Background(), cfg, senderFactory, unsolicitedSessionOwner(), false)
+	if err != nil {
+		m.unsolicited.release()
+		m.ownershipMu.Unlock()
+		op.unlockMutation()
+		m.RecordDelivery(DeliveryUnsolicitedAdmission, DeliveryCreateFailed)
+		if closeErr := closeSenderLeaseError(unusedLease); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+		return DeliveryCreateFailed, fmt.Errorf("unsolicited: create session for peer %s: %w", meta.SrcAddr, err)
+	}
+	m.markSessionUnsolicited(sess.LocalDiscriminator())
+	outcome, retired, admissionErr := m.activateUnsolicitedClaim(sess, pkt, meta, wire)
+	m.ownershipMu.Unlock()
+	op.unlockMutation()
+	if retired != nil {
+		admissionErr = errors.Join(admissionErr, m.finishSessionDestroyError(retired.localDiscr, retired.entry))
+	}
+	if closeErr := closeSenderLeaseError(unusedLease); closeErr != nil {
+		return outcome, errors.Join(admissionErr,
+			fmt.Errorf("unsolicited: close unused sender for peer %s: %w", meta.SrcAddr, closeErr))
+	}
+	return outcome, admissionErr
+}
+
+func unsolicitedRejection(policy *UnsolicitedPolicy, pkt *ControlPacket, err error) DeliveryOutcome {
+	switch {
+	case errors.Is(err, ErrUnsolicitedMaxSessions):
+		return DeliveryCapacityRejected
+	case errors.Is(err, ErrUnsolicitedRateLimited):
+		return DeliveryRateRejected
+	case errors.Is(err, ErrUnsolicitedAuthFailed):
+		if policy.Auth == nil && pkt.AuthPresent {
+			return DeliveryAuthUnexpected
+		}
+		if !pkt.AuthPresent || pkt.Auth.IsZero() {
+			return DeliveryAuthMissing
+		}
+		return DeliveryAuthFailed
+	default:
+		return DeliveryPolicyRejected
+	}
+}
+
+func unsolicitedSessionConfig(meta PacketMeta, policy *UnsolicitedPolicy) SessionConfig {
+	defaults := policy.SessionDefaults
+	return SessionConfig{
+		Auth:     policy.Auth,
+		AuthKeys: policy.AuthKeys,
+		// Invariant: Interface names the receive link, so the peer zone is
+		// redundant; Go may render it numerically, which would contradict
+		// Interface in validateSessionZones.
+		PeerAddr:              meta.SrcAddr.WithZone(""),
 		LocalAddr:             meta.DstAddr,
 		Interface:             meta.IfName,
+		IfIndex:               meta.IfIndex,
 		Type:                  SessionTypeSingleHop,
 		Role:                  RolePassive,
 		DesiredMinTxInterval:  defaults.DesiredMinTxInterval,
 		RequiredMinRxInterval: defaults.RequiredMinRxInterval,
 		DetectMultiplier:      defaults.DetectMultiplier,
 	}
+}
 
-	sender := m.unsolicitedSender
-	if sender == nil {
-		return fmt.Errorf(
-			"unsolicited: no sender configured for peer %s: %w",
-			meta.SrcAddr, ErrUnsolicitedDisabled,
-		)
+func (m *Manager) activateUnsolicitedSession(
+	sess *Session,
+	pkt *ControlPacket,
+	meta PacketMeta,
+	wire []byte,
+) (DeliveryOutcome, error) {
+	binding := sess.receiveBinding.Load()
+	m.mu.RLock()
+	if !m.unsolicitedIngressCurrent(meta.IfName, meta.IfIndex) ||
+		sess.transportOutcomeAt(meta, binding) != DeliveryFound {
+		m.mu.RUnlock()
+		m.RecordDelivery(DeliveryUnsolicitedAdmission, DeliveryScopeMismatch)
+		return DeliveryScopeMismatch, fmt.Errorf("activate unsolicited receive interface: %w", ErrInterfaceUnresolved)
 	}
-
-	sess, err := m.CreateSession(context.Background(), cfg, sender)
-	if err != nil {
-		m.unsolicited.release()
-		return fmt.Errorf("unsolicited: create session for peer %s: %w", meta.SrcAddr, err)
-	}
-
-	m.markSessionUnsolicited(sess.LocalDiscriminator())
-
+	outcome, err := admitControlPacket(sess, pkt, wire, meta.ReceiveTiming, binding)
+	m.mu.RUnlock()
 	m.logger.Info("unsolicited session created (RFC 9468)",
 		slog.String("peer", meta.SrcAddr.String()),
 		slog.String("local", meta.DstAddr.String()),
 		slog.String("interface", meta.IfName),
 		slog.Uint64("local_discr", uint64(sess.LocalDiscriminator())),
 	)
+	return outcome, err
+}
 
-	// Deliver the initial packet that triggered session creation.
-	sess.RecvPacket(pkt, wire)
-
-	return nil
+// Caller holds ownershipMu; discard only this admission's claim on rejection.
+func (m *Manager) activateUnsolicitedClaim(
+	sess *Session, pkt *ControlPacket, meta PacketMeta, wire []byte,
+) (DeliveryOutcome, *retiredSession, error) {
+	outcome, err := m.activateUnsolicitedSession(sess, pkt, meta, wire)
+	if outcome == DeliveryScopeMismatch || outcome == DeliveryClosed {
+		_, retired, detachErr := m.detachSessionClaimByDiscriminator(sess.LocalDiscriminator(), unsolicitedSessionOwner())
+		return outcome, retired, errors.Join(err, detachErr)
+	}
+	m.RecordDelivery(DeliveryUnsolicitedAdmission, DeliveryAccepted)
+	return outcome, nil, err
 }
 
 func (m *Manager) markSessionUnsolicited(localDiscr uint32) {
@@ -450,39 +840,100 @@ func (m *Manager) markSessionUnsolicited(localDiscr uint32) {
 func (m *Manager) Sessions() []SessionSnapshot {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	return m.sessionsLocked()
+}
 
+// sessionsLocked copies the registry while the caller holds Manager.mu.
+func (m *Manager) sessionsLocked() []SessionSnapshot {
 	snapshots := make([]SessionSnapshot, 0, len(m.sessions))
-
 	for _, entry := range m.sessions {
-		s := entry.session
-		snapshots = append(snapshots, SessionSnapshot{
-			LocalDiscr:           s.LocalDiscriminator(),
-			RemoteDiscr:          s.RemoteDiscriminator(),
-			PeerAddr:             s.PeerAddr(),
-			LocalAddr:            s.LocalAddr(),
-			Interface:            s.Interface(),
-			Type:                 s.Type(),
-			State:                s.State(),
-			RemoteState:          s.RemoteState(),
-			LocalDiag:            s.LocalDiag(),
-			DesiredMinTx:         s.DesiredMinTxInterval(),
-			RequiredMinRx:        s.RequiredMinRxInterval(),
-			DetectMultiplier:     s.DetectMultiplier(),
-			NegotiatedTxInterval: s.NegotiatedTxInterval(),
-			DetectionTime:        s.DetectionTime(),
-			LastStateChange:      s.LastStateChange(),
-			LastPacketReceived:   s.LastPacketReceived(),
-			PaddedPduSize:        s.PaddedPduSize(),
-			AuthType:             s.AuthType(),
-			Counters: SessionCounters{
-				PacketsSent:      s.PacketsSent(),
-				PacketsReceived:  s.PacketsReceived(),
-				StateTransitions: s.StateTransitions(),
-			},
-		})
+		snapshots = append(snapshots, snapshotOf(entry.session))
 	}
-
 	return snapshots
+}
+
+// SessionsWithRevision returns the session snapshots and the dispatch
+// revision they cover. Every state change with a higher revision happened
+// after the snapshot was read, so a subscriber that subscribes first, then
+// takes this snapshot and skips events up to the revision misses nothing.
+// Events above the revision may repeat state already in the snapshot.
+func (m *Manager) SessionsWithRevision() ([]SessionSnapshot, uint64) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Read the revision before session state: sessions store their state
+	// before publishing the change. Hold the registry lock so a deleted
+	// session cannot be replaced between reading the revision and its snapshot.
+	rev := m.revision.Load()
+	return m.sessionsLocked(), rev
+}
+
+// WatchSessionsWithRevision snapshots both registries at one dispatch boundary.
+// Control-only List/Get and GoBGP consumers retain SessionsWithRevision.
+func (m *Manager) WatchSessionsWithRevision() ([]SessionSnapshot, uint64) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	rev := m.revision.Load()
+	snapshots := m.sessionsLocked()
+	for _, entry := range m.echoSessions {
+		snapshots = append(snapshots, entry.session.watchSnapshot())
+	}
+	return snapshots, rev
+}
+
+// Revision returns the revision of the last dispatched state change.
+func (m *Manager) Revision() uint64 { return m.revision.Load() }
+
+// SessionWithRevision returns the snapshot of one session by local
+// discriminator and the dispatch revision it covers.
+func (m *Manager) SessionWithRevision(discr uint32) (SessionSnapshot, uint64, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	rev := m.revision.Load()
+	entry, ok := m.sessions[discr]
+	if !ok {
+		return SessionSnapshot{}, rev, false
+	}
+	return snapshotOf(entry.session), rev, true
+}
+
+// snapshotOf copies the exported state of one session.
+func snapshotOf(s *Session) SessionSnapshot {
+	return snapshotForObservation(s, s.Observation())
+}
+
+// snapshotForObservation preserves the committed causal tuple while sampling
+// configuration, timers and counters at this publication or List boundary.
+func snapshotForObservation(s *Session, observation Observation) SessionSnapshot {
+	return SessionSnapshot{
+		LocalDiscr:           s.LocalDiscriminator(),
+		RemoteDiscr:          s.RemoteDiscriminator(),
+		PeerAddr:             s.PeerAddr(),
+		LocalAddr:            s.LocalAddr(),
+		Interface:            s.Interface(),
+		Type:                 s.Type(),
+		State:                observation.State,
+		RemoteState:          observation.RemoteState,
+		LocalDiag:            observation.LocalDiag,
+		RemoteKnown:          observation.RemoteKnown,
+		RemoteDiag:           observation.RemoteDiag,
+		LocalC:               observation.LocalC,
+		RemoteC:              observation.RemoteC,
+		Cause:                observation.Cause,
+		ObservationVersion:   observation.ObservationVersion,
+		Ref:                  s.Ref(),
+		DesiredMinTx:         s.DesiredMinTxInterval(),
+		RequiredMinRx:        s.RequiredMinRxInterval(),
+		RemoteMinRx:          s.RemoteMinRxInterval(),
+		DetectMultiplier:     s.DetectMultiplier(),
+		NegotiatedTxInterval: s.NegotiatedTxInterval(),
+		DetectionTime:        s.DetectionTime(),
+		LastStateChange:      s.LastStateChange(),
+		LastPacketReceived:   s.LastPacketReceived(),
+		PaddedPduSize:        s.PaddedPduSize(),
+		AuthType:             s.AuthType(),
+		Counters:             s.counters(),
+	}
 }
 
 // -------------------------------------------------------------------------
@@ -503,26 +954,54 @@ func (m *Manager) StateChanges() <-chan StateChange {
 }
 
 // SubscribeStateChanges returns a per-consumer channel that receives every
-// manager state change until ctx is cancelled. Slow subscribers drop their own
-// events without affecting other subscribers or session goroutines.
-func (m *Manager) SubscribeStateChanges(ctx context.Context) <-chan StateChange {
-	ch := make(chan StateChange, notifyChSize)
+// manager state change until ctx is cancelled or Manager.Close begins. With
+// WithShutdownNotificationDrain, Close joins producers and drains queued changes
+// before subscriber EOF; cancellation and overflow still limit delivery. Each
+// change carries a dispatch revision. A slow subscriber drops its own events
+// without affecting other subscribers or session goroutines, and receives a
+// StateChange with Gap set in their place: Watch resyncs from
+// WatchSessionsWithRevision; Control-only consumers use SessionsWithRevision.
+// Calls made after shutdown begins fail without registering a subscriber.
+func (m *Manager) SubscribeStateChanges(ctx context.Context) (<-chan StateChange, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("subscribe state changes with canceled context: %w", err)
+	}
+
+	m.lifecycleMu.RLock()
+	switch m.lifecycleState {
+	case managerClosing:
+		m.lifecycleMu.RUnlock()
+		return nil, ErrManagerClosing
+	case managerClosed:
+		m.lifecycleMu.RUnlock()
+		return nil, ErrManagerClosed
+	case managerOpen:
+	default:
+		m.lifecycleMu.RUnlock()
+		return nil, ErrManagerClosed
+	}
+
+	ch := make(chan StateChange, m.notificationCapacity)
 
 	m.subMu.Lock()
-	m.subscribers[ch] = struct{}{}
+	m.subscribers[ch] = &subscriber{}
 	m.subMu.Unlock()
 
-	go func() {
-		<-ctx.Done()
+	m.subscriberWorkers.Go(func() {
+		select {
+		case <-ctx.Done():
+		case <-m.subscriberShutdownCh:
+		}
 		m.subMu.Lock()
 		if _, ok := m.subscribers[ch]; ok {
 			delete(m.subscribers, ch)
 			close(ch)
 		}
 		m.subMu.Unlock()
-	}()
+	})
+	m.lifecycleMu.RUnlock()
 
-	return ch
+	return ch, nil
 }
 
 // -------------------------------------------------------------------------
@@ -533,6 +1012,8 @@ func (m *Manager) SubscribeStateChanges(ctx context.Context) <-chan StateChange 
 // The Manager creates sessions that are missing and destroys sessions
 // that no longer appear in the desired set.
 type ReconcileConfig struct {
+	// DesiredGeneration identifies the coordinator's durable desired intent.
+	DesiredGeneration uint64
 	// Key uniquely identifies the session for diffing purposes.
 	// Typically: "peer|local|interface".
 	Key string
@@ -540,14 +1021,14 @@ type ReconcileConfig struct {
 	// SessionConfig is the BFD session configuration to create if missing.
 	SessionConfig SessionConfig
 
-	// Sender provides the packet sending capability for new sessions.
-	Sender PacketSender
+	// SenderLeaseFactory lazily acquires the sender and its release operation
+	// only after Manager determines that a new physical session is required.
+	SenderLeaseFactory SenderLeaseFactory
 }
 
-// ReconcileSessions diffs the desired session set against the current sessions.
-// Sessions present in desired but absent are created. Sessions present in
-// current but absent from desired are destroyed. Existing sessions are left
-// untouched (parameter changes require a separate Poll Sequence mechanism).
+// ReconcileSessions reconciles only claims owned by the configuration source.
+// Compatibility/API claims and their wire sessions are preserved when absent
+// from desired. Existing exact sessions are shared across sources.
 //
 // Returns the number of sessions created and destroyed, and any errors
 // encountered. Partial failures are logged and accumulated; reconciliation
@@ -556,78 +1037,473 @@ func (m *Manager) ReconcileSessions(
 	ctx context.Context,
 	desired []ReconcileConfig,
 ) (int, int, error) {
-	// Build desired key set.
-	desiredKeys := make(map[string]ReconcileConfig, len(desired))
-	for _, rc := range desired {
-		desiredKeys[rc.Key] = rc
+	result := m.reconcileSessionsForOwner(ctx, configSessionOwner(), desired)
+	return result.wireCreated, result.wireDestroyed, result.Err()
+}
+
+// ReconcileSessionsForOwner reconciles only claims held by owner. Declarative
+// adapters use distinct typed owners so one source cannot release another
+// source's claims. Exact matching claims still share a wire session.
+func (m *Manager) ReconcileSessionsForOwner(
+	ctx context.Context,
+	owner SessionOwner,
+	desired []ReconcileConfig,
+) (int, int, error) {
+	result := m.reconcileSessionsForOwner(ctx, owner, desired)
+	return result.wireCreated, result.wireDestroyed, result.Err()
+}
+
+// ReconcileSessionsForOwnerDetailed reconciles one declarative owner's
+// complete desired set and returns claim-level net changes. Exact claims from
+// different owners may share one physical wire session, so these counts are
+// deliberately distinct from the legacy tuple returned above.
+func (m *Manager) ReconcileSessionsForOwnerDetailed(
+	ctx context.Context,
+	owner SessionOwner,
+	desired []ReconcileConfig,
+) ReconcileResult {
+	return m.reconcileSessionsForOwner(ctx, owner, desired)
+}
+
+func (m *Manager) reconcileSessionsForOwner(
+	ctx context.Context,
+	owner SessionOwner,
+	desired []ReconcileConfig,
+) ReconcileResult {
+	op, err := m.beginOperation()
+	if err != nil {
+		return failedReconcileResult(ReconcileErrorLifecycle, err)
+	}
+	defer op.finish()
+	if contextErr := ctx.Err(); contextErr != nil {
+		return failedReconcileResult(ReconcileErrorLifecycle, contextErr)
 	}
 
-	// Build current key set.
-	currentKeys := m.sessionKeySet()
+	if !isDeclarativeReconciliationOwner(owner) {
+		return failedReconcileResult(
+			ReconcileErrorInvalid,
+			fmt.Errorf("reconcile sessions for owner source %d ID %q: %w",
+				owner.Source, owner.ID, ErrInvalidReconciliationOwner),
+		)
+	}
 
-	// Destroy sessions not in desired set.
-	var created, destroyed int
-	var errs []error
-	for key, discr := range currentKeys {
-		if _, want := desiredKeys[key]; want {
+	m.ownershipMu.Lock()
+
+	desiredByKey, desiredOrder, err := compileReconcileConfigs(desired)
+	if err != nil {
+		m.ownershipMu.Unlock()
+		return failedReconcileResult(ReconcileErrorInvalid, err)
+	}
+
+	currentClaims, err := m.ownerClaimSnapshot(owner, desiredByKey, desiredOrder)
+	if err != nil {
+		m.ownershipMu.Unlock()
+		return failedReconcileResult(ReconcileErrorConflict, err)
+	}
+
+	// A source retains every old claim until all resource claims are available.
+	// Timer negotiation is independent and does not block unrelated removals.
+	result, retired, unusedLeases := m.claimDesiredOwnerSessions(
+		ctx, owner, desiredByKey, desiredOrder, currentClaims,
+	)
+	// Successful claims are already published. Cancellation before the release
+	// phase retains old claims without promising to undo those new identities.
+	if result.Failed == 0 && result.ResourcePending == 0 {
+		if err := ctx.Err(); err != nil {
+			addReconcileError(&result, ReconcileErrorLifecycle, fmt.Errorf("release stale source claims: %w", err))
+		}
+	}
+	if result.Failed == 0 && result.ResourcePending == 0 {
+		released, staleRetired := m.releaseStaleOwnerClaims(owner, desiredByKey, currentClaims)
+		result.Released += released.Released
+		result.wireDestroyed += released.wireDestroyed
+		result.Errors = append(result.Errors, released.Errors...)
+		result.Failed = len(result.Errors)
+		retired = append(retired, staleRetired...)
+	}
+	m.ownershipMu.Unlock()
+	op.unlockMutation()
+
+	m.finishReconcileCleanup(ctx, &result, retired, unusedLeases)
+
+	m.logSessionReconcileResult(result)
+
+	return result
+}
+
+func (m *Manager) finishReconcileCleanup(
+	ctx context.Context,
+	result *ReconcileResult, retired []retiredSession, unusedLeases []*SenderLease,
+) {
+	for _, cleanupErr := range m.finishRetiredSessions(ctx, retired) {
+		addReconcileError(result, ReconcileErrorCleanup, cleanupErr)
+	}
+	for _, lease := range unusedLeases {
+		if closeErr := closeSenderLeaseError(lease); closeErr != nil {
+			addReconcileError(result, ReconcileErrorCleanup, closeErr)
+		}
+	}
+}
+
+func (m *Manager) logSessionReconcileResult(result ReconcileResult) {
+	m.logger.Debug("session reconciliation source result",
+		slog.Int("created", result.Created),
+		slog.Int("updated", result.Updated),
+		slog.Int("pending", result.Pending),
+		slog.Int("released", result.Released),
+		slog.Int("failed", result.Failed),
+		slog.Bool("converged", result.Err() == nil),
+	)
+}
+
+// ValidateReconcileConfigs validates the complete desired set without opening
+// senders or mutating Manager state.
+func ValidateReconcileConfigs(desired []ReconcileConfig) error {
+	_, _, err := compileReconcileConfigs(desired)
+	return err
+}
+
+type reconcileCandidate struct {
+	config    ReconcileConfig
+	effective effectiveSessionConfig
+}
+
+func compileReconcileConfigs(
+	desired []ReconcileConfig,
+) (map[SessionKey]reconcileCandidate, []SessionKey, error) {
+	desiredByKey := make(map[SessionKey]reconcileCandidate, len(desired))
+	desiredOrder := make([]SessionKey, 0, len(desired))
+	for _, rc := range desired {
+		rc.SessionConfig = canonicalSessionConfig(rc.SessionConfig)
+		if err := ValidateSessionConfig(rc.SessionConfig); err != nil {
+			return nil, nil, fmt.Errorf("reconcile config %q: %w", rc.Key, err)
+		}
+		key, err := sessionKeyFromConfig(rc.SessionConfig)
+		if err != nil {
+			return nil, nil, fmt.Errorf("reconcile config %q: %w", rc.Key, err)
+		}
+		effective, err := normalizeEffectiveSessionConfig(rc.SessionConfig)
+		if err != nil {
+			return nil, nil, fmt.Errorf("reconcile config %q: %w", rc.Key, err)
+		}
+		if previous, exists := desiredByKey[key]; exists {
+			if previous.effective != effective {
+				return nil, nil, fmt.Errorf("reconcile duplicate session %+v: %w",
+					key, ErrSessionParameterConflict)
+			}
+			continue
+		}
+		desiredByKey[key] = reconcileCandidate{config: rc, effective: effective}
+		desiredOrder = append(desiredOrder, key)
+	}
+	return desiredByKey, desiredOrder, nil
+}
+
+func (m *Manager) ownerClaimSnapshot(
+	owner SessionOwner,
+	desiredByKey map[SessionKey]reconcileCandidate,
+	desiredOrder []SessionKey,
+) (map[SessionKey]uint32, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	currentClaims := make(map[SessionKey]uint32)
+	for key, entry := range m.sessionsByKey {
+		if _, owned := entry.owners[owner]; owned {
+			currentClaims[key] = entry.session.LocalDiscriminator()
+		}
+	}
+	for _, key := range desiredOrder {
+		entry, exists := m.sessionsByKey[key]
+		if !exists {
+			if _, _, err := m.replacementEntryLocked(owner, key, desiredByKey); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		status := entry.refreshTimerSnapshot()
+		candidate := desiredByKey[key].effective
+		if entry.canUpdateTimers(owner, candidate) {
+			if err := entry.session.validatePacketPolicyUpdate(candidate.updateTuple()); err != nil {
+				return nil, fmt.Errorf("reconcile session policy: %w", err)
+			}
+			continue
+		}
+		_, owned := entry.owners[owner]
+		if entry.effective != candidate || (status.Unresolved && !owned) {
+			return nil, fmt.Errorf("reconcile session %+v: %w",
+				key, ErrSessionParameterConflict)
+		}
+	}
+	return currentClaims, nil
+}
+
+func (m *Manager) releaseStaleOwnerClaims(
+	owner SessionOwner,
+	desiredByKey map[SessionKey]reconcileCandidate,
+	currentClaims map[SessionKey]uint32,
+) (ReconcileResult, []retiredSession) {
+	var result ReconcileResult
+	var retired []retiredSession
+	for key, discr := range currentClaims {
+		if _, want := desiredByKey[key]; want {
 			continue
 		}
 
-		m.logger.Info("reconcile: destroying removed session",
-			slog.String("key", key),
+		m.logger.Info("reconcile: releasing removed owner claim",
+			slog.Any("key", key),
+			slog.Any("owner", owner),
 			slog.Uint64("local_discr", uint64(discr)),
 		)
 
-		if dErr := m.DestroySession(ctx, discr); dErr != nil {
-			errs = append(errs, fmt.Errorf("reconcile destroy %s: %w", key, dErr))
+		wireDestroyed, detached, releaseErr := m.detachSessionClaimByDiscriminator(discr, owner)
+		if releaseErr != nil {
+			addReconcileError(&result, ReconcileErrorRelease,
+				fmt.Errorf("reconcile release %+v: %w", key, releaseErr))
 			continue
 		}
-
-		destroyed++
-	}
-
-	// Create sessions in desired but not in current.
-	for key, rc := range desiredKeys {
-		if _, exists := currentKeys[key]; exists {
-			continue
+		result.Released++
+		if wireDestroyed {
+			result.wireDestroyed++
+			retired = append(retired, *detached)
 		}
-
-		m.logger.Info("reconcile: creating new session",
-			slog.String("key", key),
-		)
-
-		if _, cErr := m.CreateSession(ctx, rc.SessionConfig, rc.Sender); cErr != nil {
-			errs = append(errs, fmt.Errorf("reconcile create %s: %w", key, cErr))
-			continue
-		}
-
-		created++
 	}
-
-	var err error
-	if len(errs) > 0 {
-		err = errors.Join(errs...)
-	}
-
-	m.logger.Info("session reconciliation complete",
-		slog.Int("created", created),
-		slog.Int("destroyed", destroyed),
-	)
-
-	return created, destroyed, err
+	return result, retired
 }
 
-// sessionKeySet returns a map of session key -> local discriminator for all
-// currently active sessions.
-func (m *Manager) sessionKeySet() map[string]uint32 {
+func (m *Manager) claimDesiredOwnerSessions(
+	ctx context.Context,
+	owner SessionOwner,
+	desiredByKey map[SessionKey]reconcileCandidate,
+	desiredOrder []SessionKey,
+	currentClaims map[SessionKey]uint32,
+) (ReconcileResult, []retiredSession, []*SenderLease) {
+	var result ReconcileResult
+	var retired []retiredSession
+	var unusedLeases []*SenderLease
+	var replacements []sessionReplacement
+	newClaims := make([]uint32, 0, len(desiredOrder))
+	for _, key := range desiredOrder {
+		rc := desiredByKey[key].config
+		if _, owned := currentClaims[key]; owned &&
+			m.reconcileExistingTimers(ctx, key, owner, desiredByKey[key], &result) {
+			continue
+		}
+		m.mu.RLock()
+		old, replacement, replacementErr := m.replacementEntryLocked(owner, key, desiredByKey)
+		m.mu.RUnlock()
+		if replacementErr != nil {
+			recordClaimError(&result, key, replacementErr)
+			continue
+		}
+		if replacement {
+			replacements = append(replacements, sessionReplacement{
+				key: key, config: rc, effective: desiredByKey[key].effective, old: old,
+			})
+			continue
+		}
+
+		m.logger.Info("reconcile: claiming desired owner session", slog.Any("key", key), slog.Any("owner", owner))
+
+		sess, wireCreated, unusedLease, claimErr := m.claimSession(
+			ctx, rc.SessionConfig, rc.SenderLeaseFactory, owner, true,
+		)
+		if unusedLease != nil {
+			unusedLeases = append(unusedLeases, unusedLease)
+		}
+		if claimErr != nil {
+			recordClaimError(&result, key, claimErr)
+			continue
+		}
+		if wireCreated {
+			result.wireCreated++
+		}
+		if _, alreadyClaimed := currentClaims[key]; !alreadyClaimed {
+			result.Created++
+			newClaims = append(newClaims, sess.LocalDiscriminator())
+		}
+	}
+	if result.Failed == 0 && len(replacements) > 0 {
+		replaced, discarded := m.replaceSessions(ctx, owner, replacements, currentClaims, &result)
+		retired = append(retired, replaced...)
+		unusedLeases = append(unusedLeases, discarded...)
+	}
+	if result.Failed > 0 {
+		retired = append(retired, m.rollbackNewClaims(owner, newClaims, &result)...)
+	}
+	return result, retired, unusedLeases
+}
+
+// rollbackNewClaims releases only claims added by a failed preparation pass.
+func (m *Manager) rollbackNewClaims(
+	owner SessionOwner, newClaims []uint32, result *ReconcileResult,
+) []retiredSession {
+	var retired []retiredSession
+	for _, discr := range newClaims {
+		wireDestroyed, detached, err := m.detachSessionClaimByDiscriminator(discr, owner)
+		if err != nil {
+			addReconcileError(result, ReconcileErrorRollback,
+				fmt.Errorf("rollback new session claim %d: %w", discr, err))
+			continue
+		}
+		result.Created--
+		if wireDestroyed {
+			result.wireCreated--
+			retired = append(retired, *detached)
+		}
+	}
+	return retired
+}
+
+// recordClaimError records an unresolvable single-hop receive interface or a
+// typed unavailable resource, such as a sender whose local address is not
+// yet assigned, as a pending source dependency: retried on interface and
+// address events, and neither a failure nor a reason to roll back
+// neighbouring claims. Other errors fail.
+func recordClaimError(result *ReconcileResult, key SessionKey, err error) {
+	err = fmt.Errorf("reconcile claim %+v: %w", key, err)
+	if _, unavailable := UnavailableResource(err); unavailable || errors.Is(err, ErrInterfaceUnresolved) {
+		result.ResourcePending++
+		result.resourceErrs = append(result.resourceErrs, err)
+		return
+	}
+	addReconcileError(result, ReconcileErrorCreate, err)
+}
+
+// Caller holds ownershipMu and an active lifecycle operation. Buffer preparation
+// runs outside the registry lock so unrelated demux readers remain independent.
+func (m *Manager) reconcileExistingTimers(
+	ctx context.Context, key SessionKey, owner SessionOwner, candidate reconcileCandidate, result *ReconcileResult,
+) bool {
+	m.mu.Lock()
+	entry := m.sessionsByKey[key]
+	if !entry.canUpdateTimers(owner, candidate.effective) {
+		m.mu.Unlock()
+		return false
+	}
+	m.mu.Unlock()
+	rc := candidate.config
+	status, updateErr := entry.session.admitTimerUpdate(ctx, candidate.effective.updateTuple(), rc.DesiredGeneration)
+	m.mu.Lock()
+	entry.refreshTimerSnapshot()
+	m.mu.Unlock()
+	switch {
+	case updateErr != nil || status.State == timerUpdateFailed:
+		addReconcileError(result, ReconcileErrorTimerFailed, errors.Join(ErrTimerUpdateFailed, updateErr))
+	case status.State == timerUpdatePending:
+		result.Pending++
+		result.TimerUpdates = append(result.TimerUpdates, TimerUpdateRef{
+			session: entry.session, LocalDiscriminator: entry.session.LocalDiscriminator(),
+			Revision: status.Requested.Revision, Generation: status.Requested.Generation,
+			DesiredMinTxInterval: status.Requested.Tuple.TX, RequiredMinRxInterval: status.Requested.Tuple.RX,
+			DetectMultiplier: status.Requested.Tuple.DetectMult,
+			MultiHopMinTTL:   status.Requested.Tuple.MinTTL, PaddedPduSize: status.Requested.Tuple.PaddedPduSize,
+		})
+	case status.Changed:
+		result.Updated++
+	}
+	return true
+}
+
+func (entry *sessionEntry) canUpdateTimers(owner SessionOwner, candidate effectiveSessionConfig) bool {
+	_, owned := entry.owners[owner]
+	if !owned || len(entry.owners) != 1 || owner != configSessionOwner() ||
+		entry.key.TransportScope.Kind != TransportScopeBase ||
+		(entry.key.Type != SessionTypeSingleHop && entry.key.Type != SessionTypeMultiHop) {
+		return false
+	}
+	current := entry.effective
+	current.DesiredMinTxInterval = candidate.DesiredMinTxInterval
+	current.RequiredMinRxInterval = candidate.RequiredMinRxInterval
+	current.DetectMultiplier = candidate.DetectMultiplier
+	current.MultiHopMinTTL = candidate.MultiHopMinTTL
+	current.PaddedPduSize = candidate.PaddedPduSize
+	return current == candidate
+}
+
+// Caller holds Manager.mu. Confirmation is read from the session rather than
+// predicted at admission, including late Finals of terminal failed requests.
+func (entry *sessionEntry) refreshTimerSnapshot() timerUpdateStatus {
+	status := entry.session.timerUpdateSnapshot()
+	entry.effective.DesiredMinTxInterval = status.Confirmed.TX
+	entry.effective.RequiredMinRxInterval = status.Confirmed.RX
+	entry.effective.DetectMultiplier = status.Confirmed.DetectMult
+	entry.effective.MultiHopMinTTL = status.Confirmed.MinTTL
+	entry.effective.PaddedPduSize = status.Confirmed.PaddedPduSize
+	return status
+}
+
+// TimerUpdates is the single daemon consumer's coalesced wake-up channel.
+// It is intentionally never closed: sessions may notify during shutdown;
+// the consumer's context owns its lifetime.
+func (m *Manager) TimerUpdates() <-chan struct{} { return m.timerUpdateCh }
+
+// TimerUpdateRef identifies one admitted physical-session transaction. It is
+// transient coordinator intent, not a public RPC or a consumable event.
+type TimerUpdateRef struct {
+	session                                     *Session
+	LocalDiscriminator                          uint32
+	Revision, Generation                        uint64
+	DesiredMinTxInterval, RequiredMinRxInterval time.Duration
+	DetectMultiplier                            uint8
+	MultiHopMinTTL                              uint8
+	PaddedPduSize                               uint16
+}
+
+// ObserveTimerUpdates cannot create resources, admit intent or retry failures.
+// A retired/replaced session never satisfies its predecessor's reference.
+func (m *Manager) ObserveTimerUpdates(refs []TimerUpdateRef) ReconcileResult {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
-	keys := make(map[string]uint32, len(m.sessionsByPeer))
-	for sk, entry := range m.sessionsByPeer {
-		key := sk.peerAddr.String() + "|" + sk.localAddr.String() + "|" + sk.ifName
-		keys[key] = entry.session.LocalDiscriminator()
+	var result ReconcileResult
+	for _, ref := range refs {
+		entry, exists := m.sessions[ref.LocalDiscriminator]
+		if !exists || entry.session != ref.session {
+			addReconcileError(&result, ReconcileErrorTimerFailed, ErrTimerUpdateFailed)
+			continue
+		}
+		status := entry.session.timerUpdateSnapshot()
+		switch {
+		case status.Requested.Revision != ref.Revision || status.Requested.Generation != ref.Generation ||
+			status.Requested.Tuple != (timerTuple{
+				ref.DesiredMinTxInterval, ref.RequiredMinRxInterval,
+				ref.DetectMultiplier, ref.MultiHopMinTTL, ref.PaddedPduSize,
+			}) ||
+			status.State == timerUpdateFailed:
+			addReconcileError(&result, ReconcileErrorTimerFailed, ErrTimerUpdateFailed)
+		case status.State == timerUpdatePending:
+			result.Pending++
+			result.TimerUpdates = append(result.TimerUpdates, ref)
+		case status.Changed:
+			result.Updated++
+		}
 	}
+	return result
+}
 
-	return keys
+// Bound final-claim notification with the daemon's shutdown budget.
+const defaultClaimDrainTimeout = 10 * time.Second
+
+func (m *Manager) finishRetiredSessions(ctx context.Context, retired []retiredSession) []error {
+	if len(retired) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, defaultClaimDrainTimeout)
+	defer cancel()
+
+	errs := make([]error, len(retired))
+	var workers sync.WaitGroup
+	for i, item := range retired {
+		workers.Go(func() {
+			if err := item.entry.session.drainAdminDown(ctx); err != nil {
+				errs[i] = fmt.Errorf("drain retired session %d: %w", item.localDiscr, err)
+			}
+		})
+	}
+	workers.Wait()
+	// Preserve the established order of sender release callbacks.
+	for i, item := range retired {
+		errs[i] = errors.Join(errs[i], m.finishSessionDestroyError(item.localDiscr, item.entry))
+	}
+	return errs
 }

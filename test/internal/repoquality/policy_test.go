@@ -17,6 +17,10 @@ func TestCommitPolicyMatchesPinnedCommitlintContract(t *testing.T) {
 	}{
 		{name: "lower case", message: "feat(bfd): add peer", wantOK: true},
 		{name: "sentence case", message: "docs: Update operator guide", wantOK: true},
+		{name: "Cyrillic lower case with acronym", message: "fix(release): проверка метаданных RPM", wantOK: true},
+		{name: "Cyrillic sentence case with acronym", message: "fix(release): Проверка метаданных RPM", wantOK: true},
+		{name: "Cyrillic upper case with acronym", message: "fix(release): ПРОВЕРКА RPM"},
+		{name: "Cyrillic upper case", message: "fix(release): ПРОВЕРКА"},
 		{name: "merge ignored", message: "Merge pull request #7 from example/topic", wantOK: true},
 		{name: "revert ignored", message: "Revert accidental change", wantOK: true},
 		{name: "unknown type", message: "feature(bfd): add peer"},

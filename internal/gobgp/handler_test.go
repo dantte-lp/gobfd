@@ -31,6 +31,8 @@ type mockClient struct {
 	calls  []mockCall
 	err    error // if set, all calls return this error
 	closed bool
+
+	adminDown map[string]bool
 }
 
 type mockCall struct {
@@ -63,6 +65,10 @@ func (b *blockingClient) EnablePeer(ctx context.Context, _ string) error {
 	<-ctx.Done()
 	close(b.done)
 	return ctx.Err()
+}
+
+func (b *blockingClient) PeerAdminDown(context.Context, string) (bool, error) {
+	return false, nil
 }
 
 func (b *blockingClient) Close() error {
@@ -104,6 +110,28 @@ func (m *mockClient) EnablePeer(_ context.Context, addr string) error {
 	})
 
 	return nil
+}
+
+// PeerAdminDown reports the administrative state set by setAdminDown; it is
+// not recorded as a call.
+func (m *mockClient) PeerAdminDown(_ context.Context, addr string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.err != nil {
+		return false, m.err
+	}
+	return m.adminDown[addr], nil
+}
+
+func (m *mockClient) setAdminDown(addr string, down bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.adminDown == nil {
+		m.adminDown = make(map[string]bool)
+	}
+	m.adminDown[addr] = down
 }
 
 func (m *mockClient) Close() error {
@@ -150,10 +178,11 @@ func TestHandlerBFDDownDisablesPeer(t *testing.T) {
 			_ = handler.Run(ctx, events)
 		}()
 
-		// BFD Up -> Down transition (RFC 5882 Section 4.3).
+		// BFD Up -> Down transition (RFC 5882 Section 10.2).
 		events <- bfd.StateChange{
 			LocalDiscr: 1,
 			PeerAddr:   netip.MustParseAddr("10.0.0.1"),
+			Type:       bfd.SessionTypeSingleHop,
 			OldState:   bfd.StateUp,
 			NewState:   bfd.StateDown,
 			Diag:       bfd.DiagControlTimeExpired,
@@ -205,29 +234,32 @@ func TestHandlerBFDUpEnablesPeer(t *testing.T) {
 			_ = handler.Run(ctx, events)
 		}()
 
-		// BFD Init -> Up transition.
+		// GoBFD enables only a peer it disabled: Down first, then Up.
+		events <- peerTransition(bfd.StateUp, bfd.StateDown)
+		waitForCalls(t, mock, 1)
 		events <- bfd.StateChange{
 			LocalDiscr: 1,
 			PeerAddr:   netip.MustParseAddr("10.0.0.1"),
-			OldState:   bfd.StateInit,
+			Type:       bfd.SessionTypeSingleHop,
+			OldState:   bfd.StateDown,
 			NewState:   bfd.StateUp,
 			Diag:       bfd.DiagNone,
 			Timestamp:  time.Now(),
 		}
 
-		waitForCalls(t, mock, 1)
+		waitForCalls(t, mock, 2)
 
 		calls := mock.getCalls()
-		if len(calls) != 1 {
-			t.Fatalf("expected 1 call, got %d", len(calls))
+		if len(calls) != 2 {
+			t.Fatalf("expected 2 calls, got %d", len(calls))
 		}
 
-		if calls[0].method != methodEnablePeer {
-			t.Errorf("expected %s, got %s", methodEnablePeer, calls[0].method)
+		if calls[1].method != methodEnablePeer {
+			t.Errorf("expected %s, got %s", methodEnablePeer, calls[1].method)
 		}
 
-		if calls[0].addr != "10.0.0.1" {
-			t.Errorf("expected addr 10.0.0.1, got %s", calls[0].addr)
+		if calls[1].addr != "10.0.0.1" {
+			t.Errorf("expected addr 10.0.0.1, got %s", calls[1].addr)
 		}
 
 		cancel()
@@ -257,6 +289,7 @@ func TestHandlerIgnoresNonActionableTransitions(t *testing.T) {
 		events <- bfd.StateChange{
 			LocalDiscr: 1,
 			PeerAddr:   netip.MustParseAddr("10.0.0.1"),
+			Type:       bfd.SessionTypeSingleHop,
 			OldState:   bfd.StateDown,
 			NewState:   bfd.StateInit,
 			Diag:       bfd.DiagNone,
@@ -267,6 +300,7 @@ func TestHandlerIgnoresNonActionableTransitions(t *testing.T) {
 		events <- bfd.StateChange{
 			LocalDiscr: 2,
 			PeerAddr:   netip.MustParseAddr("10.0.0.2"),
+			Type:       bfd.SessionTypeSingleHop,
 			OldState:   bfd.StateUp,
 			NewState:   bfd.StateAdminDown,
 			Diag:       bfd.DiagAdminDown,
@@ -277,6 +311,7 @@ func TestHandlerIgnoresNonActionableTransitions(t *testing.T) {
 		events <- bfd.StateChange{
 			LocalDiscr: 3,
 			PeerAddr:   netip.MustParseAddr("10.0.0.3"),
+			Type:       bfd.SessionTypeSingleHop,
 			OldState:   bfd.StateAdminDown,
 			NewState:   bfd.StateDown,
 			Diag:       bfd.DiagNone,
@@ -380,6 +415,7 @@ func TestHandlerGoBGPErrorNonFatal(t *testing.T) {
 		events <- bfd.StateChange{
 			LocalDiscr: 1,
 			PeerAddr:   netip.MustParseAddr("10.0.0.1"),
+			Type:       bfd.SessionTypeSingleHop,
 			OldState:   bfd.StateUp,
 			NewState:   bfd.StateDown,
 			Diag:       bfd.DiagControlTimeExpired,
@@ -428,6 +464,7 @@ func TestHandlerActionTimeoutBoundsGoBGPRPC(t *testing.T) {
 	events <- bfd.StateChange{
 		LocalDiscr: 1,
 		PeerAddr:   netip.MustParseAddr("10.0.0.1"),
+		Type:       bfd.SessionTypeSingleHop,
 		OldState:   bfd.StateUp,
 		NewState:   bfd.StateDown,
 		Diag:       bfd.DiagControlTimeExpired,
@@ -470,6 +507,9 @@ func TestNewHandlerInvalidStrategy(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid strategy")
 	}
+	if !errors.Is(err, gobgp.ErrInvalidStrategy) {
+		t.Fatalf("NewHandler() error = %v, want errors.Is ErrInvalidStrategy", err)
+	}
 }
 
 // -------------------------------------------------------------------------
@@ -487,6 +527,9 @@ func TestNewHandlerWithdrawRoutesUnsupported(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("expected error for unsupported withdraw-routes strategy")
+	}
+	if !errors.Is(err, gobgp.ErrUnsupportedStrategy) {
+		t.Fatalf("NewHandler() error = %v, want errors.Is ErrUnsupportedStrategy", err)
 	}
 }
 
@@ -525,6 +568,7 @@ func TestHandlerDampeningIntegration(t *testing.T) {
 			events <- bfd.StateChange{
 				LocalDiscr: 1,
 				PeerAddr:   peer,
+				Type:       bfd.SessionTypeSingleHop,
 				OldState:   bfd.StateUp,
 				NewState:   bfd.StateDown,
 				Diag:       bfd.DiagControlTimeExpired,
@@ -538,11 +582,12 @@ func TestHandlerDampeningIntegration(t *testing.T) {
 
 		calls := mock.getCalls()
 
-		// With threshold=4 and 15s half-life, the tiny decay between rapid
-		// calls is negligible. Events 1-3 pass (penalties ~1,2,3), event 4
-		// reaches threshold (penalty ~4) and is suppressed.
-		if len(calls) < 2 || len(calls) > 4 {
-			t.Errorf("expected 2-4 calls before suppression, got %d: %+v", len(calls), calls)
+		// With threshold=4 and 15s half-life, events 1-3 apply (penalties
+		// ~1,2,3). Event 4 or, after the small decay, event 5 suppresses the
+		// peer, which GoBFD already disabled, so the later Downs are
+		// redundant.
+		if len(calls) < 3 || len(calls) > 4 {
+			t.Errorf("expected 3-4 calls, got %d: %+v", len(calls), calls)
 		}
 
 		for _, c := range calls {
@@ -588,6 +633,7 @@ func TestHandlerDampeningUpSuppressed(t *testing.T) {
 			events <- bfd.StateChange{
 				LocalDiscr: 1,
 				PeerAddr:   peer,
+				Type:       bfd.SessionTypeSingleHop,
 				OldState:   bfd.StateUp,
 				NewState:   bfd.StateDown,
 				Diag:       bfd.DiagControlTimeExpired,
@@ -604,6 +650,7 @@ func TestHandlerDampeningUpSuppressed(t *testing.T) {
 		events <- bfd.StateChange{
 			LocalDiscr: 1,
 			PeerAddr:   peer,
+			Type:       bfd.SessionTypeSingleHop,
 			OldState:   bfd.StateDown,
 			NewState:   bfd.StateUp,
 			Diag:       bfd.DiagNone,
@@ -658,6 +705,7 @@ func TestDampeningDisabledPassesAll(t *testing.T) {
 			events <- bfd.StateChange{
 				LocalDiscr: 1,
 				PeerAddr:   peer,
+				Type:       bfd.SessionTypeSingleHop,
 				OldState:   bfd.StateUp,
 				NewState:   bfd.StateDown,
 				Diag:       bfd.DiagControlTimeExpired,
@@ -882,8 +930,8 @@ func TestDampenerMaxSuppressTime(t *testing.T) {
 // -------------------------------------------------------------------------
 
 // TestHandlerFullCycleDamped tests a realistic BFD flap scenario.
-// Uses a fractional threshold (2.5) so that exactly 2 Down events pass
-// before the 3rd triggers suppression. The half-life is 15s, and the
+// Uses a fractional threshold (2.5) so that the 3rd Down triggers
+// suppression. The half-life is 15s, and the
 // total test elapsed time is ~100ms, so the cumulative decay is less
 // than 0.01 penalty units -- far below the 0.5 margin built into the
 // threshold value.
@@ -909,18 +957,19 @@ func TestHandlerFullCycleDamped(t *testing.T) {
 
 		peer := netip.MustParseAddr("10.0.0.1")
 
-		// Send 4 Down/Up cycles. The first 2 Down events pass (penalties ~1, ~2).
-		// The 3rd Down event reaches ~3 which is > 2.5 threshold, so it's suppressed.
+		// Send 4 Down/Up cycles. The 3rd Down reaches penalty ~3 > 2.5 and
+		// suppresses the peer; that Down is still applied (H-27), the
+		// following Up is held, and the 4th Down is redundant.
 		for i := range 4 {
 			events <- bfd.StateChange{
-				LocalDiscr: 1, PeerAddr: peer,
+				LocalDiscr: 1, PeerAddr: peer, Type: bfd.SessionTypeSingleHop,
 				OldState: bfd.StateUp, NewState: bfd.StateDown,
 				Diag: bfd.DiagControlTimeExpired, Timestamp: time.Now(),
 			}
 			time.Sleep(10 * time.Millisecond)
 
 			events <- bfd.StateChange{
-				LocalDiscr: 1, PeerAddr: peer,
+				LocalDiscr: 1, PeerAddr: peer, Type: bfd.SessionTypeSingleHop,
 				OldState: bfd.StateDown, NewState: bfd.StateUp,
 				Diag: bfd.DiagNone, Timestamp: time.Now(),
 			}
@@ -947,9 +996,10 @@ func TestHandlerFullCycleDamped(t *testing.T) {
 		}
 
 		// Cycles 1-2: DisablePeer+EnablePeer each (penalties ~1, ~2).
-		// Cycles 3-4: suppressed (penalties ~3+, all > 2.5).
-		if disableCount != 2 {
-			t.Errorf("expected 2 DisablePeer calls (before dampening), got %d", disableCount)
+		// Cycle 3: DisablePeer applied, EnablePeer held. Cycle 4: the Down is
+		// redundant and the Up held.
+		if disableCount != 3 {
+			t.Errorf("expected 3 DisablePeer calls, got %d", disableCount)
 		}
 
 		if enableCount != 2 {

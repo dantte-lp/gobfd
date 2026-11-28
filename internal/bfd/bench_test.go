@@ -64,12 +64,12 @@ func BenchmarkControlPacketMarshalWithAuth(b *testing.B) {
 		YourDiscriminator:     0xCAFEBABE,
 		DesiredMinTxInterval:  100000,
 		RequiredMinRxInterval: 100000,
-		Auth: &bfd.AuthSection{
+		Auth: bfd.AuthSection{
 			Type:           bfd.AuthTypeKeyedSHA1,
 			Len:            28,
 			KeyID:          1,
 			SequenceNumber: 42,
-			Digest:         make([]byte, 20),
+			DataLen:        20,
 		},
 	}
 	buf := make([]byte, bfd.MaxPacketSize)
@@ -78,6 +78,102 @@ func BenchmarkControlPacketMarshalWithAuth(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		_, _ = bfd.MarshalControlPacket(pkt, buf)
+	}
+}
+
+// BenchmarkSimplePasswordAuthVerifyStaticStore covers the built-in
+// authenticator's package-private immutable key lookup hot path.
+func BenchmarkSimplePasswordAuthVerifyStaticStore(b *testing.B) {
+	store, err := bfd.NewStaticAuthKeyStore(bfd.AuthKey{
+		ID:     1,
+		Type:   bfd.AuthTypeSimplePassword,
+		Secret: []byte("password"),
+	})
+	if err != nil {
+		b.Fatalf("NewStaticAuthKeyStore: %v", err)
+	}
+	auth := bfd.SimplePasswordAuth{}
+	pkt := &bfd.ControlPacket{
+		AuthPresent: true,
+		Auth: bfd.AuthSection{
+			Type:    bfd.AuthTypeSimplePassword,
+			Len:     11,
+			KeyID:   1,
+			DataLen: 8, Data: [20]byte{0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64},
+		},
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if err := auth.Verify(nil, store, *pkt, nil, 0); err != nil {
+			b.Fatalf("Verify: %v", err)
+		}
+	}
+}
+
+// BenchmarkAuthentication measures successful built-in methods, excluding
+// sockets, retained-wire copies, queueing and session-owner processing.
+func BenchmarkAuthentication(b *testing.B) {
+	for _, authType := range []bfd.AuthType{
+		bfd.AuthTypeSimplePassword,
+		bfd.AuthTypeKeyedMD5,
+		bfd.AuthTypeMeticulousKeyedMD5,
+		bfd.AuthTypeKeyedSHA1,
+		bfd.AuthTypeMeticulousKeyedSHA1,
+	} {
+		b.Run(authType.String(), func(b *testing.B) {
+			auth, err := bfd.NewAuthenticator(authType)
+			if err != nil {
+				b.Fatal(err)
+			}
+			keys, err := bfd.NewStaticAuthKeyStore(bfd.AuthKey{
+				ID: 1, Type: authType, Secret: []byte("benchmark-secret"),
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+			pkt := bfd.ControlPacket{
+				Version: bfd.Version, State: bfd.StateUp, DetectMult: 3,
+				MyDiscriminator: 1, YourDiscriminator: 2,
+				DesiredMinTxInterval: 100000, RequiredMinRxInterval: 100000,
+			}
+			b.Run("Sign", func(b *testing.B) {
+				var state bfd.AuthState
+				buf := make([]byte, bfd.MaxPacketSize)
+				b.ReportAllocs()
+				for b.Loop() {
+					if signErr := auth.Sign(&state, keys, &pkt, buf, len(buf)); signErr != nil {
+						b.Fatal(signErr)
+					}
+				}
+			})
+
+			var state bfd.AuthState
+			buf := make([]byte, bfd.MaxPacketSize)
+			if signErr := auth.Sign(&state, keys, &pkt, buf, len(buf)); signErr != nil {
+				b.Fatal(signErr)
+			}
+			n, err := bfd.MarshalControlPacket(&pkt, buf)
+			if err != nil {
+				b.Fatal(err)
+			}
+			var decoded bfd.ControlPacket
+			if err := bfd.UnmarshalControlPacket(buf[:n], &decoded); err != nil {
+				b.Fatal(err)
+			}
+			b.Run("VerifyKnownSequence", func(b *testing.B) {
+				state := bfd.AuthState{AuthSeqKnown: true}
+				b.ReportAllocs()
+				for b.Loop() {
+					// Reuse the signed wire while keeping meticulous sequence admission valid.
+					state.RcvAuthSeq = decoded.Auth.SequenceNumber - 1
+					if err := auth.Verify(&state, keys, decoded, buf, n); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+		})
 	}
 }
 
@@ -135,12 +231,12 @@ func BenchmarkControlPacketUnmarshalWithAuth(b *testing.B) {
 		YourDiscriminator:     0xCAFEBABE,
 		DesiredMinTxInterval:  100000,
 		RequiredMinRxInterval: 100000,
-		Auth: &bfd.AuthSection{
+		Auth: bfd.AuthSection{
 			Type:           bfd.AuthTypeKeyedSHA1,
 			Len:            28,
 			KeyID:          1,
 			SequenceNumber: 42,
-			Digest:         make([]byte, 20),
+			DataLen:        20,
 		},
 	}
 	buf := make([]byte, bfd.MaxPacketSize)
@@ -319,7 +415,7 @@ func BenchmarkRecvDecodeLookupEnqueue(b *testing.B) {
 		DetectMultiplier:      3,
 	}
 
-	sess, err := mgr.CreateSession(b.Context(), cfg, sender)
+	sess, err := mgr.CreateSession(b.Context(), cfg, bfd.NonOwningSenderLeaseFactory(sender))
 	if err != nil {
 		b.Fatalf("CreateSession: %v", err)
 	}
@@ -358,8 +454,51 @@ func BenchmarkRecvDecodeLookupEnqueue(b *testing.B) {
 		// Step 1: Unmarshal (RFC 5880 Section 6.8.6 steps 1-7).
 		_ = bfd.UnmarshalControlPacket(wire, &pkt)
 		// Step 2: Demux (tier-1 discriminator lookup + channel send).
-		_ = mgr.Demux(&pkt, meta)
+		_, _ = mgr.Demux(&pkt, meta)
 	}
+	reportDemuxDelivery(b, mgr)
+}
+
+// Outcome fractions describe the overload mix without adding work to the timed loop.
+func reportDemuxDelivery(b *testing.B, mgr *bfd.Manager) {
+	b.Helper()
+	b.StopTimer()
+	mgr.Close()
+	var found, queued, full, closed, committed, abandoned, processed uint64
+	for _, row := range mgr.DeliveryCounters() {
+		if row.Source == bfd.DeliveryDemux && row.Outcome == bfd.DeliveryFound {
+			found = row.Count
+		}
+		if row.Source == bfd.DeliveryPacketAdmission {
+			if row.Outcome == bfd.DeliveryQueued {
+				queued = row.Count
+			}
+			if row.Outcome == bfd.DeliveryQueueFull {
+				full = row.Count
+			}
+			if row.Outcome == bfd.DeliveryClosed {
+				closed = row.Count
+			}
+		}
+		if row.Source == bfd.DeliveryPacketOwner {
+			processed += row.Count
+			if row.Outcome == bfd.DeliveryCommitted {
+				committed = row.Count
+			}
+			if row.Outcome == bfd.DeliveryAbandoned {
+				abandoned = row.Count
+			}
+		}
+	}
+	if found != uint64(b.N) || queued+full+closed != found || processed != queued {
+		b.Fatalf("delivery imbalance: attempts=%d found=%d queued=%d full=%d closed=%d processed=%d",
+			b.N, found, queued, full, closed, processed)
+	}
+	b.ReportMetric(float64(queued)/float64(b.N), "queued/op")
+	b.ReportMetric(float64(full)/float64(b.N), "queue-full/op")
+	b.ReportMetric(float64(closed)/float64(b.N), "closed/op")
+	b.ReportMetric(float64(committed)/float64(b.N), "committed/op")
+	b.ReportMetric(float64(abandoned)/float64(b.N), "abandoned/op")
 }
 
 // -------------------------------------------------------------------------
@@ -691,4 +830,71 @@ type discardSender struct{}
 
 func (*discardSender) SendPacket(_ context.Context, _ []byte, _ netip.Addr) error {
 	return nil
+}
+
+// -------------------------------------------------------------------------
+// BenchmarkManagerDemuxTransportClass — per-session transport checks
+// -------------------------------------------------------------------------
+
+// BenchmarkManagerDemuxTransportClass measures DemuxWithWire for accepted
+// single-hop (RFC 5881) and multihop (RFC 5883) packets on both demux tiers:
+// Your Discriminator lookup and the zero-discriminator peer-key lookup.
+//
+// Target: zero allocations per accepted packet.
+func BenchmarkManagerDemuxTransportClass(b *testing.B) {
+	cases := []struct {
+		name     string
+		sessType bfd.SessionType
+		multiHop bool
+		ttl      uint8
+		byDiscr  bool
+	}{
+		{name: "single_hop_discr", sessType: bfd.SessionTypeSingleHop, ttl: 255, byDiscr: true},
+		{name: "single_hop_peer", sessType: bfd.SessionTypeSingleHop, ttl: 255},
+		{name: "multi_hop_discr", sessType: bfd.SessionTypeMultiHop, multiHop: true, ttl: 254, byDiscr: true},
+		{name: "multi_hop_peer", sessType: bfd.SessionTypeMultiHop, multiHop: true, ttl: 254},
+	}
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+			defer mgr.Close()
+
+			cfg := bfd.SessionConfig{
+				PeerAddr:              netip.MustParseAddr("192.0.2.1"),
+				LocalAddr:             netip.MustParseAddr("192.0.2.2"),
+				Type:                  tc.sessType,
+				Role:                  bfd.RoleActive,
+				DesiredMinTxInterval:  1 * time.Second,
+				RequiredMinRxInterval: 1 * time.Second,
+				DetectMultiplier:      3,
+			}
+			sess, err := mgr.CreateSession(b.Context(), cfg, bfd.NonOwningSenderLeaseFactory(&discardSender{}))
+			if err != nil {
+				b.Fatalf("CreateSession: %v", err)
+			}
+
+			pkt := bfd.ControlPacket{
+				Version:               bfd.Version,
+				State:                 bfd.StateDown,
+				DetectMult:            3,
+				MyDiscriminator:       0xABCD1234,
+				DesiredMinTxInterval:  1000000,
+				RequiredMinRxInterval: 1000000,
+			}
+			if tc.byDiscr {
+				pkt.YourDiscriminator = sess.LocalDiscriminator()
+			}
+			meta := bfd.PacketMeta{
+				SrcAddr:  cfg.PeerAddr,
+				DstAddr:  cfg.LocalAddr,
+				TTL:      tc.ttl,
+				MultiHop: tc.multiHop,
+			}
+
+			b.ReportAllocs()
+			for b.Loop() {
+				_, _ = mgr.DemuxWithWire(pkt, meta, nil)
+			}
+		})
+	}
 }

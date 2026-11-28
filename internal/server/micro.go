@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"net/http"
 	"net/netip"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
+	"github.com/dantte-lp/gobfd/internal/config"
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 	"github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
 )
@@ -44,21 +44,24 @@ var (
 type MicroBFDServer struct {
 	manager *bfd.Manager
 	logger  *slog.Logger
+	enabled bool
 }
 
 var _ bfdv1connect.MicroBFDServiceHandler = (*MicroBFDServer)(nil)
 
-// NewMicroBFD builds a MicroBFDServer with the given Manager and logger.
-func NewMicroBFD(
+// RegisterMicroBFD registers the RFC 7130 Micro-BFD service on rpc.
+func RegisterMicroBFD(
+	rpc *connect.Server,
 	mgr *bfd.Manager,
+	enabled bool,
 	logger *slog.Logger,
-	opts ...connect.HandlerOption,
-) (string, http.Handler) {
+) {
 	srv := &MicroBFDServer{
 		manager: mgr,
+		enabled: enabled,
 		logger:  logger.With(slog.String("component", "micro-bfd-server")),
 	}
-	return bfdv1connect.NewMicroBFDServiceHandler(srv, opts...)
+	bfdv1connect.RegisterMicroBFDServiceHandler(rpc, srv)
 }
 
 // AddMicroBFDGroup creates a new RFC 7130 micro-BFD group.
@@ -66,9 +69,13 @@ func (s *MicroBFDServer) AddMicroBFDGroup(
 	ctx context.Context,
 	req *bfdv1.AddMicroBFDGroupRequest,
 ) (*bfdv1.AddMicroBFDGroupResponse, error) {
+	if !s.enabled {
+		err := config.ErrMicroBFDPreviewDisabled
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err.Error()).WithCause(err)
+	}
 	cfg, err := microBFDConfigFromProto(req)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 
 	s.logger.InfoContext(ctx, "AddMicroBFDGroup called",
@@ -77,25 +84,16 @@ func (s *MicroBFDServer) AddMicroBFDGroup(
 		slog.Int("min_active", cfg.MinActiveLinks),
 	)
 
-	if _, err := s.manager.CreateMicroBFDGroup(cfg); err != nil {
+	created, err := s.manager.CreateMicroBFDGroupAs(cfg, apiOwnerFromContext(ctx))
+	if err != nil {
 		return nil, mapManagerError(err, "add micro-bfd group")
 	}
 
-	for _, snap := range s.manager.MicroBFDGroups() {
-		if snap.LAGInterface == cfg.LAGInterface {
-			group, err := microGroupSnapshotToProto(snap, cfg)
-			if err != nil {
-				return nil, connect.NewError(connect.CodeInternal, err)
-			}
-			return &bfdv1.AddMicroBFDGroupResponse{
-				Group: group,
-			}, nil
-		}
+	group, err := microGroupSnapshotToProto(created.Snapshot())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
-
-	return nil, connect.NewError(connect.CodeInternal,
-		fmt.Errorf("micro-bfd group %q created but not visible: %w",
-			cfg.LAGInterface, bfd.ErrMicroBFDGroupNotFound))
+	return &bfdv1.AddMicroBFDGroupResponse{Group: group}, nil
 }
 
 // DeleteMicroBFDGroup removes a micro-BFD group by LAG interface name.
@@ -105,14 +103,21 @@ func (s *MicroBFDServer) DeleteMicroBFDGroup(
 ) (*bfdv1.DeleteMicroBFDGroupResponse, error) {
 	lag := req.GetLagInterface()
 	if lag == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, ErrMicroLAGRequired)
+		return nil, connect.NewError(connect.CodeInvalidArgument, ErrMicroLAGRequired.Error()).WithCause(ErrMicroLAGRequired)
 	}
 
 	s.logger.InfoContext(ctx, "DeleteMicroBFDGroup called",
 		slog.String("lag", lag),
 	)
 
-	if err := s.manager.DestroyMicroBFDGroup(lag); err != nil {
+	owner := apiOwnerFromContext(ctx)
+	if err := s.manager.DestroyMicroBFDGroupAs(lag, owner); err != nil {
+		if errors.Is(err, bfd.ErrMicroBFDGroupOwnerClaimNotFound) {
+			s.logger.WarnContext(ctx, "DeleteMicroBFDGroup refused: the caller holds no claim on the group",
+				slog.String("lag", lag),
+				slog.String("owner", owner.ID),
+			)
+		}
 		return nil, mapManagerError(err, "delete micro-bfd group")
 	}
 
@@ -129,9 +134,9 @@ func (s *MicroBFDServer) ListMicroBFDGroups(
 		Groups: make([]*bfdv1.MicroBFDGroup, 0, len(snaps)),
 	}
 	for _, snap := range snaps {
-		group, err := microGroupSnapshotToProto(snap, bfd.MicroBFDConfig{})
+		group, err := microGroupSnapshotToProto(snap)
 		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
+			return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 		}
 		out.Groups = append(out.Groups, group)
 	}
@@ -174,27 +179,40 @@ func microBFDConfigFromProto(req *bfdv1.AddMicroBFDGroupRequest) (bfd.MicroBFDCo
 			minActive, len(req.GetMemberLinks()), ErrMicroMinActiveRange)
 	}
 
+	desiredMinTx, err := durationFromProto(req.GetDesiredMinTxInterval())
+	if err != nil {
+		return bfd.MicroBFDConfig{}, fmt.Errorf("invalid desired min TX interval: %w", err)
+	}
+	requiredMinRx, err := durationFromProto(req.GetRequiredMinRxInterval())
+	if err != nil {
+		return bfd.MicroBFDConfig{}, fmt.Errorf("invalid required min RX interval: %w", err)
+	}
+
 	return bfd.MicroBFDConfig{
 		LAGInterface:          req.GetLagInterface(),
 		MemberLinks:           req.GetMemberLinks(),
 		PeerAddr:              peerAddr,
 		LocalAddr:             localAddr,
-		DesiredMinTxInterval:  durationFromProto(req.GetDesiredMinTxInterval()),
-		RequiredMinRxInterval: durationFromProto(req.GetRequiredMinRxInterval()),
+		DesiredMinTxInterval:  desiredMinTx,
+		RequiredMinRxInterval: requiredMinRx,
 		DetectMultiplier:      uint8(mult),
 		MinActiveLinks:        minActive,
 	}, nil
 }
 
-func microGroupSnapshotToProto(
-	snap bfd.MicroBFDGroupSnapshot,
-	cfg bfd.MicroBFDConfig,
-) (*bfdv1.MicroBFDGroup, error) {
+func microGroupSnapshotToProto(snap bfd.MicroBFDGroupSnapshot) (*bfdv1.MicroBFDGroup, error) {
 	out := &bfdv1.MicroBFDGroup{
-		LagInterface: snap.LAGInterface,
-		PeerAddress:  snap.PeerAddr.String(),
-		LocalAddress: snap.LocalAddr.String(),
-		AggregateUp:  snap.AggregateUp,
+		LagInterface:          snap.LAGInterface,
+		PeerAddress:           snap.PeerAddr.String(),
+		LocalAddress:          snap.LocalAddr.String(),
+		AggregateUp:           snap.AggregateUp,
+		DesiredMinTxInterval:  durationpb.New(snap.DesiredMinTxInterval),
+		RequiredMinRxInterval: durationpb.New(snap.RequiredMinRxInterval),
+		DetectMultiplier:      uint32(snap.DetectMultiplier),
+		MemberLinks:           make([]string, 0, len(snap.Members)),
+	}
+	for _, member := range snap.Members {
+		out.MemberLinks = append(out.MemberLinks, member.Interface)
 	}
 	if snap.UpCount >= 0 {
 		upCount, err := microSnapshotCountToUint32("up_member_count", snap.UpCount)
@@ -209,17 +227,6 @@ func microGroupSnapshotToProto(
 			return nil, err
 		}
 		out.MinActiveLinks = minActiveLinks
-	}
-	if cfg.LAGInterface != "" {
-		out.MemberLinks = cfg.MemberLinks
-		out.DesiredMinTxInterval = durationpb.New(cfg.DesiredMinTxInterval)
-		out.RequiredMinRxInterval = durationpb.New(cfg.RequiredMinRxInterval)
-		out.DetectMultiplier = uint32(cfg.DetectMultiplier)
-	} else {
-		out.MemberLinks = make([]string, 0, len(snap.Members))
-		for _, m := range snap.Members {
-			out.MemberLinks = append(out.MemberLinks, m.Interface)
-		}
 	}
 	return out, nil
 }

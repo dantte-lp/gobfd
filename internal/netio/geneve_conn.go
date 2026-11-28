@@ -24,11 +24,14 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+
+	"github.com/dantte-lp/gobfd/internal/bfd"
 )
 
 // geneveBufSize is the receive buffer size for Geneve packets.
-// Sized for jumbo frames (9000 bytes) to avoid truncation.
-const geneveBufSize = 9000
+// Includes maximum supported framing around a MaxPaddedPduSize BFD payload.
+const geneveBufSize = GeneveHeaderMinSize + maxGeneveOptionsSize +
+	InnerEthSize + maxInnerIPv4Size + InnerUDPSize + bfd.MaxPaddedPduSize
 
 // Geneve BFD validation errors.
 var (
@@ -43,6 +46,10 @@ var (
 	// ErrGeneveUnexpectedProto indicates the Geneve Protocol Type is not
 	// 0x6558 (Transparent Ethernet Bridging) for Format A.
 	ErrGeneveUnexpectedProto = errors.New("geneve: unexpected protocol type, expected 0x6558")
+
+	// ErrGeneveVAPIdentityUnavailable indicates that normative local VAP MAC/IP
+	// identity is not yet represented by the Geneve configuration.
+	ErrGeneveVAPIdentityUnavailable = errors.New("geneve: VAP MAC/IP identity is not configured")
 )
 
 // GeneveConn implements OverlayConn for BFD over Geneve tunnels (RFC 9521).
@@ -62,10 +69,12 @@ type GeneveConn struct {
 	srcPort   uint16 // Ephemeral source port for inner UDP header
 	readBuf   []byte
 	sendBuf   []byte
-	sendMu    sync.Mutex
+	sendMu    chan struct{}
+	done      chan struct{}
 	logger    *slog.Logger
 	mu        sync.Mutex
 	closed    bool
+	scopes    *overlayScopeSet
 }
 
 // NewGeneveConn creates a Geneve tunnel connection for BFD.
@@ -83,29 +92,52 @@ func NewGeneveConn(
 	srcPort uint16,
 	logger *slog.Logger,
 ) (*GeneveConn, error) {
-	laddr := &net.UDPAddr{
-		IP:   localAddr.AsSlice(),
-		Port: int(GenevePort),
-	}
+	return newGeneveConn(localAddr, vni, srcPort, nil, logger, 0, 0)
+}
 
-	conn, err := net.ListenUDP("udp4", laddr)
+// NewGeneveConnForScopes creates one listener for a local NVE with exact
+// configured Format A VAP identities.
+func NewGeneveConnForScopes(
+	localAddr netip.Addr,
+	srcPort uint16,
+	scopes []bfd.TransportScope,
+	logger *slog.Logger,
+) (*GeneveConn, error) {
+	return newGeneveConn(localAddr, 0, srcPort, scopes, logger, 0, 0)
+}
+
+func newGeneveConn(
+	localAddr netip.Addr,
+	vni uint32,
+	srcPort uint16,
+	scopes []bfd.TransportScope,
+	logger *slog.Logger,
+	readBufferSize, writeBufferSize int,
+) (*GeneveConn, error) {
+	conn, scopeMap, err := openScopedOverlayUDP(
+		localAddr, GenevePort, bfd.TransportScopeGeneve, scopes, readBufferSize, writeBufferSize,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("geneve: bind %s:%d: %w", localAddr, GenevePort, err)
+		return nil, fmt.Errorf("geneve: open %s:%d: %w", localAddr, GenevePort, err)
 	}
 
-	return &GeneveConn{
+	c := &GeneveConn{
 		conn:      conn,
 		vni:       vni,
 		localAddr: localAddr,
 		srcPort:   srcPort,
 		readBuf:   make([]byte, geneveBufSize),
 		sendBuf:   make([]byte, geneveBufSize),
+		sendMu:    make(chan struct{}, 1),
+		done:      make(chan struct{}),
 		logger: logger.With(
 			slog.String("component", "netio.geneve_conn"),
 			slog.String("local", localAddr.String()),
 			slog.Uint64("vni", uint64(vni)),
 		),
-	}, nil
+		scopes: scopeMap,
+	}
+	return c, nil
 }
 
 // SendEncapsulated wraps a BFD Control payload in Geneve encapsulation
@@ -119,18 +151,45 @@ func NewGeneveConn(
 //
 // RFC 9521 Section 4: O bit MUST be set, C bit MUST be clear.
 func (c *GeneveConn) SendEncapsulated(
-	_ context.Context,
+	ctx context.Context,
 	bfdPayload []byte,
 	dstAddr netip.Addr,
 ) error {
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
-		return fmt.Errorf("geneve send to %s: %w", dstAddr, ErrOverlayRecvClosed)
+	scope := bfd.TransportScope{
+		Kind: bfd.TransportScopeGeneve, VNI: c.vni,
+		OuterPeerAddr: dstAddr, OuterLocalAddr: c.localAddr,
+		InnerPeerAddr: dstAddr, InnerLocalAddr: c.localAddr,
+		AddressFamily: bfd.AddressFamilyIPv4,
+		PeerMAC:       innerDstMAC, LocalMAC: innerSrcMAC,
 	}
-	c.mu.Unlock()
-	c.sendMu.Lock()
-	defer c.sendMu.Unlock()
+	return c.sendEncapsulated(ctx, bfdPayload, scope)
+}
+
+// SendEncapsulatedFor sends using an exact configured Geneve VAP identity.
+func (c *GeneveConn) SendEncapsulatedFor(
+	ctx context.Context,
+	bfdPayload []byte,
+	scope bfd.TransportScope,
+) error {
+	if c.scopes == nil {
+		return fmt.Errorf("geneve send: %w", ErrOverlayIdentityMismatch)
+	}
+	configured, ok := c.scopes.lookup(receiveKeyForScope(scope))
+	if !ok || configured != scope {
+		return fmt.Errorf("geneve send: %w", ErrOverlayIdentityMismatch)
+	}
+	return c.sendEncapsulated(ctx, bfdPayload, scope)
+}
+
+func (c *GeneveConn) sendEncapsulated(ctx context.Context, bfdPayload []byte, scope bfd.TransportScope) error {
+	if err := lockOverlaySend(ctx, c.sendMu, c.done); err != nil {
+		return fmt.Errorf("geneve send to %s: %w", scope.OuterPeerAddr, err)
+	}
+	defer func() { <-c.sendMu }()
+
+	if err := validateOverlayPayloadSize(len(bfdPayload)); err != nil {
+		return fmt.Errorf("geneve build packet: %w", err)
+	}
 
 	if len(bfdPayload)+GeneveHeaderMinSize+InnerOverheadIPv4 > len(c.sendBuf) {
 		return fmt.Errorf("geneve build packet: payload=%d: %w",
@@ -138,8 +197,10 @@ func (c *GeneveConn) SendEncapsulated(
 	}
 	buf := c.sendBuf
 	// Build inner packet: Ethernet + IPv4 + UDP + BFD in the owned buffer.
-	innerPkt, err := BuildInnerPacketInto(
-		buf[GeneveHeaderMinSize:], bfdPayload, c.localAddr, dstAddr, c.srcPort,
+	innerPkt, err := buildInnerPacketInto(
+		buf[GeneveHeaderMinSize:], bfdPayload,
+		scope.InnerLocalAddr, scope.InnerPeerAddr, c.srcPort,
+		scope.LocalMAC, scope.PeerMAC,
 	)
 	if err != nil {
 		return fmt.Errorf("geneve build inner: %w", err)
@@ -155,7 +216,7 @@ func (c *GeneveConn) SendEncapsulated(
 		OBit:         true,                   // RFC 9521: O bit MUST be 1.
 		CBit:         false,                  // RFC 9521: C bit MUST be 0.
 		ProtocolType: GeneveProtocolEthernet, // Format A: Ethernet payload.
-		VNI:          c.vni,
+		VNI:          scope.VNI,
 	}
 	if _, err := MarshalGeneveHeader(buf[:GeneveHeaderMinSize], geneveHdr); err != nil {
 		return fmt.Errorf("geneve marshal header: %w", err)
@@ -163,39 +224,42 @@ func (c *GeneveConn) SendEncapsulated(
 
 	// Send to remote NVE on port 6081.
 	dst := &net.UDPAddr{
-		IP:   dstAddr.AsSlice(),
+		IP:   scope.OuterPeerAddr.AsSlice(),
 		Port: int(GenevePort),
 	}
-	if _, err := c.conn.WriteToUDP(buf[:totalLen], dst); err != nil {
-		return fmt.Errorf("geneve send to %s:%d: %w", dstAddr, GenevePort, err)
+	if err := overlayIO(ctx, c.conn.SetWriteDeadline, c.Close, func() error {
+		if _, writeErr := c.conn.WriteToUDP(buf[:totalLen], dst); writeErr != nil {
+			return fmt.Errorf("write overlay datagram: %w", writeErr)
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("geneve send to %s:%d: %w", scope.OuterPeerAddr, GenevePort, err)
 	}
 
 	return nil
 }
 
-// RecvDecapsulated reads a Geneve packet, strips the Geneve header and inner
-// packet headers, and returns the raw BFD Control payload with overlay metadata.
-//
-// Validation performed per RFC 9521 Section 4:
-//   - Geneve version == 0 (RFC 8926)
-//   - O bit == 1 (control packet)
-//   - C bit == 0 (no critical options)
-//   - Protocol Type == 0x6558 (Format A: Ethernet payload)
-//   - VNI matches configured VNI
-//   - Inner packet headers (Ethernet EtherType, IP version, IP protocol)
-func (c *GeneveConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, error) {
-	n, remoteAddr, err := c.conn.ReadFromUDP(c.readBuf)
+// RecvDecapsulated detects datagram truncation, then fails closed until
+// normative local VAP MAC/IP identity is represented by the Geneve
+// configuration. The existing codec validation remains unreachable from this
+// receive path until that identity is available.
+func (c *GeneveConn) RecvDecapsulated(ctx context.Context) ([]byte, OverlayMeta, error) {
+	n, remoteAddr, err := readOverlayDatagram(ctx, c.conn, c.readBuf, c.Close)
 	if err != nil {
 		c.mu.Lock()
 		closed := c.closed
 		c.mu.Unlock()
 		if closed {
-			return nil, OverlayMeta{}, fmt.Errorf("geneve recv: %w", ErrOverlayRecvClosed)
+			return nil, OverlayMeta{}, fmt.Errorf("geneve recv: %w", errors.Join(ErrOverlayRecvClosed, err))
 		}
 		return nil, OverlayMeta{}, fmt.Errorf("geneve recv: %w", err)
 	}
+	if c.scopes == nil {
+		vapErr := c.validateVAPIdentity()
+		return nil, OverlayMeta{}, fmt.Errorf("geneve recv: %w", vapErr)
+	}
 
-	bfdPayload, geneveHdr, err := c.decapGenevePacket(c.readBuf[:n])
+	packet, geneveHdr, err := c.decapGeneveInnerPacket(c.readBuf[:n])
 	if err != nil {
 		return nil, OverlayMeta{}, err
 	}
@@ -212,17 +276,43 @@ func (c *GeneveConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, e
 		SrcAddr: srcAddr.Unmap(),
 		DstAddr: c.localAddr,
 		VNI:     geneveHdr.VNI,
+		TTL:     packet.ttl,
 	}
+	key := receiveKeyForPacket(
+		bfd.TransportScopeGeneve, srcAddr, c.localAddr, geneveHdr.VNI, packet,
+	)
+	scope, ok := c.scopes.lookup(key)
+	if !ok {
+		return nil, OverlayMeta{}, fmt.Errorf("geneve recv: %w", ErrOverlayIdentityMismatch)
+	}
+	meta.TransportScope = scope
 
-	return bfdPayload, meta, nil
+	return packet.payload, meta, nil
+}
+
+func (*GeneveConn) validateVAPIdentity() error {
+	return ErrGeneveVAPIdentityUnavailable
 }
 
 // decapGenevePacket validates and strips Geneve + inner headers from a
-// received packet, returning the BFD payload and the parsed Geneve header.
+// received packet, returning the BFD payload, parsed Geneve header, inner
+// destination, and wire TTL.
 func (c *GeneveConn) decapGenevePacket(data []byte) ([]byte, GeneveHeader, error) {
+	packet, header, err := c.decapGeneveInnerPacket(data)
+	if err != nil {
+		return nil, GeneveHeader{}, err
+	}
+	if packet.dstMAC != innerDstMAC {
+		return nil, GeneveHeader{}, fmt.Errorf("geneve recv: %w", ErrInnerBadDestinationMAC)
+	}
+	return packet.payload, header, nil
+}
+
+func (c *GeneveConn) decapGeneveInnerPacket(data []byte) (innerPacket, GeneveHeader, error) {
+	var packet innerPacket
 	// Need at least Geneve min header to parse.
 	if len(data) < GeneveHeaderMinSize {
-		return nil, GeneveHeader{}, fmt.Errorf(
+		return packet, GeneveHeader{}, fmt.Errorf(
 			"geneve recv: packet %d bytes, need at least %d: %w",
 			len(data), GeneveHeaderMinSize, ErrGeneveHeaderTooShort)
 	}
@@ -230,22 +320,26 @@ func (c *GeneveConn) decapGenevePacket(data []byte) ([]byte, GeneveHeader, error
 	// Parse Geneve header (validates version).
 	geneveHdr, err := UnmarshalGeneveHeader(data[:GeneveHeaderMinSize])
 	if err != nil {
-		return nil, GeneveHeader{}, fmt.Errorf("geneve recv: %w", err)
+		return packet, GeneveHeader{}, fmt.Errorf("geneve recv: %w", err)
 	}
 
 	// Total Geneve header size including options.
 	geneveTotal := geneveHdr.TotalHeaderSize()
 	if vErr := c.validateGeneveHeader(geneveHdr, len(data), geneveTotal); vErr != nil {
-		return nil, GeneveHeader{}, vErr
+		return packet, GeneveHeader{}, vErr
 	}
 
 	// Strip inner packet headers and extract BFD payload.
-	bfdPayload, _, _, err := StripInnerPacket(data[geneveTotal:])
+	packet, err = parseInnerPacket(data[geneveTotal:])
 	if err != nil {
-		return nil, GeneveHeader{}, fmt.Errorf("geneve recv: %w", err)
+		return packet, GeneveHeader{}, fmt.Errorf("geneve recv: %w", err)
 	}
 
-	return bfdPayload, geneveHdr, nil
+	if err := validateOverlayPayloadSize(len(packet.payload)); err != nil {
+		return packet, GeneveHeader{}, fmt.Errorf("geneve recv: %w", err)
+	}
+
+	return packet, geneveHdr, nil
 }
 
 // validateGeneveHeader checks RFC 9521 Section 4 requirements on a parsed
@@ -276,7 +370,7 @@ func (c *GeneveConn) validateGeneveHeader(hdr GeneveHeader, pktLen, geneveTotal 
 	}
 
 	// Validate VNI.
-	if hdr.VNI != c.vni {
+	if c.scopes == nil && hdr.VNI != c.vni {
 		return fmt.Errorf(
 			"geneve recv: VNI %d, expected %d: %w",
 			hdr.VNI, c.vni, ErrOverlayVNIMismatch)
@@ -294,6 +388,7 @@ func (c *GeneveConn) Close() error {
 		return nil
 	}
 	c.closed = true
+	close(c.done)
 
 	if err := c.conn.Close(); err != nil {
 		return fmt.Errorf("geneve close: %w", err)
@@ -373,4 +468,14 @@ func ParseGenevePacket(buf []byte) ([]byte, GeneveHeader, netip.Addr, netip.Addr
 	}
 
 	return bfdPayload, hdr, srcIP, dstIP, nil
+}
+
+// SetScopes replaces the exact tunnel identities of a scoped Geneve socket
+// without reopening it. The set must be non-empty and belong to this local
+// NVE; an unscoped default-VNI socket cannot become scoped.
+func (c *GeneveConn) SetScopes(scopes []bfd.TransportScope) error {
+	if err := c.scopes.replace(scopes); err != nil {
+		return fmt.Errorf("geneve set scopes: %w", err)
+	}
+	return nil
 }

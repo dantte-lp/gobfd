@@ -19,57 +19,33 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.4"
+          cache: false
 
       - name: Cache Go modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ hashFiles('go.sum', 'tools/go.sum', 'tools/gopls/go.sum', 'tools/syft/go.sum', 'tools/goreleaser/qualified.sum', 'tools/goreleaser/source.sum', 'tools/goreleaser/refmt.sum') }}
 
       - name: Build
-        shell: bash
-        run: |
-          VERSION="ci-${GITHUB_SHA::8}"
-          GIT_COMMIT="${GITHUB_SHA::8}"
-          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          LDFLAGS="-s -w \
-            -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
-            -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
-            -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}"
-          install -d -m 0755 /tmp/gobfd-build
-          go build -buildvcs=false -ldflags="${LDFLAGS}" -o /tmp/gobfd-build/gobfd ./cmd/gobfd
-          go build -buildvcs=false -ldflags="${LDFLAGS}" -o /tmp/gobfd-build/gobfdctl ./cmd/gobfdctl
-          go build -buildvcs=false -ldflags="${LDFLAGS}" -o /tmp/gobfd-build/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
-          go build -buildvcs=false -ldflags="${LDFLAGS}" -o /tmp/gobfd-build/gobfd-exabgp-bridge ./cmd/gobfd-exabgp-bridge
+        run: go run ./test/cmd/cictl build --output /tmp/gobfd-build
 
       - name: Install test tools
-        run: |
-          .github/scripts/install-podman-runtime.sh
-          jq --version
-          .github/scripts/install-uv.sh
-          "$HOME/.local/bin/uv" sync --frozen --no-default-groups --group quality
+        run: go run ./test/cmd/toolbootstrap podman-runtime
 
       - name: Test with coverage
-        run: |
-          go tool -modfile=tools/go.mod gotestsum \
-            --junitfile unit-report.xml \
-            --jsonfile unit-report.json \
-            --format short-verbose \
-            -- -buildvcs=false ./... -race -count=1 \
-               -coverprofile=coverage.out -covermode=atomic
+        run: go run ./test/cmd/cictl test-coverage
 
       - name: Generate HTML test report
         if: always()
-        run: >-
-          uv run --frozen --no-build --no-default-groups --group quality --
-          junit2html unit-report.xml unit-report.html 2>/dev/null || true
+        run: go run ./test/cmd/junitreport --root . --input unit-report.xml --output unit-report.html
 
       - name: Upload test reports
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-reports
           path: |
@@ -79,12 +55,63 @@ jobs:
           retention-days: 30
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.out
           flags: unittests
           fail_ci_if_error: false
+
+  release-source-prerequisites:
+    name: Release source prerequisites
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Hosted VM teardown bounds prestart orphans and bind outputs after abrupt CLI death.
+      - name: Compile Syft controller in pinned Go image
+        run: >-
+          docker run --rm --name gobfd-cictl-${{ github.run_id }}-${{ github.run_attempt }}
+          --user=0:0 --read-only --cap-drop=ALL --cap-add=DAC_OVERRIDE --security-opt=no-new-privileges
+          --cpus=2 --memory=3221225472 --memory-swap=3221225472 --pids-limit=512
+          --workdir /src --entrypoint /usr/bin/timeout
+          --tmpfs /tmp:rw,nosuid,nodev,size=1073741824,mode=1777
+          --tmpfs /cache:rw,nosuid,nodev,size=1073741824,mode=0700
+          --mount "type=bind,src=${{ github.workspace }},dst=/src,readonly"
+          --mount "type=bind,src=${{ runner.temp }},dst=/out"
+          --env CGO_ENABLED=0 --env GOTOOLCHAIN=local --env GOENV=off --env GOWORK=off
+          --env GOCACHE=/cache/build --env GOMODCACHE=/cache/mod --env GOPATH=/cache/go
+          --env HOME=/cache --env TMPDIR=/tmp --env GOMAXPROCS=2 --env GOMEMLIMIT=2GiB
+          docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee
+          --signal=TERM --kill-after=5s 600s /usr/local/go/bin/go build
+          -trimpath -mod=readonly -buildvcs=false
+          -o /out/gobfd-cictl-${{ github.run_id }}-${{ github.run_attempt }} ./test/cmd/cictl
+
+      - name: Install source-built release tools in pinned Go image
+        run: '"${{ runner.temp }}/gobfd-cictl-${{ github.run_id }}-${{ github.run_attempt }}" release-source-tools --compiler-container'
+
+      - name: Check source-built GoReleaser configuration
+        run: goreleaser check
+
+      - name: Test RPM publication metadata
+        run: >-
+          docker run --rm --name gobfd-packagefinalize-${{ github.run_id }}-${{ github.run_attempt }}
+          --user=0:0 --read-only --cap-drop=ALL --security-opt=no-new-privileges
+          --cpus=2 --memory=3221225472 --memory-swap=3221225472 --pids-limit=512
+          --workdir /src --entrypoint /usr/bin/timeout
+          --tmpfs /tmp:rw,nosuid,nodev,exec,size=1073741824,mode=1777
+          --tmpfs /cache:rw,nosuid,nodev,size=1073741824,mode=0700
+          --mount "type=bind,src=${{ github.workspace }},dst=/src,readonly"
+          --env CGO_ENABLED=1 --env GOTOOLCHAIN=local --env GOENV=off --env GOWORK=off
+          --env GOCACHE=/cache/build --env GOMODCACHE=/cache/mod --env GOPATH=/cache/go
+          --env HOME=/cache --env TMPDIR=/tmp --env GOMAXPROCS=2 --env GOMEMLIMIT=2GiB
+          docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee
+          --signal=TERM --kill-after=5s 600s /usr/local/go/bin/go -C tools
+          test -race -count=1 -mod=readonly -buildvcs=false -p=2 ./cmd/packagefinalize
 
   non-linux-contract:
     name: Non-Linux transport contract
@@ -93,12 +120,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.4"
 
       - name: Test the non-Linux transport boundary
         run: go test ./internal/netio -race -count=1
+
+      - name: Test unsupported management operations
+        run: >-
+          go test -race -count=1
+          -run '^(TestUnixPeerUIDRejectsUnsupportedPlatform|TestRenewFileRejectsUnsupportedPlatform|TestRenewFilePreservesCancellationOnUnsupportedPlatform|TestConnContextAttachesUnixPeerPrincipal)$'
+          ./internal/server ./internal/stepca
 
       - name: Cross-compile all packages without cgo
         env:
@@ -109,7 +142,7 @@ jobs:
     name: Lint (Go)
     runs-on: ubuntu-latest
     container:
-      image: docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a
+      image: docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -117,10 +150,10 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ hashFiles('go.sum', 'tools/go.sum', 'tools/gopls/go.sum', 'tools/syft/go.sum', 'tools/goreleaser/qualified.sum', 'tools/goreleaser/source.sum', 'tools/goreleaser/refmt.sum') }}
 
       - name: golangci-lint v2
-        run: make lint-ci
+        run: go run ./test/cmd/cictl lint
 
   lint-docs:
     name: Lint (docs)
@@ -128,32 +161,21 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: "1.27.0"
-
-      - name: Install documentation linters
-        run: |
-          .github/scripts/install-uv.sh
-          "$HOME/.local/bin/uv" sync --frozen --no-default-groups --group quality
+          go-version: "1.27.4"
 
       - name: Markdown policy
         run: go run ./test/cmd/repoquality markdown --root .
 
-      - name: yamllint
+      - name: YAML policy
+        run: go tool -modfile=tools/go.mod yamlfmt -lint .
+
+      - name: Spelling policy
         run: >-
-          uv run --frozen --no-build --no-default-groups --group quality --
-          yamllint -c .yamllint.yaml .
-
-      - name: Python quality and security
-        run: make python-check
-
-      - name: codespell
-        run: >
-          uv run --frozen --no-build --no-default-groups --group quality -- codespell
-          README.md CONTRIBUTING.md CHANGELOG.md
-          CODE_OF_CONDUCT.md SUPPORT.md GOVERNANCE.md MAINTAINERS.md
-          docs/en/implementation-plan.md docs/en/codebase-consistency-audit.md
+          go tool -modfile=tools/go.mod misspell -error
+          README.md CONTRIBUTING.md CODE_OF_CONDUCT.md SUPPORT.md
+          GOVERNANCE.md MAINTAINERS.md CHANGELOG.md docs/en/roadmap.md
 
   commit-policy:
     name: Commit policy (PR title)
@@ -162,20 +184,20 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.4"
 
       - name: Validate PR title
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
-        run: go run ./test/cmd/repoquality commit --message "$PR_TITLE"
+        run: go run ./test/cmd/cictl commit-policy
 
   vulnerability-check:
     name: Vulnerability audit
     runs-on: ubuntu-latest
     container:
-      image: docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a
+      image: docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -183,28 +205,21 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ hashFiles('go.sum', 'tools/go.sum', 'tools/gopls/go.sum', 'tools/syft/go.sum', 'tools/goreleaser/qualified.sum', 'tools/goreleaser/source.sum', 'tools/goreleaser/refmt.sum') }}
 
       - name: Vulnerability Audit
-        run: |
-          mkdir -p reports/security
-          go run ./scripts/vuln-audit.go --report-dir reports/security
+        run: go run ./scripts/vuln-audit.go --report-dir reports/security
 
-      - name: Generate separate runtime and tools SBOMs
+      - name: Publisher vulnerability audit
+        run: go run ./test/cmd/cictl publisher-audit
+
+      - name: Generate separate runtime, tools, gopls, and Syft SBOMs
         if: always()
-        run: |
-          go run github.com/anchore/syft/cmd/syft@v1.51.0 scan file:go.mod \
-            --override-default-catalogers go-module-file-cataloger \
-            --quiet --output cyclonedx-json=reports/security/runtime-sbom.cdx.json
-          go run github.com/anchore/syft/cmd/syft@v1.51.0 scan file:tools/go.mod \
-            --override-default-catalogers go-module-file-cataloger \
-            --quiet --output cyclonedx-json=reports/security/tools-sbom.cdx.json
-          test -s reports/security/runtime-sbom.cdx.json
-          test -s reports/security/tools-sbom.cdx.json
+        run: go run ./test/cmd/cictl sbom --report-dir reports/security
 
       - name: Upload dependency security reports
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dependency-security-reports
           path: reports/security/
@@ -218,12 +233,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.4"
 
       - name: Set up buf
-        uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1.5.0
+        uses: bufbuild/buf-action@37ac33d8960807670a6e9719080e885197b09cc6 # v1.7.0
         with:
           setup_only: true
 
@@ -231,21 +246,15 @@ jobs:
         run: buf lint
 
       - name: Verify generated protobuf code
-        run: |
-          mkdir -p "$RUNNER_TEMP/bin"
-          go build -modfile=tools/go.mod -o "$RUNNER_TEMP/bin/protoc-gen-go" google.golang.org/protobuf/cmd/protoc-gen-go
-          go build -modfile=tools/go.mod -o "$RUNNER_TEMP/bin/protoc-gen-connect-go" connectrpc.com/connect/cmd/protoc-gen-connect-go
-          export PATH="$RUNNER_TEMP/bin:$PATH"
-          buf generate
-          git diff --exit-code -- pkg/bfdpb
+        run: go run ./test/cmd/cictl proto-verify
 
       - name: Fetch base branch for buf breaking
         if: github.event_name == 'pull_request'
-        run: git fetch origin ${{ github.event.pull_request.base.ref }}
+        run: go run ./test/cmd/cictl buf-fetch-base
 
       - name: buf breaking
         if: github.event_name == 'pull_request'
-        run: buf breaking --against '.git#branch=origin/${{ github.event.pull_request.base.ref }}'
+        run: go run ./test/cmd/cictl buf-breaking
 
   benchmark:
     name: Benchmark comparison
@@ -257,9 +266,9 @@ jobs:
       pull-requests: write
     env:
       BENCH_REGEX: >-
-        ^(BenchmarkControlPacket|BenchmarkFSMTransition|BenchmarkApplyJitter|BenchmarkPacketPool|BenchmarkRecvStateToEvent|BenchmarkFullRecvPath|BenchmarkFullRecvPathCodec|BenchmarkFullTxPath|BenchmarkRecvDecodeLookupEnqueue|BenchmarkRecvDecodeFSM|BenchmarkTxMarshalJitter|BenchmarkSessionRecvPacket|BenchmarkDetectionTimeCalc|BenchmarkCalcTxInterval|BenchmarkDetectionTimeCalcHot|BenchmarkCalcTxIntervalHot|BenchmarkSessionApplyJitter|BenchmarkBuildInnerPacket|BenchmarkStripInnerPacket|BenchmarkVXLANHeader|BenchmarkGeneveHeader)
+        ^(BenchmarkControlPacket|BenchmarkFSMTransition|BenchmarkApplyJitter|BenchmarkPacketPool|BenchmarkRecvStateToEvent|BenchmarkFullRecvPath|BenchmarkFullRecvPathCodec|BenchmarkFullTxPath|BenchmarkManager(Demux|Lookup)1000Sessions|BenchmarkRecvDecodeLookupEnqueue|BenchmarkRecvDecodeFSM|BenchmarkTxMarshalJitter|BenchmarkSessionRecvPacket|BenchmarkDetectionTimeCalc|BenchmarkCalcTxInterval|BenchmarkDetectionTimeCalcHot|BenchmarkCalcTxIntervalHot|BenchmarkSessionApplyJitter|BenchmarkBuildInnerPacket|BenchmarkStripInnerPacket|BenchmarkVXLANHeader|BenchmarkGeneveHeader)
     container:
-      image: docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a
+      image: docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -269,122 +278,20 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ hashFiles('go.sum', 'tools/go.sum', 'tools/gopls/go.sum', 'tools/syft/go.sum', 'tools/goreleaser/qualified.sum', 'tools/goreleaser/source.sum', 'tools/goreleaser/refmt.sum') }}
 
-      - name: Run benchmarks (PR)
-        run: >
-          go test -buildvcs=false -bench="$BENCH_REGEX" -benchmem -count=6 -run='^$'
-          -timeout=120s ./internal/bfd/ ./internal/netio/ > new.txt
-
-      - name: Create base branch worktree
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git worktree add --detach ../gobfd-base origin/${{ github.event.pull_request.base.ref }}
-
-      - name: Run benchmarks (base)
-        run: |
-          (
-            cd ../gobfd-base
-            go test -buildvcs=false -bench="$BENCH_REGEX" -benchmem -count=6 -run='^$' \
-              -timeout=120s ./internal/bfd/ ./internal/netio/
-          ) > old.txt
+      - name: Run paired benchmarks (base and PR)
+        run: go run ./test/cmd/cictl benchmark-pair --old old.txt --new new.txt
 
       - name: Normalize renamed benchmarks and validate inputs
-        run: |
-          for benchmark_file in old.txt new.txt; do
-            sed -E -i \
-              -e 's/^BenchmarkFullRecvPathCodec([/-])/BenchmarkRecvDecodeFSM\1/' \
-              -e 's/^BenchmarkFullRecvPath([/-])/BenchmarkRecvDecodeLookupEnqueue\1/' \
-              -e 's/^BenchmarkFullTxPath([/-])/BenchmarkTxMarshalJitter\1/' \
-              "$benchmark_file"
-            for benchmark_name in \
-              RecvDecodeLookupEnqueue RecvDecodeFSM TxMarshalJitter
-            do
-              if ! grep -Eq "^Benchmark${benchmark_name}(-[0-9]+)?[[:space:]]" "$benchmark_file"; then
-                echo "mandatory benchmark ${benchmark_name} is absent from ${benchmark_file}" >&2
-                exit 1
-              fi
-            done
-          done
+        run: go run ./test/cmd/cictl benchmark-normalize --old old.txt --new new.txt
 
       - name: Compare benchmarks
-        run: |
-          echo "## Benchmark comparison" > bench-report.md
-          echo '```' >> bench-report.md
-          go tool -modfile=tools/go.mod benchstat old.txt new.txt >> bench-report.md 2>&1 || true
-          echo '```' >> bench-report.md
-          cat bench-report.md
-
-      - name: Generate HTML comparison
-        run: |
-          {
-            echo '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Benchmark Comparison</title>'
-            echo '<style>body{font-family:system-ui;margin:2em;background:#1a1a2e;color:#e0e0e0}'
-            echo 'pre{background:#16213e;padding:1.5em;border-radius:8px;font-size:14px;line-height:1.6;border:1px solid #0f3460}</style>'
-            echo '</head><body><h1 style="color:#00d4ff">Benchmark Comparison</h1><pre>'
-            go tool -modfile=tools/go.mod benchstat old.txt new.txt 2>/dev/null || echo "benchstat comparison failed"
-            echo '</pre></body></html>'
-          } > bench-comparison.html
-
-      - name: Check for regressions (>10%)
-        run: |
-          mkdir -p bench-regression
-          go tool -modfile=tools/go.mod benchstat -format csv old.txt new.txt \
-            > bench-regression/bench-csv.txt \
-            2> bench-regression/benchstat-notes.txt
-          awk -F, '
-            BEGIN {
-              critical = "^(ManagerDemux1000Sessions|ManagerLookup1000Sessions|RecvDecodeLookupEnqueue|RecvDecodeFSM|"
-              critical = critical "TxMarshalJitter|SessionRecvPacket|ControlPacketMarshal|ControlPacketUnmarshal|"
-              critical = critical "ControlPacketRoundTrip|BuildInnerPacket|StripInnerPacket|VXLANHeaderMarshal|"
-              critical = critical "VXLANHeaderUnmarshal|GeneveHeaderMarshal|GeneveHeaderUnmarshal)-"
-            }
-            $2 == "sec/op" { metric = "sec/op"; next }
-            $2 == "B/op" || $2 == "allocs/op" { metric = $2; next }
-            metric == "sec/op" && $6 ~ /^\+[0-9.]+%/ {
-              pct = $6
-              gsub(/[+%]/, "", pct)
-              if (pct + 0 < 10) {
-                next
-              }
-              if ($1 ~ critical && (($2 + 0) >= 0.0000001 || ($4 + 0) >= 0.0000001)) {
-                print $1 "," $6 "," $7 >> "bench-regression/critical-regressions.csv"
-              } else if (($2 + 0) >= 0.000000001 || ($4 + 0) >= 0.000000001) {
-                print $1 "," $6 "," $7 >> "bench-regression/reported-regressions.csv"
-              } else {
-                next
-              }
-            }
-          ' bench-regression/bench-csv.txt
-
-          if [ -s bench-regression/reported-regressions.csv ]; then
-            {
-              echo "### Report-only benchmark regressions"
-              echo ""
-              echo "| Benchmark | Delta | Significance |"
-              echo "| --- | ---: | --- |"
-              awk -F, '{ printf "| `%s` | %s | %s |\n", $1, $2, $3 }' bench-regression/reported-regressions.csv
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-          if [ -s bench-regression/benchstat-notes.txt ]; then
-            {
-              echo "### benchstat notes"
-              echo ""
-              echo '```'
-              cat bench-regression/benchstat-notes.txt
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-          if [ -s bench-regression/critical-regressions.csv ]; then
-            echo "::warning::Critical benchmark regression detected (>10%). Review bench-report.md."
-            cat bench-regression/critical-regressions.csv
-          fi
+        run: go run ./test/cmd/cictl benchmark-report
 
       - name: Upload benchmark artifacts
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: benchmark-reports
           path: |
@@ -392,6 +299,9 @@ jobs:
             new.txt
             bench-report.md
             bench-comparison.html
+            bench-comparison.json
+            bench-regression/bench-csv.txt
+            bench-regression/benchstat-notes.txt
           retention-days: 30
 
       - name: Post benchmark comment on PR
@@ -440,7 +350,7 @@ jobs:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          version: v0.74.0
+          version: v0.76.2
           scan-type: fs
           scan-ref: .
           severity: CRITICAL,HIGH
@@ -450,7 +360,7 @@ jobs:
           exit-code: "1"
 
       - name: Upload Trivy SARIF
-        uses: github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         if: always()
         with:
           sarif_file: trivy-results.sarif

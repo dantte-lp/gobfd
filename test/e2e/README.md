@@ -1,214 +1,99 @@
-# GoBFD E2E Harness Contract
+# E2E harness
 
-S10 E2E targets define reproducible Podman-only evidence for daemon behavior,
-protocol interoperability, Linux dataplane ownership, overlay boundaries, and
-optional vendor profiles.
+The harness collects target-specific daemon, routing, RFC, overlay, Linux ownership and vendor-policy evidence. Source contracts live in [Makefile](../../Makefile), [e2ectl](../cmd/e2ectl/main.go), [e2erunner](../internal/e2erunner/) and the selected test packages. A runner or report file does not establish a passing candidate.
 
----
+## Run a gate
 
-## Runtime Policy
+1. Read the [target inventory](targets.md) and [interop guide](../../docs/en/05-interop.md). Select the required protocol/runtime boundary.
+2. Prepare the pinned Podman environment. Assign a unique COMPOSE_PROJECT_NAME; verify the dev mount belongs to this checkout.
+3. Check fixed names, subnets, privileges, limits and test-owned resources.
+4. Run the selected full-cycle Make target.
+5. Retain named results, explicit skips, artifacts, exact source/image/binary identities and cleanup readback. Do not substitute diagnostics for assertions.
 
-| Rule | Requirement |
-|---|---|
-| Container runtime | Podman. |
-| Go toolchain | `make e2e-core` uses the repository-pinned Go 1.27 host/CI toolchain; other targets use the dev container or a target-specific Go container. |
-| Host Go | Valid for the Go-owned `e2e-core` and BGP fast-failover testcontainers lifecycles. |
-| Compose project | Every dev stack uses `COMPOSE_PROJECT_NAME`; no fixed dev `container_name` is allowed. |
-| Vendor NOS | Optional/manual unless public images and licenses allow CI execution. |
-| Packet capture | Required when a target claims wire behavior. |
-
-## Target Matrix
-
-| Target | Status | Input |
-|---|---|---|
-| `make e2e-core` | Implemented S10.2 | Go-owned testcontainers Podman topology, static auth, CLI, metrics, reload, packet capture. The retained `make e2e-core-testcontainers` compatibility target is the underlying gate. |
-| `make int-bgp-failover` | Implemented S10.2 | Go-owned testcontainers GoBFD/GoBGP/FRR lifecycle, exact route withdrawal/restoration, packet evidence, and exact cleanup. The operational Compose example remains available through its `-up`, `-logs`, and `-down` targets. |
-| `make e2e-routing` | Implemented S10.3 | FRR/BIRD3 BFD interop, GoBGP/ExaBGP BGP+BFD coupling, merged routing artifacts. |
-| `make e2e-rfc` | Implemented S10.4 | RFC 7419, RFC 9384, RFC 9468, RFC 9747 interop stack. |
-| `make e2e-overlay` | Implemented S10.4 | VXLAN/Geneve userspace packet-shape checks and reserved backend fail-closed tests. |
-| `make e2e-linux` | Implemented S10.5 | Isolated rtnetlink/veth, kernel-bond, OVS, NetworkManager ownership checks. |
-| `make e2e-vendor` | Implemented S10.6 | Primary Arista/Nokia/SONiC/VyOS profiles, baseline FRR profile, deferred Cisco profile, image availability evidence, and containerlab Podman runtime contract. |
-
-## Artifact Layout
-
-Every implemented S10 target writes artifacts to:
-
-```text
-reports/e2e/<target>/<YYYYMMDDTHHMMSSZ>/
-```
-
-Required files:
-
-```text
-go-test.json
-go-test.log
-containers.json
-containers.log
-environment.json
-summary.md
-```
-
-Wire-behavior targets also write:
-
-```text
-packets.pcapng
-packets.csv
-```
-
-The `e2e-core` target also writes:
-
-```text
-runtime/gobfd-a.yml
-runtime/gobfd-b.yml
-captures/bfd.pcapng
-containers.err
-pcap-summary.tsv
-pcap-summary.err
-packets.err
-```
-
-The `e2e-routing` target also writes:
-
-```text
-interop/go-test.json
-interop/packets.pcapng
-interop/packets.csv
-interop-bgp/go-test.json
-interop-bgp/packets.pcapng
-interop-bgp/packets.csv
-```
-
-The `e2e-rfc` target also writes:
-
-```text
-packets.pcapng
-packets.csv
-```
-
-The `e2e-overlay` target also writes:
-
-```text
-packets.csv
-```
-
-The `e2e-linux` target also writes:
-
-```text
-link-events.json
-lag-backends.json
-```
-
-The `e2e-vendor` target also writes:
-
-```text
-vendor-profiles.json
-vendor-images.json
-skip-summary.json
-```
-
-## HTML Report Backlog
-
-Future S10 report generation must add:
-
-- `index.html` in every `reports/e2e/<target>/<YYYYMMDDTHHMMSSZ>/` directory.
-- One shared JavaScript renderer for all E2E targets.
-- One shared stylesheet aligned with the repository visual identity.
-- Target status summary, duration, environment metadata, container state, packet
-  evidence tables, artifact links, and collapsible logs.
-- Standalone offline rendering without external network dependencies.
-
-## CI Artifact Policy
-
-| Gate | Trigger | Target Set | Artifact Name |
-|---|---|---|---|
-| PR-safe | `pull_request`, manual `profile=pr-safe` | `make e2e-core`, `make interop-testcontainers`, `make interop-bgp-testcontainers`, `make interop-rfc-testcontainers`, `make e2e-overlay` | `e2e-pr-safe` |
-| Nightly | `schedule`, manual `profile=nightly` | `make e2e-routing`, `make e2e-rfc`, `make e2e-linux` | `e2e-nightly` |
-| Vendor | manual `profile=vendor` | `make e2e-vendor` | `e2e-vendor` |
-
-| Property | Requirement |
-|---|---|
-| Workflow | `.github/workflows/e2e.yml`. |
-| Runtime | Podman through testcontainers-go for `e2e-core`; Podman and `podman compose` for retained targets. |
-| Report root | `reports/e2e/**`. |
-| Upload condition | `if: always()`. |
-| Retention | 30 days. |
-| Missing artifacts | Warning, not workflow failure. |
-| Cleanup | `make down` runs after every CI profile. |
-
-## Cleanup Policy
-
-| Resource | Requirement |
-|---|---|
-| Compose stacks | Compose-backed full-cycle targets clean with `down --volumes --remove-orphans`. |
-| Containers | Test-owned containers use deterministic names scoped by project or target. |
-| Networks | Test-owned networks are removed by the target cleanup phase. |
-| Host interfaces | No S10 target may modify a host interface directly. |
-| Failure diagnostics | Cleanup runs after diagnostic capture. |
-
-## Skip Policy
-
-| Class | Meaning | Required Evidence |
-|---|---|---|
-| `unsupported-host-capability` | Kernel, namespace, or Podman capability is absent. | Capability command output. |
-| `missing-image` | Required public image is unavailable. | Image reference and pull/inspect failure. |
-| `licensed-vendor-image` | Vendor image cannot be redistributed or pulled by CI. | Image name and documented manual profile. |
-| `manual-only-image` | Vendor image requires operator-provided build or import. | Image name and documented manual profile. |
-| `manual-only` | Scenario requires operator-owned infrastructure. | Reason and manual command. |
-
-Skips must be explicit and visible in `summary.md`.
-
-## Worktree Safety
-
-The dev stack must be scoped by `COMPOSE_PROJECT_NAME`.
-
-```bash
-make dev-project
+```sh
 make up
-make dev-ps
+make dev-project
+make e2e-core
 ```
 
-Expected properties:
+The five routing/rfc/overlay/linux/vendor aggregates compile ignored bin/e2ectl without an engine socket, then run that exact binary on the host. A directory flock covers dev recreation, build and execution, with a 120-second acquisition bound. The compiler has read-only source, writable binary output and limits of 2 CPU/2 GiB/512 PIDs. Other report gates use the pinned dev container. Retained bootstrap/integration entry points can still call host Go directly.
 
-| Property | Requirement |
-|---|---|
-| Project name | Defaults to the current checkout directory name. |
-| Container naming | Compose-generated name under the selected project. |
-| Mount | `/app` points to the active checkout. |
-| Parallel worktrees | Separate `COMPOSE_PROJECT_NAME` values can run independently. |
+## Artifact layout
 
-## Podman API Usage
+The root is `reports/e2e/TARGET/RUN_ID`. Core, BGP failover, HAProxy, observability, Linux, overlay and routing use private mode-0700 `run.*` directories; RFC and vendor use UTC second timestamps (`YYYYMMDDTHHMMSSZ`).
 
-Go tests that control containers should use a shared Podman REST API helper.
-The helper should cover:
+| Common artifact | Meaning |
+|:---|:---|
+| go-test.json / go-test.log | Producer test stream and readable log |
+| containers.json / containers.log | Target-scoped state and bounded logs |
+| environment.json | Run/environment identity |
+| summary.md | Result and evidence links |
+| packets.pcapng / packets.csv | Capture and decoded rows where produced |
 
-| Operation | Requirement |
-|---|---|
-| Exec | Capture stdout/stderr and exit code. |
-| Logs | Capture bounded logs for artifacts. |
-| Inspect | Record container state and network data. |
-| Pause/unpause | Drive failure/recovery tests. |
-| Start/stop | Drive lifecycle tests. |
+Files can be absent after failed startup. Inspect producer exit and actual nonempty contents. Overlay CSV is synthetic; vendor/Linux ownership tests do not promise PCAP.
 
-The helper should support `/run/podman/podman.sock` and rootless
-`${XDG_RUNTIME_DIR}/podman/podman.sock`.
+| Target | Additional artifacts |
+|:---|:---|
+| core | runtime/gobfd-a.yml, runtime/gobfd-b.yml, captures/bfd.pcapng, containers.err, pcap-summary.tsv, pcap-summary.err, packets.err |
+| routing | interop/ and interop-bgp/ JSON, packet captures and CSV; merged top-level evidence |
+| rfc | Required `packets.pcapng` and decoded `packets.csv` |
+| overlay | Synthetic `packets.csv`, `runtime-plan.json`, `runtime-container.json` |
+| linux | `runtime-plan.json`, `runtime-container.json`, `link-events.json`, `lag-backends.json`, `pending-daemon-ipv4/ipv6` JSON/log |
+| vendor | vendor-profiles.json, vendor-images.json, skip-summary.json |
 
-## Packet Capture Policy
+## Runtime boundaries
 
-| Protocol | Port | Artifact |
-|---|---|---|
-| BFD control | UDP 3784 | `packets.pcapng`, `packets.csv`. |
-| BFD echo | UDP 3785 | `packets.pcapng`, `packets.csv`. |
-| VXLAN | UDP 4789 | `packets.pcapng`, `packets.csv`. |
-| Geneve | UDP 6081 | `packets.pcapng`, `packets.csv`. |
+| Target | Runtime behavior | Limit |
+|:---|:---|:---|
+| core | Podman testcontainers daemon pair, static auth, CLI/API, reload, metrics and capture | Selected daemon scenarios |
+| routing | Ownership-checked Compose base/BGP suites and merged evidence | No race; different filters from independent full gates |
+| rfc | Ownership-checked Compose RFC suite with race, capped builds/services, required PCAP/CSV and exact cleanup | Fixed container names; 9384 action path is not Cease/10 |
+| overlay | Prebuilt race tests in network-none runtime, 2 CPU/2 GiB, report mount only | UDP/codec/lifecycle; CSV is synthetic |
+| linux | Prebuilt race daemon/test/test2json in network-none runtime, 2 CPU/2 GiB/512 PIDs, NET_ADMIN/NET_RAW | Disposable netns ownership, not host dataplane acceptance |
+| vendor | Manifest/policy checks and admitted image evidence | Retained NOS profiles never execute |
 
-Packet assertions must use decoded fields where available and raw packet
-counts only when the dissector lacks a field.
+Overlay uses the selected dev image unless E2E_OVERLAY_IMAGE overrides it. Real wire qualification needs bounded external capture correlated with test JSON; see [overlay procedure](../../docs/en/09-development.md#overlay-wire-qualification).
 
-## Benchmark Policy
+Linux uses E2E_LINUX_BFD_BINARY for the prebuilt daemon. Pending-lifecycle checks cover missing interface/address, active address loss/recovery, down/up, interface recreation, invalid candidate rejection and permanent bind failure requiring reload. Native gRPC health/session calls and IPv4/IPv6 receipts retain binary hash, toolchain/kernel, resources and joined shutdown. These fixtures do not qualify peer wire, reference load or 24 hours.
 
-S10 E2E targets collect timing as diagnostic artifacts only. Benchmark
-regression gates remain limited to stable hot-path Go benchmarks.
+Vendor policy is owned by [profiles.json](vendor/profiles.json). Five NOS profiles remain retained-unavailable regardless of cache contents. Owned FRR Containerlab execution is a separate [guarded lifecycle](../../docs/en/05-interop.md#containerlab-frr-procedure).
 
----
+## CI selection
 
-*Last updated: 2026-05-01*
+| Profile | Selected targets | Artifact |
+|:---|:---|:---|
+| PR-safe | core, interop-testcontainers, interop-bgp-testcontainers, interop-rfc-testcontainers, overlay | e2e-pr-safe |
+| Nightly | routing, rfc, linux, cictl release-upx/release-goreleaser/package-build/package-lifecycle | e2e-nightly |
+| Vendor manual | vendor manifest evidence | e2e-vendor |
+
+[Workflow](../../.github/workflows/e2e.yml) selects PR targets master/main/release-v patterns; dev is not a PR trigger. Manual profiles and nightly schedule are separate. Artifacts upload under always(), retain 30 days and warn when missing. Cleanup also runs under always() with continue-on-error: workflow success is not cleanup proof. The hosted runner pin belongs to the workflow.
+
+## Resource ownership and cleanup
+
+Testcontainers and routing controllers assert selected exact cleanup results. Legacy paths can only log cleanup failures. Read the selected owner contract before invoking cleanup.
+
+Preserve foreign containers/networks/images, shared volumes and host interfaces. Project names do not isolate fixed-name containers or overlapping subnets. Use exact IDs/labels and approved owned recovery; do not broaden deletion after a failed target.
+
+The shared [Podman API helper](../internal/podmanapi/client.go) records bounded exec/log/inspect and lifecycle results. It selects Unix PODMAN_HOST, then /run/podman/podman.sock, then XDG_RUNTIME_DIR/podman/podman.sock. Exact-endpoint callers can bind a client directly. Engine socket access grants mutation authority.
+
+## Skips
+
+| Class | Required evidence |
+|:---|:---|
+| unsupported-host-capability | Capability and namespace/runtime check |
+| missing-image | Exact reference and acquisition/inspection failure |
+| licensed-vendor-image | Supplied artifact/licensing boundary and retained profile |
+| manual-only-image | Operator build/import requirement |
+| manual-only | Infrastructure requirement and bounded manual procedure |
+
+Record every skip with its reason and effect on acceptance. A manifest-only pass does not replace unavailable NOS execution. GOBFD_REQUIRE_PODMAN makes required runtime absence fail in the dedicated gates.
+
+## Packet and timing evidence
+
+Control UDP 3784/4784, Echo 3785, VXLAN 4789 and Geneve 6081 require protocol-appropriate bounded captures for wire claims. Prefer decoded assertions; packet counts alone cannot prove acceptance/rejection. Correlate captures with test outcomes and retain checksums.
+
+E2E timings are diagnostics. [Benchmark](../../docs/en/12-benchmarks.md) regression classification and [runtime qualification](../../docs/en/14-performance-analysis.md) remain separate. The [reporter](../internal/cirunner/benchmark_report.go) fails classified critical regressions after retaining reports; an E2E timing alone does not establish that benchmark verdict.
+
+No shared HTML renderer is implemented in [scripts/e2e-report](../../scripts/e2e-report/README.md). Existing JSON/log/Markdown artifacts remain canonical producer output.
+
+Russian: [разработка](../../docs/ru/09-development.md), [совместимость](../../docs/ru/05-interop.md), [измерения](../../docs/ru/14-performance-analysis.md).

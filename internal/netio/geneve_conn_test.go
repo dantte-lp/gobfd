@@ -1,7 +1,6 @@
 package netio_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -26,38 +25,23 @@ func TestNewGeneveConnLoopbackLifecycle(t *testing.T) {
 	if err != nil {
 		t.Skipf("Geneve loopback socket unavailable: %v", err)
 	}
+	t.Cleanup(func() {
+		if closeErr := conn.Close(); closeErr != nil {
+			t.Errorf("Close: %v", closeErr)
+		}
+	})
 
-	payload := makePayload(24)
-	err = conn.SendEncapsulated(context.Background(), payload, netip.MustParseAddr("127.0.0.1"))
-	if err != nil {
-		t.Fatalf("SendEncapsulated: %v", err)
+	if sendErr := conn.SendEncapsulated(
+		t.Context(), makePayload(24), netip.MustParseAddr("127.0.0.1"),
+	); sendErr != nil {
+		t.Fatalf("SendEncapsulated: %v", sendErr)
 	}
-	gotPayload, meta, err := conn.RecvDecapsulated(context.Background())
-	if err != nil {
-		t.Fatalf("RecvDecapsulated: %v", err)
-	}
-	if !bytes.Equal(gotPayload, payload) {
-		t.Fatalf("payload = %x, want %x", gotPayload, payload)
-	}
-	if meta.VNI != 100 {
-		t.Fatalf("VNI = %d, want 100", meta.VNI)
-	}
-	err = conn.SendEncapsulated(context.Background(), makePayload(9000), netip.MustParseAddr("127.0.0.1"))
-	if !errors.Is(err, netio.ErrInnerPacketBufferTooShort) {
-		t.Fatalf("oversized SendEncapsulated error = %v, want ErrInnerPacketBufferTooShort", err)
-	}
-
-	err = conn.Close()
-	if err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	err = conn.Close()
-	if err != nil {
-		t.Fatalf("second Close: %v", err)
-	}
-	err = conn.SendEncapsulated(context.Background(), makePayload(24), netip.MustParseAddr("127.0.0.1"))
-	if !errors.Is(err, netio.ErrOverlayRecvClosed) {
-		t.Fatalf("SendEncapsulated after Close error = %v, want ErrOverlayRecvClosed", err)
+	payload, _, err := conn.RecvDecapsulated(t.Context())
+	if !errors.Is(err, netio.ErrGeneveVAPIdentityUnavailable) || payload != nil {
+		t.Fatalf(
+			"RecvDecapsulated payload length=%d error=%v, want ErrGeneveVAPIdentityUnavailable",
+			len(payload), err,
+		)
 	}
 }
 
@@ -387,6 +371,7 @@ func TestParseGenevePacketInnerCorruptions(t *testing.T) {
 			corrupt: func(pkt []byte) {
 				off := netio.GeneveHeaderMinSize + netio.InnerEthSize + 9
 				pkt[off] = 6 // TCP instead of UDP
+				updateIPv4Checksum(pkt[netio.GeneveHeaderMinSize:])
 			},
 			wantError: netio.ErrInnerBadProtocol,
 		},

@@ -10,7 +10,7 @@ returns "down\n".
 Usage:
 
 	gobfd-haproxy-agent -config /etc/gobfd/haproxy-agent.yml
-	gobfd-haproxy-agent -gobfd-addr http://127.0.0.1:50052 -config haproxy-agent.yml
+	gobfd-haproxy-agent -gobfd-addr unix:///run/gobfd/gobfd.sock -config haproxy-agent.yml
 	gobfd-haproxy-agent -version
 
 The flags are:
@@ -18,8 +18,11 @@ The flags are:
 	-config
 		Path to the YAML backend configuration file.
 	-gobfd-addr
-		GoBFD ConnectRPC endpoint. The default is GOBFD_ADDR or
-		http://127.0.0.1:50052.
+		GoBFD ConnectRPC endpoint: http://host:port, https://host:port,
+		unix:///path or a bare host:port. The default is GOBFD_ADDR or
+		unix:///run/gobfd/gobfd.sock. For an https:// endpoint the client TLS
+		files come from GOBFD_TLS_CA_FILE, GOBFD_TLS_CERT_FILE and
+		GOBFD_TLS_KEY_FILE.
 	-version
 		Print build information and exit.
 */

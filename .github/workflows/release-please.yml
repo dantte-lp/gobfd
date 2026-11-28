@@ -1,0 +1,47 @@
+name: Release Please
+
+on:
+  push:
+    branches: ["release/v1.0"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-pr:
+    if: github.repository == 'dantte-lp/gobfd' && github.ref == 'refs/heads/release/v1.0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: docker.io/library/node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
+      volumes:
+        - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+      options: --cpus 2 --memory 3g --memory-swap 3g --pids-limit 512 --security-opt no-new-privileges
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GOTOOLCHAIN: local
+      CGO_ENABLED: "0"
+      GOMAXPROCS: "2"
+      GOMEMLIMIT: 1000MiB
+      GOFLAGS: -p=2
+      SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: "1.27.4"
+          cache: false
+      - name: Audit the locked CLI and prepare the release pull request
+        run: go run ./test/cmd/cictl release-please-pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,210 +1,47 @@
-# Competitive Analysis: BFD Implementations
+# Comparing BFD implementations
 
-![FRR](https://img.shields.io/badge/FRR-bfdd-dc3545?style=for-the-badge)
-![BIRD](https://img.shields.io/badge/BIRD-2%2F3-28a745?style=for-the-badge)
-![Holo](https://img.shields.io/badge/Holo-0.9.0-fc8d62?style=for-the-badge)
-![Hardware](https://img.shields.io/badge/Hardware-Reference-1a73e8?style=for-the-badge)
+[Russian translation](../ru/13-competitive-analysis.md).
 
-> Comparison of GoBFD with open-source and vendor BFD implementations: feature matrix, packet processing, session scaling, and production timer targets.
+A comparison identifies implementation, release, platform, enabled procedure and evidence. Protocol coverage, operational integration and performance require different checks. GoBFD's supported boundary is the [RFC matrix](08-rfc-compliance.md); vendor documentation is indexed separately in [vendor BFD reference](reference/vendor-bfd.md).
 
----
+## Evidence classes
 
-## Table of Contents
+| Source | Established scope | Exclusion |
+|:---|:---|:---|
+| Go component benchmarks | Named body time and allocations | UDP throughput, timer precision, scale |
+| Repository C models | Local replica operations | Upstream FRR/BIRD performance or language ranking |
+| Base peer tests | Configured FRR/BIRD3/Holo/Thoro interactions | Every extension or release |
+| BGP tests | Selected GoBGP/FRR/BIRD3/ExaBGP coupling | Untested failure/reload continuity |
+| Containerlab source | Defined owned FRR scenario | Native acceptance without a run |
+| Vendor manual | Documented feature for the named product/release | GoBFD interoperability or hardware acceptance |
+| Workload fixture | Observed ledger and cleanup for its inputs | Reference/full-daemon acceptance |
 
-- [Software Implementations](#software-implementations)
-  - [FRR bfdd](#frr-bfdd)
-  - [BIRD2/BIRD3](#bird2bird3)
-  - [Holo](#holo)
-  - [Go Implementations](#go-implementations)
-- [Feature Matrix](#feature-matrix)
-- [Performance Comparison](#performance-comparison)
-- [Hardware Reference](#hardware-reference)
-- [Production Timer Targets](#production-timer-targets)
-- [Methodology and Fair Disclosure](#methodology-and-fair-disclosure)
+## Select a deployment
 
----
+1. Identify required address families, single/multihop paths, authentication, Echo and forwarding-plane ownership.
+2. Check the exact peer manual and GoBFD procedure boundary.
+3. Select common intervals and Detect Multiplier; retain actual negotiated values.
+4. Run the relevant [interop scenario](05-interop.md) with packet evidence.
+5. Qualify the actual failure path and routing/actuator response under deployment load.
 
-### Software Implementations
+[Vendor reference](reference/vendor-bfd.md) links official EOS, NX-OS, Junos and Huawei material. Feature presence in that source does not admit retained-unavailable lab images or qualify this repository against those platforms. Hardware offload, timer floors, capacity and fate sharing remain exact-model/release/service questions.
 
-#### FRR bfdd
+## Compare software measurements
 
-[FRR](https://frrouting.org/) (Free Range Routing) is the de-facto standard open-source routing suite. Its BFD daemon (`bfdd`) is the most widely deployed software BFD implementation.
+Keep session count, address families, authentication, padding, negotiated intervals, loss, CPU/memory/PID limits and measurement duration equivalent. Separate BFD load, route updates and management activity. Record actual peer behavior and build/source identities.
 
-**Defaults**: 300ms TX/RX, 50ms echo TX/RX, detect multiplier 3.
+Local [C models](../../bench/c/) are separately compiled repository programs. Their validation, lookup and scheduling differ from Go bodies. C uses CLOCK_MONOTONIC, fixed iteration counts (default ten million; creation 10000) and six repetitions; Go uses adaptive iterations. Sequential benchmark-cross does not make those bodies equivalent.
 
-**Scaling**: SONiC (Azure/Microsoft) validated **64 BFD sessions** at 300ms detection time on commodity hardware. This is the documented ceiling for their software-based deployment. FRR itself has no hard session limit — 64 is simply the threshold tested by SONiC.
+Current Control/Echo owner goroutines have no permanent per-session thread pins. Neither goroutine ownership nor the removal of pins reserves CPU or establishes scale; matched native A/B and full workload acceptance remain open. See [runtime boundaries](14-performance-analysis.md).
 
-**Architecture**: Single-threaded. BFD and BGP compete for the same process. Under CPU load (e.g., processing 890K BGP routes on a route reflector), `bgpd` occupies 100% of one core for 1-2 seconds, causing BFD session flapping (FRR GitHub Issue #9078).
+## Interpret timers and packet rates
 
-**Packet handling**: FRR rebuilds the BFD packet on every send. The SONiC HLD explicitly notes this inefficiency: "In the current FRR implementation, the BFD packet is rebuilt on every send — this is overhead given that BFD needs to send packets every few milliseconds." The recommendation is to cache the packet in memory and replay it.
+For Asynchronous Control, local Detection Time is received Detect Multiplier × max(local RequiredMinRxInterval,remote DesiredMinTxInterval). Nominal TX uses max(local DesiredMinTxInterval,remote RequiredMinRxInterval) before jitter; non-Up/held slow-start policy raises the local floor to at least one second. Zero remote RX, remote Demand and Poll transactions alter periodic sending. Source: [session_packet.go](../../internal/bfd/session_packet.go) and [protocol](02-protocol.md).
 
-**Hardware offload**: Supports distributed BFD data plane (`--dplaneaddr`), allowing TX/RX to be offloaded to hardware/ASIC, but only on vendor platforms.
+At 1000 sessions and nominal 100 ms, 10000 packets/s in one direction is arithmetic before jitter/suppression. It is not a measured supported rate. Compare actual wire arrivals, committed packets, loss and timer distributions under a complete ledger.
 
-#### BIRD2/BIRD3
+## Report a comparison
 
-[BIRD](https://bird.network.cz/) is a lightweight routing daemon popular in IXP and research environments.
+Record source/binary/image identities, topology, effective limits, common measurement phase, actual writes/receipts/commits, clock model, distributions, test skips and cleanup. State unresolved native or release gates. Avoid blanket fastest, zero-GC, production-grade, full-RFC or all-vendor conclusions from component data.
 
-**RFC support**: RFC 5880/5881/5883/5882. No echo mode, no demand mode.
-
-**CPI bit**: The Control Plane Independent bit is **not set** in BFD packets (confirmed by tcpdump analysis, Vincent Bernat). This means BFD sessions suffer when BIRD's CPU is under load.
-
-**Scaling**: No public scaling benchmarks. Used in production at Wikimedia Foundation (with Juniper MX) and in Cilium/Kubernetes environments with 300ms intervals.
-
-#### Holo
-
-[Holo 0.9.0](https://github.com/holo-routing/holo/releases/tag/v0.9.0) is
-an MIT-licensed Rust routing suite. Its BFD implementation documents RFC 5880,
-5881, 5882, and 5883 support and validates packet handling against RFC 5880
-Section 6.8.6. The release provides an official amd64 bundle image with an
-in-toto provenance attestation; the interoperability gate consumes that image
-by immutable digest.
-
-Holo exposes gRPC and gNMI northbound interfaces. The GoBFD topology uses the
-gRPC interface only for a healthy-gated, one-shot YANG configuration load. No
-comparable Holo performance measurements are available in this repository, so
-the performance tables below do not assign it numbers.
-
-#### Go Implementations
-
-**Thoro/bfd** (8 stars): gRPC interface for monitoring. Known bugs: panic when updating timers during an active session. Only simple password authentication. No benchmarks.
-
-**jthurman42/go-bfd**: Self-described as "Experimental, incomplete and probably very wrong." Packet parsing library, not a daemon. Default timers 1s. Supports all authentication types.
-
-**google/gopacket**: Contains a BFD layer for packet parsing, not a protocol implementation.
-
-**GoBFD**: Production-oriented Go BFD implementation with measured
-allocation boundaries, a partial asynchronous RFC 5880 core, authentication,
-preview unaffiliated echo and userspace VXLAN/Geneve support, and a documented
-benchmark suite. Owner-specific overlay dataplane integrations remain future
-work.
-
----
-
-### Feature Matrix
-
-| Feature | GoBFD | FRR bfdd | BIRD3 | Holo 0.9.0 |
-|---------|:-----:|:--------:|:-----:|:----------:|
-| RFC 5880 (base BFD) | Yes | Yes | Yes | Yes |
-| RFC 5881 (IPv4/IPv6) | Yes | Yes | Yes | Yes |
-| RFC 5882 (generic application) | Yes | Yes | Yes | Yes |
-| RFC 5883 (multihop) | Yes | Yes | Yes | Yes |
-| Echo mode (RFC 9747) | Yes | Yes | No | Not documented |
-| Demand mode | Yes | Partial | No | Not documented |
-| Auth MD5 (RFC 5880 §6.7) | Yes | Yes | Limited | Not documented |
-| Auth SHA1 (RFC 5880 §6.7) | Yes | Yes | Limited | Not documented |
-| CPI bit (Control Plane Independent) | Yes | Partial | No | Not documented |
-| VXLAN BFD (RFC 8971) | Userspace backend | No | No | Not documented |
-| Geneve BFD (RFC 9521) | Userspace backend | No | No | Not documented |
-| Micro-BFD (RFC 7130) | Partial integration | No | No | Not documented |
-| Zero-alloc hot path | Yes | N/A (C) | N/A (C) | No published data |
-| GoBGP integration | Yes | N/A | N/A | N/A |
-| Prometheus metrics | Yes | Via SNMP | No | Not documented |
-| Northbound API | ConnectRPC | Vtysh CLI | CLI | gRPC and gNMI |
-
----
-
-### Performance Comparison
-
-> GoBFD numbers come from micro-benchmarks (`go test -bench`). FRR and BIRD
-> numbers come from public documentation, issue trackers, and third-party
-> reports. The sources and methods differ, so these numbers provide context,
-> not a ranking.
-
-#### Packet Processing
-
-| Metric | GoBFD | FRR bfdd |
-|--------|------:|----------|
-| Packet marshal | 5.9 ns/op, 0 allocs | Rebuilt every send (SONiC HLD) |
-| Packet unmarshal | 11.0 ns/op, 0 allocs | C struct cast |
-| Decode + lookup + enqueue stage | 64 ns/op, 0 allocs in the historical sample | Not published |
-| Marshal + jitter stage | 6.7 ns/op, 0 allocs in the historical sample | Not published |
-
-**Key insight**: GoBFD uses cached pre-built packets (copy, not rebuild). FRR rebuilds the BFD packet on every transmit. At 1000 sessions with 100ms intervals, this is 10,000 rebuilds per second in FRR vs. 10,000 memory copies in GoBFD.
-
-#### Session Scaling
-
-| Metric | GoBFD | FRR bfdd (SONiC) |
-|--------|------:|:-----------------:|
-| Max sessions tested | 1,000 (benchmark) | 64 (validated) |
-| Session demux | O(1), 51 ns/op | Linear scan |
-| Memory per session | ~3 KB (create benchmark) | malloc/free per packet |
-| Config reconciliation | 94 us/15 sessions | Full restart |
-
-#### Throughput Boundary
-
-The stage timings above cannot be converted into a supported packet rate. The
-receive benchmark stops at a buffered-channel enqueue and the transmit
-benchmark excludes the socket send. Kernel networking, session processing,
-timer and notification delivery, loss, and scheduling must be measured by the
-v1 end-to-end qualification gate.
-
----
-
-### Hardware Reference
-
-Vendor BFD implementations use dedicated hardware (ASIC/NPU) for packet processing. This is **fundamentally different** from software BFD and not directly comparable. The table below is included as a reference point for understanding the BFD landscape.
-
-| Platform | Max Sessions | Min Timer | Hardware Offload |
-|----------|-------------:|----------:|:----------------:|
-| Cisco ASR 9000 (NPU) | 8,000/LC at 50ms; 600/LC at 3.3ms | 3.3ms | NPU, 7 fixed intervals |
-| Cisco 8000 (Silicon One) | 10,000 (VXLAN MH BFD) | Platform-dependent | Yes |
-| Cisco NCS 5500 | 1,000/node | 15ms (up to 100 sessions) | OAMP engine |
-| Juniper MX (inline BFD) | Contact support | 10ms (distributed), 100ms (centralized) | ASIC firmware |
-| Nokia SR Linux | 1,152 (8-slot chassis) | Configurable | Hardware-based |
-| Nokia 7750 SR | 250/IOM + CPM-np | 10ms (CPM-np) | CPM-np hardware |
-| Arista EOS | 200/ASIC (HW accelerated) | 50ms | Default on supported platforms |
-
-**Expert context** (Manav Bhatia, IETF BFD WG contributor): "BFD is hard when you start scaling. It becomes a LOT worse when you add security on top of it. Not only do you need to process packets at a high rate, you also need to compute SHA or MD5 digest for each one."
-
-**Expert context** (Ivan Pepelnjak, ipSpace.net): "Aggressive BFD timers might trigger false positives. Most platforms implement BFD in software — if higher-priority processes use all CPU, BFD starves."
-
----
-
-### Production Timer Targets
-
-Reference table for BFD timer configurations in real deployments:
-
-| Interval | Multiplier | Detection Time | Context | Achievability in Software |
-|---------:|-----------:|---------------:|---------|---------------------------|
-| 1000ms | 5 | 5000ms | Google Cloud Router default | Trivial |
-| 300ms | 3 | 900ms | FRR default, NANOG "safe value", Juniper RE | Standard, reliable |
-| 100ms | 3 | 300ms | SONiC target, Juniper distributed | Achievable in Go with CPU isolation |
-| 50ms | 3 | 150ms | Cisco/Arista HW minimum | Requires careful optimization |
-| 10ms | 3 | 30ms | Hardware-oriented deployments | Theoretically possible, needs RT tuning |
-
-**GoBFD target**: 100ms intervals with stable detection time on commodity hardware, which places it between the software standard (300ms) and hardware minimum (10-50ms).
-
-**Detection time formula** (RFC 5880): `DetectionTime = DetectMult * max(RequiredMinRxInterval, remote DesiredMinTxInterval)`. Up to 25% random jitter MUST be added to TX intervals (section 6.8.7). Additional 10% jitter when DetectMult = 1.
-
----
-
-### Methodology and Fair Disclosure
-
-**Measurement approach**:
-
-- All GoBFD numbers are from Go micro-benchmarks (`go test -bench -benchmem -count=6`)
-- Statistical analysis via `benchstat` (median, 95% confidence intervals)
-- FRR and BIRD numbers are from public documentation, GitHub issue trackers, and vendor HLDs
-- Holo is compared only on release and protocol facts; no performance values
-  are inferred from its implementation language
-- Hardware numbers are from vendor datasheets and configuration guides
-
-**Out of scope**:
-
-- No system-level comparison has been run between GoBFD, FRR, BIRD, and Holo
-- Micro-benchmark throughput (ns/op) does not directly translate to system-level performance
-- Different implementation architectures have fundamentally different performance characteristics
-- Memory measurements from benchmarks (B/op) are per-operation, not total daemon footprint
-
-**Reproducibility**:
-
-All GoBFD benchmarks can be reproduced:
-
-```bash
-# Requires only Podman — no local Go toolchain
-make up
-make benchmark-save BENCH_VERSION=v0.4.0
-cat testdata/benchmarks/v0.4.0/meta.json    # commit, Go version, date
-```
-
-Independent verification is encouraged. Corrections to claims in this document are accepted via pull request.
+[Benchmarks](12-benchmarks.md), [runtime measurement](14-performance-analysis.md), [retained raw samples](../../testdata/benchmarks/).

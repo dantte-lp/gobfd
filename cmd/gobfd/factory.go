@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"net/netip"
 	"strings"
 
@@ -15,34 +16,34 @@ import (
 
 const maxBFDWireUint8 = math.MaxUint8
 
-func newUDPSenderFactory() *udpSenderFactory {
+func newUDPSenderFactory(socket config.SocketConfig) *udpSenderFactory {
 	return &udpSenderFactory{
 		portAlloc: netio.NewSourcePortAllocator(),
+		socket:    socket,
 		senders:   make(map[uint16]*netio.UDPSender),
 	}
 }
 
 func (f *udpSenderFactory) CreateSender(
 	localAddr netip.Addr,
-	multiHop bool,
+	ifName string,
+	kind bfd.SessionType,
+	doNotFragment bool,
 	logger *slog.Logger,
 ) (bfd.PacketSender, uint16, error) {
-	srcPort, err := f.portAlloc.Allocate()
-	if err != nil {
-		return nil, 0, fmt.Errorf("allocate source port: %w", err)
+	var opts []netio.SenderOption
+	switch kind {
+	case bfd.SessionTypeSingleHop, bfd.SessionTypeMultiHop:
+	case bfd.SessionTypeEcho:
+		opts = append(opts, netio.WithDstPort(netio.PortEcho))
+	default:
+		return nil, 0, fmt.Errorf("API sender type %d: %w", kind, bfd.ErrInvalidSessionType)
 	}
-
-	sender, err := netio.NewUDPSender(localAddr, srcPort, multiHop, logger)
-	if err != nil {
-		f.portAlloc.Release(srcPort)
-		return nil, 0, fmt.Errorf("create UDP sender %s:%d: %w", localAddr, srcPort, err)
+	if doNotFragment {
+		opts = append(opts, netio.WithDFBit())
 	}
-
-	f.mu.Lock()
-	f.senders[srcPort] = sender
-	f.mu.Unlock()
-
-	return sender, srcPort, nil
+	localAddr, opts = singleHopSenderBinding(localAddr, ifName, opts)
+	return f.createSenderForSession(localAddr, kind == bfd.SessionTypeMultiHop, logger, opts...)
 }
 
 func (f *udpSenderFactory) CloseSender(srcPort uint16) error {
@@ -73,23 +74,31 @@ func (f *udpSenderFactory) createSenderForSession(
 	multiHop bool,
 	logger *slog.Logger,
 	senderOpts ...netio.SenderOption,
-) (bfd.PacketSender, error) {
+) (bfd.PacketSender, uint16, error) {
 	srcPort, err := f.portAlloc.Allocate()
 	if err != nil {
-		return nil, fmt.Errorf("allocate source port: %w", err)
+		return nil, 0, fmt.Errorf("allocate source port: %w", err)
 	}
 
-	sender, err := netio.NewUDPSender(localAddr, srcPort, multiHop, logger, senderOpts...)
+	// Apply the immutable startup policy after caller-specific transport options.
+	opts := make([]netio.SenderOption, 0, len(senderOpts)+2)
+	opts = append(opts, senderOpts...)
+	opts = append(opts, netio.WithWriteBuffer(f.socket.WriteBufferSize), netio.WithSocketQoS(netio.SocketQoS{
+		IPv4DSCP: f.socket.IPv4DSCP, IPv6TrafficClass: f.socket.IPv6TrafficClass,
+		Priority: f.socket.Priority, Mark: f.socket.Mark,
+		PriorityRequired: f.socket.PriorityRequired, MarkRequired: f.socket.MarkRequired,
+	}))
+	sender, err := netio.NewUDPSender(localAddr, srcPort, multiHop, logger, opts...)
 	if err != nil {
 		f.portAlloc.Release(srcPort)
-		return nil, fmt.Errorf("create UDP sender %s:%d: %w", localAddr, srcPort, err)
+		return nil, 0, fmt.Errorf("create UDP sender %s:%d: %w", localAddr, srcPort, err)
 	}
 
 	f.mu.Lock()
 	f.senders[srcPort] = sender
 	f.mu.Unlock()
 
-	return sender, nil
+	return sender, srcPort, nil
 }
 
 // configSessionToBFD converts a config.SessionConfig to a bfd.SessionConfig,
@@ -113,7 +122,7 @@ func configSessionToBFD(sc config.SessionConfig, defaults config.BFDConfig) (bfd
 	}
 
 	requiredMinRx := sc.RequiredMinRx
-	if requiredMinRx == 0 {
+	if requiredMinRx == 0 && !sc.RequiredMinRxSet {
 		requiredMinRx = defaults.DefaultRequiredMinRx
 	}
 
@@ -146,13 +155,14 @@ func configSessionToBFD(sc config.SessionConfig, defaults config.BFDConfig) (bfd
 	return bfd.SessionConfig{
 		PeerAddr:              peerAddr,
 		LocalAddr:             localAddr,
-		Interface:             sc.Interface,
+		Interface:             sessionInterface(sc.Interface, sessType, localAddr, peerAddr),
 		Type:                  sessType,
 		Role:                  bfd.RoleActive,
 		DesiredMinTxInterval:  desiredMinTx,
 		RequiredMinRxInterval: requiredMinRx,
 		DetectMultiplier:      uint8(detectMult),
 		PaddedPduSize:         paddedPduSize,
+		MultiHopMaxHops:       uint8(min(sc.MultihopMaxHops, maxBFDWireUint8)), // 255 fails bfd validation.
 		Auth:                  auth,
 		AuthKeys:              authKeys,
 	}, nil
@@ -215,8 +225,28 @@ func configAuthTypeToBFD(authType string) (bfd.AuthType, error) {
 }
 
 // newManager creates a BFD session manager with metrics and optional unsolicited BFD (RFC 9468).
-func newManager(cfg *config.Config, collector *bfdmetrics.Collector, logger *slog.Logger) (*bfd.Manager, error) {
-	opts := []bfd.ManagerOption{bfd.WithManagerMetrics(collector)}
+func newManager(
+	cfg *config.Config,
+	collector *bfdmetrics.Collector,
+	sf *udpSenderFactory,
+	logger *slog.Logger,
+) (*bfd.Manager, error) {
+	if err := config.ValidateMicroBFDPreview(cfg.MicroBFD); err != nil {
+		return nil, fmt.Errorf("validate Micro-BFD preview: %w", err)
+	}
+	if cfg.MicroBFD.Enabled {
+		logger.Warn("Micro-BFD preview enabled; RFC 7130 L2 qualification is incomplete",
+			slog.String("capability", "micro-bfd"), slog.String("maturity", "preview"))
+	}
+	notifications, err := notificationPopulationOption(cfg)
+	if err != nil {
+		return nil, err
+	}
+	opts := []bfd.ManagerOption{
+		notifications,
+		bfd.WithManagerMetrics(collector),
+		bfd.WithSessionInterfaceResolver(netio.ResolveSessionIfIndex),
+	}
 	actuator, actuatorEnabled, err := buildMicroBFDActuator(cfg.MicroBFD.Actuator, logger)
 	if err != nil {
 		return nil, fmt.Errorf("invalid micro-BFD actuator config: %w", err)
@@ -229,19 +259,41 @@ func newManager(cfg *config.Config, collector *bfdmetrics.Collector, logger *slo
 		if err != nil {
 			return nil, fmt.Errorf("invalid unsolicited BFD config: %w", err)
 		}
-		opts = append(opts, bfd.WithUnsolicitedPolicy(policy))
-
-		sf := newUDPSenderFactory()
-		sender, err := sf.createSenderForSession(netip.IPv4Unspecified(), false, logger)
-		if err != nil {
-			return nil, fmt.Errorf("create unsolicited BFD sender: %w", err)
-		}
-		opts = append(opts, bfd.WithUnsolicitedSender(sender))
+		opts = append(opts,
+			bfd.WithUnsolicitedPolicy(policy),
+			bfd.WithUnsolicitedSessionSender(unsolicitedSessionSender(sf, logger)),
+		)
 		logger.Info("unsolicited BFD enabled (RFC 9468)",
 			slog.Int("max_sessions", policy.MaxSessions),
 		)
 	}
 	return bfd.NewManager(logger, opts...), nil
+}
+
+func notificationPopulationOption(cfg *config.Config) (bfd.ManagerOption, error) {
+	populations := []int{len(cfg.Sessions)}
+	if cfg.Echo.Enabled {
+		populations = append(populations, len(cfg.Echo.Peers))
+	}
+	if cfg.MicroBFD.Enabled {
+		for _, group := range cfg.MicroBFD.Groups {
+			populations = append(populations, len(group.MemberLinks))
+		}
+	}
+	if cfg.VXLAN.Enabled {
+		populations = append(populations, len(cfg.VXLAN.Peers))
+	}
+	if cfg.Geneve.Enabled {
+		populations = append(populations, len(cfg.Geneve.Peers))
+	}
+	if cfg.Unsolicited.Enabled {
+		populations = append(populations, cfg.Unsolicited.MaxSessions)
+	}
+	option, err := bfd.WithNotificationPopulation(populations...)
+	if err != nil {
+		return nil, fmt.Errorf("configure notification population: %w", err)
+	}
+	return option, nil
 }
 
 func buildMicroBFDActuator(
@@ -278,6 +330,24 @@ func configMicroBFDActuatorToNetio(cfg config.MicroBFDActuatorConfig) netio.LAGA
 	}
 }
 
+func bindMicroActuatorReadiness(
+	cfg config.MicroBFDActuatorConfig,
+	mgr *bfd.Manager,
+	readiness *daemonReadiness,
+) {
+	if mgr == nil || readiness == nil {
+		return
+	}
+	if netio.LAGActuatorMode(cfg.Mode) != netio.LAGActuatorModeEnforce {
+		mgr.SetMicroActuatorStatusFunc(nil)
+		readiness.SetMicroActuatorReady(true)
+		return
+	}
+	mgr.SetMicroActuatorStatusFunc(func(healthy bool, _ error) {
+		readiness.SetMicroActuatorReady(healthy)
+	})
+}
+
 // buildUnsolicitedPolicy converts config.UnsolicitedConfig to bfd.UnsolicitedPolicy.
 func buildUnsolicitedPolicy(cfg config.UnsolicitedConfig) (*bfd.UnsolicitedPolicy, error) {
 	interfaces := make(map[string]bfd.UnsolicitedInterfaceConfig, len(cfg.Interfaces))
@@ -290,15 +360,26 @@ func buildUnsolicitedPolicy(cfg config.UnsolicitedConfig) (*bfd.UnsolicitedPolic
 			}
 			prefixes = append(prefixes, p)
 		}
+		var ifIndex int
+		if cfg.Enabled && ifCfg.Enabled {
+			iface, err := net.InterfaceByName(name)
+			if err != nil {
+				return nil, fmt.Errorf("resolve unsolicited interface %q: %w", name, err)
+			}
+			ifIndex = iface.Index
+		}
 		interfaces[name] = bfd.UnsolicitedInterfaceConfig{
-			Enabled:         ifCfg.Enabled,
-			AllowedPrefixes: prefixes,
+			Enabled: ifCfg.Enabled, IfIndex: ifIndex, AllowedPrefixes: prefixes,
 		}
 	}
 
 	detectMult := cfg.SessionDefaults.DetectMult
 	if detectMult > maxBFDWireUint8 {
 		return nil, fmt.Errorf("unsolicited detect_mult %d: %w", detectMult, errDetectMultOverflow)
+	}
+	auth, authKeys, err := configAuthToBFD(cfg.Auth)
+	if err != nil {
+		return nil, fmt.Errorf("unsolicited auth: %w", err)
 	}
 
 	return &bfd.UnsolicitedPolicy{
@@ -311,5 +392,47 @@ func buildUnsolicitedPolicy(cfg config.UnsolicitedConfig) (*bfd.UnsolicitedPolic
 			DetectMultiplier:      uint8(detectMult),
 		},
 		CleanupTimeout: cfg.CleanupTimeout,
+		Auth:           auth,
+		AuthKeys:       authKeys,
 	}, nil
+}
+
+// unsolicitedSessionSender builds the sender of one RFC 9468 passive session
+// on the local address and interface that received the triggering packet,
+// with its own RFC 5881 source port. An IPv6 link-local address is scoped
+// to the receiving interface.
+func unsolicitedSessionSender(
+	sf declarativeSenderFactory,
+	logger *slog.Logger,
+) func(bfd.PacketMeta) (*bfd.SenderLease, error) {
+	return func(meta bfd.PacketMeta) (*bfd.SenderLease, error) {
+		local, opts := singleHopSenderBinding(meta.DstAddr.Unmap(), meta.IfName, nil)
+		return declarativeSenderLeaseFactoryFor(sf, local, false, logger, opts...)()
+	}
+}
+
+// sessionInterface returns the single-hop interface, which a link-local zone
+// selects when interface is empty; multihop sessions are never device-bound.
+func sessionInterface(ifName string, sessType bfd.SessionType, local, peer netip.Addr) string {
+	if sessType != bfd.SessionTypeSingleHop {
+		return ifName
+	}
+	return bfd.SingleHopInterface(ifName, local, peer)
+}
+
+// singleHopSenderBinding binds a single-hop sender to ifName so control
+// packets leave over the protected one-hop path (RFC 5881 Section 6). An
+// unzoned IPv6 link-local local address is scoped to that interface. An
+// empty ifName leaves the route lookup to the kernel.
+func singleHopSenderBinding(
+	local netip.Addr, ifName string, opts []netio.SenderOption,
+) (netip.Addr, []netio.SenderOption) {
+	if ifName == "" {
+		return local, opts
+	}
+	opts = append(opts, netio.WithBindDevice(ifName))
+	if local.Is6() && local.IsLinkLocalUnicast() && local.Zone() == "" {
+		local = local.WithZone(ifName)
+	}
+	return local, opts
 }

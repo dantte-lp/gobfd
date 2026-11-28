@@ -1,515 +1,193 @@
 # Development
 
-![Go 1.27](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)
-![golangci--lint](https://img.shields.io/badge/golangci--lint-v2-1a73e8?style=for-the-badge)
-![buf](https://img.shields.io/badge/buf-Protobuf-4353FF?style=for-the-badge)
-![Podman](https://img.shields.io/badge/Podman-Dev_Container-892CA0?style=for-the-badge&logo=podman)
-![synctest](https://img.shields.io/badge/synctest-Virtual_Time-34a853?style=for-the-badge)
+[Russian translation](../ru/09-development.md).
 
-> Development workflow, Make targets, testing strategy, linting, protobuf generation, and contribution guidelines.
+Development uses the next-line `dev` branch and the repository-pinned Podman toolchain. The executable contract is [AGENTS.md](../../AGENTS.md); commands are defined in [Makefile](../../Makefile). A successful source check does not qualify a daemon, network or release.
 
----
+## Prepare a checkout
 
-## Table of Contents
+1. Select the branch for the change. Use `dev` for features and `release/vMAJOR.MINOR` for a supported-line fix; target that same line in the pull request. Preserve the v0.6 GoBGP v3 contract.
+2. Install Podman, Git, GNU Make and util-linux `flock`. Configure the pinned Go Compose provider by the [deployment procedure](06-deployment.md#podman-compose).
+3. Give concurrent checkouts distinct `COMPOSE_PROJECT_NAME` values. The default is the sanitized directory basename; equal basenames collide.
+4. Start the development environment and inspect its project:
 
-- [Prerequisites](#prerequisites)
-- [Development Setup](#development-setup)
-- [Branch and Release Workflow](#branch-and-release-workflow)
-- [Make Targets](#make-targets)
-- [Testing Strategy](#testing-strategy)
-- [Linting](#linting)
-- [Protobuf Workflow](#protobuf-workflow)
-- [Go 1.27 Baseline](#go-127-baseline)
-- [Code Conventions](#code-conventions)
-- [Contributing](#contributing)
-
-### Prerequisites
-
-- **Podman** + **Podman Compose** (all commands run inside containers)
-- **Git** for version control
-- Go 1.27 (only needed for local IDE support; builds run in containers)
-
-> **Important**: All testing, building, scanning, and linting runs inside Podman containers. No local Go toolchain is required for CI-equivalent builds.
-
-### Development Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/dantte-lp/gobfd.git
-cd gobfd
-
-# Start the development container
+```sh
 make up
-
-# Build all binaries
-make build
-
-# Run all tests
-make test
-
-# Run linter
-make lint
-
-# All at once
-make all
+make dev-project
+make dev-ps
 ```
 
-### Branch and Release Workflow
+`go.mod`, `tools/go.mod` and `deployments/docker/Containerfile.dev` pin Go 1.27.4. Build/test/lint commands execute in the dev container. `dev-ensure` validates its `/app` bind mount and can recreate a container whose checkout changed. `make up` can build images; it is not a read-only preflight.
 
-The branches have distinct product roles:
+Require access to the selected Podman engine and exclusive ownership of the Compose project before startup. Stop if the project or `/app` mount identifies another checkout. Repeating `dev-ensure` can recreate that selected service; recover only the owned project and preserve working-tree changes and failure artifacts before any separately authorized cleanup. [Makefile](../../Makefile) defines this lifecycle.
 
-- `dev` integrates the next product line. Features start from `dev`, target
-  `dev`, and are never released by tagging `dev`.
-- `master` is the default branch and contains the latest accepted stable state.
-- Supported lines use `release/vMAJOR.MINOR`. The `release/v0.6` line retains
-  GoBGP v3.37.0 and the v0.6 public contracts.
+## Daily change procedure
 
-A v0.6 patch starts from `release/v0.6` on a short-lived `fix/v0.6-*` branch
-and returns to `release/v0.6` through a reviewed pull request. After acceptance,
-maintainers assess the same defect on `master` and `dev`; an applicable fix is
-forward-ported through a separate reviewed pull request. Release-preparation
-changes follow the same reviewed path on the applicable supported line.
+1. Record the change scope, acceptance criteria, dependencies and review ownership.
+2. Read callers, tests, configuration and public contracts affected by the change.
+3. Change handwritten sources; regenerate public protobuf output instead of editing `pkg/bfdpb/`.
+4. Run the focused race test, then the routine gate:
 
-The release-branch ruleset must be active before each new matching release
-branch is created. The tag ruleset must be active before each new matching tag
-is created, specifically before `v0.6.2`. Existing `v0.1.0` through `v0.6.1`
-tags remain unchanged and are never moved, deleted, or reused. A new stable tag
-points to the exact reviewed commit on the applicable release branch and is
-also never moved, deleted, or reused. The tag-triggered GitHub Actions workflow
-creates a draft GitHub Release, completes and verifies its notes and assets,
-and automatically publishes it only as the final mutation.
-
-### Make Targets
-
-All Go commands run inside Podman containers via `podman compose exec`.
-The development stack is scoped by `COMPOSE_PROJECT_NAME`, which defaults to
-the current checkout directory name. Parallel worktrees use distinct default
-project names and can override `COMPOSE_PROJECT_NAME` explicitly.
-
-#### Lifecycle
-
-| Target | Description |
-|---|---|
-| `make up` | Start development container |
-| `make down` | Stop development container |
-| `make restart` | Restart (down + up) |
-| `make logs` | Follow development container logs |
-| `make shell` | Open bash in development container |
-| `make dev-project` | Print the active checkout Compose project name |
-| `make dev-ps` | Show the active checkout development stack |
-
-#### Build and Test
-
-| Target | Description |
-|---|---|
-| `make all` | Build + test + lint |
-| `make build` | Compile all binaries with version info |
-| `make test` | Run all tests with `-race -count=1` |
-| `make test-v` | Verbose test output |
-| `make test-run RUN=TestFSM PKG=./internal/bfd` | Run specific test |
-| `make fuzz FUNC=FuzzControlPacket PKG=./internal/bfd` | Fuzz test (60s) |
-| `make test-integration` | Run integration tests |
-
-#### Interoperability Testing
-
-| Target | Description |
-|---|---|
-| `make interop` | Full cycle: build + start + test + cleanup |
-| `make interop-up` | Start 4-peer topology |
-| `make interop-test` | Run interop Go tests |
-| `make interop-down` | Stop and cleanup |
-| `make interop-logs` | Follow interop container logs |
-| `make interop-capture` | Live BFD packet capture |
-| `make interop-pcap` | Decode captured packets |
-| `make interop-pcap-summary` | CSV summary of captures |
-| `make interop-bgp` | Full cycle BGP+BFD tests (FRR, BIRD3, ExaBGP) |
-| `make interop-bgp-up` | Start BGP+BFD topology |
-| `make interop-bgp-test` | Run BGP+BFD Go tests |
-| `make interop-bgp-down` | Stop BGP+BFD topology |
-| `make interop-clab-bootstrap` | Prepare vendor images through the Go bootstrap (`ARGS=...`) |
-| `make interop-clab` | Full cycle vendor NOS tests (Nokia, FRR, etc.) |
-| `make interop-clab-up` | Deploy vendor NOS topology |
-| `make interop-clab-test` | Run vendor interop Go tests |
-| `make interop-clab-down` | Destroy vendor NOS containers |
-
-#### Integration Examples
-
-| Target | Description |
-|---|---|
-| `make int-bgp-failover` | Go testcontainers BGP fast-failover gate; the operational Compose example remains available through `-up`, `-logs`, and `-down` |
-| `make int-haproxy` | HAProxy agent-check bridge demo |
-| `make int-observability` | Prometheus + Grafana observability stack |
-| `make int-exabgp-anycast` | ExaBGP anycast service announcement |
-| `make int-k8s` | Kubernetes DaemonSet with GoBGP sidecar |
-
-#### Quality
-
-| Target | Description |
-|---|---|
-| `make lint` | Run golangci-lint v2 |
-| `make lint-fix` | Auto-fix lint issues |
-| `make semgrep` | Run local Semgrep OSS scan with `p/golang` rules |
-| `make semgrep-json` | Run Semgrep OSS scan and emit JSON |
-| `make semgrep-pro` | Run Semgrep with `--pro`; requires Semgrep Pro Engine and `semgrep login` |
-| `make vulncheck` | Run the controlled vulnerability audit (`govulncheck` + OSV Scanner) |
-| `make osv-scan` | Alias for the controlled vulnerability audit |
-| `make vulncheck-strict` | Run raw `govulncheck ./...` without the project allowlist |
-| `make osv-scan-strict` | Run raw `osv-scanner scan -r .` without the project allowlist |
-
-The controlled audit treats `go.mod` and `tools/go.mod` as separate OSV
-inputs. CI retains the runtime govulncheck/OSV JSON, tools OSV JSON, and
-separate runtime/tools CycloneDX SBOMs in the
-`dependency-security-reports` artifact.
-
-#### Protobuf
-
-| Target | Description |
-|---|---|
-| `make proto-gen` | Generate Go code from `.proto` files |
-| `make proto-lint` | Lint protobuf definitions |
-| `make proto-breaking` | Check for breaking changes |
-| `make proto-update` | Update buf dependencies |
-
-#### Dependencies
-
-| Target | Description |
-|---|---|
-| `make tidy` | Run `go mod tidy` |
-| `make download` | Download module dependencies |
-| `make clean` | Remove binaries and caches |
-| `make versions` | Show tool versions |
-
-### Testing Strategy
-
-#### Unit Tests
-
-- **Table-driven** tests for all packages
-- **`t.Parallel()`** where safe (no shared mutable state)
-- **Always** run with `-race -count=1`
-- **`goleak.VerifyTestMain(m)`** in the six concurrency-heavy packages that
-  own the daemon, protocol, network, metrics, configuration, and integration
-  lifecycles
-
-#### FSM Tests (`testing/synctest`)
-
-Go 1.27 `testing/synctest` enables deterministic time-based testing and adds
-`synctest.Sleep` for the common advance-time-and-settle operation:
-
-```go
-func TestFSMDetectionTimeout(t *testing.T) {
-    synctest.Test(t, func(t *testing.T) {
-        sess := newTestSession(t, SessionConfig{
-            DesiredMinTxInterval:  100 * time.Millisecond,
-            RequiredMinRxInterval: 100 * time.Millisecond,
-            DetectMultiplier:      3,
-        })
-
-        // Bring session to Up state
-        sess.injectPacket(controlPacket(StateInit, 0))
-        synctest.Wait()
-        require.Equal(t, StateUp, sess.State())
-
-        // Detection timeout = 3 x 100ms = 300ms
-        synctest.Sleep(350 * time.Millisecond)
-        require.Equal(t, StateDown, sess.State())
-    })
-}
+```sh
+make test-run RUN=TestFSMTransition PKG=./internal/bfd
+make lint-docs
+make verify
 ```
 
-Benefits:
-- Tests run in virtual time (instant execution)
-- Deterministic -- no flaky timer-dependent tests
-- Perfect for BFD protocol timers and detection timeouts
+5. Run the relevant [interop gate](05-interop.md) for protocol, transport, authentication or wire changes. Run benchmarks for hot-path or toolchain changes.
+6. Update both language guides and both changelogs when user-visible behavior changes. Record exact source/binary identities, executed checks, skips and remaining acceptance in the pull request.
+7. Request review from the applicable owners in [.github/CODEOWNERS](../../.github/CODEOWNERS). Follow [CONTRIBUTING.md](../../CONTRIBUTING.md) and the [release guide](10-changelog.md).
 
-#### Fuzz Testing
+`make all` runs build, race tests, gopls, lint and documentation checks. `make verify` adds protobuf lint and the controlled vulnerability audit. It excludes live interoperability, package lifecycle, reference load and publication acceptance.
 
-GoBFD includes fuzz tests for all packet parsers that handle untrusted network input:
+## Lifecycle and build targets
 
-```bash
-# BFD Control packet codec
-make fuzz FUNC=FuzzControlPacket PKG=./internal/bfd
+| Target | Behavior |
+|:---|:---|
+| `up`, `dev-ensure` | Create/start the selected dev stack; verify the source mount |
+| `dev-project`, `dev-ps` | Print project identity or stack state |
+| `logs` | Follow dev logs |
+| `down`, `restart` | Stop, or stop then start the dev stack |
+| `build` | Build all four binaries with version, commit and UTC build-time ldflags |
+| `all`, `verify` | Run the aggregate checks described above |
+| `versions` | Print installed tool identities |
 
-# VXLAN overlay codec (RFC 8971)
-make fuzz FUNC=FuzzVXLANHeader PKG=./internal/netio
+## Test targets
 
-# Geneve overlay codec (RFC 9521)
-make fuzz FUNC=FuzzGeneveHeader PKG=./internal/netio
+| Target | Scope |
+|:---|:---|
+| `test`, `test-v` | All default packages, race detector, one uncached run; optional verbose output |
+| `test-run RUN=NAME PKG=PATH` | Focused race test |
+| `fuzz FUNC=NAME PKG=PATH` | One fuzz target, 60-second fuzz budget |
+| `test-integration` | In-process Manager/API/packet-bridge tests under the `integration` tag |
+| `testcontainers-smoke` | Required Podman-provider smoke, `testcontainers` tag |
+| `coverage`, `coverage-func` | Race coverage; HTML or function summary |
+| `test-report` | Race tests and JUnit/JSON/HTML under `reports/tests/` |
+| `report-all` | Test report, benchmark snapshot and comparison |
+| `benchmark*`, `profile` | [Benchmark collection and profiles](12-benchmarks.md) |
 
-# Inner packet assembly/disassembly
-make fuzz FUNC=FuzzInnerPacket PKG=./internal/netio
+Default `go test` does not execute every build-tagged suite. An in-process bridge is not a UDP or process-lifecycle test. Keep virtual-time `testing/synctest` tests for deterministic timer logic and wall-clock bounded waits for external peers.
+
+Fuzz targets cover Control, VXLAN, Geneve and inner packet codecs. Select the exact function from the package before running the target. Preserve failing corpus entries and the corresponding regression test; do not treat a bounded fuzz run as exhaustive validation.
+
+## Interop and integration targets
+
+| Target family | Entry point and boundary |
+|:---|:---|
+| Four peers | `interop` aliases `interop-testcontainers`; FRR/BIRD3/Holo/Thoro, crafted cases |
+| BGP coupling | `interop-bgp` aliases `interop-bgp-testcontainers` |
+| RFC scenarios | `interop-rfc` aliases `interop-rfc-testcontainers` |
+| Retained Compose stacks | `interop[-bgp,-rfc]-up/-test/-logs/-down`; different suite/cleanup contracts |
+| Containerlab | `interop-clab-bootstrap`, `interop-clab-up/-test/-down`, `interop-clab`; owned FRR-only execution |
+| Core | `e2e-core`, `e2e-core-testcontainers` |
+| Aggregates | `e2e-routing`, `e2e-rfc`, `e2e-overlay`, `e2e-linux`, `e2e-vendor` |
+| Aggregate subtargets | `e2e-routing-test`, `e2e-rfc-test`, `e2e-overlay-test`, `e2e-linux-test`, `e2e-vendor-test` |
+| BGP example | `int-bgp-failover[-testcontainers,-up,-logs,-down]` |
+| HAProxy example | `int-haproxy[-testcontainers,-up,-logs,-down]` |
+| Observability example | `int-observability[-testcontainers,-up,-logs,-down]` |
+| ExaBGP example | `int-exabgp-anycast[-up,-logs,-down]` |
+| Kubernetes example | `int-k8s[-up,-down]`; existing cluster and namespace ownership required |
+| Inspection | `e2e-help`, `interop-capture`, `interop-pcap`, `interop-pcap-summary` |
+| Compatibility alias | `integration` aliases `interop` |
+
+The [E2E target inventory](../../test/e2e/targets.md) distinguishes assertion-based gates from retained demos and manifest-only checks. Never infer vendor execution from `e2e-vendor`, nor complete RFC coverage from a named RFC action-path test. Cleanup targets can delete owned resources and require the applicable authorization.
+
+### RFC Compose ownership
+
+Use `make interop-rfc-up`, `make interop-rfc-test`, `make interop-rfc-logs` and `make interop-rfc-down` for the retained Compose stack. `e2e-rfc-test` uses the same locked test target. The [controller](../../test/internal/interopproject/controller.go) validates the project and owns each build through a run receipt; cleanup targets verified IDs. Captures remain in private `reports/e2e/rfc-compose/run.<identity>/` directories after teardown. Existing named capture volumes are preserved.
+
+The [RFC aggregate](../../test/internal/e2erunner/rfc.go) resolves container IDs, collects logs and packet artifacts before teardown, and collects artifacts under an independent timeout after cancellation. Missing required containers or empty captures fail the run. The testcontainers entry point remains separate. These ownership checks do not extend the [RFC coverage matrix](08-rfc-compliance.md).
+
+### Routing artifact ownership
+
+The [routing launcher](../../test/internal/e2erunner/routing.go) collects the base and BGP suite artifacts sequentially. It merges their copied captures inside the BGP lifecycle, while that suite's verified tshark image is still available. The retired base image ID remains provenance for its capture; merge uses the active BGP image by ID. `merge-runtime/` holds separate ownership receipts, image provenance and helper diagnostics, preserving aggregate inventories and logs. A missing merge output or unconfirmed cleanup fails the run. Post-test artifact collection and runtime cleanup use independent bounded contexts after cancellation; this does not establish native packet or interoperability acceptance.
+
+### Overlay wire qualification
+
+Run `make e2e-overlay` for the assertion-based userspace UDP tests. The [launcher](../../test/internal/e2erunner/runner.go) creates a separate `--network none` runtime and starts the bounded test immediately. [Runtime ownership](../../test/internal/e2erunner/runtime.go) validates the full container ID and owner labels before starting or removing it, verifies removal under an independent cleanup timeout, and reports unconfirmed cleanup as an error. It provides no capture startup, readiness or join hook. A capture started after the target returns cannot observe the completed test in that runtime.
+
+Linux and overlay reports use exclusive private run directories. `runtime-plan.json` records the unique name and owner labels before creation; `runtime-container.json` records the validated ID before launch or recovery cleanup. Preserve both receipts and the report when cleanup fails. A failed preparation must not remove an existing container. The launcher preserves external test images and a foreign container that replaces an owned name.
+
+Retain Go test JSON for both inner tuples on the same outer endpoints/VNI. [Assertions](../../test/e2e/overlay/wire_test.go) cover bidirectional userspace UDP, TTL 255, identity/malformed rejection, cancellation, reuse and Close. The generated `packets.csv` is a codec fixture summary, not a PCAP.
+
+Wire qualification requires a separately implemented and reviewed capture lifecycle: admission into the exact runtime namespace before traffic, confirmed capture readiness, bounded duration/file size, capture stop/join and nonempty artifact checks before runtime removal. Correlate decoded frames and discriminators with accepted/rejected outcomes only after that lifecycle exists; retain command, image IDs, limits and hashes. The current target alone does not provide this qualification.
+
+Replay the six overlay fuzz targets with race detection, two workers, a 20-second budget and an outer timeout as a separate gate. These checks do not qualify vendor or owner-specific overlay backends.
+
+### Package lifecycle qualification
+
+Execute in the pinned SDK with the verified UPX prerequisite on PATH:
+
+```sh
+go run ./test/cmd/cictl package-build
+go run ./test/cmd/cictl package-lifecycle
 ```
 
-Each fuzz test has two variants:
-- **Round-trip**: verifies `parse(marshal(packet)) == packet` for structured inputs
-- **Raw input**: feeds arbitrary bytes to the parser, verifying it never panics
-
-The default fuzz duration is 60 seconds. To run longer:
-
-```bash
-make fuzz FUNC=FuzzVXLANHeader PKG=./internal/netio FUZZTIME=300s
-```
-
-#### Integration Tests
-
-```bash
-make test-integration
-```
-
-Uses `testcontainers-go` with Podman backend for testing the full daemon lifecycle.
-
-#### Interoperability Tests
-
-See [05-interop.md](./05-interop.md) for the 4-peer interop testing framework.
-
-### Linting
-
-golangci-lint v2.13.1 with a maximum-by-default configuration:
-
-```bash
-make lint
-```
-
-The tool is pinned by the `tool` directive in the isolated `tools/go.mod` module.
-Local linting is container-only: `make lint` reconciles the dev service and
-runs the prebuilt pinned binary inside it. `make lint-ci` is the inner contract
-for CI containers and deliberately refuses to run on the host. The dev service
-defaults to 4 CPUs, an 8 GiB hard memory limit, a 6 GiB Go runtime soft limit,
-no swap beyond that hard limit, and 1,024 PIDs. Go and golangci-lint caches are
-kept in the disposable container layer. The image includes the C compiler and
-runtime headers required by the Linux Go race detector, so race gates never
-install packages at runtime. All commands built with `go install` use the
-absolute `GOBIN=/go/bin`, and `/go/bin` is part of `PATH`. Override the limits
-only when needed with
-`GOBFD_DEV_CPUS`, `GOBFD_DEV_MEMORY_LIMIT`,
-`GOBFD_DEV_MEMORY_RESERVATION`, `GOBFD_DEV_GOMEMLIMIT`, and
-`GOBFD_DEV_PIDS_LIMIT`.
-
-`.golangci.yml` uses
-`linters.default: all`: 92 signal-bearing linters are enabled, while 20
-maintained linters with no project inputs, duplicate coverage, or documented
-semantic conflicts and two deprecated linters are disabled.
-The CI contract validates the v2 schema, the enabled-linter count, the normal
-build, and every repository-specific build tag independently. Key checks include:
-
-- `gosec` (with `audit: true`) -- security analysis
-- `govet`, `staticcheck`, `errcheck` -- standard Go checks
-- `noctx` -- context propagation checks
-- `exhaustive` -- exhaustive switch/map checks
-- `cyclop`, `gocognit`, `maintidx` -- complexity limits
-- `revive`, `wrapcheck`, `gochecknoglobals`, `mnd`, `lll` -- API, error,
-  state, and source-discipline checks
-- `depguard`, `gomoddirectives` -- dependency hygiene
-- `nolintlint` -- quality of `//nolint` directives
-
-### Documentation and Commit Policy
-
-`make lint-md` runs the repository-owned stdlib Go 1.27 checker over a
-non-empty, bounded, deterministic Markdown input set. Its fixtures preserve the
-36 enabled markdownlint 0.41 rules. `make lint-commit MSG='feat(bfd): add peer'`
-checks the preserved Conventional Commit type, scope, case, 100-byte blocking
-header limit, 120-byte non-blocking body warning, and default-ignore boundary.
-Neither check requires Node.js or npm.
-
-`make lint-spell` runs codespell 2.4.3 from the frozen uv quality group with
-the exact `.codespell-ignore` word list. `make lint-yaml` uses the same frozen
-environment for yamllint 1.38.0.
-
-### Python Tooling
-
-The repository has one non-package Python 3.14.7 environment. uv 0.12.6 reads
-the root `.python-version`, `pyproject.toml`, and `uv.lock`; no requirements
-file, pip bootstrap, or independent uv tool environment is supported.
-
-The `peer` and `runtime` groups are intentionally empty. The lock retains the
-Ruff, ty, Bandit, codespell, yamllint, junit2html, and pip-audit toolchain
-(`quality`) for repository checks and the containerlab bootstrap. Docker
-Compose and the BFD invalid-vector generator are Go binaries, not Python
-dependencies.
-
-```bash
-make python-sync
-make python-check
-uv run --frozen --no-default-groups -- python test/interop-clab/vendor_images.py --help
-```
-
-`make python-check` asserts Python 3.14.7, checks the lock and frozen sync, then
-runs lint, type, security, and vulnerability checks over the single retained
-vendor-image helper. ExaBGP remains an external immutable interop image and is
-not duplicated in the lock.
-
-### Dependency Inventory
-
-The machine-readable supply-chain snapshot lives in
-`docs/supply-chain/dependency-inventory.json`. It covers the complete selected
-runtime and isolated-tool module graphs plus repository-declared tools, GitHub
-Actions, OCI images, interop daemons, and all registry packages from `uv.lock`.
-Regenerate it only after completing the corresponding release-note, security,
-license, archive, and pin review:
-
-```bash
-make dependency-inventory
-make dependency-inventory-check
-```
-
-Generation resolves each exact selected Go module version through the stable
-deps.dev v3 API and records exact-commit GitHub evidence where deps.dev has no
-license expression. Exact PyPI release JSON must match the locked package
-identity and artifact SHA-256 before its license metadata is accepted.
-Immutable OCI records keep registry availability separate from their canonical
-build-source commit and hashed license file. The check is offline and fails if
-either Go module graph, a declared component, a source location, evidence
-binding, or the Go package count drifts from the reviewed snapshot.
-
-Every adopted or retained record with an unresolved release-blocking review
-contains its own `review_exception`: exact review dimensions, owner, reason,
-tracking Bead, and review date. The offline checker rejects missing or excess
-exception coverage; deferred and stale decisions remain separately bounded by
-their decision owner and review date.
-
-### Semgrep
-
-Semgrep is used as an additional local SAST pass:
-
-```bash
-make semgrep       # Semgrep OSS, p/golang ruleset
-make semgrep-json  # same scan, JSON output
-make semgrep-pro   # requires Semgrep Pro Engine and semgrep login
-```
-
-Per the Semgrep CLI reference, `semgrep scan` is the local scan command and can
-run registry rulesets such as `p/golang` without a Semgrep account. `semgrep ci`
-uses Semgrep App policies, diff-aware CI behavior, and Pro analysis when the
-CLI is logged in. The `--pro` flag enables interfile analysis and requires the
-Pro Engine plus authentication.
-
-Current accepted Semgrep warnings are documented in [SECURITY.md](../../SECURITY.md):
-MD5 and SHA1 are implemented only for RFC 5880 authentication interoperability.
-The matching Sonar `go:S4790` exception is limited by
-`sonar-project.properties` to `internal/bfd/auth.go`; the rule remains active
-for every other file. Sonar in-code resolution is not used because SonarQube
-Cloud supports `sonar-resolve` only for C-family languages, not Go.
-
-### Protobuf Workflow
-
-Protobuf is managed by `buf`:
-
-```bash
-# After modifying api/bfd/v1/bfd.proto:
-make proto-lint      # Lint definitions
-make proto-gen       # Generate Go code to pkg/bfdpb/
-make proto-breaking  # Check for breaking changes vs master
-```
-
-> **NEVER** edit files in `pkg/bfdpb/` manually -- they are generated by `buf generate`.
-
-### Go 1.27 Baseline
-
-GoBFD uses Go 1.27 while retaining the relevant Go 1.26 safety, performance,
-and debugging APIs.
-
-#### `testing/synctest` -- Deterministic Timer Tests
-
-All BFD timer and detection timeout tests use `testing/synctest` for
-virtual-time execution. An adjacent `time.Sleep` plus `synctest.Wait` is written
-as `synctest.Sleep`; real E2E and interoperability waits remain context-bounded
-wall-clock waits. See [FSM Tests](#fsm-tests-testingsynctest) above.
-
-#### `os.Root` -- Sandboxed File Access
-
-Configuration file loading uses `os.OpenRoot` to sandbox filesystem access within the config directory. This prevents path traversal attacks where a malicious config path could read arbitrary files:
-
-```go
-root, err := os.OpenRoot(filepath.Dir(path))
-if err != nil { return nil, err }
-defer root.Close()
-f, err := root.Open(filepath.Base(path))
-```
-
-Applied in `config.Load` and `gobfd-haproxy-agent` `loadConfig`.
-
-#### `errors.AsType[T]()` -- Type-Safe Error Matching
-
-Server tests use the Go 1.26 generic error matcher instead of the two-step `errors.As` pattern:
-
-```go
-// Go 1.26 idiomatic
-if connectErr, ok := errors.AsType[*connect.Error](err); ok {
-    require.Equal(t, connect.CodeNotFound, connectErr.Code())
-}
-```
-
-#### Goroutine Leak Diagnostics
-
-Go 1.27 provides the `goroutineleak` runtime profile without an experiment
-flag. Automated tests continue to use `go.uber.org/goleak` in six
-concurrency-heavy packages. These are separate mechanisms; GoBFD does not
-register the complete `net/http/pprof` handler set on its public metrics mux.
-
-#### `runtime/trace.FlightRecorder`
-
-An HTTP endpoint exposes the flight recorder for post-mortem trace capture. When enabled, the daemon continuously records the last N seconds of trace data, which can be dumped on demand for debugging latency spikes or deadlocks.
-
-#### Swiss Tables
-
-Go 1.26 introduced Swiss tables as the default `map` implementation. GoBFD's
-discriminator lookup, FSM transition table, and session demuxing benefit from
-improved cache locality. Go 1.27 removes the former `noswissmap` diagnostic
-experiment, so it must not appear in build or benchmark commands.
-
-#### HTTP and JSON Compatibility
-
-Both public HTTP servers set the same explicit `MaxHeaderValueCount` while
-retaining `ReadHeaderTimeout`, and parser-level tests cover the accepted and
-rejected boundaries. Go 1.27 backs the existing `encoding/json` API with the v2
-implementation; compatibility tests cover duplicate object members and invalid
-UTF-8 in the CLI, Podman, FRR, and vulnerability-audit paths without matching
-exact error strings.
-
-### Code Conventions
-
-| Rule | Description |
-|---|---|
-| **Errors** | Always wrap with `%w` and context: `fmt.Errorf("send control packet to %s: %w", peer, err)` |
-| **Error matching** | Use `errors.Is`/`errors.As`, never string matching |
-| **Context** | First parameter, never stored in struct |
-| **Goroutines** | Sender closes channels; tie lifetime to `context.Context` |
-| **Logging** | ONLY `log/slog` with structured fields |
-| **Naming** | Avoid stutter: `package bfd; type Session` not `BFDSession` |
-| **Imports** | stdlib, blank line, external, blank line, internal |
-| **Interfaces** | Small, near consumers |
-| **Tests** | Table-driven, `t.Parallel()` where safe, always `-race` |
-| **FSM** | All transitions MUST match RFC 5880 Section 6.8.6 exactly |
-| **Timers** | BFD intervals in MICROSECONDS per RFC -- never confuse with ms |
-
-### Contributing
-
-1. Open an issue to discuss the change before submitting a PR
-2. Follow the existing code style (see `AGENTS.md` for conventions)
-3. Add tests for new functionality (`go test ./... -race -count=1`)
-4. Ensure `make lint` passes
-5. Run `buf lint` if proto files are modified
-6. Keep commit messages descriptive and concise
-
-```bash
-# Development loop
-make up           # Start dev environment
-# ... make changes ...
-make all          # Build + test + lint
-
-# For protocol changes:
-make interop      # Verify interop with 4 peers
-
-# For proto changes:
-make proto-gen    # Regenerate Go code
-make proto-lint   # Lint proto definitions
-```
-
-### Related Documents
-
-- [01-architecture.md](./01-architecture.md) -- System architecture and package structure
-- [05-interop.md](./05-interop.md) -- Interoperability testing
-- [AGENTS.md](../../AGENTS.md) -- Full code conventions and commands
-
----
-
-*Last updated: 2026-08-27*
+`package-build` uses the release GoReleaser pin, test version `v0.0.0` and native RPM lifecycle finalization. It disables publication stages and requires a Git checkout. `package-lifecycle` requires the Podman API and exercises a DEB in systemd-enabled Debian: start, sandbox, watchdog hold, reload with the same PID, restart after SIGKILL, stop with a dead peer, unit verification, enabled/disabled upgrade idempotence and active removal. Upgrade fixtures change only the package control version; they do not qualify upgrades between daemon implementations.
+
+Build limits are 2 CPU/2 GiB. Runtime limits are 1 CPU/1 GiB, no swap, 1024 PIDs and a private cgroup namespace; the test verifies effective limits. SYS_ADMIN, SYS_PTRACE and namespace/security exceptions are specific to this disposable systemd fixture. Debian test packages remain mirror-resolved. Evidence belongs to `reports/e2e/package-lifecycle/`; RPM generation is separate from DEB runtime acceptance.
+
+## Quality, protobuf and dependency targets
+
+| Target | Contract |
+|:---|:---|
+| `lint`, `lint-ci` | Canonical Go-owned linter with base and build-tag profiles |
+| `lint-fix` | Apply linter fixes; inspect the resulting diff |
+| `gopls-check` | Bounded diagnostics, including the Darwin dependency-generator profile |
+| `lint-md`, `lint-yaml`, `lint-spell`, `lint-docs` | Markdown, YAML, selected English spelling; combined documentation gate |
+| `lint-commit MSG='fix(bfd): reject invalid input'` | Validate one Conventional Commit subject |
+| `semgrep`, `semgrep-json`, `semgrep-pro` | Selected host Semgrep executable; Pro needs its own engine/access |
+| `vulncheck`, `osv-scan` | Controlled govulncheck + OSV audit |
+| `vulncheck-strict`, `osv-scan-strict` | Raw scans without project exceptions |
+| `proto-gen`, `proto-lint` | Regenerate or lint protobuf definitions |
+| `proto-breaking`, `proto-update` | Compare against local master, or update Buf dependencies |
+| `dependency-inventory`, `dependency-inventory-check` | Generate the selected inventory or check snapshot agreement |
+| `tidy`, `download` | Tidy or download runtime dependencies |
+| `clean` | Remove daemon/CLI and Go caches; retains bridge binaries |
+
+CI checks protobuf drift and uses the exact fetched PR base commit for breaking checks; local `proto-breaking` uses `master`. `tools/go.mod` owns developer tools. Keep runtime and tools graphs separate. Inventory generation records observations; its snapshot check proves agreement with the recorded inventory (downloading uncached Go modules when needed), not upstream currency, security or release adoption. Advisory exceptions have exact module, scanner, reachability, owner and expiry boundaries; see the [risk register](reference/dependency-risk.md).
+
+## Tool execution boundaries
+
+| Entry point | Compiler/runtime |
+|:---|:---|
+| Routine Make targets | Go inside selected dev container |
+| Five E2E aggregates | Socket-free digest-pinned compiler builds ignored `bin/e2ectl`; host runs that exact binary |
+| Five Containerlab launchers | Fresh private controller build without engine socket; separate race-payload compiler and Debian runtime |
+| Local `cictl` wrappers (`dev-ensure`, `benchmark*`) and retained `interopctl`/`integrationctl` bootstrap | Direct `go run`; require explicit pinned container execution or the exact pinned host compiler |
+| `lint-ci` and CI commands | Direct Go entry points intended for the pinned CI container |
+| `semgrep*` | Selected host executable |
+
+The E2E aggregate directory lock covers dev recreation, build and execution; acquisition waits 120 seconds. Compiler bounds are 2 CPU/2 GiB/512 PIDs, read-only source, writable binary output. A dry Make run prints delegation without creating that directory. Containerlab help/dry-run/down still build a fresh controller; stale binaries are never fallback.
+
+Repository tooling is Go-owned. Do not add Python environments, repository Bash scripts or shell programs to CI. The sole Python runtime exception is checksum-pinned upstream ExaBGP inside its Debian peer image. Package-owned vendor startup internals are not repository launchers. Use [CI and release reference](reference/automation.md) for command contracts.
+
+## Code and runtime rules
+
+| Area | Requirement |
+|:---|:---|
+| Errors | Wrap with context and `%w`; use `errors.Is`/`errors.As` |
+| Concurrency | Context first, goroutines bound to cancellation, sender closes channels |
+| Logging | Structured `log/slog`; preserve sensitive-data boundaries |
+| Structure | Small consumer-owned interfaces; standard/external/internal import groups |
+| Protocol | [RFC 5880 §6.8.6](../../docs/rfc/rfc5880.txt), microsecond intervals, explicit procedure evidence |
+| Memory | Measure the named hot path; no blanket GC or scale claims |
+| Unsafe/generated code | No handwritten `unsafe`; regenerate protobuf |
+| Containers | Digest-pinned Debian trixie; preserve supported historical contracts |
+
+Keep the standard-version vet check. Use `synctest.Sleep` only inside deterministic test bubbles. Keep JSON compatibility tests, named HTTP header bounds and existing pprof isolation. The project does not install a global GOMAXPROCS override; qualify GOMEMLIMIT and retain default GOGC unless measurements justify another value. Go release APIs and removed compatibility settings are governed by [the pinned baseline contract](../../AGENTS.md), not illustrative snippets.
+
+## Troubleshooting
+
+| Symptom | Check | Action |
+|:---|:---|:---|
+| Wrong checkout in tests | `make dev-project`, `make dev-ps`, selected mount | Assign a distinct project and run `dev-ensure` |
+| Compose fails or builds use Buildx | Provider selection and DOCKER_BUILDKIT | Repeat [provider bootstrap](06-deployment.md#podman-compose) |
+| Default tests pass, tagged code fails | Exact build-tag profile | Run the canonical lint wrapper and selected E2E gate |
+| Reports disagree with logs | Run ID, revision, timestamps, expected files | Preserve raw failure output; use a fresh evidence directory |
+| Dependency scan fails | Reachability, exact exception and expiry | Fix the dependency or obtain a bounded recorded disposition |
+| Cleanup is incomplete | Recorded IDs, ownership labels, target logs | Recover through the owning controller; preserve foreign resources |
+
+## Related references
+
+[Interoperability](05-interop.md), [benchmarks](12-benchmarks.md), [runtime measurement](14-performance-analysis.md), [E2E harness](../../test/e2e/README.md), [Smallstep fixture](../../test/stepca/README.md).

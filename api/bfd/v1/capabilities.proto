@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package bfd.v1;
+
+option go_package = "github.com/dantte-lp/gobfd/pkg/bfdpb/v1;bfdpb";
+
+// CapabilityKind identifies a daemon capability profile.
+enum CapabilityKind {
+  CAPABILITY_KIND_UNSPECIFIED = 0;
+  // Unsolicited BFD preview, RFC 9468.
+  CAPABILITY_KIND_UNSOLICITED = 1;
+  // Unaffiliated BFD Echo preview, RFC 9747.
+  CAPABILITY_KIND_ECHO = 2;
+  // Micro-BFD preview, RFC 7130.
+  CAPABILITY_KIND_MICRO_BFD = 3;
+  // BFD for VXLAN preview, RFC 8971.
+  CAPABILITY_KIND_VXLAN = 4;
+  // BFD for Geneve preview, RFC 9521.
+  CAPABILITY_KIND_GENEVE = 5;
+}
+
+// CapabilityMaturity describes the product qualification boundary.
+enum CapabilityMaturity {
+  CAPABILITY_MATURITY_UNSPECIFIED = 0;
+  // Preview remains preview even when its runtime is enabled and ready.
+  CAPABILITY_MATURITY_PREVIEW = 1;
+}
+
+// CapabilityEnablement reports the effective runtime preview switch.
+enum CapabilityEnablement {
+  // The runtime source did not establish enablement.
+  CAPABILITY_ENABLEMENT_UNSPECIFIED = 0;
+  CAPABILITY_ENABLEMENT_DISABLED = 1;
+  CAPABILITY_ENABLEMENT_ENABLED = 2;
+}
+
+// CapabilityReadiness reports coarse local receive-path readiness.
+enum CapabilityReadiness {
+  // The runtime source did not establish readiness.
+  CAPABILITY_READINESS_UNSPECIFIED = 0;
+  CAPABILITY_READINESS_NOT_READY = 1;
+  // Ready does not establish peer health, external forwarding ownership, or RFC compliance.
+  CAPABILITY_READINESS_READY = 2;
+}
+
+// CapabilityStatus separates preview maturity from enablement and readiness.
+// It contains no peer, endpoint, configuration, or secret data.
+message CapabilityStatus {
+  CapabilityKind kind = 1;
+  // RFC number identifies the profile; it does not assert full RFC compliance.
+  uint32 rfc = 2;
+  CapabilityMaturity maturity = 3;
+  CapabilityEnablement enablement = 4;
+  CapabilityReadiness readiness = 5;
+}
+
+// ListCapabilitiesRequest retrieves all five known preview profiles.
+message ListCapabilitiesRequest {}
+
+// ListCapabilitiesResponse contains a fresh, ordered runtime snapshot.
+message ListCapabilitiesResponse {
+  // Order: unsolicited, Echo, Micro-BFD, VXLAN, Geneve. Unknown runtime entries
+  // remain present with unspecified enablement and readiness.
+  repeated CapabilityStatus capabilities = 1;
+}
+
+// CapabilityService provides read-only coarse preview capability inspection.
+// Readiness never graduates a preview or proves RFC qualification.
+service CapabilityService {
+  // ListCapabilities returns the fixed profile catalog and current runtime state.
+  rpc ListCapabilities(ListCapabilitiesRequest) returns (ListCapabilitiesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}

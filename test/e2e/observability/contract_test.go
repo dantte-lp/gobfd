@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec" //nolint:depguard // Contract regression executes fixed Bash pipeline semantics without invoking Podman.
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,16 +15,17 @@ func TestObservabilityCompatibilityGateContract(t *testing.T) {
 	root := repositoryRoot(t)
 	makefile := readContractFile(t, filepath.Join(root, "Makefile"))
 	for _, required := range []string{
-		"int-observability:\n\t./deployments/integrations/observability/run.sh",
-		"int-observability-testcontainers:",
-		"-tags e2e_observability_testcontainers ./test/e2e/observability",
+		"int-observability:\n\tgo run ./test/cmd/integrationctl observability",
+		"int-observability-testcontainers: e2ectl-build",
+		"--build-tags e2e_observability_testcontainers",
+		"./test/e2e/observability/...",
 	} {
 		if !strings.Contains(makefile, required) {
 			t.Fatalf("Makefile lacks observability compatibility contract %q", required)
 		}
 	}
 
-	gopls := readContractFile(t, filepath.Join(root, "scripts", "gopls-check.sh"))
+	gopls := readContractFile(t, filepath.Join(root, "test", "internal", "repoquality", "gopls.go"))
 	if !strings.Contains(gopls, "e2e_observability_testcontainers") {
 		t.Fatal("gopls tag profiles lack e2e_observability_testcontainers")
 	}
@@ -36,16 +36,23 @@ func TestObservabilityCompatibilityGateContract(t *testing.T) {
 		contract.prometheusIP != "172.25.0.30" || contract.grafanaIP != "172.25.0.40" {
 		t.Fatalf("observability addressing = %+v, want exact static IPAM", contract)
 	}
-	for name, image := range map[string]string{
-		"FRR": contract.frrImage, "Prometheus": contract.prometheusImage, "Grafana": contract.grafanaImage,
+	for name, recipe := range map[string]string{
+		"FRR": contract.frrRecipe, "Prometheus": contract.prometheusRecipe, "Grafana": contract.grafanaRecipe,
 	} {
-		if !strings.Contains(image, "@sha256:") {
-			t.Fatalf("%s image %q is not immutable", name, image)
+		containerfile := readContractFile(t, filepath.Join(recipe, "Containerfile"))
+		if !strings.Contains(containerfile, "FROM docker.io/library/debian:trixie-slim@sha256:") ||
+			strings.Contains(strings.ToLower(containerfile), "alpine") ||
+			strings.Contains(containerfile, "busybox") {
+			t.Fatalf("%s recipe %s is not a digest-pinned Debian trixie runtime", name, recipe)
 		}
+	}
+	grafanaRecipe := readContractFile(t, filepath.Join(contract.grafanaRecipe, "Containerfile"))
+	if !strings.Contains(grafanaRecipe, `org.opencontainers.image.version="`+contract.grafanaVersion+`"`) {
+		t.Fatalf("Grafana recipe version label differs from expected health version %s", contract.grafanaVersion)
 	}
 	for _, path := range []string{
 		contract.gobfdConfig, contract.frrDaemons, contract.frrConfig,
-		contract.prometheusConfig, contract.alertRules, contract.grafanaDatasource,
+		contract.prometheusConfig, contract.alertRules, contract.alertRuleTests, contract.grafanaDatasource,
 		contract.grafanaDashboardProvider, contract.grafanaDashboard, contract.tsharkContainerfile,
 	} {
 		if _, err := os.Stat(path); err != nil {
@@ -56,7 +63,7 @@ func TestObservabilityCompatibilityGateContract(t *testing.T) {
 	buildContext := prepareGoBFDBuildContext(t, root)
 	containerfile := readContractFile(t, filepath.Join(buildContext, "Containerfile"))
 	for _, required := range []string{
-		"docker.io/library/golang:1.27.0-trixie@sha256:",
+		"docker.io/library/golang:1.27.4-trixie@sha256:",
 		"./cmd/gobfd", "./cmd/gobfdctl", "go build -trimpath",
 	} {
 		if !strings.Contains(containerfile, required) {
@@ -69,41 +76,25 @@ func TestObservabilityCompatibilityGateContract(t *testing.T) {
 
 	derived := readContractFile(t, deriveGrafanaDatasource(t, contract.grafanaDatasource, contract.prometheusIP))
 	if !strings.Contains(derived, "http://172.25.0.30:9090") ||
-		strings.Contains(derived, "http://prometheus-observability:9090") {
+		strings.Contains(derived, "${PROMETHEUS_URL}") {
 		t.Fatalf("minimally derived Grafana datasource has unexpected URL: %q", derived)
 	}
-}
 
-func TestObservabilityMakeRecipePreservesPipelineFailures(t *testing.T) {
-	makefile := readContractFile(t, filepath.Join(repositoryRoot(t), "Makefile"))
-	for _, required := range []string{
-		`report_dir="$$(mktemp -d "$${report_parent}/run.XXXXXXXX")"`,
-		`pipeline_status=("$${PIPESTATUS[@]}")`,
-		`test "$${#pipeline_status[@]}" -eq 2`,
-		`test "$${pipeline_status[0]}" -eq 0`,
-		`test "$${pipeline_status[1]}" -eq 0`,
-		`E2E_OBSERVABILITY_TESTCONTAINERS_ARTIFACT_OWNER`,
-	} {
-		if !strings.Contains(makefile, required) {
-			t.Fatalf("observability Make recipe lacks failure-safe contract %q", required)
-		}
+	duplicateGrafana := filepath.Join(root, "deployments/integrations/observability/configs/grafana")
+	if _, err := os.Stat(duplicateGrafana); !os.IsNotExist(err) {
+		t.Fatalf("duplicate observability Grafana directory still exists: %v", err)
 	}
-}
-
-func TestPipelineStatusRejectsTeeFailure(t *testing.T) {
-	startCommand := exec.CommandContext(t.Context(), filepath.Join(t.TempDir(), "missing-bash"))
-	if startErr := startCommand.Run(); commandExitedAsExpected(startErr, nil) {
-		t.Fatal("pipeline contract misclassified a command start error as the expected process exit")
+	dashboardBytes := []byte(readContractFile(t, contract.grafanaDashboard))
+	if err := preflightStrictJSON(dashboardBytes); err != nil {
+		t.Fatalf("validate canonical Grafana dashboard JSON: %v", err)
 	}
-
-	command := exec.CommandContext(t.Context(), "bash", "-o", "pipefail", "-c",
-		`printf x | tee /dev/full >/dev/null; `+
-			`pipeline_status=("${PIPESTATUS[@]}"); `+
-			`test "${#pipeline_status[@]}" -eq 2 && `+
-			`test "${pipeline_status[0]}" -eq 0 && test "${pipeline_status[1]}" -eq 0`)
-	output, err := command.CombinedOutput()
-	if !commandExitedAsExpected(err, output) {
-		t.Fatalf("tee failure result = %v, output = %q; want process exit 1", err, output)
+	var dashboard struct {
+		UID    string            `json:"uid"`
+		Panels []json.RawMessage `json:"panels"`
+	}
+	if err := json.Unmarshal(dashboardBytes, &dashboard); err != nil ||
+		dashboard.UID != "gobfd-bfd-sessions" || len(dashboard.Panels) == 0 {
+		t.Fatalf("canonical Grafana dashboard = uid %q panels %d, err %v", dashboard.UID, len(dashboard.Panels), err)
 	}
 }
 
@@ -160,6 +151,9 @@ func TestObservabilityAPIBoundaries(t *testing.T) {
 	}
 
 	validSession := `{"peer_address":"172.25.0.20","local_address":"172.25.0.10","type":"single_hop",` +
+		`"observation_version":42,"remote_known":true,"remote_diagnostic":"None",` +
+		`"local_control_plane_independent":true,"remote_control_plane_independent":true,` +
+		`"cause":"RemoteStateChange","padded_pdu_size":0,` +
 		`"local_state":"Up","remote_state":"Up","local_diagnostic":"None",` +
 		`"local_discriminator":1,"remote_discriminator":2,"detect_multiplier":3,"auth_type":"None"}`
 	if _, err := parseBFDSessionJSON(validSession, contract.frrIP); err != nil {

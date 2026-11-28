@@ -4,7 +4,6 @@ package haproxy_health_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -40,6 +39,12 @@ type haproxyHealthContract struct {
 }
 
 type bfdSessionView struct {
+	ObservationVersion  uint64 `json:"observation_version"`
+	RemoteKnown         bool   `json:"remote_known"`
+	RemoteDiagnostic    string `json:"remote_diagnostic"`
+	LocalC              bool   `json:"local_control_plane_independent"`
+	RemoteC             bool   `json:"remote_control_plane_independent"`
+	Cause               string `json:"cause"`
 	PeerAddress         string `json:"peer_address"`
 	LocalAddress        string `json:"local_address"`
 	InterfaceName       string `json:"interface_name,omitempty"`
@@ -50,6 +55,7 @@ type bfdSessionView struct {
 	LocalDiscriminator  uint32 `json:"local_discriminator"`
 	RemoteDiscriminator uint32 `json:"remote_discriminator"`
 	DetectMultiplier    uint32 `json:"detect_multiplier"`
+	PaddedPduSize       uint32 `json:"padded_pdu_size"`
 	DesiredMinTx        string `json:"desired_min_tx_interval,omitempty"`
 	RequiredMinRx       string `json:"required_min_rx_interval,omitempty"`
 	RemoteMinRx         string `json:"remote_min_rx_interval,omitempty"`
@@ -66,22 +72,16 @@ type haproxyServerState struct {
 	Eligible bool
 }
 
-type ownedImageClient interface {
-	ImageExists(ctx context.Context, image string) (bool, error)
-	ImageID(ctx context.Context, image string) (string, error)
-	RemoveImage(ctx context.Context, image string) error
-}
-
 func newHAProxyHealthContract(root string) haproxyHealthContract {
 	base := filepath.Join(root, "deployments/integrations/haproxy-health")
 	return haproxyHealthContract{
 		subnet: "172.23.0.0/24", gateway: "172.23.0.1",
 		monitorIP: "172.23.0.10", haproxyIP: "172.23.0.20",
 		backend1IP: "172.23.0.30", backend2IP: "172.23.0.40",
-		haproxyImage: "docker.io/library/haproxy:3.4.3-trixie@sha256:" +
-			"4def76cf5d2610255d01fa51b37973d67ddee52f979981fc19117e8d0197bbf5",
-		nginxImage: "docker.io/library/nginx:1.31.4-trixie@sha256:" +
-			"b34848eff6db786b6b1282d3a9c3fd0b5563dfb6d261df4923378b419e0d24f0",
+		haproxyImage: "docker.io/library/haproxy:3.4.6-trixie@sha256:" +
+			"e273915691a8eab3f105bf3e39fd4c29a4ecf334e33421903b5589d25e14db26",
+		nginxImage: "docker.io/library/nginx:1.31.6-trixie@sha256:" +
+			"60f0d4e986561e08804f75c211dcaf7fc5455699eada29f42cbe8a0a7253dd86",
 		monitorConfig:           filepath.Join(base, "gobfd-monitor/gobfd.yml"),
 		agentConfig:             filepath.Join(base, "haproxy-agent.yml"),
 		backend1Config:          filepath.Join(base, "backend1-bfd/gobfd.yml"),
@@ -275,8 +275,11 @@ func prepareHAProxyGoBFDBuildContext(t *testing.T, root string) string {
 			t.Fatalf("copy %s into bounded GoBFD build context: %v", name, err)
 		}
 	}
-	const containerfile = `FROM docker.io/library/golang:1.27.0-trixie@sha256:` +
-		`ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a AS builder
+	const containerfile = `FROM docker.io/library/golang:1.27.4-trixie@sha256:` +
+		`430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee AS builder
+ARG VCS_REF
+ARG BUILD_DATE
+ENV GOTOOLCHAIN=local GOMAXPROCS=2 GOMEMLIMIT=1500MiB GOFLAGS=-p=1
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download && go mod verify
@@ -285,11 +288,33 @@ COPY cmd/gobfdctl ./cmd/gobfdctl
 COPY cmd/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
 COPY internal ./internal
 COPY pkg ./pkg
-RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfd ./cmd/gobfd
-RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfdctl ./cmd/gobfdctl
-RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-X github.com/dantte-lp/gobfd/internal/version.GitCommit=${VCS_REF} \
+-X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" -o /bin/gobfd ./cmd/gobfd
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-X github.com/dantte-lp/gobfd/internal/version.GitCommit=${VCS_REF} \
+-X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" -o /bin/gobfdctl ./cmd/gobfdctl
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-X github.com/dantte-lp/gobfd/internal/version.GitCommit=${VCS_REF} \
+-X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
+    -o /bin/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
+ARG GOBFD_IMAGE_RUN=""
+ARG GOBFD_IMAGE_TEST=""
+LABEL io.gobfd.stage-run="${GOBFD_IMAGE_RUN}" \
+      io.gobfd.stage-test="${GOBFD_IMAGE_TEST}"
 FROM docker.io/library/debian:trixie-slim@sha256:` +
-		`d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
+		`8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
+ARG VCS_REF
+ARG BUILD_DATE
+LABEL org.opencontainers.image.source="https://github.com/dantte-lp/gobfd" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.version="${VCS_REF}" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.title="GoBFD HAProxy health fixture" \
+      org.opencontainers.image.description="GoBFD daemon, CLI and HAProxy bridge from the qualified candidate" \
+      org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
+      org.opencontainers.image.base.digest="sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0"
 COPY --from=builder /bin/gobfd /bin/gobfd
 COPY --from=builder /bin/gobfdctl /bin/gobfdctl
 COPY --from=builder /bin/gobfd-haproxy-agent /bin/gobfd-haproxy-agent

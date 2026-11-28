@@ -21,7 +21,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/netip"
+	"sync/atomic"
+	"syscall"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 )
@@ -47,10 +50,15 @@ type OverlayConn interface {
 	// RecvDecapsulated reads a tunnel packet from the socket, strips the
 	// tunnel header and inner packet headers, and returns the raw BFD
 	// Control payload along with overlay metadata (source VTEP/NVE, VNI).
+	// One receive loop owns the returned buffer until the next receive call.
 	RecvDecapsulated(ctx context.Context) ([]byte, OverlayMeta, error)
 
 	// Close releases the underlying UDP socket.
 	Close() error
+}
+
+type scopedOverlayConn interface {
+	SendEncapsulatedFor(ctx context.Context, payload []byte, scope bfd.TransportScope) error
 }
 
 // OverlayMeta holds metadata extracted from a received tunnel packet.
@@ -69,6 +77,176 @@ type OverlayMeta struct {
 	// For VXLAN: the Management VNI (RFC 8971 Section 3).
 	// For Geneve: the VNI from the Geneve header (RFC 9521).
 	VNI uint32
+
+	// TTL is the Time-to-Live from the inner IPv4 header.
+	TTL uint8
+
+	// TransportScope is the exact configured tunnel and Format A identity
+	// matched by the received packet.
+	TransportScope bfd.TransportScope
+}
+
+type overlayReceiveKey struct {
+	kind           bfd.TransportScopeKind
+	outerPeerAddr  netip.Addr
+	outerLocalAddr netip.Addr
+	innerPeerAddr  netip.Addr
+	innerLocalAddr netip.Addr
+	addressFamily  bfd.AddressFamily
+	peerMAC        [6]byte
+	localMAC       [6]byte
+	vni            uint32
+}
+
+func receiveKeyForScope(scope bfd.TransportScope) overlayReceiveKey {
+	localMAC := scope.LocalMAC
+	if scope.Kind == bfd.TransportScopeVXLAN {
+		localMAC = innerDstMAC
+	}
+	return overlayReceiveKey{
+		kind:           scope.Kind,
+		outerPeerAddr:  scope.OuterPeerAddr.Unmap(),
+		outerLocalAddr: scope.OuterLocalAddr.Unmap(),
+		innerPeerAddr:  scope.InnerPeerAddr.Unmap(),
+		innerLocalAddr: scope.InnerLocalAddr.Unmap(),
+		addressFamily:  scope.AddressFamily,
+		peerMAC:        scope.PeerMAC,
+		localMAC:       localMAC,
+		vni:            scope.VNI,
+	}
+}
+
+// SameOverlayWireIdentity reports whether two scopes resolve to one receive
+// identity on the wire, so one socket can hold only one of them. VXLAN
+// identities that differ only in local MAC share it: the inner destination
+// MAC is fixed.
+func SameOverlayWireIdentity(a, b bfd.TransportScope) bool {
+	return receiveKeyForScope(a) == receiveKeyForScope(b)
+}
+
+func receiveKeyForPacket(
+	kind bfd.TransportScopeKind,
+	outerPeer, outerLocal netip.Addr,
+	vni uint32,
+	packet innerPacket,
+) overlayReceiveKey {
+	return overlayReceiveKey{
+		kind: kind, outerPeerAddr: outerPeer.Unmap(), outerLocalAddr: outerLocal.Unmap(),
+		innerPeerAddr: packet.srcIP, innerLocalAddr: packet.dstIP,
+		addressFamily: bfd.AddressFamilyIPv4,
+		peerMAC:       packet.srcMAC, localMAC: packet.dstMAC, vni: vni,
+	}
+}
+
+func validateOverlayScopes(
+	kind bfd.TransportScopeKind,
+	localAddr netip.Addr,
+	scopes []bfd.TransportScope,
+) error {
+	seen := make(map[overlayReceiveKey]struct{}, len(scopes))
+	for _, scope := range scopes {
+		if !validOverlayScope(kind, localAddr, scope) {
+			return fmt.Errorf("overlay scope %+v: %w", scope, ErrOverlayIdentityMismatch)
+		}
+		key := receiveKeyForScope(scope)
+		if _, duplicate := seen[key]; duplicate {
+			return fmt.Errorf("duplicate overlay wire identity %+v: %w", key, ErrOverlayIdentityMismatch)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func validOverlayScope(kind bfd.TransportScopeKind, localAddr netip.Addr, scope bfd.TransportScope) bool {
+	if scope.Kind != kind || scope.Owner == "" || scope.Backend == "" ||
+		scope.VNI > 0x00ff_ffff || scope.AddressFamily != bfd.AddressFamilyIPv4 {
+		return false
+	}
+	if scope.OuterLocalAddr.Unmap() != localAddr.Unmap() {
+		return false
+	}
+	return validOverlayOuterAddr(scope.OuterPeerAddr) && validOverlayOuterAddr(scope.OuterLocalAddr) &&
+		validOverlayInnerAddr(scope.InnerPeerAddr) && validOverlayInnerAddr(scope.InnerLocalAddr) &&
+		validUnicastMAC(scope.PeerMAC) && validUnicastMAC(scope.LocalMAC)
+}
+
+func validOverlayOuterAddr(addr netip.Addr) bool {
+	return addr.Is4() && (addr.IsGlobalUnicast() || addr.IsLoopback())
+}
+
+func validOverlayInnerAddr(addr netip.Addr) bool {
+	return addr.Is4() && addr.IsGlobalUnicast()
+}
+
+func validUnicastMAC(addr [6]byte) bool {
+	return addr != [6]byte{} && addr[0]&1 == 0
+}
+
+func openScopedOverlayUDP(
+	localAddr netip.Addr,
+	port uint16,
+	kind bfd.TransportScopeKind,
+	scopes []bfd.TransportScope,
+	readBufferSize, writeBufferSize int,
+) (*net.UDPConn, *overlayScopeSet, error) {
+	if len(scopes) > 0 {
+		if err := validateOverlayScopes(kind, localAddr, scopes); err != nil {
+			return nil, nil, err
+		}
+	}
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: localAddr.AsSlice(), Port: int(port)})
+	if err != nil {
+		return nil, nil, fmt.Errorf("listen overlay UDP %s:%d: %w", localAddr, port, err)
+	}
+	if err := configureOverlayBuffers(conn, readBufferSize, writeBufferSize); err != nil {
+		closeErr := conn.Close()
+		if closeErr != nil {
+			closeErr = fmt.Errorf("close overlay UDP after buffer failure: %w", closeErr)
+		}
+		return nil, nil, errors.Join(err, closeErr)
+	}
+	if len(scopes) == 0 {
+		return conn, nil, nil
+	}
+	set := &overlayScopeSet{kind: kind, local: localAddr}
+	set.store(scopes)
+	return conn, set, nil
+}
+
+// overlayScopeSet is the copy-on-write identity set of one scoped overlay
+// socket. Send and receive paths read it with one atomic load; SetScopes
+// replaces it while the socket keeps running. A nil set selects the legacy
+// unscoped management-VNI mode, and a scoped set never becomes empty.
+type overlayScopeSet struct {
+	kind  bfd.TransportScopeKind
+	local netip.Addr
+	set   atomic.Pointer[map[overlayReceiveKey]bfd.TransportScope]
+}
+
+func (s *overlayScopeSet) store(scopes []bfd.TransportScope) {
+	scopeMap := make(map[overlayReceiveKey]bfd.TransportScope, len(scopes))
+	for _, scope := range scopes {
+		scopeMap[receiveKeyForScope(scope)] = scope
+	}
+	s.set.Store(&scopeMap)
+}
+
+func (s *overlayScopeSet) lookup(key overlayReceiveKey) (bfd.TransportScope, bool) {
+	scope, ok := (*s.set.Load())[key]
+	return scope, ok
+}
+
+// replace validates a complete non-empty identity set for the same kind and
+// local endpoint, then swaps it in.
+func (s *overlayScopeSet) replace(scopes []bfd.TransportScope) error {
+	if s == nil || len(scopes) == 0 {
+		return fmt.Errorf("replace overlay scopes: %w", ErrOverlayIdentityMismatch)
+	}
+	if err := validateOverlayScopes(s.kind, s.local, scopes); err != nil {
+		return err
+	}
+	s.store(scopes)
+	return nil
 }
 
 // -------------------------------------------------------------------------
@@ -87,7 +265,51 @@ var (
 	// ErrOverlayInvalidAddr indicates the remote address from the outer
 	// UDP packet could not be parsed.
 	ErrOverlayInvalidAddr = errors.New("overlay: invalid remote address")
+
+	// ErrOverlayInnerDstMismatch indicates an inner packet addressed to a
+	// different local tunnel endpoint.
+	ErrOverlayInnerDstMismatch = errors.New("overlay: inner destination address mismatch")
+
+	// ErrOverlayPayloadTooLarge indicates that inner BFD exceeds the supported padded payload bound.
+	ErrOverlayPayloadTooLarge = errors.New("overlay: BFD payload exceeds supported maximum")
+
+	// ErrOverlayPacketTruncated indicates the receive buffer did not contain
+	// the complete UDP datagram.
+	ErrOverlayPacketTruncated = errors.New("overlay: truncated UDP datagram")
+
+	// ErrOverlayIdentityMismatch indicates that no exact configured tunnel and
+	// Format A identity matched the received packet.
+	ErrOverlayIdentityMismatch = errors.New("overlay: tunnel identity mismatch")
 )
+
+func readOverlayDatagram(
+	ctx context.Context, conn *net.UDPConn, buf []byte, closeConn func() error,
+) (int, *net.UDPAddr, error) {
+	var n, flags int
+	var remoteAddr *net.UDPAddr
+	err := overlayIO(ctx, conn.SetReadDeadline, closeConn, func() error {
+		var readErr error
+		n, _, flags, remoteAddr, readErr = conn.ReadMsgUDP(buf, nil)
+		if readErr != nil {
+			return fmt.Errorf("read overlay datagram: %w", readErr)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, nil, fmt.Errorf("read overlay UDP datagram: %w", err)
+	}
+	if flags&syscall.MSG_TRUNC != 0 {
+		return 0, nil, ErrOverlayPacketTruncated
+	}
+	return n, remoteAddr, nil
+}
+
+func validateInnerDestination(got, want netip.Addr) error {
+	if got != want.Unmap() {
+		return fmt.Errorf("inner destination=%s local=%s: %w", got, want, ErrOverlayInnerDstMismatch)
+	}
+	return nil
+}
 
 // -------------------------------------------------------------------------
 // OverlaySender — adapts OverlayConn to bfd.PacketSender
@@ -100,13 +322,20 @@ var (
 // The BFD Session calls SendPacket(ctx, bfdPayload, peerAddr), and the
 // OverlaySender wraps the payload in the appropriate tunnel encapsulation.
 type OverlaySender struct {
-	conn OverlayConn
+	conn     OverlayConn
+	scope    bfd.TransportScope
+	isScoped bool
 }
 
 // NewOverlaySender creates a PacketSender that wraps BFD payloads in
 // tunnel encapsulation before sending.
-func NewOverlaySender(conn OverlayConn) *OverlaySender {
-	return &OverlaySender{conn: conn}
+func NewOverlaySender(conn OverlayConn, scope ...bfd.TransportScope) *OverlaySender {
+	sender := &OverlaySender{conn: conn}
+	if len(scope) > 0 {
+		sender.scope = scope[0]
+		sender.isScoped = true
+	}
+	return sender
 }
 
 // SendPacket implements bfd.PacketSender by delegating to the OverlayConn's
@@ -116,6 +345,16 @@ func (s *OverlaySender) SendPacket(
 	buf []byte,
 	addr netip.Addr,
 ) error {
+	if s.isScoped {
+		scopedConn, ok := s.conn.(scopedOverlayConn)
+		if !ok {
+			return fmt.Errorf("overlay send for exact scope: %w", ErrOverlayIdentityMismatch)
+		}
+		if err := scopedConn.SendEncapsulatedFor(ctx, buf, s.scope); err != nil {
+			return fmt.Errorf("overlay send to %s: %w", s.scope.OuterPeerAddr, err)
+		}
+		return nil
+	}
 	if err := s.conn.SendEncapsulated(ctx, buf, addr); err != nil {
 		return fmt.Errorf("overlay send to %s: %w", addr, err)
 	}
@@ -156,12 +395,13 @@ func NewOverlayReceiver(
 // Run reads from the overlay connection in a loop until ctx is cancelled.
 // Each received packet is decapsulated, unmarshaled, and routed to the
 // manager. Errors from individual packets are logged but do not stop the
-// receiver. Only context cancellation terminates the loop.
+// receiver. Context cancellation returns nil; a connection closed while ctx
+// is live returns ErrOverlayRecvClosed.
 //
 // The receive flow for each packet:
 //  1. conn.RecvDecapsulated(ctx) -> raw BFD payload + OverlayMeta
 //  2. bfd.UnmarshalControlPacket(payload) -> ControlPacket
-//  3. Build bfd.PacketMeta from OverlayMeta (TTL=255 from inner header)
+//  3. Build bfd.PacketMeta from OverlayMeta
 //  4. mgr.DemuxWithWire(pkt, meta, wire) -> route to session
 func (r *OverlayReceiver) Run(ctx context.Context) error {
 	r.logger.Info("overlay receiver started")
@@ -178,8 +418,8 @@ func (r *OverlayReceiver) Run(ctx context.Context) error {
 				return nil //nolint:nilerr // Context cancellation during recv is expected at shutdown.
 			}
 			if errors.Is(err, ErrOverlayRecvClosed) {
-				r.logger.Info(overlayReceiverStoppedMsg)
-				return nil
+				// A connection closed while ctx is live is a lost receive path.
+				return fmt.Errorf("overlay receiver: %w", err)
 			}
 			if isExpectedOverlayDrop(err) {
 				r.logger.Debug("overlay packet dropped",
@@ -199,14 +439,19 @@ func (r *OverlayReceiver) recvOne(ctx context.Context) error {
 	// Step 1: Read and decapsulate tunnel packet.
 	bfdPayload, ometa, err := r.conn.RecvDecapsulated(ctx)
 	if err != nil {
+		if ctx.Err() == nil && !errors.Is(err, ErrOverlayRecvClosed) {
+			r.mgr.RecordDelivery(bfd.DeliveryOverlayDecap, overlayDeliveryOutcome(err))
+		}
 		return fmt.Errorf("overlay recv: %w", err)
 	}
+	r.mgr.RecordDelivery(bfd.DeliveryOverlayDecap, bfd.DeliveryAccepted)
 
 	// Step 2: Unmarshal BFD Control packet.
 	// RFC 5880 Section 6.8.6 steps 1-7: version, length, detect mult,
 	// multipoint, my discriminator, your discriminator validation.
 	var pkt bfd.ControlPacket
 	if err := bfd.UnmarshalControlPacket(bfdPayload, &pkt); err != nil {
+		r.mgr.RecordDelivery(bfd.DeliveryWireParse, bfd.DeliveryParserRejected)
 		r.logger.Debug("invalid BFD packet in overlay",
 			slog.String("src", ometa.SrcAddr.String()),
 			slog.Uint64("vni", uint64(ometa.VNI)),
@@ -214,31 +459,33 @@ func (r *OverlayReceiver) recvOne(ctx context.Context) error {
 		)
 		return nil // Drop invalid packets silently per RFC 5880 Section 6.8.6.
 	}
+	r.mgr.RecordDelivery(bfd.DeliveryWireParse, bfd.DeliveryAccepted)
 
 	// Step 3: Build bfd.PacketMeta from overlay metadata.
-	// The inner IPv4 TTL was set to 255 by BuildInnerPacket and is not
-	// modified by the tunnel decapsulation path. We set TTL=255 in the
-	// PacketMeta to satisfy any downstream GTSM validation.
+	srcAddr := ometa.TransportScope.InnerPeerAddr
+	dstAddr := ometa.TransportScope.InnerLocalAddr
+	if !srcAddr.IsValid() || !dstAddr.IsValid() {
+		srcAddr = ometa.SrcAddr
+		dstAddr = ometa.DstAddr
+	}
 	meta := bfd.PacketMeta{
-		SrcAddr: ometa.SrcAddr,
-		DstAddr: ometa.DstAddr,
-		TTL:     255, // Inner TTL=255 per RFC 5881 Section 5
+		SrcAddr:        srcAddr,
+		DstAddr:        dstAddr,
+		TTL:            ometa.TTL,
+		TransportScope: ometa.TransportScope,
 	}
 
-	// Step 4: Copy raw wire bytes only when auth verification needs stable
-	// backing storage for authentication slices.
+	// Step 4: Retain complete wire for authentication after pooled input release.
 	var wire []byte
-	if pkt.Auth != nil {
+	if !pkt.Auth.IsZero() {
 		wire = make([]byte, len(bfdPayload))
 		copy(wire, bfdPayload)
-		if err := bfd.UnmarshalControlPacket(wire, &pkt); err != nil {
-			return fmt.Errorf("overlay reparse auth packet: %w", err)
-		}
 	}
 
 	// Step 5: Route to session via manager.
-	if err := r.mgr.DemuxWithWire(&pkt, meta, wire); err != nil {
+	if outcome, err := r.mgr.DemuxWithWire(pkt, meta, wire); err != nil {
 		r.logger.Debug("overlay demux failed",
+			slog.String("outcome", outcome.String()),
 			slog.String("src", ometa.SrcAddr.String()),
 			slog.Uint64("vni", uint64(ometa.VNI)),
 			slog.String("error", err.Error()),
@@ -248,14 +495,44 @@ func (r *OverlayReceiver) recvOne(ctx context.Context) error {
 	return nil
 }
 
+func overlayDeliveryOutcome(err error) bfd.DeliveryOutcome {
+	switch {
+	case errors.Is(err, ErrInnerBadTTL):
+		return bfd.DeliveryTTLRejected
+	case errors.Is(err, ErrOverlayVNIMismatch), errors.Is(err, ErrOverlayIdentityMismatch),
+		errors.Is(err, ErrOverlayInvalidAddr), errors.Is(err, ErrOverlayInnerDstMismatch),
+		errors.Is(err, ErrGeneveVAPIdentityUnavailable):
+		return bfd.DeliveryPolicyRejected
+	case isExpectedOverlayDrop(err):
+		return bfd.DeliveryParserRejected
+	default:
+		return bfd.DeliveryReadError
+	}
+}
+
 func isExpectedOverlayDrop(err error) bool {
 	expected := []error{
 		ErrOverlayVNIMismatch,
+		ErrOverlayIdentityMismatch,
 		ErrOverlayInvalidAddr,
 		ErrInnerPacketTooShort,
 		ErrInnerBadEtherType,
+		ErrInnerBadDestinationMAC,
 		ErrInnerBadIPVersion,
+		ErrInnerBadIHL,
+		ErrInnerBadIPLength,
+		ErrInnerFragmented,
+		ErrInnerBadIPChecksum,
 		ErrInnerBadProtocol,
+		ErrInnerBadTTL,
+		ErrInnerBadUDPSourcePort,
+		ErrInnerBadUDPDestinationPort,
+		ErrInnerBadUDPLength,
+		ErrInnerBadUDPChecksum,
+		ErrOverlayInnerDstMismatch,
+		ErrOverlayPacketTruncated,
+		ErrOverlayPayloadTooLarge,
+		ErrGeneveVAPIdentityUnavailable,
 		ErrVXLANHeaderTooShort,
 		ErrVXLANInvalidFlags,
 		ErrGeneveHeaderTooShort,
@@ -270,4 +547,27 @@ func isExpectedOverlayDrop(err error) bool {
 		}
 	}
 	return false
+}
+
+// configureOverlayBuffers applies the same startup policy to duplex overlay sockets.
+// Zero deliberately leaves the corresponding OS default untouched.
+func configureOverlayBuffers(conn *net.UDPConn, readBufferSize, writeBufferSize int) error {
+	if readBufferSize > 0 {
+		if err := conn.SetReadBuffer(readBufferSize); err != nil {
+			return fmt.Errorf("set overlay UDP read buffer: %w", err)
+		}
+	}
+	if writeBufferSize > 0 {
+		if err := conn.SetWriteBuffer(writeBufferSize); err != nil {
+			return fmt.Errorf("set overlay UDP write buffer: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateOverlayPayloadSize(size int) error {
+	if size > bfd.MaxPaddedPduSize {
+		return fmt.Errorf("overlay BFD payload size %d exceeds %d: %w", size, bfd.MaxPaddedPduSize, ErrOverlayPayloadTooLarge)
+	}
+	return nil
 }

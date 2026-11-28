@@ -1,11 +1,12 @@
 package server_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/server"
@@ -158,7 +159,10 @@ func TestDurationFromProto(t *testing.T) {
 	t.Parallel()
 
 	// nil returns 1 second default (RFC 5880 Section 6.8.1).
-	got := server.DurationFromPB(nil)
+	got, err := server.DurationFromPB(nil)
+	if err != nil {
+		t.Fatalf("DurationFromPB(nil): %v", err)
+	}
 	if got != time.Second {
 		t.Errorf("DurationFromPB(nil) = %v, want 1s", got)
 	}
@@ -172,6 +176,7 @@ func TestStateChangeToProto(t *testing.T) {
 	t.Parallel()
 
 	sc := bfd.StateChange{
+		Status:     bfd.SessionSnapshot{LocalDiscr: 42, State: bfd.StateUp, LocalDiag: bfd.DiagNone},
 		LocalDiscr: 42,
 		OldState:   bfd.StateDown,
 		NewState:   bfd.StateUp,
@@ -211,8 +216,10 @@ func TestSnapshotToProto(t *testing.T) {
 		Type:                 bfd.SessionTypeMultiHop,
 		State:                bfd.StateInit,
 		RemoteState:          bfd.StateDown,
+		RemoteKnown:          true,
 		LocalDiag:            bfd.DiagPathDown,
 		AuthType:             bfd.AuthTypeKeyedSHA1,
+		PaddedPduSize:        26,
 		DesiredMinTx:         100 * time.Millisecond,
 		RequiredMinRx:        200 * time.Millisecond,
 		DetectMultiplier:     5,
@@ -252,6 +259,9 @@ func TestSnapshotToProto(t *testing.T) {
 	}
 	if pb.GetDetectMultiplier() != 5 {
 		t.Errorf("DetectMultiplier = %d, want 5", pb.GetDetectMultiplier())
+	}
+	if got := pb.GetPaddedPduSize(); got != 26 {
+		t.Errorf("PaddedPduSize = %d, want 26", got)
 	}
 	if pb.GetLastStateChange() == nil {
 		t.Error("LastStateChange should not be nil")
@@ -294,11 +304,23 @@ func TestMapManagerError(t *testing.T) {
 	}{
 		{"DuplicateSession", bfd.ErrDuplicateSession, connect.CodeAlreadyExists},
 		{"SessionNotFound", bfd.ErrSessionNotFound, connect.CodeNotFound},
+		{"MicroBFDGroupExists", bfd.ErrMicroBFDGroupExists, connect.CodeAlreadyExists},
+		{"MicroBFDGroupNotFound", bfd.ErrMicroBFDGroupNotFound, connect.CodeNotFound},
+		{"MicroBFDConfigConflict", &bfd.MicroBFDConfigConflictError{LAGInterface: "bond0"}, connect.CodeFailedPrecondition},
+		{"MicroBFDMemberOwned", bfd.ErrMicroBFDMemberOwned, connect.CodeFailedPrecondition},
+		{"MicroBFDGroupOwnerClaimNotFound", bfd.ErrMicroBFDGroupOwnerClaimNotFound, connect.CodeFailedPrecondition},
 		{"InvalidPeerAddr", bfd.ErrInvalidPeerAddr, connect.CodeInvalidArgument},
 		{"InvalidDetectMult", bfd.ErrInvalidDetectMult, connect.CodeInvalidArgument},
 		{"InvalidTxInterval", bfd.ErrInvalidTxInterval, connect.CodeInvalidArgument},
 		{"InvalidSessionType", bfd.ErrInvalidSessionType, connect.CodeInvalidArgument},
 		{"InvalidSessionRole", bfd.ErrInvalidSessionRole, connect.CodeInvalidArgument},
+		{"InvalidPaddedPduSize", bfd.ErrInvalidPaddedPduSize, connect.CodeInvalidArgument},
+		{"InvalidMultiHopInterface", bfd.ErrInvalidMultiHopInterface, connect.CodeInvalidArgument},
+		{"InvalidMultiHopMaxHops", bfd.ErrInvalidMultiHopMaxHops, connect.CodeInvalidArgument},
+		{"InterfaceUnresolved", bfd.ErrInterfaceUnresolved, connect.CodeFailedPrecondition},
+		{"InvalidSessionZone", bfd.ErrInvalidSessionZone, connect.CodeInvalidArgument},
+		{"DrainDeadline", &bfd.DrainIncompleteError{Err: context.DeadlineExceeded}, connect.CodeDeadlineExceeded},
+		{"DrainCanceled", &bfd.DrainIncompleteError{Err: context.Canceled}, connect.CodeCanceled},
 		{"Unknown", errors.New("unknown error"), connect.CodeInternal},
 	}
 

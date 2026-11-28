@@ -3,7 +3,6 @@ package bfd
 import (
 	"context"
 	"log/slog"
-	"runtime"
 	"time"
 )
 
@@ -11,7 +10,8 @@ import (
 // Main Goroutine — RFC 5880 Session Lifecycle
 // -------------------------------------------------------------------------
 
-// Run starts the session event loop. It blocks until ctx is cancelled.
+// Run starts the session event loop once. It blocks until ctx is cancelled.
+// Concurrent calls and calls after owner exit return without starting a loop.
 // The session begins in Down state and starts sending BFD Control packets
 // according to the configured role and timing parameters.
 //
@@ -21,18 +21,29 @@ import (
 //  3. Detection timer expires (RFC 5880 Section 6.8.4)
 //  4. Context cancellation (graceful shutdown)
 func (s *Session) Run(ctx context.Context) {
-	// Pin the session goroutine to an OS thread for sub-millisecond timer
-	// precision. BFD detection intervals can be as low as 50ms; OS thread
-	// affinity reduces scheduler-induced jitter on timer wakeups.
+	s.mu.Lock()
+	if s.running.Load() || s.updateClosed {
+		s.mu.Unlock()
+		return
+	}
 	s.running.Store(true)
-	defer s.running.Store(false)
+	s.mu.Unlock()
+	defer func() {
+		s.closeTimerUpdates()
+		s.senderLease.stopInterrupt()
+		s.mu.Lock()
+		s.running.Store(false)
+		close(s.ownerDone)
+		s.mu.Unlock()
+	}()
+	if ctx.Err() != nil {
+		return
+	}
 	s.cachedState = s.State()
 
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
 	txInterval := s.calcTxIntervalHot()
-	txTimer := time.NewTimer(s.applyJitter(txInterval))
+	txTimer := time.NewTimer(0)
+	s.resetTxTimer(txTimer)
 	defer txTimer.Stop()
 
 	detectTime := s.calcDetectionTimeHot()
@@ -54,7 +65,24 @@ func (s *Session) runLoop(
 	txTimer *time.Timer,
 	detectTimer *time.Timer,
 ) {
+	updateTimer := time.NewTimer(time.Hour)
+	updateTimer.Stop()
+	defer updateTimer.Stop()
+	// Pre-Run administrative intent must commit before the first timer TX.
+	for range len(s.ctrlCh) {
+		if ctx.Err() != nil {
+			return
+		}
+		cmd := <-s.ctrlCh
+		s.signalControlSpace()
+		s.handleControlCommand(ctx, cmd, txTimer, detectTimer)
+	}
 	for {
+		if ctx.Err() != nil {
+			return
+		}
+		s.processTimerUpdates(txTimer, detectTimer)
+		s.resetUpdateTimer(updateTimer)
 		select {
 		case <-ctx.Done():
 			s.logger.Info("session stopped")
@@ -64,13 +92,20 @@ func (s *Session) runLoop(
 			s.handleRecvPacket(ctx, item, txTimer, detectTimer)
 
 		case cmd := <-s.ctrlCh:
+			s.signalControlSpace()
 			s.handleControlCommand(ctx, cmd, txTimer, detectTimer)
 
-		case <-txTimer.C:
+		case due := <-txTimer.C:
+			s.timerEvent.begin(s.metrics, TimerControlTX, due)
 			s.handleTxTimer(ctx, txTimer)
+			s.timerEvent.finish(s.metrics)
 
-		case <-detectTimer.C:
+		case due := <-detectTimer.C:
+			s.timerEvent.begin(s.metrics, TimerControlDetection, due)
 			s.handleDetectTimer(ctx, txTimer, detectTimer)
+			s.timerEvent.finish(s.metrics)
+		case <-s.updateWake:
+		case <-updateTimer.C:
 		}
 	}
 }
@@ -83,37 +118,65 @@ func (s *Session) handleControlCommand(
 ) {
 	switch cmd.kind {
 	case controlPathDown:
+		if s.cachedState == StateAdminDown {
+			s.recordDelivery(DeliveryControlOwner, DeliveryIgnored)
+			return
+		}
 		s.handlePathDown(ctx, txTimer, detectTimer)
 	case controlAdminDown:
-		s.handleAdminDown(ctx, txTimer, detectTimer)
+		s.handleAdminDown(ctx, cmd.receipt, txTimer, detectTimer)
+	case controlInterfaceBinding:
+		err := cmd.binding.apply(ctx, txTimer, detectTimer)
+		cmd.binding.result <- err
+		if err != nil {
+			s.recordDelivery(DeliveryControlOwner, DeliveryIgnored)
+			return
+		}
 	default:
 		s.logger.Warn("unknown session control command", slog.Int("kind", int(cmd.kind)))
-	}
-}
-
-func (s *Session) handleAdminDown(ctx context.Context, txTimer *time.Timer, detectTimer *time.Timer) {
-	result := ApplyEvent(s.cachedState, EventAdminDown)
-	if !result.Changed {
-		s.localDiag.Store(uint32(DiagAdminDown))
+		s.recordDelivery(DeliveryControlOwner, DeliveryIgnored)
 		return
 	}
-	result.Actions = append(result.Actions, ActionSendControl)
-	s.executeFSMActions(ctx, result, txTimer, detectTimer)
+	s.recordDelivery(DeliveryControlOwner, DeliveryCommitted)
+}
+
+func (s *Session) handleAdminDown(
+	ctx context.Context,
+	receipt chan struct{},
+	txTimer *time.Timer,
+	detectTimer *time.Timer,
+) {
+	result := ApplyEvent(s.cachedState, EventAdminDown)
+	s.executeFSMActions(ctx, result, txTimer, detectTimer, CauseLocalAdmin)
+	s.mu.Lock()
+	s.updateAdminDrainLocked(time.Now())
+	needsSend := s.adminDrain != nil && s.adminDrain.firstSentAt.IsZero()
+	s.mu.Unlock()
+	close(receipt)
+	if (result.Changed || needsSend) && ctx.Err() == nil {
+		s.maybeSendControl(ctx)
+		s.resetTxTimer(txTimer)
+	}
 }
 
 func (s *Session) handlePathDown(ctx context.Context, txTimer *time.Timer, detectTimer *time.Timer) {
 	oldState := s.cachedState
-	s.localDiag.Store(uint32(DiagPathDown))
-	if oldState == StateDown || oldState == StateAdminDown {
+	if oldState == StateAdminDown {
 		return
 	}
+	s.mu.Lock()
+	s.unsolicitedStarted = time.Time{}
+	if s.unsolicitedClaimWanted {
+		s.stopUnsolicitedLocked()
+	}
+	s.mu.Unlock()
 
 	s.executeFSMActions(ctx, FSMResult{
 		OldState: oldState,
 		NewState: StateDown,
-		Changed:  true,
-		Actions:  []Action{ActionNotifyDown, ActionSendControl},
-	}, txTimer, detectTimer)
+		Changed:  oldState != StateDown,
+		Actions:  []Action{ActionSetDiagPathDown, ActionNotifyDown, ActionSendControl},
+	}, txTimer, detectTimer, CausePathDown)
 }
 
 // -------------------------------------------------------------------------
@@ -122,25 +185,36 @@ func (s *Session) handlePathDown(ctx context.Context, txTimer *time.Timer, detec
 
 // handleTxTimer fires on each transmission interval.
 func (s *Session) handleTxTimer(ctx context.Context, txTimer *time.Timer) {
+	s.expireUnsolicitedSetup()
 	s.maybeSendControl(ctx)
-	txInterval := s.calcTxIntervalHot()
-	txTimer.Reset(s.applyJitter(txInterval))
+	s.resetTxTimer(txTimer)
 }
 
 // maybeSendControl checks transmission preconditions and sends if allowed.
 func (s *Session) maybeSendControl(ctx context.Context) {
+	if s.pendingFinal || s.periodicTxAllowed() {
+		s.sendControl(ctx)
+	}
+}
+
+// periodicTxAllowed applies RFC 5880 Section 6.8.7 periodic transmission
+// limits. Final replies bypass periodic limits, including on retry.
+func (s *Session) periodicTxAllowed() bool {
+	if !s.unsolicitedTxAllowed() {
+		return false
+	}
 	// RFC 5880 Section 6.8.7: "A system MUST NOT transmit BFD Control
 	// packets if bfd.RemoteDiscr is zero and the system is taking the
 	// Passive role."
 	if s.role == RolePassive && s.remoteDiscr == 0 {
-		return
+		return false
 	}
 	// RFC 5880 Section 6.8.7: "A system MUST NOT periodically transmit
 	// BFD Control packets if bfd.RemoteMinRxInterval is zero."
 	if s.remoteMinRxInterval == 0 {
-		return
+		return false
 	}
-	s.sendControl(ctx)
+	return !s.remoteDemandMode || s.cachedState != StateUp || s.RemoteState() != StateUp || s.pollActive
 }
 
 // sendControl serializes and sends a BFD Control packet.
@@ -148,7 +222,16 @@ func (s *Session) maybeSendControl(ctx context.Context) {
 // to the configured size. The Length field in the BFD header retains the
 // actual (unpadded) protocol length; padding follows the BFD PDU.
 func (s *Session) sendControl(ctx context.Context) {
-	s.rebuildCachedPacket()
+	if !s.controlSendAllowed() {
+		return
+	}
+	if !s.unsolicitedTxAllowed() && !s.pendingFinal {
+		return
+	}
+	final := s.pendingFinal
+	if !s.rebuildCachedPacket() {
+		return
+	}
 	pktLen := int(s.cachedPacket[3]) // Length field at byte 3
 
 	sendLen := pktLen
@@ -164,10 +247,32 @@ func (s *Session) sendControl(ctx context.Context) {
 		s.logger.Warn("failed to send control packet",
 			slog.String("error", err.Error()),
 		)
+		s.recordAdminDrainSendError(err)
 		return
+	}
+	s.timerEvent.effect(s.metrics, TimerControlTX, time.Now())
+	if final {
+		s.pendingFinal = false
+	} else if s.pollActive {
+		s.mu.Lock()
+		if !s.pollSent {
+			s.pollStarted = time.Now()
+		}
+		s.pollSent = true
+		s.mu.Unlock()
+	}
+	s.lastPacketSent = time.Now()
+	if s.cachedState == StateAdminDown && s.LocalDiag() == DiagAdminDown {
+		s.recordAdminDrainSend(s.lastPacketSent)
 	}
 	s.packetsSent.Add(1)
 	s.metrics.IncPacketsSent(s.peerAddr, s.localAddr)
+}
+
+func (s *Session) controlSendAllowed() bool {
+	binding := s.receiveBinding.Load()
+	// RFC 5880 Section 6.8.7 also gates Final and direct FSM sends.
+	return (binding == nil || !binding.pending) && (s.role != RolePassive || s.remoteDiscr != 0)
 }
 
 // -------------------------------------------------------------------------
@@ -183,15 +288,38 @@ func (s *Session) handleDetectTimer(
 	detectTimer *time.Timer,
 ) {
 	s.maybeResetAuthSeqKnown()
+	oldTxInterval, oldTxAllowed := s.calcTxIntervalHot(), s.periodicTxAllowed()
+	// RFC 5880 Section 6.8.1 expires the wire discriminator in every state.
+	// Section 6.8.18: the peer's Required Min RX binds only while the peer
+	// keeps transmitting; after a Detection Time without packets the system
+	// "SHOULD reset bfd.RemoteMinRxInterval to its initial value of 1" and
+	// "then can transmit at its own rate". Demand returns to its initial value
+	// of zero (Section 6.8.1). AdminDown resumes its Section 6.8.16
+	// notification; a Passive session stays silent because bfd.RemoteDiscr is
+	// now zero (Section 6.8.7).
+	s.mu.Lock()
+	s.timerEvent.validatedRemoteDiscriminator = s.remoteDiscr
+	s.remoteDiscr = 0
+	s.remoteMinRxInterval, s.remoteDemandMode = initialRemoteMinRx, false
+	s.mu.Unlock()
+	// Section 6.8.3: measure a changed interval from the previous send, as the
+	// receive path does. FSM actions below may re-arm the timer again; a
+	// pending Final retry keeps its armed deadline.
+	if !s.pendingFinal && (oldTxInterval != s.calcTxIntervalHot() || oldTxAllowed != s.periodicTxAllowed()) {
+		s.scheduleTxTimer(txTimer, s.lastPacketSent)
+	}
 
 	// Use cachedState (goroutine-confined) to avoid atomic load.
-	// RFC 5880 Section 6.8.4: only if bfd.SessionState is Init or Up.
-	if s.cachedState != StateInit && s.cachedState != StateUp {
+	// Held erratum 5205 also refreshes Down diagnostics; AdminDown stays inert.
+	if s.cachedState == StateAdminDown {
 		// Restart detect timer even in Down state to handle re-negotiation.
 		detectTimer.Reset(s.calcDetectionTimeHot())
 		return
 	}
 	s.applyFSMEvent(ctx, EventTimerExpired, txTimer, detectTimer)
+	if s.cachedState == StateDown {
+		s.resetDetectTimer(detectTimer)
+	}
 }
 
 // maybeResetAuthSeqKnown implements RFC 5880 Section 6.8.1:
@@ -201,13 +329,12 @@ func (s *Session) maybeResetAuthSeqKnown() {
 	if s.authState == nil || !s.authState.AuthSeqKnown {
 		return
 	}
-	lastNS := s.lastPacketRecv.Load()
-	if lastNS == 0 {
+	if s.lastValidRecv.IsZero() {
 		return
 	}
 
 	detectTime := s.calcDetectionTimeHot()
-	if time.Since(time.Unix(0, lastNS)) < 2*detectTime {
+	if time.Since(s.lastValidRecv) < 2*detectTime {
 		return
 	}
 

@@ -1,7 +1,10 @@
 package server
 
 import (
-	"connectrpc.com/connect"
+	"context"
+	"log/slog"
+
+	"connectrpc.com/connect/v2"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
@@ -30,3 +33,15 @@ type (
 	DurationFromPBFn     = func(*durationpb.Duration) any
 	MapManagerErrorFn    = func(error, string) *connect.Error
 )
+
+// WatchLoop runs the WatchSessionEvents loop of a server backed by mgr.
+func WatchLoop(
+	ctx context.Context,
+	mgr *bfd.Manager,
+	ch <-chan bfd.StateChange,
+	includeCurrent bool,
+	send func(*bfdv1.WatchSessionEventsResponse) error,
+) error {
+	s := &BFDServer{manager: mgr, logger: slog.New(slog.DiscardHandler)}
+	return s.watchLoop(ctx, ch, includeCurrent, send)
+}

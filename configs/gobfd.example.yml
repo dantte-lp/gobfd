@@ -1,19 +1,59 @@
 # GoBFD daemon configuration example.
 #
-# All settings can be overridden via environment variables:
-#   GOBFD_GRPC_ADDR=:50051
-#   GOBFD_METRICS_ADDR=:9100
+# Supported environment overrides:
+#   GOBFD_GRPC_ADDR=127.0.0.1:50052
+#   GOBFD_METRICS_ADDR=127.0.0.1:9100
 #   GOBFD_METRICS_PATH=/metrics
 #   GOBFD_LOG_LEVEL=debug
 #   GOBFD_LOG_FORMAT=text
+#   GOBFD_UNSOLICITED_ENABLED=true
+#   GOBFD_ECHO_ENABLED=true
+#   GOBFD_SOCKET_READ_BUFFER_SIZE=4194304
+#   GOBFD_SOCKET_WRITE_BUFFER_SIZE=4194304
+#   GOBFD_SOCKET_IPV4_DSCP=48
+#   GOBFD_SOCKET_IPV6_TRAFFIC_CLASS=192
+#   GOBFD_SOCKET_PRIORITY=0
+#   GOBFD_SOCKET_MARK=0
+#   GOBFD_SOCKET_PRIORITY_REQUIRED=true
+#   GOBFD_SOCKET_MARK_REQUIRED=true
+#   GOBFD_VXLAN_ENABLED=true
+#   GOBFD_VXLAN_BACKEND=userspace-udp
+#   GOBFD_GENEVE_ENABLED=true
+#   GOBFD_GENEVE_BACKEND=userspace-udp
+#   GOBFD_GOBGP_ENABLED=true
+#   GOBFD_GOBGP_ADDR=127.0.0.1:50051
+#   GOBFD_GOBGP_STRATEGY=disable-peer
+#   GOBFD_GOBGP_STATE_FILE=/var/lib/gobfd/gobgp-ownership.json
+#   GOBFD_GOBGP_TLS_ENABLED=true
+#   GOBFD_GOBGP_DAMPENING_ENABLED=true
 
 grpc:
-  # gRPC (ConnectRPC) listen address.
-  addr: ":50051"
+  # Optional TCP listener. Plaintext is loopback only and read-only for
+  # anonymous clients unless unsafe_loopback_mutations is set; 50051 is the
+  # gobgpd default port.
+  # addr: "127.0.0.1:50052"
+  # unsafe_loopback_mutations: false
+  # mTLS for the TCP listener; required for a non-loopback address. Files are
+  # re-read on every handshake.
+  # tls:
+  #   cert_file: "/etc/gobfd/tls/server.pem"
+  #   key_file: "/etc/gobfd/tls/server.key"
+  #   client_ca_file: "/etc/gobfd/tls/clients-ca.pem"
+  # Optional: only these mTLS identities may mutate; others read.
+  # mutating_identities: ["spiffe://example.org/gobfd-ops"]
+  #
+  # Management API on a Unix socket; requests carry the caller's peer UID as
+  # principal. Operators join group gobfd-admin (not gobfd, which can read
+  # /etc/gobfd). gobfdctl uses unix:///run/gobfd/gobfd.sock by default.
+  socket:
+    path: "/run/gobfd/gobfd.sock"
+    mode: "0660"
+    group: "gobfd-admin"
 
 metrics:
-  # Prometheus metrics endpoint.
-  addr: ":9100"
+  # Prometheus metrics endpoint. It has no authentication, so it listens on
+  # loopback; set a reachable address only on a trusted network.
+  addr: "127.0.0.1:9100"
   path: "/metrics"
 
 log:
@@ -21,6 +61,18 @@ log:
   level: "info"
   # Log format: json, text.
   format: "json"
+
+# Startup-only UDP buffer and ordinary sender QoS policy; changes require restart.
+# Overlay outer sockets do not inherit the QoS fields.
+socket:
+  read_buffer_size: 4194304
+  write_buffer_size: 4194304
+  ipv4_dscp: 48 # CS6; set 0 for best effort.
+  ipv6_traffic_class: 192 # Complete octet, CS6 with ECN=0; 0 = best effort.
+  priority: 0 # Linux local queue policy, independent of DSCP.
+  mark: 0 # No SO_MARK call; nonzero values need capabilities.
+  priority_required: true
+  mark_required: true # False permits sending without the requested routing mark.
 
 bfd:
   # Default BFD session parameters (can be overridden per session via gRPC).
@@ -40,6 +92,8 @@ bfd:
 
 # RFC 9468: Unsolicited BFD. Auto-creates passive sessions for incoming
 # BFD packets from unknown peers. MUST be disabled by default per RFC.
+# max_sessions is required (>= 1). A source must belong to the subnet of the
+# local address that received the packet; allowed_prefixes narrows it further.
 #
 # unsolicited:
 #   enabled: true
@@ -50,9 +104,14 @@ bfd:
 #     required_min_rx: "300ms"
 #     detect_mult: 3
 #   interfaces:
-#     "":
+#     eth0: # Replace with the receiving interface name.
 #       enabled: true
 #       allowed_prefixes: ["10.0.0.0/8"]
+#   # Optional RFC 9468 Section 6.2 authentication; only meticulous_keyed_sha1.
+#   auth:
+#     type: "meticulous_keyed_sha1"
+#     key_id: 1
+#     secret: "change-me"
 
 # RFC 9747: Unaffiliated BFD Echo. Detects forwarding-path failures
 # without requiring the remote to run BFD. Uses UDP port 3785.
@@ -77,6 +136,7 @@ bfd:
 # owner_policy: "networkmanager-dbus".
 #
 # micro_bfd:
+#   enabled: true  # Explicit opt-in to the incomplete RFC 7130 preview; restart required.
 #   actuator:
 #     mode: "dry-run"
 #     backend: "kernel-bond"
@@ -111,6 +171,8 @@ bfd:
 #   peers:
 #     - peer: "10.0.0.2"
 #       local: "10.0.0.1"
+#       peer_mac: "02:00:00:00:00:02"
+#       local_mac: "02:00:00:00:00:01"
 #       desired_min_tx: "300ms"
 #       required_min_rx: "300ms"
 #       detect_mult: 5
@@ -133,22 +195,29 @@ bfd:
 #     - peer: "10.0.0.2"
 #       local: "10.0.0.1"
 #       vni: 200
+#       inner_peer: "192.0.2.2"
+#       inner_local: "192.0.2.1"
+#       peer_mac: "02:00:00:00:00:02"
+#       local_mac: "02:00:00:00:00:01"
 #       desired_min_tx: "300ms"
 #       required_min_rx: "300ms"
 #       detect_mult: 5
 
-# GoBGP integration (RFC 5882 Section 4.3).
+# GoBGP integration (RFC 5882 Section 10.2).
 # When enabled, BFD state changes are propagated to a GoBGP instance
 # via its gRPC API. BFD Down triggers BGP peer disable; BFD Up re-enables.
 #
 # gobgp:
 #   enabled: true
-#   # GoBGP gRPC API address. Use a different port than gobfd's own gRPC.
-#   addr: "127.0.0.1:50052"
-#   # Strategy: "disable-peer" (default) or "withdraw-routes" (future).
+#   # GoBGP gRPC API address (gobgpd default port 50051, or unix:///abs/path).
+#   addr: "127.0.0.1:50051"
+#   # Only "disable-peer" is implemented; "withdraw-routes" is rejected.
 #   strategy: "disable-peer"
-#   # RFC 5882 Section 3.2: flap dampening prevents rapid BFD oscillation
-#   # from causing excessive BGP route churn.
+#   # Durable receipt file for provable Unix speaker-epoch disables (empty disables persistence).
+#   state_file: "/var/lib/gobfd/gobgp-ownership.json"
+#   # Flap dampening (GoBFD policy; RFC 5882 Section 3.1 hysteresis): every
+#   # BFD Down disables the peer at once; past suppress_threshold only the
+#   # re-enable on BFD Up is held until reuse_threshold or max_suppress_time.
 #   dampening:
 #     enabled: false
 #     suppress_threshold: 3
@@ -157,7 +226,8 @@ bfd:
 #     half_life: "15s"
 
 # Declarative BFD sessions. Sessions defined here are created on startup
-# and reconciled on SIGHUP reload (new sessions added, removed sessions
+# and reconciled on SIGHUP reload within listener bindings opened at startup
+# (new sessions added only on an existing binding, removed sessions
 # destroyed, existing sessions left untouched).
 #
 # sessions:
@@ -180,6 +250,10 @@ bfd:
 #   - peer: "10.0.1.1"
 #     local: "10.0.1.2"
 #     type: multi_hop
+#     # Multihop hop policy (multi_hop only, 1-254, default 1): received
+#     # TTL/Hop Limit must be >= 255 - multihop_max_hops. RFC 5883 has no
+#     # receive TTL rule; use authentication on multihop paths (RFC 5883 Section 6).
+#     multihop_max_hops: 2
 #     desired_min_tx: "300ms"
 #     required_min_rx: "300ms"
 #     detect_mult: 5

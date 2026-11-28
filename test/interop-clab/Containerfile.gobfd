@@ -1,25 +1,59 @@
-FROM docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a AS builder
+FROM docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee AS builder
 
+ARG VCS_REF
+ARG BUILD_DATE
+ENV GOTOOLCHAIN=local GOMAXPROCS=2 GOMEMLIMIT=1500MiB GOFLAGS=-p=1
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download && go mod verify
+RUN ["go", "mod", "download"]
+RUN ["go", "mod", "verify"]
 COPY . .
+ENV CGO_ENABLED=0
+RUN ["go", "build", "-trimpath", "-o", "/out/toolbootstrap", "./test/cmd/toolbootstrap"]
+ENV GOFLAGS="-p=1 '-ldflags=-s -w -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${VCS_REF} -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}'"
+RUN ["go", "build", "-trimpath", "-o", "/bin/", "./cmd/gobfd", "./cmd/gobfdctl"]
 
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
-    -o /bin/gobfd ./cmd/gobfd
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
-    -o /bin/gobfdctl ./cmd/gobfdctl
+ARG GOBFD_IMAGE_RUN=""
+ARG GOBFD_IMAGE_TEST=""
+LABEL io.gobfd.stage-run="${GOBFD_IMAGE_RUN}" \
+      io.gobfd.stage-test="${GOBFD_IMAGE_TEST}"
 
-FROM docker.io/jauderho/gobgp:v3.37.0@sha256:3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37 AS gobgp
+# GoBGP v4.11.0 from the same immutable source pin as test/interop/gobgp;
+# the topology contract test keeps both pins identical.
+FROM docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee AS gobgp
+ADD --checksum=sha256:9706526b6fb76b8d6c4de379755819bed41be312e155f59e85baf55f9f3259a8 \
+    https://codeload.github.com/osrg/gobgp/tar.gz/53ceb78fe284018ce83a92f3039198f0a86dc823 /tmp/gobgp.tar.gz
+WORKDIR /src
+RUN ["tar", "-xzf", "/tmp/gobgp.tar.gz", "--strip-components=1"]
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local \
+    GOMAXPROCS=2 GOMEMLIMIT=1500MiB GOFLAGS=-p=2
+RUN ["go", "mod", "download"]
+RUN ["go", "mod", "verify"]
+RUN ["go", "build", "-trimpath", "-mod=readonly", "-o", "/out/", "./cmd/gobgp", "./cmd/gobgpd"]
 
-FROM docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
+ARG GOBFD_IMAGE_RUN=""
+ARG GOBFD_IMAGE_TEST=""
+LABEL io.gobfd.stage-run="${GOBFD_IMAGE_RUN}" \
+      io.gobfd.stage-test="${GOBFD_IMAGE_TEST}"
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends bash ethtool iproute2 tcpdump \
-    && rm -rf /var/lib/apt/lists/*
+FROM docker.io/library/debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
+
+ARG VCS_REF
+ARG BUILD_DATE
+LABEL org.opencontainers.image.source="https://github.com/dantte-lp/gobfd" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.version="dev" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.title="GoBFD Containerlab application peer" \
+      org.opencontainers.image.description="GoBFD and GoBGP built from the repository-pinned sources" \
+      org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
+      org.opencontainers.image.base.digest="sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0"
+
+RUN --mount=type=bind,from=builder,source=/out/toolbootstrap,target=/bootstrap ["/bootstrap", "image-packages", "containerlab"]
 
 COPY --from=builder /bin/gobfd /bin/gobfdctl /bin/
-COPY --from=gobgp /usr/local/bin/gobgpd /usr/local/bin/gobgp /usr/local/bin/
+COPY --from=gobgp /out/gobgpd /out/gobgp /usr/local/bin/
 
 EXPOSE 3784/udp 4784/udp 50051 50052 179
 

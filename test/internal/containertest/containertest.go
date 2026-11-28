@@ -3,6 +3,8 @@ package containertest
 
 import (
 	"context"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -20,6 +22,55 @@ import (
 
 const rootfulPodmanSocket = "/run/podman/podman.sock"
 
+// DebianImage is the shared immutable trixie runtime for copied Go test binaries.
+const DebianImage = "docker.io/library/debian:trixie-slim@sha256:" +
+	"8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0"
+
+var errImageProvenance = errors.New("invalid image provenance")
+
+// ValidateImageProvenance returns only the required public OCI annotations.
+func ValidateImageProvenance(metadata podmanapi.ImageMetadata, revision string) (map[string]string, error) {
+	if !IsImageDigest(metadata.ID) {
+		return nil, fmt.Errorf("image identity is not an immutable SHA-256 digest: %w", errImageProvenance)
+	}
+	labels := make(map[string]string, 9)
+	for _, name := range []string{
+		"source", "revision", "created", "version", "licenses", "title", "description", "base.name", "base.digest",
+	} {
+		key := "org.opencontainers.image." + name
+		value := metadata.Labels[key]
+		if strings.TrimSpace(value) == "" {
+			return nil, fmt.Errorf("image annotation %s is empty: %w", key, errImageProvenance)
+		}
+		labels[key] = value
+	}
+	if labels["org.opencontainers.image.source"] != "https://github.com/dantte-lp/gobfd" ||
+		labels["org.opencontainers.image.revision"] != revision {
+		return nil, fmt.Errorf("image source does not match the candidate: %w", errImageProvenance)
+	}
+	if _, err := time.Parse(time.RFC3339, labels["org.opencontainers.image.created"]); err != nil {
+		return nil, fmt.Errorf("parse image creation time: %w", err)
+	}
+	if labels["org.opencontainers.image.base.name"] != "docker.io/library/debian:trixie-slim" ||
+		!IsImageDigest(labels["org.opencontainers.image.base.digest"]) {
+		return nil, fmt.Errorf("image base is not pinned Debian trixie: %w", errImageProvenance)
+	}
+	return labels, nil
+}
+
+// IsImageDigest accepts a full lowercase SHA-256 content identity.
+func IsImageDigest(value string) bool {
+	digest, found := strings.CutPrefix(value, "sha256:")
+	if !found || len(digest) != 64 || digest != strings.ToLower(digest) {
+		return false
+	}
+	_, err := hex.DecodeString(digest)
+	return err == nil
+}
+
+// Required reports whether missing fixture prerequisites must fail the run.
+func Required() bool { return envTrue(os.Getenv("GOBFD_REQUIRE_PODMAN")) }
+
 // RequirePodman configures testcontainers for the local Podman API socket.
 // Missing Podman skips optional local tests and fails required CI/test targets.
 func RequirePodman(tb testing.TB) string {
@@ -27,7 +78,7 @@ func RequirePodman(tb testing.TB) string {
 
 	endpoint, found := resolvePodmanEndpoint(os.Getenv, isSocket)
 	if !found {
-		if envTrue(os.Getenv("GOBFD_REQUIRE_PODMAN")) {
+		if Required() {
 			tb.Fatal(
 				"Podman socket is required but was not found; start podman.socket or set " +
 					"DOCKER_HOST, PODMAN_HOST, or CONTAINER_HOST to an existing unix:// socket",
@@ -69,15 +120,14 @@ func Run(
 // NewNetwork creates an explicit Podman user network and immediately
 // registers cleanup. NetworkRequest remains the only v0.44.0 API that accepts
 // custom IPAM together with an explicit provider.
-//
-//nolint:staticcheck // testcontainers has not replaced the provider-aware API
 func NewNetwork(
 	ctx context.Context,
 	tb testing.TB,
-	request testcontainers.NetworkRequest,
-) (testcontainers.Network, error) {
+	request testcontainers.NetworkRequest, //nolint:staticcheck // provider-aware API requires this request
+) (testcontainers.Network, error) { //nolint:staticcheck // CleanupNetwork still accepts this interface
 	tb.Helper()
 
+	//nolint:staticcheck // network.New cannot preserve the explicit Podman provider and network name
 	network, err := testcontainers.GenericNetwork(ctx, testcontainers.GenericNetworkRequest{
 		NetworkRequest: request,
 		ProviderType:   testcontainers.ProviderPodman,
@@ -153,6 +203,7 @@ func AssertNetworkRemoved(tb testing.TB, networkName string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	//nolint:staticcheck // Retain core ProviderPodman without adding the separate modules/podman dependency.
 	provider, err := testcontainers.ProviderPodman.GetProvider()
 	if err != nil {
 		tb.Fatalf("create Podman provider for network cleanup verification: %v", err)
@@ -163,7 +214,7 @@ func AssertNetworkRemoved(tb testing.TB, networkName string) {
 		}
 	}()
 
-	//nolint:staticcheck // upstream replacement does not yet expose inspection
+	//nolint:staticcheck // provider.GetNetwork has no non-deprecated inspection replacement
 	_, err = provider.GetNetwork(ctx, testcontainers.NetworkRequest{Name: networkName})
 	if err == nil {
 		tb.Fatalf("network %s still exists after test cleanup", networkName)
@@ -279,6 +330,7 @@ func podmanRequest(request testcontainers.ContainerRequest) testcontainers.Gener
 	return testcontainers.GenericContainerRequest{
 		ContainerRequest: request,
 		Started:          true,
-		ProviderType:     testcontainers.ProviderPodman,
+		//nolint:staticcheck // Retain core ProviderPodman without adding modules/podman.
+		ProviderType: testcontainers.ProviderPodman,
 	}
 }

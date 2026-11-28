@@ -1,458 +1,191 @@
 # Соответствие RFC
 
-[![RFC 5880](https://img.shields.io/badge/RFC_5880-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5880)
-[![RFC 5881](https://img.shields.io/badge/RFC_5881-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5881)
-[![RFC 5882](https://img.shields.io/badge/RFC_5882-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5882)
-[![RFC 5883](https://img.shields.io/badge/RFC_5883-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5883)
-[![RFC 7419](https://img.shields.io/badge/RFC_7419-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7419)
-[![RFC 9384](https://img.shields.io/badge/RFC_9384-Not_Implemented-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9384)
-[![RFC 9468](https://img.shields.io/badge/RFC_9468-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9468)
-[![RFC 9747](https://img.shields.io/badge/RFC_9747-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9747)
-[![RFC 7130](https://img.shields.io/badge/RFC_7130-Partial_Production-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7130)
-[![RFC 8971](https://img.shields.io/badge/RFC_8971-Userspace_Backend-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
-[![RFC 9521](https://img.shields.io/badge/RFC_9521-Userspace_Backend-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
-[![RFC 9764](https://img.shields.io/badge/RFC_9764-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9764)
-[![RFC 7880](https://img.shields.io/badge/RFC_7880-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7880)
-[![RFC 7881](https://img.shields.io/badge/RFC_7881-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7881)
-[![RFC 5884](https://img.shields.io/badge/RFC_5884-Stub-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5884)
-
-> Матрица соответствия RFC, постраничные заметки по реализации, обоснование дизайна и ссылки на исходные тексты RFC.
-
----
-
-## Содержание
-
-- [Матрица соответствия](#матрица-соответствия)
-- [Заметки по RFC 5880](#заметки-по-rfc-5880)
-- [Заметки по RFC 5881](#заметки-по-rfc-5881)
-- [Заметки по RFC 5882](#заметки-по-rfc-5882)
-- [Заметки по RFC 5883](#заметки-по-rfc-5883)
-- [Заметки по RFC 7419](#заметки-по-rfc-7419)
-- [Заметки по RFC 9384](#заметки-по-rfc-9384)
-- [Заметки по RFC 9468](#заметки-по-rfc-9468)
-- [Заметки по RFC 9747](#заметки-по-rfc-9747)
-- [Заметки по RFC 7130](#заметки-по-rfc-7130)
-- [Заметки по RFC 8971](#заметки-по-rfc-8971)
-- [Заметки по RFC 9521](#заметки-по-rfc-9521)
-- [Заметки по RFC 9764](#заметки-по-rfc-9764)
-- [RFC 7880/7881 (Планируется)](#rfc-78807881-планируется)
-- [Stub-интерфейсы](#stub-интерфейсы)
-- [Справочные RFC](#справочные-rfc)
-- [Исходные файлы RFC](#исходные-файлы-rfc)
-
-### Матрица соответствия
-
-| RFC | Название | Статус | Примечания |
-|---|---|---|---|
-| [RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) | Базовый протокол BFD | **Асинхронное ядро; частично** | Ответ Final на входящий Poll есть; локальный/crossed Poll и Demand procedures не завершены |
-| [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD для IPv4/IPv6 Single-Hop | **Реализован** | UDP 3784, TTL=255, `SO_BINDTODEVICE` |
-| [RFC 5882](https://datatracker.ietf.org/doc/html/rfc5882) | Общее применение BFD | **Реализован** | Интеграция с GoBGP, демпфирование flap-ов |
-| [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD для Multihop | **Реализован** | UDP 4784, проверка TTL>=254 |
-| [RFC 7419](https://datatracker.ietf.org/doc/html/rfc7419) | Common Interval Support | **Реализован** | 6 общих интервалов, опциональное выравнивание |
-| [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION для BFD | **Не реализован** | GoBGP v3 отправляет Cease/2; Cease/10 присутствует только в операторском тексте |
-| [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Preview** | Автосоздание и policy существуют; стабильная квалификация не завершена |
-| [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Preview** | Echo session и port 3785 wiring существуют; полная RFC-квалификация не завершена |
-| [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD для LAG | **Preview; owner integration частичная** | Протокол и отдельные actuators существуют; production ownership ограничен |
-| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD для VXLAN туннелей | **Preview userspace backend** | Owner-specific dataplane integration не реализован |
-| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD для Geneve туннелей | **Preview userspace backend** | Owner-specific dataplane integration не реализован |
-| [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Частично** | Padding без auth и DF реализованы; hashing authenticated padding не завершён |
-| [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Планируется** | Stateless рефлектор + инициатор для проверки инфраструктуры |
-| [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD для IPv4/IPv6 | **Планируется** | Инкапсуляция на порт 7784 для S-BFD |
-| [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD для MPLS LSP | **Stub** | Интерфейсы определены, ожидает LSP Ping |
-| [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD для PW VCCV | **Stub** | Интерфейсы определены, ожидает VCCV/LDP |
-
-> Traditional Echo Mode (RFC 5880 Section 6.4, affiliated с контрольной
-> сессией) не реализован. Поля Demand Mode декодируются, но runtime procedures
-> RFC 5880 Section 6.6 не завершены. Unaffiliated echo (RFC 9747) является
-> отдельной preview-реализацией.
-
-### Заметки по RFC 5880
-
-#### Section 4.1: Формат пакета
-
-Реализация: [`internal/bfd/packet.go`](../../internal/bfd/packet.go). 24-байтный заголовок кодируется/декодируется через `encoding/binary.BigEndian`. Zero-allocation кодек с `sync.Pool`.
-
-См. [02-protocol.md](./02-protocol.md) для полной таблицы формата пакета.
-
-#### Section 6.1: Переменные состояния
-
-Реализация: [`internal/bfd/session.go`](../../internal/bfd/session.go). Все обязательные переменные реализованы. Потокобезопасность через `atomic.Uint32`.
-
-#### Section 6.2: FSM
-
-Реализация: [`internal/bfd/fsm.go`](../../internal/bfd/fsm.go). Table-driven FSM с `map[stateEvent]transition`. Чистая функция без побочных эффектов. Все 16 переходов из Section 6.8.6 реализованы.
-
-#### Section 6.3: Демультиплексирование
-
-Реализация: [`internal/bfd/manager.go`](../../internal/bfd/manager.go). Двухуровневое демультиплексирование:
-- Уровень 1: O(1) поиск по Your Discriminator (быстрый путь)
-- Уровень 2: Составной ключ (SrcIP, DstIP, Interface) для установления сессии
-
-#### Section 6.5: Poll-последовательности
-
-Входящий пакет с Poll планирует ответ с Final. Реализация ещё не инициирует
-локальные Poll-последовательности и не завершает crossed-Poll, commit параметров
-и timer semantics. Наличие `pollActive` и `terminatePollSequence` поэтому не
-означает полного соответствия Section 6.5.
-
-#### Section 6.7: Аутентификация
+[Английский оригинал](../en/08-rfc-compliance.md).
 
-Реализация: [`internal/bfd/auth.go`](../../internal/bfd/auth.go). Реализованы все пять типов:
+Матрица описывает поведение исходников `release/v1.0`; она не расширяет приведённые ниже границы квалификации и не заменяет доказательства приёмки выпуска. Реализованная функция, локальная тестовая среда, фактический результат UDP и захвата, приёмка финального кандидата — разные уровни доказательств. [Совместимость](05-interop.md) и [производительность](14-performance-analysis.md) содержат процедуры и измерения; квалификация финального кандидата остаётся отдельной.
 
-| Тип | Реализация |
-|---|---|
-| Simple Password (1) | `SimplePasswordAuth` |
-| Keyed MD5 (2) | `KeyedMD5Auth` |
-| Meticulous Keyed MD5 (3) | `MeticulousKeyedMD5Auth` |
-| Keyed SHA1 (4) | `KeyedSHA1Auth` |
-| Meticulous Keyed SHA1 (5) | `MeticulousKeyedSHA1Auth` |
+BFD означает Bidirectional Forwarding Detection; FSM — конечный автомат. TX и RX обозначают передачу и приём. Generalized TTL Security Mechanism (GTSM) ограничивает число скачков при приёме. PDU — единица данных протокола; MTU — максимальный размер передаваемого блока. Seamless BFD (S-BFD), пути MPLS с коммутацией по меткам (LSP), псевдопровода (PW) и Virtual Circuit Connectivity Verification (VCCV) имеют отдельные профили.
 
-Ключевые особенности:
-- Meticulous варианты инкрементируют последовательность на каждый пакет; non-meticulous -- только при смене состояния
-- Окно последовательности: `3 * DetectMult` для non-meticulous
-- `AuthKeyStore` поддерживает несколько ключей для бесшовной ротации
+## Матрица соответствия
 
-#### Section 6.8.6: Приём пакетов
+| RFC | Профиль | Состояние исходников | Граница квалификации |
+|:---|:---|:---|:---|
+| [5880](../rfc/rfc5880.txt) | Базовый протокол | Асинхронное ядро; частично | Полные Poll/Demand, связанный Echo и финальная квалификация открыты |
+| [5881](../rfc/rfc5881.txt) | Односкачковый IPv4/IPv6 | Нумерованная сеть множественного доступа; частично | Начальное демультиплексирование точка-точка и проверки нативных архитектур открыты |
+| [5882](../rfc/rfc5882.txt) | Применение клиентами | Частичная интеграция | Доставка состояния и внешняя сходимость измеряются отдельно |
+| [5883](../rfc/rfc5883.txt) | Многоскачковый режим | Ограниченный профиль GTSM продукта | Квалификация реального маршрутизируемого пути в 2/5 скачков открыта |
+| [7419](../rfc/rfc7419.txt) | Общие интервалы | Вспомогательные функции и необязательное выравнивание реализованы | Универсальный аппаратный/облачный минимум не следует |
+| [9384](../rfc/rfc9384.txt) | BGP Cease/10 | Не реализовано | Действие GoBGP передаёт Cease/2 |
+| [9468](../rfc/rfc9468.txt) | Незапрошенный BFD | Небезопасная предварительная реализация, отключённая по умолчанию | Ограничения допуска не разрешают открывать доступ недоверенной среде |
+| [9747](../rfc/rfc9747.txt) | Несвязанный Echo | Предварительная реализация, отключённая по умолчанию | Пробелы FSM, демультиплексирования, аутентификации и пересылки |
+| [7130](../rfc/rfc7130.txt) | Micro-BFD по участникам | Предварительная реализация; выбранные исполнители | Квалификация обмена по каждому участнику, специального multicast-MAC и совместимости с владельцем не завершена |
+| [8971](../rfc/rfc8971.txt) | VXLAN BFD | Неполная предварительная реализация в пользовательском пространстве | Точный профиль IPv4; интеграция с конкретным владельцем открыта |
+| [9521](../rfc/rfc9521.txt) | Geneve BFD | Неполная предварительная реализация в пользовательском пространстве | Только IPv4 Format A; интеграция с владельцем открыта |
+| [9764](../rfc/rfc9764.txt) | Большие пакеты | Частично | Векторы аутентификации и ограниченная передача с дополнением; MTU пути/финальные проверки отдельно |
+| [7880](https://www.rfc-editor.org/rfc/rfc7880.html), [7881](https://www.rfc-editor.org/rfc/rfc7881.html) | S-BFD | Запланировано | Отражатель, инициатор и слушающий сокет UDP/7784 отсутствуют |
+| [5884](../rfc/rfc5884.txt), [5885](../rfc/rfc5885.txt) | MPLS LSP/PW VCCV | Не реализовано | Реализация сессий и API-заглушки отсутствуют |
 
-Валидация разделена на два уровня:
+Пять предварительных профилей явно представлены в [CapabilityService](../../internal/server/capabilities.go). Зрелость, включение и локальная готовность независимы. `ready` требует собственного пути приёма и готовности источника, среды исполнения и привязки; он не подтверждает исправность соседа, владение плоскостью пересылки либо соответствие RFC. Отсутствующие данные среды исполнения остаются unknown.
 
-| Уровень | Шаги | Файл |
-|---|---|---|
-| Кодек | 1-7 (без состояния) | `packet.go` |
-| Сессия | 8-18 (с состоянием) | `session.go` |
+<a id="rfc-5880-implementation-notes"></a>
 
-#### Section 6.8.7: Джиттер
+## RFC 5880: замечания по реализации
 
-- Нормальный (DetectMult > 1): 75-100% интервала
-- DetectMult == 1: 75-90% интервала
-- Используется crypto-seeded session-local PRNG; джиттер не является security
-  boundary, но seed непредсказуем и нет contention на глобальном RNG в hot path
+### Границы пакета, состояния и приёма
 
-#### Section 6.8.16: Административное управление
+| Раздел | Поведение | Исходники репозитория |
+|:---|:---|:---|
+| 4.1 | Фиксированный заголовок 24 байта, проверка структуры аутентификации, отказ M=1 | [packet.go](../../internal/bfd/packet.go) |
+| 6.1–6.2 | Упакованная локальная пара, согласованное зафиксированное наблюдение, чистый FSM | [session.go](../../internal/bfd/session.go), [fsm.go](../../internal/bfd/fsm.go) |
+| 6.3 | Поиск по дискриминатору/начальному ключу и точные проверки транспорта | [manager_session.go](../../internal/bfd/manager_session.go) |
+| 6.7 | Пять типов аутентификации, неизменяемая проверка байтов с линии, встроенная полезная нагрузка ограниченного размера | [auth.go](../../internal/bfd/auth.go), [ADR-0011](adr/0011-bfd-auth-inline-payload.md) |
+| 6.8.3–6.8.4 | Таймеры по направлениям, минимум вне Up одна секунда, истечение срока приёма | [session_packet.go](../../internal/bfd/session_packet.go), [session_loop.go](../../internal/bfd/session_loop.go) |
+| 6.8.6 | Проверка кодека, допуск Manager, аутентификация владельцем и FSM | [Приём пакета](01-architecture.md#приём-пакета) |
+| 6.8.7 | Случайный разброс 75–100%, при локальном множителе 1 — 75–90% | [Случайный разброс](02-protocol.md#jitter) |
+| 6.8.12 | DetectMult входит в кортеж перечитывания из пяти полей | [session_update.go](../../internal/bfd/session_update.go) |
 
-Graceful shutdown запрашивает AdminDown с Diag=7, ожидает фиксированное
-двухсекундное окно `drainTimeout`, затем отменяет горутины сессий. Это
-best-effort путь: текущая реализация не подтверждает отправку и получение
-пиром. Атомарное завершение AdminDown отслеживается для v1.
+Выбранная политика исправлений RFC 5205/7240 со статусом Held задаёт диагностику 1 при истечении срока в Down без перехода состояния и сохраняет диагностику при переходе в Up. AdminDown/7 сохраняется при локальном PathDown. Это явные политики проекта; Held for Document Update не изменяет нормативные требования RFC. Источники: [FSM](../../internal/bfd/fsm.go), [владелец](../../internal/bfd/session_loop.go), [реестр исправлений RFC](https://www.rfc-editor.org/errata/rfc5880).
 
-#### Не реализовано
+<a id="poll-sequences-и-reload"></a>
 
-| Секция | Функция | Обоснование |
-|---|---|---|
-| 6.4 | Affiliated Echo Mode | Требует контрольной сессии; RFC 9747 unaffiliated echo реализован вместо |
-| 6.5 | Полные Poll Sequence procedures | Ответ на входящий Poll есть; локальная инициация, crossed Poll и timer semantics ожидаются |
-| 6.6 | Demand Mode | Поля декодируются, но remote Demand behavior и timer procedures ожидаются |
-| 4.1 | Бит Multipoint | Зарезервирован для будущих P2MP расширений |
+### Последовательности Poll и перечитывание
 
-### Заметки по RFC 5881
+Один активный объявленный кортеж и последний кортеж в очереди сериализуют TX, RX, DetectMult, MinTTL и PaddedPduSize. В Up увеличение TX и уменьшение RX ждут соответствующий Final; обратные направления действуют при активации. Final не подтверждает Poll, который не был успешно передан. Пересекающийся Poll, повтор Final, взаимоисключение P/F и разделение транзакций имеют отдельные тесты и проверки на линии.
 
-Реализация: [`internal/netio/`](../../internal/netio/)
+Асинхронное изменение только множителя обнаружения не требует Poll; удалённый Demand может его требовать. TTL — локальная политика продукта без Poll. Изменение дополнения с положительного на положительный размер требует неизменной аутентификации, единственного владельца конфигурации, асинхронного режима и неизменяемого доказательства подготовки DF в конструкторе. Переходы аутентификации отклоняются до принятия генерации по сохранённому намерению и действующим владельцам. Источники: [ADR-0006](adr/0006-session-preserving-reload-policy.md), [транзакции владельца](../../internal/bfd/session_update.go), [допуск](../../internal/bfd/manager_auth_reload.go).
 
-| Требование | Реализация |
-|---|---|
-| Порт назначения 3784 | `netio.PortSingleHop = 3784` |
-| Порт источника 49152-65535 | `SourcePortAllocator` |
-| TTL=255 исходящий | `ipv4.SetTTL(255)` через `x/net/ipv4` |
-| Проверка TTL=255 входящий | `IP_RECVTTL` + проверка в слушателе |
-| `SO_BINDTODEVICE` | Применяется при указании интерфейса |
-| Раздельные IPv4/IPv6 слушатели | Раздельные `ipv4.PacketConn` / `ipv6.PacketConn` |
+Ограниченные квитанции DetectMult, TTL и дополнения сохраняются как исторические доказательства отдельных сценариев. Общая проверка финального кандидата выполняется после оставшихся работ над потоками и масштабом производственных Session/Echo. Эти сценарии не подтверждают общий Demand, диапазон RTT развёрнутой среды, непрерывность пересылки либо приёмку стабильного выпуска.
 
-### Заметки по RFC 5882
-
-Реализация: [`internal/gobgp/`](../../internal/gobgp/)
-
-- Section 3.2: демпфирование flap-ов с настраиваемыми порогами
-- Section 4.3: отслеживание состояний BFD и вызов GoBGP gRPC API
-  - BFD Down --> `DisablePeer()` (или `DeletePath()` по стратегии)
-  - BFD Up --> `EnablePeer()` (или `AddPath()`)
-  - Каждый вызов GoBGP API ограничен `gobgp.action_timeout`, чтобы медленный внешний API не блокировал обработку изменений состояния бесконечно
-
-### Заметки по RFC 5883
-
-| Требование | Реализация |
-|---|---|
-| Порт назначения 4784 | `netio.PortMultiHop = 4784` |
-| TTL=255 исходящий | Аналогично single-hop |
-| Проверка TTL>=254 входящий | Отдельная валидация TTL для multihop |
-| Демультиплексирование по (MyDiscr, SrcIP, DstIP) | `Manager.DemuxWithWire` составной ключ |
-
-### Заметки по RFC 7419
-
-Реализация: [`internal/bfd/intervals.go`](../../internal/bfd/intervals.go)
-
-RFC 7419 определяет набор общих интервалов BFD для совместимости с аппаратными реализациями: 3.3мс, 10мс, 20мс, 50мс, 100мс, 1с. Опция `bfd.align_intervals: true` выравнивает интервалы вверх до ближайшего общего значения.
-
-### Заметки по RFC 9384
-
-Реализация: [`internal/gobgp/rfc9384.go`](../../internal/gobgp/rfc9384.go)
-
-RFC 9384 требует Cease NOTIFICATION subcode 10 ("BFD Down") при разрыве BGP
-из-за BFD. GoBGP v3 не позволяет выбрать subcode через `DisablePeer`: текущая
-интеграция отправляет Administrative Shutdown (Cease/2), а строка
-`"BFD Down (RFC 9384 Cease/10): diag=..."` служит только для операторской
-корреляции. Поэтому wire-соответствие RFC 9384 не реализовано.
-
-### Заметки по RFC 9468
-
-Реализация: [`internal/bfd/unsolicited.go`](../../internal/bfd/unsolicited.go), [`internal/bfd/manager.go`](../../internal/bfd/manager.go)
-
-RFC 9468 позволяет динамически создавать пассивные сессии при получении BFD-пакетов от неизвестных пиров. Автосоздание выполняется в `Manager.demuxByPeer()` с политикой per-interface и ограничением `MaxSessions`. Квота `MaxSessions` резервируется атомарно до создания и освобождается при ошибке создания, явном удалении или cleanup пассивной Down-сессии после `CleanupTimeout`.
-
-### Заметки по RFC 9747
-
-**Статус**: Preview
-
-Реализация: [`internal/bfd/echo.go`](../../internal/bfd/echo.go), [`internal/netio/echo_receiver.go`](../../internal/netio/echo_receiver.go)
-
-RFC 9747 определяет unaffiliated BFD echo для обнаружения отказов forwarding-path без необходимости запуска BFD на удалённой стороне. Локальная система отправляет BFD Control пакеты (echo-пакеты) на удалённую сторону, которая пересылает их обратно через обычную IP-маршрутизацию.
-
-| Требование | Реализация |
-|---|---|
-| UDP порт 3785 | `netio.PortEcho = 3785`, слушатель в `createListeners()` |
-| Стандартный формат BFD Control | Переиспользование кодека `MarshalControlPacket` |
-| DiagEchoFailed при таймауте | `DiagEchoFailed` (значение 2) |
-| Локально настроенные таймеры | `EchoSessionConfig.TxInterval`, без согласования |
-| Двухсостоянийная FSM (Up/Down) | Упрощённая FSM в `EchoSession` |
-| DetectionTime = DetectMult * TxInterval | `EchoSession.DetectionTime()` |
-| Демультиплексирование по MyDiscriminator | `EchoReceiver` сопоставляет возвращённые пакеты |
-| Тип сессии | Константа `SessionTypeEcho` |
-| TTL 255 отправка, TTL >= 254 приём | Валидация GTSM через `netio.ValidateTTL` |
-| Декларативные echo-пиры | `echo.peers[]` в конфиге, реконсиляция при SIGHUP |
-| Отправитель с портом назначения 3785 | Функциональная опция `WithDstPort(PortEcho)` |
-
-Ключевые отличия от BFD control сессий:
-- Нет трёхстороннего рукопожатия (нет состояния Init)
-- Нет согласования таймеров с удалённой стороной (локальные настройки)
-- Нет аутентификации (echo-пакеты отправлены самим собой)
-- Отдельный тип `EchoSession` с упрощённой FSM
-
-### Заметки по RFC 7130
-
-**Статус**: Протокол реализован; production integration частичная
-
-Реализация: [`internal/bfd/micro.go`](../../internal/bfd/micro.go)
-
-RFC 7130 определяет Micro-BFD — независимые BFD-сессии на каждом member link LAG для верификации пересылки per-link с более быстрым обнаружением, чем LACP.
-
-| Требование | Реализация |
-|---|---|
-| UDP порт 6784 | `netio.PortMicroBFD = 6784`, per-member слушатели в `createMicroBFDListeners()` |
-| Одна BFD-сессия на member link | `MicroBFDGroup.members` map, `AddMember()`/`RemoveMember()` |
-| `SO_BINDTODEVICE` на каждый member | Функциональная опция `WithBindDevice()` на отправителе |
-| Отслеживание агрегатного состояния | Порог `upCount >= minActive` |
-| Обработка Member Down | `UpdateMemberState()` фиксирует состояние member и вызывает изменение агрегатного порога |
-| Выделенный multicast MAC | `01-00-5E-90-00-01` для начальных пакетов |
-| Только асинхронный режим | Стандартные процедуры RFC 5880 для каждого member |
-| Тип сессии | Константа `SessionTypeMicroBFD` |
-| Конфигурация per-group | `MicroBFDGroupConfig` с LAG-интерфейсом + member-линки |
-| Реконсиляция групп | `reconcileMicroBFDGroups()` в `main.go`, SIGHUP reload |
-| Диспетчер состояний | `RunDispatch` fan-out горутина маршрутизирует изменения состояний в группы |
-| Actuator hook | `MicroBFDActuator` получает события member state после обновления состояния группы |
-| Policy gate | `netio.LAGActuator` поддерживает режимы `disabled`, `dry-run` и `enforce` |
-| Daemon wiring | `micro_bfd.actuator` задаёт mode, backend, OVSDB endpoint, owner policy и действия с member |
-| Kernel bond backend | `KernelBondLAGBackend` пишет `-member` / `+member` в Linux bonding sysfs |
-| OVS backend | `OVSDBLAGBackend` мутирует `Port.interfaces` через OVSDB; `OVSLAGBackend` остаётся CLI fallback type |
-| NetworkManager backend | `NetworkManagerLAGBackend` деактивирует и активирует NM-owned bond port profiles через D-Bus |
-
-Логика агрегатного состояния:
-- Группа стартует со всеми member-ами Down, агрегат Down
-- Когда `upCount >= MinActiveLinks`, агрегат переходит в Up
-- Когда `upCount < MinActiveLinks`, агрегат переходит в Down
-- Изменения состояния сообщаются только при переходах агрегата (пересечение порога)
-- Состояние Init на member не считается как Up (только `StateUp` увеличивает `upCount`)
-
-`MicroBFDGroupSnapshot` предоставляет read-only представление состояния группы включая детали per-member link, полезно для ответов gRPC API и мониторинга.
-
-**Production-ограничение Linux**: RFC 7130 также требует выводить member link,
-чья micro-BFD-сессия перешла в Down, из load-balancing table LAG. GoBFD теперь
-имеет hook `MicroBFDActuator` и покрытый тестами policy gate
-`netio.LAGActuator` для режимов disabled, dry-run и enforce. YAML wiring уже
-добавлен, включая NetworkManager-aware owner policy. `backend: kernel-bond`
-может выполнять remove/add member через Linux bonding sysfs при явном
-`owner_policy: allow-external`. `backend: ovs` может выполнять remove/add
-member на существующем OVS bonded port через native OVSDB transactions против
-`Port.interfaces`. `OVSLAGBackend` остаётся direct CLI fallback type.
-`backend: networkmanager` может выполнять remove/add member через deactivation
-активного NetworkManager bond port profile и activation remembered или
-available bond port profile при явном `owner_policy: networkmanager-dbus`.
-
-### Заметки по RFC 8971
-
-**Статус**: Userspace backend реализован; owner-specific backends planned
-
-Реализация: [`internal/netio/vxlan.go`](../../internal/netio/vxlan.go), [`internal/netio/vxlan_conn.go`](../../internal/netio/vxlan_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
-
-RFC 8971 определяет BFD в VXLAN-инкапсуляции для обнаружения отказов forwarding-path между VTEP (Virtual Tunnel Endpoints). BFD Control пакеты переносятся внутри VXLAN-инкапсулированных inner Ethernet фреймов.
-
-| Требование | Реализация |
-|---|---|
-| Внешний UDP порт 4789 | `netio.VXLANPort = 4789`, `VXLANConn` через явный backend `userspace-udp` |
-| Внутренний UDP порт 3784 | `BuildInnerPacket()` с dst-портом 3784 |
-| Кодек VXLAN-заголовка | `MarshalVXLANHeader` / `UnmarshalVXLANHeader` |
-| Management VNI | `VXLANConfig.ManagementVNI`, отклонение при несовпадении VNI |
-| Валидация VNI (24 бит) | `ErrInvalidVXLANVNI` валидация конфигурации |
-| Валидация I-флага | Сентинел `ErrVXLANInvalidFlags` |
-| Inner destination MAC | `VXLANBFDInnerMAC = 00:52:02:00:00:00` (IANA) |
-| Inner TTL=255 | `BuildInnerPacket()` устанавливает TTL=255 (RFC 5881 GTSM) |
-| Inner IPv4 checksum | `ipv4HeaderChecksum()` по RFC 1071 |
-| Тип сессии | Константа `SessionTypeVXLAN` |
-| Адаптер OverlaySender | `OverlaySender` реализует `bfd.PacketSender` |
-| Цикл OverlayReceiver | Снимает VXLAN + inner заголовки, доставляет в `Manager.DemuxWithWire` |
-| Модель backend | `NewVXLANOverlayBackend` поддерживает `userspace-udp`; зарезервированные kernel/OVS/OVN/Cilium/Calico/NSX backend fail closed |
-| Усиление receive path | Переиспользует ограниченные jumbo receive buffers; ожидаемые malformed/non-management пакеты отбрасываются на debug-уровне |
-| Декларативные пиры | `vxlan.peers[]` в конфиге, реконсиляция при SIGHUP |
-| Валидация конфигурации | Диапазон VNI, адреса пиров, detect_mult, обнаружение дубликатов |
-
-Стек инкапсуляции пакетов:
-```
-Outer IP → Outer UDP (4789) → VXLAN Header (8B) →
-Inner Ethernet (14B) → Inner IPv4 (20B) → Inner UDP (8B, dst 3784) → BFD Control
-```
-
-Кодек VXLAN-заголовка обрабатывает 8-байтный фиксированный формат с I-флагом (VNI валиден) и 24-битным кодированием VNI. Пакеты Management VNI обрабатываются локально и не перенаправляются в tenant-сети.
-
-**Production-ограничение Linux**: `vxlan.backend: userspace-udp` владеет UDP
-сокетом на `localAddr:4789`. Это подходит для лабораторного endpoint,
-выделенного Management VNI endpoint или Linux VTEP, где GoBFD владеет сокетом.
-Если kernel VXLAN, OVS/OVN, Cilium, Calico, NSX или другой dataplane уже владеет UDP
-4789 в том же namespace/local address, зарезервированные backend names fail
-closed до появления owner-specific integration. Sender reconciliation
-использует runtime backend, который уже обслуживает receiver, и не bind-ит
-второй socket.
-
-### Заметки по RFC 9521
-
-**Статус**: Userspace backend реализован; owner-specific backends planned
-
-Реализация: [`internal/netio/geneve.go`](../../internal/netio/geneve.go), [`internal/netio/geneve_conn.go`](../../internal/netio/geneve_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
-
-RFC 9521 определяет BFD в Geneve-инкапсуляции для обнаружения отказов forwarding-path между NVE (Network Virtualization Edges) на уровне VAP (Virtual Access Point). Geneve — эволюция VXLAN для cloud-native сред.
-
-| Требование | Реализация |
-|---|---|
-| Внешний UDP порт 6081 | `netio.GenevePort = 6081`, `GeneveConn` через явный backend `userspace-udp` |
-| Кодек Geneve-заголовка | `MarshalGeneveHeader` / `UnmarshalGeneveHeader` |
-| O бит (control) = 1 | RFC 9521 Section 4: установлен при отправке, проверяется при приёме (`ErrGeneveOBitNotSet`) |
-| C бит (critical) = 0 | RFC 9521 Section 4: сброшен при отправке, проверяется при приёме (`ErrGeneveCBitSet`) |
-| Protocol Type 0x6558 | Format A: Ethernet payload (`GeneveProtocolEthernet`), проверяется при приёме |
-| Валидация VNI (24 бит) | `ErrInvalidGeneveVNI` валидация конфигурации, несовпадение VNI при приёме |
-| Валидация версии | `ErrGeneveInvalidVersion` (только версия 0 поддерживается) |
-| Ethernet payload (Format A) | `GeneveProtocolEthernet = 0x6558` |
-| Опции переменной длины | `GeneveHeader.OptLen` + `TotalHeaderSize()` |
-| Inner TTL=255 | `BuildInnerPacket()` устанавливает TTL=255 (RFC 5881 GTSM) |
-| Тип сессии | Константа `SessionTypeGeneve` |
-| Адаптер OverlaySender | `OverlaySender` реализует `bfd.PacketSender` |
-| Цикл OverlayReceiver | Снимает Geneve + inner заголовки, доставляет в `Manager.DemuxWithWire` |
-| Модель backend | `NewGeneveOverlayBackend` поддерживает `userspace-udp`; зарезервированные kernel/OVS/OVN/Cilium/Calico/NSX backend fail closed |
-| Усиление receive path | Переиспользует ограниченные jumbo receive buffers; ожидаемые malformed/non-management пакеты отбрасываются на debug-уровне |
-| Декларативные пиры | `geneve.peers[]` в конфиге, переопределение VNI per-peer, реконсиляция при SIGHUP |
-| Валидация конфигурации | Диапазон VNI, адреса пиров, detect_mult, обнаружение дубликатов |
-
-Стек инкапсуляции пакетов (Format A):
-```
-Outer IP → Outer UDP (6081) → Geneve Header (8B, O=1, C=0, Proto=0x6558) →
-Inner Ethernet (14B) → Inner IPv4 (20B) → Inner UDP (8B, dst 3784) → BFD Control
-```
-
-Ключевые отличия от VXLAN BFD (RFC 8971):
-- Geneve поддерживает опции TLV переменной длины (VXLAN имеет фиксированный 8-байтный заголовок)
-- Два формата payload: Ethernet (Format A) и IP (Format B)
-- O-бит управляющий флаг указывает на management/control трафик
-- Сессии создаются/завершаются на уровне VAP, а не напрямую на NVE
-
-**Production-ограничение Linux**: `geneve.backend: userspace-udp` владеет UDP
-сокетом на `localAddr:6081`. Он валидирует RFC 9521 Format A packets, но не
-интегрируется с socket ownership kernel Geneve, OVS/OVN или NSX dataplane.
-Зарезервированные owner-specific backend names fail closed до появления таких
-интеграций. RFC 9521 также наследует требование Geneve работать в
-traffic-managed controlled environment или явно ограничивать BFD transmit rate,
-чтобы не получать ложные отказы из-за перегрузки.
-
-### Заметки по RFC 9764
-
-**Статус**: Частично
-
-Реализация: [`internal/bfd/session.go`](../../internal/bfd/session.go) (padding), [`internal/netio/sender.go`](../../internal/netio/sender.go) (бит DF)
-
-RFC 9764 определяет BFD Large Packets для проверки MTU пути. Реализация дополняет BFD Control пакеты до настроенного размера нулями и устанавливает бит IP Don't Fragment (DF). Если дополненный пакет превышает MTU пути, он будет отброшен, что позволит BFD обнаружить проблему с MTU.
-
-| Требование | Реализация |
-|---|---|
-| Дополнение пакета до настроенного размера | `SessionConfig.PaddedPduSize`, zero-padding в TX-пути |
-| Установка бита DF (IP_PMTUDISC_DO) | Функциональная опция `WithDFBit()` на `UDPSender` |
-| Заполнение нулями | `cachedPacket` расширяется нулевыми байтами после BFD payload |
-| Конфигурация per-session | `padded_pdu_size` в YAML конфигурации сессии |
-| Глобальное значение по умолчанию | `bfd.default_padded_pdu_size` в YAML конфигурации |
-| Допустимый диапазон | 24-9000 байт (24 = минимальный BFD Control пакет) |
-
-Authenticated padded packets не завершены: authentication hash должен
-покрывать padded length RFC 9764. Стабильное соответствие заблокировано до
-исправления и interop-проверки combined authenticated-padding path.
-
-### RFC 7880/7881 (Планируется)
-
-**Статус**: Планируется
-
-RFC 7880 определяет Seamless BFD (S-BFD) — упрощённый механизм BFD для тестирования доступности инфраструктуры. В отличие от стандартного BFD, требующего трёхстороннего рукопожатия, S-BFD использует stateless рефлектор, который немедленно отвечает на запросы инициатора.
-
-RFC 7881 определяет инкапсуляцию S-BFD для IPv4 и IPv6 с использованием порта назначения 7784.
-
-| Требование | Планируемая реализация |
-|---|---|
-| Stateless рефлектор (RFC 7880) | Будущий рефлектор на порту 7784 |
-| Сопоставление пула дискриминаторов | Рефлектор сопоставляет `YourDiscriminator` с локальным пулом |
-| Ответ с State=Up | Состояние сессии не сохраняется |
-| S-BFD инициатор (RFC 7880) | Будущий инициатор с таймером обнаружения |
-| Порт 7784 (RFC 7881) | Будущий выделенный слушатель S-BFD |
-| Без трёхстороннего рукопожатия | Инициатор отправляет, рефлектор отвечает немедленно |
-
-В текущем коде нет `SBFDReflector`, `SBFDInitiator` или listener порта 7784;
-описанные выше имена являются ролями плана, а не существующими API.
-
-### Stub-интерфейсы
-
-| RFC | Зависимость | Статус |
-|---|---|---|
-| RFC 5884 (BFD для MPLS) | LSP Ping (RFC 4379) | Интерфейсы определены в `internal/bfd` |
-| RFC 5885 (BFD для VCCV) | VCCV (RFC 5085), LDP (RFC 4447) | Интерфейсы определены |
-
-### Справочные RFC
-
-Эти RFC упоминаются, но не реализуются напрямую:
-
-| RFC | Название | Отношение |
-|---|---|---|
-| RFC 8203 | BGP Administrative Shutdown | Строка communication для DisablePeer |
-| RFC 5082 | GTSM | Основание для требования TTL=255 |
-| RFC 4379 | LSP Ping | Зависимость RFC 5884 |
-| RFC 5085 | VCCV | Зависимость RFC 5885 |
-| RFC 4447 | LDP | Зависимость RFC 5885 |
-| RFC 7726 | Clarifying BFD for MPLS | Процедуры MPLS-сессий |
-| RFC 9127 | YANG Data Model for BFD | Эталон модели конфигурации |
-| RFC 9355 | OSPF BFD Strict-Mode | Требует интеграции с OSPF-демоном (отложено) |
-
-### Исходные файлы RFC
-
-Полные тексты RFC доступны в директории `docs/rfc/`:
-
-| Файл | RFC |
-|---|---|
-| [rfc5880.txt](../rfc/rfc5880.txt) | RFC 5880 -- Bidirectional Forwarding Detection |
-| [rfc5881.txt](../rfc/rfc5881.txt) | RFC 5881 -- BFD for IPv4/IPv6 (Single Hop) |
-| [rfc5882.txt](../rfc/rfc5882.txt) | RFC 5882 -- Generic Application of BFD |
-| [rfc5883.txt](../rfc/rfc5883.txt) | RFC 5883 -- BFD for Multihop Paths |
-| [rfc5884.txt](../rfc/rfc5884.txt) | RFC 5884 -- BFD for MPLS LSPs |
-| [rfc5885.txt](../rfc/rfc5885.txt) | RFC 5885 -- BFD for PW VCCV |
-| [rfc7130.txt](../rfc/rfc7130.txt) | RFC 7130 -- BFD on LAG |
-| [rfc9985.txt](../rfc/rfc9985.txt) | RFC 9985 -- Optimizing BFD Authentication |
-| [rfc9986.txt](../rfc/rfc9986.txt) | RFC 9986 -- Meticulous Keyed ISAAC for Optimized BFD Authentication |
-
-### Связанные документы
-
-- [02-protocol.md](./02-protocol.md) -- Детали протокола BFD
-- [01-architecture.md](./01-architecture.md) -- Архитектура системы
-- [05-interop.md](./05-interop.md) -- Тестирование совместимости
-
----
-
-*Последнее обновление: 2026-02-23*
+### Административное управление
+
+Завершающий обмен AdminDown подтверждает фиксацию владельцем, первую успешную разрешённую запись и истечение согласованного окна в общем бюджете десять секунд. Окно покрывает границы обоих направлений; подавление при неизвестном соседе пассивной сессии и удалённом RX=0 сохраняется. Ответ Final может стать первой записью. Освобождение последней заявки выполняет завершающий обмен вне блокировок Manager и резервирует точный ключ до очистки. Очистка незапрошенной сессии после отказа использует отдельный путь остановки TX. Источники: [завершающий обмен](../../internal/bfd/session_drain.go), [замена](../../internal/bfd/manager_replace.go), [RFC 5880 §6.8.16](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.16).
+
+Датированная квитанция SIGTERM в `reports/h12-wire-20261016/` содержит восемь пакетов AdminDown/7, по четыре для FRR/BIRD, с TTL 255, множителем 3, объявленными TX 1000000 мкс и RX 300000 мкс. От первой передачи на линии до завершения: 3,000171 с и 3,000147 с. Сорок отсчётов за 20,280366 с сохраняют BGP Established и два тестовых маршрута; промежутки не наблюдаются. Вход: SHA256 патча исходников `d1394d09fb3b902d3e34a5e34467c5aa4c506bd1d71c49416f6176773dc86947` поверх commit `e4f3761a0f1fc59fbf9b2f859923a81125d157bf`; PCAP SHA256 `f10937cc6a7969bc336e4f1b5217d2f458e5f046236f68530225ef26ec281c68`. Это историческое локальное доказательство, а не результат текущего кандидата.
+
+### Нереализованные функции
+
+Локальный D остаётся нулём. Связанный Echo отсутствует; Control Required Min Echo RX равен нулю. Подавление периодической передачи при удалённом Demand и таймерный Poll управляемого тестового соседа дают частичную поддержку. P2MP отсутствует. См. [ограничения протокола](02-protocol.md#нереализованные-функции).
+
+<a id="rfc-5881-implementation-notes"></a>
+
+## RFC 5881: замечания по реализации
+
+[Отправитель UDP](../../internal/netio/sender.go), [слушающий сокет](../../internal/netio/listener.go) и [допуск Manager](../../internal/bfd/manager_session.go) реализуют порт назначения 3784, фиксированный исходный порт 49152–65535, TX TTL/Hop Limit 255 и RX=255 для каждой сессии. Отдельные сокеты IPv4/IPv6 сохраняют адрес назначения из packet-info и входной интерфейс.
+
+Односкачковый RX проверяет настроенный интерфейс либо интерфейс локального адреса при создании. Отсутствующее или неоднозначное владение локальным адресом оставляет конфигурацию в ожидании; создание через API возвращает `FailedPrecondition`. Локальный адрес loopback/dummy требует явного физического `interface`, если пакеты приходят через него. Начальное демультиплексирование точка-точка с произвольным удалённым источником отложено.
+
+Зоны IPv6 link-local выбирают интерфейс и должны с ним совпадать; начальный ключ их не содержит. Linux TTL/Hop Limit и индексы интерфейсов представлены в служебных данных в порядке байтов хоста; IP-адреса сохраняют сетевой порядок. Ограничение исходного порта Echo в общем отправителе — политика продукта: RFC 5881 его не задаёт. Нативная квалификация ядра `linux/amd64` и `linux/arm64` остаётся обязательной; перекрёстная компиляция её не закрывает.
+
+<a id="rfc-5882-implementation-notes"></a>
+
+## RFC 5882: замечания по реализации
+
+[Обработчик GoBGP](../../internal/gobgp/handler.go) вызывает отключение при обычном удалённом Down, отказе обнаружения и явном локальном PathDown. Локальный либо известный удалённый AdminDown не вызывает отключение; сохранённый удалённый AdminDown переживает последующую диагностику истечения срока. Up повторно включает соседей, выключенных текущим процессом, а через локальный Unix-сокет — и соседей с подтверждённой квитанцией владения для неизменной эпохи спикера после перезапуска контроллера ([ADR-0013](adr/0013-gobgp-restart-disable-ownership.md)); цели TCP, а также изменённые оператором или неподтверждённые соседи остаются отключёнными. Действие ограничено `gobgp.action_timeout`.
+
+Подавление колебаний на основе штрафа — политика реализации по §3.1, а не алгоритм RFC. Универсальные отзыв и восстановление маршрутов отсутствуют; `withdraw-routes` отклоняется проверкой. Доставка Watch, успех внешнего действия и сходимость маршрутизации требуют независимых квитанций. Источники: [интеграция](../../internal/gobgp), [проверка конфигурации](../../internal/config/config.go), [ADR-0013](adr/0013-gobgp-restart-disable-ownership.md), [RFC 5882 §§3.2, 4.2, 10.2](https://www.rfc-editor.org/rfc/rfc5882.html#section-3.2).
+
+<a id="rfc-5883-implementation-notes"></a>
+
+## RFC 5883: замечания по реализации
+
+Многоскачковый режим использует UDP/4784 и начальное демультиплексирование по паре адресов; явный интерфейс запрещён. TX TTL равен 255. Параметр сессии `multihop_max_hops=N` принимает TTL/Hop Limit ≥255−N: N=1 по умолчанию даёт 254; N=2 — 253; N=5 — 250. Это ограниченный профиль GoBFD GTSM, а не требование RFC 5883 к TTL приёма. Неверный класс транспорта отклоняется до доставки.
+
+[RFC 5883 §§3, 6](https://www.rfc-editor.org/rfc/rfc5883.html#section-3) запрещает многоскачковый Echo и рекомендует криптографическую аутентификацию. Настроить аутентификацию многоскачкового режима; порог TTL обеспечивает только дополнительную защиту. Использовать поддерживаемый Meticulous SHA1, если разрешает политика соседа. Фактические маршрутизируемые и облачные пути требуют отдельной квалификации. Источники: [Manager](../../internal/bfd/manager_session.go), [конфигурация](../../internal/config/config.go), [ADR-0006](adr/0006-session-preserving-reload-policy.md).
+
+<a id="rfc-7419-implementation-notes"></a>
+
+## RFC 7419: замечания по реализации
+
+[Функции интервалов](../../internal/bfd/intervals.go) задают шесть общих интервалов: 3300, 10000, 20000, 50000, 100000, 1000000 микросекунд. Выравнивание округляет вверх внутри набора и сохраняет значения больше максимума. Отдельный интервал плавного перезапуска равен 10 с. Общие значения не подтверждают точность таймеров либо приёмку оборудования или провайдера. Проверить [профиль целевого соседа](reference/vendor-bfd.md).
+
+<a id="rfc-9384-implementation-notes"></a>
+
+## RFC 9384: замечания по реализации
+
+[Адаптер GoBGP](../../internal/gobgp/rfc9384.go) добавляет Cease/10 в текст сообщения, но текущий DisablePeer передаёт Administrative Shutdown, Cease/2. Идентификатор RFC в строке не реализует подкод 10 на линии. Полная поддержка требует API действия и захвата с этим подкодом.
+
+<a id="rfc-9468-implementation-notes"></a>
+
+## RFC 9468: замечания по реализации
+
+| Условие допуска | Поведение продукта | Источник |
+|:---|:---|:---|
+| Явное включение/интерфейс | Отключено по умолчанию; явные непустые интерфейсы, слушающие сокеты двух стеков с привязкой к устройству | [конфигурация](../../internal/config/config.go), [слушающие сокеты](../../cmd/gobfd/listeners.go) |
+| Сосед/путь | TTL 255, односкачковый слушающий сокет, источник в локальной подсети приёма; необязательные более узкие префиксы | [незапрошенные сессии](../../internal/bfd/unsolicited.go) |
+| Вместимость/частота | При включении `max_sessions≥1`; 10 допусков/с, всплеск 20 | [Manager](../../internal/bfd/manager.go) |
+| Аутентификация | Необязательная проверка запускающего пакета Meticulous Keyed SHA1; без политики A-бит отклоняется | [тесты допуска](../../internal/bfd/unsolicited_auth_test.go) |
+| Отправитель/очистка | Локальный кортеж и интерфейс приёма, собственная аренда исходного порта; остановка передачи без Final после естественного отказа или истечения срока установления | [владелец](../../internal/bfd/session_loop.go), [очистка](../../internal/bfd/unsolicited.go) |
+
+Допуск без нумерованного адреса отклоняется. Квота резервируется атомарно и освобождается при отказе, уничтожении или очистке. Повторные неизменные пакеты не перезапускают независимый бюджет установления. Общие заявки API и конфигурации сохраняют обычную передачу Control. Очистка проверяет фактическую неудавшуюся попытку и не удаляет возобновлённую попытку либо локальный AdminDown. Ответы Final и административное уведомление сохраняют правила базового протокола.
+
+Квитанция двух стеков и 78 аренд не снимает статус небезопасной предварительной реализации. Не открывать незапрошенный режим на недоверенном интерфейсе.
+
+<a id="rfc-9747-implementation-notes"></a>
+
+## RFC 9747: замечания по реализации
+
+[Владелец Echo](../../internal/bfd/echo.go) и [приёмник](../../internal/netio/echo_receiver.go) реализуют порт 3785, пакеты формы Control, медленный односекундный темп передачи в Down с переходом на настроенный интервал в Up, локальные таймеры обнаружения, Down↔Up, демультиплексирование возврата по My Discriminator, TX TTL 255/RX точно 254 и диагностику 2 при истечении срока.
+
+RFC требует другую начальную установку, последующее демультиплексирование по Your Discriminator, базовый FSM без AdminDown и проверку/аутентификацию возврата. Текущий путь отправки также не подтверждает прохождение соседней плоскости пересылки. Квалификация должна закрыть пробелы FSM, идентичности и аутентификации возвращаемых пакетов.
+
+Каждый Add, включая повтор, требует включения предварительного профиля и локальной готовности RX. Совместимые субъекты доступа разделяют обмен по [ADR-0009](adr/0009-echo-principal-claims.md); владение управлением не устраняет пробелы протокола. Свидетельства владельца и условная оценка нагрузки из [ADR-0012](adr/0012-owner-down-transition-witness.md) не квалифицируют RFC 9747.
+
+<a id="rfc-7130-implementation-notes"></a>
+
+## RFC 7130: замечания по реализации
+
+Одна сессия участника и семейства адресов использует UDP/6784 и привязку к устройству участника. `MicroBFDGroup` учитывает только участников Up; общее состояние становится Up при `upCount≥MinActiveLinks`. Существующая общая сессия задаёт начальное состояние группы. Заявки группы и источника проходят сверку с сессиями участников; пересечение настроенного порога числом участников Up публикует общий переход.
+
+Исполнитель получает упорядоченные изменения участников вне блокировок Manager с предельным сроком пять секунд. Режимы: `disabled`, `dry-run`, `enforce`; применение требует явных реализации и политики владельца. Реализованы kernel-bond sysfs, нативный OVSDB и NetworkManager D-Bus; резервный OVS CLI не выбирается демоном. Проверка фактического обмена по каждому участнику и специального multicast-MAC, а также квалификация реального владельца остаются отдельными. Источники: [группа](../../internal/bfd/micro.go), [подключение демона](../../cmd/gobfd/micro_bfd.go), [исполнитель](../../internal/netio/lag_backend.go), [ADR-0003](adr/0003-linux-advanced-bfd-applicability.md).
+
+<a id="rfc-8971-implementation-notes"></a>
+
+## RFC 8971: замечания по реализации
+
+Предварительная реализация VXLAN использует внешний UDP/4789, восьмибайтовый заголовок VXLAN с флагом I, Management VXLAN network identifier (VNI) и внутренний Ethernet/IPv4/UDP/3784/BFD. Внутренний MAC назначения: `00:52:02:00:00:00`; исходные MAC локальной и удалённой сторон и полный кортеж конечных точек/VNI/IP должны совпадать с настроенной областью. Проверка требует глобальные одноадресные внутренние адреса IPv4 (вариант адреса VTEP по §§3, 5) и отклоняет `127.0.0.0/8`.
+
+Реализован только `userspace-udp`. Один слушающий сокет на локальной конечной точке туннеля VXLAN (VTEP) разделяет точные области и владение физическим исходным портом. Зарезервированные реализации kernel/OVS/OVN/Cilium/Calico/NSX отклоняются. Сокет другой плоскости пересылки находится вне профиля. Источники: [соединение VXLAN](../../internal/netio/vxlan_conn.go), [внутренняя проверка](../../internal/netio/overlay_inner.go), [допуск реализации](../../internal/netio/overlay_backend.go), [владение оверлеем](../../cmd/gobfd/overlay_owner.go).
+
+<a id="rfc-9521-implementation-notes"></a>
+
+## RFC 9521: замечания по реализации
+
+Предварительная реализация Geneve использует внешний UDP/6081, O=1, C=0, версию 0, Protocol Type `0x6558`, VNI и явную идентичность IPv4 Format A Virtual Access Point (VAP) IP/MAC. Внутренний Ethernet/IPv4/UDP/3784/BFD проверяется до поиска дискриминатора. Отсутствующая идентичность VAP или идентичность специального назначения, внутренняя полезная нагрузка IPv6, Format B и другие типы протоколов отклоняются.
+
+Реализован только `userspace-udp`; интеграция совместного использования сокетов с плоскостью пересылки отсутствует. Отмена отправки или приёма не должна закрывать исправный общий слушающий сокет; Close разблокирует ввод-вывод, полезная нагрузка заимствует буфер приёма до следующего чтения. Интенсивность передачи пакетов BFD и воздействие перегрузки требуют целевого профиля. Источники: [соединение Geneve](../../internal/netio/geneve_conn.go), [внутренняя проверка](../../internal/netio/overlay_inner.go), [ADR-0003](adr/0003-linux-advanced-bfd-applicability.md).
+
+<a id="rfc-9764-implementation-notes"></a>
+
+## RFC 9764: замечания по реализации
+
+Целевой размер считает байты транспортной полезной нагрузки BFD без заголовков IP/UDP. Ноль выключает дополнение; ненулевые диапазоны: 24–9000 байт без аутентификации и 26–9000 байт с аутентификацией. Отказ аутентифицированных целевых размеров 24/25 байт — принятая политика продукта; цель меньше фактического аутентифицированного PDU его не обрезает. TX использует `max(actual PDU, target)`, заполнение нулями и IPv4 DF, подготовленный при создании отправителя.
+
+Проверка хеша охватывает объявленный BFD Length, включая байты расширения внутри PDU, и исключает транспортное дополнение. Содержимое дополнения при приёме не проверяется. Независимые локальные векторы покрывают пять типов аутентификации и датаграммы без дополнения, 64, 128 и 9000 байт. Пул прямого приёма принимает до 9000 байт и отклоняет Linux `MSG_TRUNC`; `MaxPacketSize=64` кодека не задаёт границу датаграммы. Буферы оверлея добавляют обрамление, не расширяя внутренний BFD: VXLAN 9090 байт, Geneve 9342 байта.
+
+[Критическая проверка совместимости BASE](05-interop.md) проверяет передачу GoBFD с дополнением до 128 байт к FRR Simple Password и BIRD Keyed SHA1, BFD Length, нулевое дополнение и DF. Обратная передача соседа — обычный аутентифицированный PDU; это не квалифицирует трафик с дополнением от соседа либо MTU пути. Перечитывание с положительного на положительный размер и датированные сценарии дополнения заданы в [ADR-0006](adr/0006-session-preserving-reload-policy.md). Включение, отключение и динамический DF остаются вне принятого профиля перечитывания; общая проверка точного кандидата остаётся обязательной.
+
+Источники: [политика дополнения](../../internal/config/padding.go), [векторы аутентификации](../../internal/bfd/auth_padding_test.go), [границы приёма](../../internal/netio/receive_size_test.go), [отправитель](../../internal/netio/sender.go), [RFC 9764 §3](https://www.rfc-editor.org/rfc/rfc9764.html#section-3).
+
+<a id="rfc-78807881-planned"></a>
+
+## RFC 7880/7881 (запланировано)
+
+Отражатель S-BFD, инициатор и слушающий сокет порта 7784 отсутствуют. Сохранённые планы и ссылки RFC не являются API. Реализация требует самостоятельных контрактов дискриминаторов, пакетов и владения.
+
+## MPLS и VCCV
+
+RFC 5884/5885 остаются справочной областью. Сессии MPLS/VCCV и интерфейсы-заглушки отсутствуют. Интеграция MPLS LSP Ping и сигнализации PW требует отдельной работы.
+
+## Справочные RFC
+
+RFC 5082 задаёт контекст GTSM; RFC 8203 — сообщение об административном отключении. RFC 9127 используется как справочная модель управления. Строгий режим OSPF из RFC 9355 требует отсутствующей интеграции OSPF. Источники и применимость связаны из [протокола](02-protocol.md), [адаптера GoBGP](../../internal/gobgp/rfc9384.go), [справочника производителей](reference/vendor-bfd.md).
+
+## Исходные тексты RFC
+
+[Локальный архив RFC](../rfc/) сохраняет стандарты. Наличие RFC 9985/9986 либо другого текста не подтверждает реализацию. Использовать ссылки на конкретные разделы вместо безусловной метки соответствия.
+
+## Связанные документы
+
+- [Архитектура](01-architecture.md) — физическое владение, доставка и завершение жизненного цикла.
+- [Протокол](02-protocol.md) — справочник пакетов и таймеров.
+- [Указатель ADR](adr/README.md) — принятая политика и отдельная квалификация.

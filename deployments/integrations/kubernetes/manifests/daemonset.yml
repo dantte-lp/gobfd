@@ -41,15 +41,12 @@ spec:
             - name: bfd-multihop
               containerPort: 4784
               protocol: UDP
-            - name: grpc
-              containerPort: 50052
-              protocol: TCP
             - name: metrics
               containerPort: 9100
               protocol: TCP
           readinessProbe:
-            tcpSocket:
-              port: grpc
+            exec:
+              command: ["/bin/gobfdctl", "--addr", "unix:///run/gobfd/gobfd.sock", "session", "list"]
             periodSeconds: 10
             failureThreshold: 3
           livenessProbe:
@@ -74,23 +71,25 @@ spec:
               memory: 64Mi
 
         - name: gobgp
-          image: docker.io/jauderho/gobgp:v3.37.0@sha256:3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37
-          args: ["-f", "/etc/gobgp/gobgp.toml", "-l", "info"]
+          # GoBGP v4.11.0 built from test/interop/gobgp and imported by integrationctl.
+          image: gobgp:local
+          imagePullPolicy: Never
+          command: ["gobgpd"]
+          args: ["-f", "/etc/gobgp/gobgp.toml", "-l", "info", "--api-hosts=127.0.0.1:50051"]
           ports:
             - name: bgp
               containerPort: 179
               protocol: TCP
-            - name: gobgp-grpc
-              containerPort: 50051
-              protocol: TCP
           readinessProbe:
-            tcpSocket:
-              port: gobgp-grpc
+            exec:
+              command: ["/usr/local/bin/gobgp", "--host", "127.0.0.1", "--port", "50051", "global"]
+            timeoutSeconds: 3
             periodSeconds: 10
             failureThreshold: 3
           livenessProbe:
-            tcpSocket:
-              port: gobgp-grpc
+            exec:
+              command: ["/usr/local/bin/gobgp", "--host", "127.0.0.1", "--port", "50051", "global"]
+            timeoutSeconds: 3
             initialDelaySeconds: 15
             periodSeconds: 20
             failureThreshold: 3

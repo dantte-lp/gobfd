@@ -5,10 +5,12 @@ import (
 	"errors"
 	"log/slog"
 	"math"
+	"net/netip"
 	"strconv"
 	"testing"
 	"time"
 
+	"connectrpc.com/connect/v2"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
@@ -21,6 +23,7 @@ func newTestMicroServer(t *testing.T) *MicroBFDServer {
 	return &MicroBFDServer{
 		manager: bfd.NewManager(logger),
 		logger:  logger,
+		enabled: true,
 	}
 }
 
@@ -34,6 +37,22 @@ func validMicroRequest() *bfdv1.AddMicroBFDGroupRequest {
 		RequiredMinRxInterval: durationpb.New(300 * time.Millisecond),
 		DetectMultiplier:      3,
 		MinActiveLinks:        1,
+	}
+}
+
+func TestMicroPreviewDisabledRejectsAddWithoutMutation(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.DiscardHandler)
+	mgr := bfd.NewManager(logger)
+	t.Cleanup(mgr.Close)
+	s := &MicroBFDServer{manager: mgr, logger: logger}
+	_, err := s.AddMicroBFDGroup(t.Context(), validMicroRequest())
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Errorf("disabled AddMicroBFDGroup error = %v, want FailedPrecondition", err)
+	}
+	if got := len(mgr.MicroBFDGroups()); got != 0 {
+		t.Errorf("disabled AddMicroBFDGroup created %d groups", got)
 	}
 }
 
@@ -104,6 +123,7 @@ func TestMicroServer_DeleteMicroBFDGroup_RemovesByLAG(t *testing.T) {
 	if _, err := s.AddMicroBFDGroup(context.Background(), validMicroRequest()); err != nil {
 		t.Fatalf("AddMicroBFDGroup: %v", err)
 	}
+	s.enabled = false // Disabling admission must preserve inspection and cleanup.
 	if _, err := s.DeleteMicroBFDGroup(context.Background(), &bfdv1.DeleteMicroBFDGroupRequest{
 		LagInterface: "bond0",
 	}); err != nil {
@@ -156,10 +176,96 @@ func TestMicroGroupSnapshotToProtoRejectsCountOverflow(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := microGroupSnapshotToProto(tt.snap, bfd.MicroBFDConfig{})
+			_, err := microGroupSnapshotToProto(tt.snap)
 			if !errors.Is(err, errMicroSnapshotCountOverflow) {
 				t.Fatalf("microGroupSnapshotToProto() error = %v, want errMicroSnapshotCountOverflow", err)
 			}
 		})
+	}
+}
+
+func TestMicroServer_ListMicroBFDGroups_ReturnsMemberSessionContract(t *testing.T) {
+	t.Parallel()
+
+	s := newTestMicroServer(t)
+	if _, err := s.AddMicroBFDGroup(context.Background(), validMicroRequest()); err != nil {
+		t.Fatalf("AddMicroBFDGroup: %v", err)
+	}
+	list, err := s.ListMicroBFDGroups(context.Background(), &bfdv1.ListMicroBFDGroupsRequest{})
+	if err != nil {
+		t.Fatalf("ListMicroBFDGroups: %v", err)
+	}
+	if len(list.GetGroups()) != 1 {
+		t.Fatalf("groups = %d, want 1", len(list.GetGroups()))
+	}
+	group := list.GetGroups()[0]
+	if got := group.GetDesiredMinTxInterval().AsDuration(); got != 300*time.Millisecond {
+		t.Errorf("desired_min_tx_interval = %v, want 300ms", got)
+	}
+	if got := group.GetRequiredMinRxInterval().AsDuration(); got != 300*time.Millisecond {
+		t.Errorf("required_min_rx_interval = %v, want 300ms", got)
+	}
+	if got := group.GetDetectMultiplier(); got != 3 {
+		t.Errorf("detect_multiplier = %d, want 3", got)
+	}
+	if got := group.GetMemberLinks(); len(got) != 2 || got[0] != "eth0" || got[1] != "eth1" {
+		t.Errorf("member_links = %v, want [eth0 eth1]", got)
+	}
+}
+
+func TestMicroServer_AddMicroBFDGroup_RejectsMemberOwnedByOtherLAG(t *testing.T) {
+	t.Parallel()
+
+	s := newTestMicroServer(t)
+	if _, err := s.AddMicroBFDGroup(context.Background(), validMicroRequest()); err != nil {
+		t.Fatalf("AddMicroBFDGroup bond0: %v", err)
+	}
+	req := validMicroRequest()
+	req.LagInterface = "bond1"
+	req.MemberLinks = []string{"eth1", "eth2"}
+	_, err := s.AddMicroBFDGroup(context.Background(), req)
+	if got := connect.CodeOf(err); got != connect.CodeFailedPrecondition {
+		t.Fatalf("code = %v (err %v), want %v", got, err, connect.CodeFailedPrecondition)
+	}
+}
+
+func TestMicroServer_AddMicroBFDGroup_RejectsZeroDesiredMinTx(t *testing.T) {
+	t.Parallel()
+
+	s := newTestMicroServer(t)
+	req := validMicroRequest()
+	req.DesiredMinTxInterval = durationpb.New(0)
+	_, err := s.AddMicroBFDGroup(context.Background(), req)
+	if got := connect.CodeOf(err); got != connect.CodeInvalidArgument {
+		t.Fatalf("code = %v (err %v), want %v", got, err, connect.CodeInvalidArgument)
+	}
+}
+
+type microTestSender struct{}
+
+func (microTestSender) SendPacket(context.Context, []byte, netip.Addr) error { return nil }
+
+func TestMicroServer_DeleteMicroBFDGroup_RejectsReloadOwnedGroup(t *testing.T) {
+	t.Parallel()
+
+	s := newTestMicroServer(t)
+	t.Cleanup(s.manager.Close)
+	cfg := bfd.MicroBFDConfig{
+		LAGInterface: "bond0", MemberLinks: []string{"eth0"},
+		PeerAddr: netip.MustParseAddr("192.0.2.10"), LocalAddr: netip.MustParseAddr("192.0.2.1"),
+		DesiredMinTxInterval: time.Second, RequiredMinRxInterval: time.Second,
+		DetectMultiplier: 3, MinActiveLinks: 1,
+	}
+	if err := s.manager.ReconcileMicroBFDGroupsDetailed(t.Context(), []bfd.MicroBFDReconcileConfig{{
+		Key: cfg.LAGInterface, Config: cfg,
+		SenderLeaseFactory: func(string) bfd.SenderLeaseFactory {
+			return bfd.NonOwningSenderLeaseFactory(microTestSender{})
+		},
+	}}).Err(); err != nil {
+		t.Fatalf("reload group: %v", err)
+	}
+	_, err := s.DeleteMicroBFDGroup(context.Background(), &bfdv1.DeleteMicroBFDGroupRequest{LagInterface: "bond0"})
+	if got := connect.CodeOf(err); got != connect.CodeFailedPrecondition {
+		t.Fatalf("code = %v (err %v), want %v", got, err, connect.CodeFailedPrecondition)
 	}
 }

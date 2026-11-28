@@ -1,11 +1,15 @@
 package bfd
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/netip"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -15,15 +19,55 @@ import (
 
 // Sentinel errors for Manager operations.
 var (
+	// ErrInvalidNotificationPopulation indicates a negative producer population.
+	ErrInvalidNotificationPopulation = errors.New("notification population must not be negative")
+
 	// ErrSessionNotFound indicates no session exists for the given discriminator.
 	ErrSessionNotFound = errors.New("session not found")
 
 	// ErrDuplicateSession indicates a session already exists for the given peer key.
 	ErrDuplicateSession = errors.New("duplicate session for peer key")
 
+	// ErrSessionParameterConflict indicates matching ownership claims requested
+	// different effective parameters for one canonical wire session.
+	ErrSessionParameterConflict = errors.New("conflicting effective session parameters")
+
+	// ErrSessionOwnerClaimNotFound indicates a source attempted to release a
+	// session without owning a claim on it.
+	ErrSessionOwnerClaimNotFound = errors.New("session owner claim not found")
+
+	// ErrInvalidReconciliationOwner indicates reconciliation was requested for
+	// an owner other than one of the declarative configuration sources.
+	ErrInvalidReconciliationOwner = errors.New("invalid reconciliation owner")
+
+	// ErrSenderLeaseFactoryNil indicates session creation lacks a sender factory.
+	ErrSenderLeaseFactoryNil = errors.New("sender lease factory is nil")
+
+	// ErrSenderLeaseNil indicates a sender factory returned no lease.
+	ErrSenderLeaseNil = errors.New("sender lease factory returned nil lease")
+
+	// ErrSenderLeaseSenderNil indicates a lease contains no packet sender.
+	ErrSenderLeaseSenderNil = errors.New("sender lease has nil sender")
+
+	// ErrManagerClosing indicates an operation was rejected because Manager
+	// shutdown has begun but has not completed.
+	ErrManagerClosing = errors.New("manager is closing")
+
+	// ErrManagerClosed indicates an operation was rejected after Manager
+	// shutdown completed.
+	ErrManagerClosed = errors.New("manager is closed")
+
 	// ErrDemuxNoMatch indicates no session matched the incoming packet during
 	// demultiplexing (RFC 5880 Section 6.8.6).
 	ErrDemuxNoMatch = errors.New("no matching session for incoming packet")
+
+	// ErrDemuxTTLRejected indicates the demultiplexed session discarded the
+	// packet because its TTL or Hop Limit is below the session hop policy.
+	ErrDemuxTTLRejected = errors.New("received TTL below session hop policy")
+
+	// ErrInterfaceUnresolved indicates that the receive interface of a new
+	// single-hop session could not be resolved (RFC 5881 Section 3).
+	ErrInterfaceUnresolved = errors.New("single-hop session receive interface is unresolved")
 
 	// ErrInvalidPeerAddr indicates the peer address is not valid.
 	ErrInvalidPeerAddr = errors.New("peer address must be valid")
@@ -70,22 +114,46 @@ type PacketMeta struct {
 
 	// IfName is the interface name on which the packet was received.
 	IfName string
+
+	// IfIndex is the receiving interface index from packet ancillary data.
+	// It resolves unsolicited admission after the configured peer lookup.
+	IfIndex int
+
+	// MultiHop is true when the packet arrived on a multi-hop (RFC 5883)
+	// listener.
+	MultiHop bool
+
+	// TransportScope is the exact overlay identity extracted from the wire.
+	// It is empty for base and Micro-BFD transports.
+	TransportScope TransportScope
+
+	// ReceiveTiming is optional measurement metadata; it never controls admission.
+	ReceiveTiming ReceiveTiming
 }
 
 // -------------------------------------------------------------------------
-// Session Key — peer identity for initial demultiplexing
+// Packet Demux Key — peer identity for initial demultiplexing
 // -------------------------------------------------------------------------
 
-// sessionKey is the composite key for initial session demultiplexing when
+// packetDemuxKey is the composite key for initial session demultiplexing when
 // Your Discriminator is zero (RFC 5880 Section 6.8.6).
 //
 // For single-hop (RFC 5881 Section 3): match by (PeerAddr, LocalAddr, IfName).
 // For multi-hop (RFC 5883): match by (PeerAddr, LocalAddr) — IfName is empty.
-type sessionKey struct {
-	peerAddr  netip.Addr
-	localAddr netip.Addr
-	ifName    string
+type packetDemuxKey struct {
+	peerAddr       netip.Addr
+	localAddr      netip.Addr
+	ifName         string
+	transportScope TransportScope
 }
+
+type managerLifecycleState uint8
+
+const (
+	managerOpen managerLifecycleState = iota
+	managerClosing
+	managerClosed
+)
 
 // -------------------------------------------------------------------------
 // Session Snapshot — read-only view for external consumers
@@ -122,11 +190,22 @@ type SessionSnapshot struct {
 	// LocalDiag is the current local diagnostic code (atomic snapshot).
 	LocalDiag Diag
 
+	RemoteKnown        bool
+	RemoteDiag         Diag
+	LocalC             bool
+	RemoteC            bool
+	Cause              Cause
+	ObservationVersion uint64
+	Ref                SessionRef
+
 	// DesiredMinTx is the configured desired minimum TX interval.
 	DesiredMinTx time.Duration
 
 	// RequiredMinRx is the configured required minimum RX interval.
 	RequiredMinRx time.Duration
+
+	// RemoteMinRx is bfd.RemoteMinRxInterval from the last received packet.
+	RemoteMinRx time.Duration
 
 	// DetectMultiplier is the configured detection multiplier.
 	DetectMultiplier uint8
@@ -169,6 +248,8 @@ type SessionCounters struct {
 
 	// PacketsReceived is the total BFD Control packets received.
 	PacketsReceived uint64
+	PacketsDropped  uint64
+	AuthFailures    uint64
 
 	// StateTransitions is the total FSM state transitions.
 	StateTransitions uint64
@@ -179,11 +260,10 @@ type SessionCounters struct {
 // -------------------------------------------------------------------------
 
 const (
-	// notifyChSize is the buffer size for the aggregated state change channel.
-	// Sized to handle bursts of state transitions across multiple sessions
-	// without blocking session goroutines. 64 is sufficient for typical
-	// deployments (hundreds of sessions with rare simultaneous transitions).
-	notifyChSize = 64
+	// notifyChSize preserves the default and legacy channel budget.
+	notifyChSize             = 64
+	maxNotificationCapacity  = 65536
+	notificationsPerProducer = 3
 )
 
 // -------------------------------------------------------------------------
@@ -213,15 +293,36 @@ type Manager struct {
 
 	// sessionsByPeer indexed by peer key for initial demux
 	// when Your Discriminator is zero.
-	sessionsByPeer map[sessionKey]*sessionEntry
+	sessionsByPeer map[packetDemuxKey]*sessionEntry
+
+	// sessionsByKey indexes wire sessions by canonical desired identity.
+	sessionsByKey map[SessionKey]*sessionEntry
+
+	// retiringSessions reserves exact keys through detached owner cleanup, guarded by mu.
+	retiringSessions map[SessionKey]*sessionEntry
 
 	// echoSessions indexed by local discriminator for echo demux.
 	// RFC 9747: echo packets are demultiplexed by MyDiscriminator on return.
-	echoSessions map[uint32]*echoSessionEntry
+	echoSessions      map[uint32]*echoSessionEntry
+	echoSessionsByKey map[SessionKey]*echoSessionEntry
 
 	// microGroups holds RFC 7130 micro-BFD groups indexed by LAG interface name.
 	// Each group tracks the aggregate state of per-member-link BFD sessions.
 	microGroups map[string]*MicroBFDGroup
+
+	// microMembers maps each member link and address family to its owning
+	// group, so dispatch has one deterministic owner (RFC 7130 Section 2).
+	microMembers map[microMemberKey]*MicroBFDGroup
+
+	// microResync queues actuator resyncs of members seeded Up from existing
+	// sessions; RunDispatch drains it after microResyncWake. Guarded by mu.
+	microResync     []microResync
+	microResyncWake chan struct{}
+
+	// ownershipMu serializes complete source-ownership operations. Public
+	// ownership mutations acquire it before mu so multi-step reconciliation
+	// cannot interleave with another claim or release.
+	ownershipMu sync.Mutex
 
 	mu sync.RWMutex
 
@@ -229,60 +330,196 @@ type Manager struct {
 
 	// metrics is the optional metrics reporter. Never nil -- uses noopMetrics
 	// when no collector is configured.
-	metrics MetricsReporter
+	metrics  MetricsReporter
+	delivery deliveryLedger
 
 	// unsolicited holds the RFC 9468 unsolicited BFD state.
 	// nil when unsolicited BFD is not configured.
 	unsolicited *unsolicitedState
 
-	// unsolicitedSender provides packet sending for auto-created sessions.
-	// Set via WithUnsolicitedSender option.
-	unsolicitedSender PacketSender
+	// unsolicitedSessionSender creates the sender of one unsolicited session
+	// from the received packet's local address and interface.
+	unsolicitedSessionSender func(PacketMeta) (*SenderLease, error)
+
+	// resolveIfIndex returns the receive interface index of a new single-hop
+	// session from its local address or interface name. Nil disables it.
+	resolveIfIndex   func(local netip.Addr, ifName string) (int, error)
+	interfaceRefresh chan struct{}
 
 	// microActuator receives RFC 7130 member state transitions after the
 	// Manager updates its MicroBFDGroup aggregate state.
-	microActuator MicroBFDActuator
+	microActuator             MicroBFDActuator
+	microActuatorStatus       atomic.Pointer[func(bool, error)]
+	microActuatorFailed       atomic.Bool
+	microStatusMu             sync.Mutex
+	microStatusReportedFailed bool
 
 	// rawNotifyCh receives state changes from all sessions.
 	// The Manager's dispatch goroutine reads from this channel,
 	// handles micro-BFD group updates, and forwards to publicNotifyCh.
 	rawNotifyCh chan StateChange
+	// notificationCapacity is immutable after construction and shared by raw and subscriber queues.
+	notificationCapacity int
+	cleanupWake          chan struct{}
+	publicLossWake       chan struct{}
 
 	// publicNotifyCh is the legacy single-consumer channel exposed via
 	// StateChanges(). New consumers should use SubscribeStateChanges.
 	publicNotifyCh chan StateChange
+	// One daemon consumer; coalesced notifications never carry authoritative state.
+	timerUpdateCh chan struct{}
 
-	subscribers map[chan StateChange]struct{}
+	subscribers map[chan StateChange]*subscriber
 	subMu       sync.RWMutex
 
+	// revision numbers state changes and removals, under subMu.
+	revision atomic.Uint64
+	// observationClock orders semantic causal observations, independently of dispatch.
+	observationClock atomic.Uint64
+
 	logger *slog.Logger
+
+	// lifecycleMu gates new mutations and goroutine registration. Mutations
+	// hold a read lock only until their registry changes are complete. Resource
+	// callbacks run after the lifecycle, ownership, and registry locks are free.
+	lifecycleMu       sync.RWMutex
+	lifecycleState    managerLifecycleState
+	activeOps         sync.WaitGroup
+	workers           sync.WaitGroup
+	subscriberWorkers sync.WaitGroup
+	closeDone         chan struct{}
+
+	shutdownCh                chan struct{}
+	subscriberShutdownCh      chan struct{}
+	shutdownNotificationDrain bool
+
+	dispatchStarted bool
+	legacyClosed    bool // protected by subMu
 }
 
 // sessionEntry holds a session and its cancellation function.
 // The cancel function is used by DestroySession to stop the session goroutine.
 type sessionEntry struct {
-	session     *Session
-	cancel      context.CancelFunc
-	key         sessionKey
-	unsolicited bool
+	session        *Session
+	cancel         context.CancelFunc
+	senderLease    *SenderLease
+	key            SessionKey
+	demuxKey       packetDemuxKey
+	effective      effectiveSessionConfig
+	owners         map[SessionOwner]struct{}
+	unsolicited    bool
+	done           chan struct{}
+	cleanupWake    chan struct{}
+	cleanupPending unsolicitedCleanupPending
 }
 
-// echoSessionEntry holds an echo session and its cancellation function.
-// The cancel function is used by DestroyEchoSession to stop the echo session goroutine.
+type retiredSession struct {
+	localDiscr uint32
+	entry      *sessionEntry
+}
+
+// echoSessionEntry holds one echo session's canonical identity, claims, and
+// owned runtime resources.
 type echoSessionEntry struct {
-	session *EchoSession
-	cancel  context.CancelFunc
+	session     *EchoSession
+	cancel      context.CancelFunc
+	senderLease *SenderLease
+	key         SessionKey
+	owners      map[SessionOwner]struct{}
+	done        chan struct{}
+}
+
+type retiredEchoSession struct {
+	localDiscr uint32
+	entry      *echoSessionEntry
+}
+
+type managerOperation struct {
+	manager          *Manager
+	mutationUnlocked bool
+}
+
+func (m *Manager) beginOperation() (*managerOperation, error) {
+	m.lifecycleMu.RLock()
+	switch m.lifecycleState {
+	case managerOpen:
+		m.activeOps.Add(1)
+		return &managerOperation{manager: m}, nil
+	case managerClosing:
+		m.lifecycleMu.RUnlock()
+		return nil, ErrManagerClosing
+	case managerClosed:
+		m.lifecycleMu.RUnlock()
+		return nil, ErrManagerClosed
+	default:
+		m.lifecycleMu.RUnlock()
+		return nil, ErrManagerClosed
+	}
+}
+
+func (op *managerOperation) unlockMutation() {
+	if op == nil || op.mutationUnlocked {
+		return
+	}
+	op.mutationUnlocked = true
+	op.manager.lifecycleMu.RUnlock()
+}
+
+func (op *managerOperation) finish() {
+	if op == nil {
+		return
+	}
+	op.unlockMutation()
+	op.manager.activeOps.Done()
 }
 
 // ManagerOption configures optional Manager parameters.
 type ManagerOption func(*Manager)
 
+// WithShutdownNotificationDrain delivers queued changes for registered physical
+// sessions to live subscribers after producers join and before subscriber EOF.
+// It does not drain the legacy channel, recover gaps, or run teardown actuators.
+func WithShutdownNotificationDrain() ManagerOption {
+	return func(m *Manager) { m.shutdownNotificationDrain = true }
+}
+
+// WithNotificationPopulation reserves registration and two state changes per
+// configured producer, plus the default reserve, for raw and subscriber queues.
+// Cohorts are added without integer overflow; capacity saturates at 65536.
+// The legacy StateChanges channel stays at 64. Queues never resize: populations
+// added later or sustained slow consumers still require GAP recovery.
+func WithNotificationPopulation(populations ...int) (ManagerOption, error) {
+	capacity := notifyChSize
+	for _, population := range populations {
+		if population < 0 {
+			return nil, ErrInvalidNotificationPopulation
+		}
+		if population > (maxNotificationCapacity-capacity)/notificationsPerProducer {
+			capacity = maxNotificationCapacity
+		} else {
+			capacity += notificationsPerProducer * population
+		}
+	}
+	return func(m *Manager) { m.notificationCapacity = capacity }, nil
+}
+
 // MicroBFDActuator reacts to RFC 7130 Micro-BFD member state transitions.
 //
-// Implementations must be quick or internally asynchronous. RunDispatch calls
-// the actuator synchronously to preserve ordering between member transitions.
+// RunDispatch calls the actuator after it releases Manager locks, in the
+// single dispatch goroutine, so member transitions keep their order. Each call
+// receives a context bounded by microBFDActuatorTimeout; implementations must
+// return when it is done. A slow call delays later notifications only.
 type MicroBFDActuator interface {
 	HandleMicroBFDMemberEvent(ctx context.Context, event MicroBFDMemberEvent) error
+}
+
+// WithSessionInterfaceResolver sets the resolver that binds each new
+// single-hop session to the interface owning its local address, or to its
+// configured interface (RFC 5881 Section 3).
+func WithSessionInterfaceResolver(resolve func(local netip.Addr, ifName string) (int, error)) ManagerOption {
+	return func(m *Manager) {
+		m.resolveIfIndex = resolve
+	}
 }
 
 // WithManagerMetrics sets the MetricsReporter for the manager and all
@@ -306,11 +543,13 @@ func WithUnsolicitedPolicy(policy *UnsolicitedPolicy) ManagerOption {
 	}
 }
 
-// WithUnsolicitedSender sets the PacketSender used for auto-created
-// unsolicited sessions. Required when unsolicited BFD is enabled.
-func WithUnsolicitedSender(sender PacketSender) ManagerOption {
+// WithUnsolicitedSessionSender sets the per-session sender factory for
+// auto-created RFC 9468 sessions. It receives the metadata of the packet that
+// triggered the session, so the reply leaves from the local address and
+// interface that received it. The returned lease belongs to the session.
+func WithUnsolicitedSessionSender(f func(PacketMeta) (*SenderLease, error)) ManagerOption {
 	return func(m *Manager) {
-		m.unsolicitedSender = sender
+		m.unsolicitedSessionSender = f
 	}
 }
 
@@ -322,6 +561,28 @@ func WithMicroBFDActuator(actuator MicroBFDActuator) ManagerOption {
 	}
 }
 
+// WithMicroActuatorStatusFunc sets an optional health callback invoked when
+// Micro-BFD actuation succeeds (true, nil) or fails (false, err).
+func WithMicroActuatorStatusFunc(fn func(healthy bool, err error)) ManagerOption {
+	return func(m *Manager) {
+		m.SetMicroActuatorStatusFunc(fn)
+	}
+}
+
+// SetMicroActuatorStatusFunc installs or clears the callback invoked after
+// Micro-BFD member actuation or recovery resync.
+func (m *Manager) SetMicroActuatorStatusFunc(fn func(healthy bool, err error)) {
+	m.microStatusMu.Lock()
+	defer m.microStatusMu.Unlock()
+	m.microStatusReportedFailed = false
+	if fn == nil {
+		m.microActuatorStatus.Store(nil)
+		return
+	}
+	cb := fn
+	m.microActuatorStatus.Store(&cb)
+}
+
 // NewManager creates a new BFD session manager.
 //
 // The manager allocates local discriminators (RFC 5880 Section 6.8.1),
@@ -329,20 +590,36 @@ func WithMicroBFDActuator(actuator MicroBFDActuator) ManagerOption {
 // BFD Control packets.
 func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 	m := &Manager{
-		sessions:       make(map[uint32]*sessionEntry),
-		sessionsByPeer: make(map[sessionKey]*sessionEntry),
-		echoSessions:   make(map[uint32]*echoSessionEntry),
-		microGroups:    make(map[string]*MicroBFDGroup),
-		discriminators: NewDiscriminatorAllocator(),
-		metrics:        noopMetrics{},
-		rawNotifyCh:    make(chan StateChange, notifyChSize),
-		publicNotifyCh: make(chan StateChange, notifyChSize),
-		subscribers:    make(map[chan StateChange]struct{}),
-		logger:         logger.With(slog.String("component", "bfd.manager")),
+		sessions:             make(map[uint32]*sessionEntry),
+		sessionsByPeer:       make(map[packetDemuxKey]*sessionEntry),
+		sessionsByKey:        make(map[SessionKey]*sessionEntry),
+		retiringSessions:     make(map[SessionKey]*sessionEntry),
+		echoSessions:         make(map[uint32]*echoSessionEntry),
+		echoSessionsByKey:    make(map[SessionKey]*echoSessionEntry),
+		microGroups:          make(map[string]*MicroBFDGroup),
+		microMembers:         make(map[microMemberKey]*MicroBFDGroup),
+		microResyncWake:      make(chan struct{}, 1),
+		interfaceRefresh:     make(chan struct{}, 1),
+		discriminators:       NewDiscriminatorAllocator(),
+		metrics:              noopMetrics{},
+		notificationCapacity: notifyChSize,
+		cleanupWake:          make(chan struct{}, 1),
+		publicLossWake:       make(chan struct{}, 1),
+		publicNotifyCh:       make(chan StateChange, notifyChSize),
+		timerUpdateCh:        make(chan struct{}, 1),
+		subscribers:          make(map[chan StateChange]*subscriber),
+		closeDone:            make(chan struct{}),
+		shutdownCh:           make(chan struct{}),
+		logger:               logger.With(slog.String("component", "bfd.manager")),
 	}
 	for _, opt := range opts {
 		opt(m)
 	}
+	m.subscriberShutdownCh = m.shutdownCh
+	if m.shutdownNotificationDrain {
+		m.subscriberShutdownCh = make(chan struct{})
+	}
+	m.rawNotifyCh = make(chan StateChange, m.notificationCapacity)
 	return m
 }
 
@@ -358,157 +635,466 @@ func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 // external consumers (GoBGP handler, gRPC streaming). Without RunDispatch,
 // the rawNotifyCh will fill up and sessions will drop notifications.
 //
-// Blocks until ctx is cancelled.
+// RunDispatch is single-run. The caller starts it, while Manager owns its
+// registered lifetime for shutdown. A second call returns immediately. The
+// first call blocks until ctx is cancelled or Manager.Close begins, then
+// closes the legacy StateChanges channel exactly once.
 func (m *Manager) RunDispatch(ctx context.Context) {
+	m.lifecycleMu.Lock()
+	if m.lifecycleState != managerOpen || m.dispatchStarted {
+		m.lifecycleMu.Unlock()
+		return
+	}
+	m.dispatchStarted = true
+	m.workers.Add(1)
+	m.lifecycleMu.Unlock()
+	defer func() {
+		m.closeLegacyStateChanges()
+		m.workers.Done()
+	}()
+	if ctx.Err() != nil {
+		return
+	}
+	m.scanUnsolicitedCleanup(ctx)
+
+	var retry microActuatorRetryTimer
+	defer retry.stop()
+
 	for {
+		m.drainPriorityDispatchSignals(ctx, &retry)
 		select {
 		case <-ctx.Done():
 			return
+		case <-m.shutdownCh:
+			return
+		case <-m.publicLossWake:
+			m.handlePublicLossWake(ctx, &retry)
+		case <-m.cleanupWake:
+			m.scanUnsolicitedCleanup(ctx)
+		case <-m.microResyncWake:
+			m.resyncMicroBFDGroups(ctx)
+			retry.sync(m.microActuatorFailed.Load(), false)
+		case <-retry.ch:
+			m.resyncMicroBFDGroups(ctx)
+			retry.sync(m.microActuatorFailed.Load(), true)
 		case sc := <-m.rawNotifyCh:
-			// Dispatch micro-BFD events to the group.
-			if sc.Type == SessionTypeMicroBFD && sc.Interface != "" {
-				m.dispatchMicroBFD(ctx, sc)
-			}
-			if sc.NewState == StateDown {
-				m.scheduleUnsolicitedCleanup(ctx, sc)
-			}
-			m.broadcastStateChange(sc)
-
-			// Forward to the legacy single-consumer channel.
-			select {
-			case m.publicNotifyCh <- sc:
-			default:
-				m.logger.Warn("public notification channel full, dropping state change",
-					slog.Uint64("local_discr", uint64(sc.LocalDiscr)),
-					slog.String("new_state", sc.NewState.String()),
-				)
+			m.dispatchStateChange(ctx, sc)
+			if m.microActuator != nil && sc.Type == SessionTypeMicroBFD {
+				retry.sync(m.microActuatorFailed.Load(), false)
 			}
 		}
 	}
 }
 
-func (m *Manager) broadcastStateChange(sc StateChange) {
-	m.subMu.RLock()
-	defer m.subMu.RUnlock()
+func (m *Manager) drainPriorityDispatchSignals(ctx context.Context, retry *microActuatorRetryTimer) {
+	select {
+	case <-m.publicLossWake:
+		m.handlePublicLossWake(ctx, retry)
+	default:
+	}
+	select {
+	case <-m.cleanupWake:
+		m.scanUnsolicitedCleanup(ctx)
+	default:
+	}
+}
 
-	for ch := range m.subscribers {
+func (m *Manager) handlePublicLossWake(ctx context.Context, retry *microActuatorRetryTimer) {
+	m.invalidateStateChanges()
+	m.resyncMicroBFDGroups(ctx)
+	if m.microActuator != nil {
+		retry.sync(m.microActuatorFailed.Load(), false)
+	}
+}
+
+func (m *Manager) dispatchStateChange(ctx context.Context, sc StateChange) {
+	m.mu.RLock()
+	if !m.validStateChangeLocked(sc) {
+		m.mu.RUnlock()
+		m.RecordDelivery(DeliveryNotificationDispatch, DeliveryStale)
+		return
+	}
+	if sc.unsolicitedFailure {
+		m.mu.RUnlock()
+		m.RecordDelivery(DeliveryNotificationDispatch, DeliveryAccepted)
+		m.scheduleUnsolicitedCleanup(ctx, sc)
+		return
+	}
+	var work microActuationWork
+	var actuate bool
+	if sc.Type == SessionTypeMicroBFD && sc.Interface != "" {
+		work, actuate = m.dispatchMicroBFD(sc)
+	}
+	counts := m.broadcastStateChange(sc)
+	m.mu.RUnlock()
+	m.RecordDelivery(DeliveryNotificationDispatch, DeliveryAccepted)
+	m.reportFanoutDelivery(counts)
+	if actuate {
+		m.executeMicroBFDActuation(ctx, work)
+	}
+	if sc.NewState == StateDown {
+		m.scheduleUnsolicitedCleanup(ctx, sc)
+	}
+}
+
+func (m *Manager) closeLegacyStateChanges() {
+	m.subMu.Lock()
+	defer m.subMu.Unlock()
+	if !m.legacyClosed {
+		m.legacyClosed = true
+		close(m.publicNotifyCh)
+	}
+}
+
+// subscriber is the delivery state of one SubscribeStateChanges channel,
+// protected by subMu.
+type subscriber struct {
+	// overflowed is set once a gap marker is queued and cleared when
+	// delivery resumes.
+	overflowed bool
+}
+
+// invalidateStateChanges consumes no originals: subscribers resnapshot committed owners.
+func (m *Manager) invalidateStateChanges() {
+	m.subMu.Lock()
+	defer m.subMu.Unlock()
+	gap := StateChange{Gap: true, Revision: m.revision.Add(1), Timestamp: time.Now()}
+	for ch, sub := range m.subscribers {
+		if ch == nil || len(ch) == cap(ch) {
+			// A full channel already has an unread GAP; its later snapshot covers this loss.
+			continue
+		}
+		ch <- gap
+		sub.overflowed = true
+	}
+}
+
+// broadcastStateChange numbers sc and delivers it to every subscriber. The
+// last buffer slot of a subscriber is reserved for a gap marker, so a slow
+// subscriber learns about lost events even when no further event follows.
+// subMu serializes dispatch and synchronous registration/removal.
+//
+//nolint:contextcheck,nolintlint // Background matches Warn; contextcheck consumes this directive before nolintlint.
+func (m *Manager) broadcastStateChange(sc StateChange) fanoutDelivery {
+	m.subMu.Lock()
+	defer m.subMu.Unlock()
+
+	// Assigned under subMu: a subscriber registered before a revision is
+	// read receives every later revision.
+	sc.Revision = m.revision.Add(1)
+	var counts fanoutDelivery
+	for ch, sub := range m.subscribers {
+		if ch == nil {
+			continue
+		}
+		if len(ch) < cap(ch)-1 {
+			sub.overflowed = false
+			ch <- sc
+			counts.queued++
+			continue
+		}
+		counts.gapped++
+		if !sub.overflowed {
+			sub.overflowed = true
+			ch <- StateChange{Gap: true, Revision: sc.Revision, Timestamp: sc.Timestamp}
+			m.logger.LogAttrs(context.Background(), slog.LevelWarn,
+				"state change subscriber is behind, queued a gap marker",
+				slog.Uint64("revision", sc.Revision),
+			)
+		}
+	}
+	if !sc.Added && !m.legacyClosed && m.publicNotifyCh != nil {
 		select {
-		case ch <- sc:
+		case m.publicNotifyCh <- sc:
+			counts.legacy = DeliveryQueued
 		default:
-			m.logger.Warn("state change subscriber channel full, dropping event",
+			counts.legacy = DeliveryQueueFull
+			m.logger.LogAttrs(context.Background(), slog.LevelWarn,
+				"public notification channel full, dropping state change",
 				slog.Uint64("local_discr", uint64(sc.LocalDiscr)),
 				slog.String("new_state", sc.NewState.String()),
 			)
 		}
 	}
+	return counts
 }
 
-func (m *Manager) scheduleUnsolicitedCleanup(ctx context.Context, sc StateChange) {
-	if m.unsolicited == nil {
-		return
-	}
-
-	m.mu.RLock()
-	entry, ok := m.sessions[sc.LocalDiscr]
-	isUnsolicited := ok && entry.unsolicited
-	m.mu.RUnlock()
-	if !isUnsolicited {
-		return
-	}
-
-	timeout := m.unsolicited.policy.CleanupTimeout
-	go func() {
-		if timeout > 0 {
-			timer := time.NewTimer(timeout)
-			defer timer.Stop()
-			select {
-			case <-ctx.Done():
-				return
-			case <-timer.C:
-			}
-		}
-		m.cleanupUnsolicitedSession(ctx, sc.LocalDiscr)
-	}()
+type fanoutDelivery struct {
+	queued uint64
+	gapped uint64
+	legacy DeliveryOutcome
 }
 
-func (m *Manager) cleanupUnsolicitedSession(ctx context.Context, localDiscr uint32) {
-	m.mu.RLock()
-	entry, ok := m.sessions[localDiscr]
-	if !ok || !entry.unsolicited || entry.session.State() != StateDown {
-		m.mu.RUnlock()
+func (m *Manager) reportFanoutDelivery(counts fanoutDelivery) {
+	for range counts.queued {
+		m.RecordDelivery(DeliveryWatchRecipient, DeliveryQueued)
+	}
+	for range counts.gapped {
+		m.RecordDelivery(DeliveryWatchRecipient, DeliveryGapped)
+	}
+	if counts.legacy != DeliveryOutcomeUnspecified {
+		m.RecordDelivery(DeliveryLegacyNotification, counts.legacy)
+	}
+}
+
+func (m *Manager) startWorker(run func()) bool {
+	m.lifecycleMu.RLock()
+	defer m.lifecycleMu.RUnlock()
+	if m.lifecycleState != managerOpen {
+		return false
+	}
+	m.workers.Go(func() {
+		run()
+	})
+	return true
+}
+
+func (m *Manager) cleanupUnsolicitedSession(_ context.Context, source *Session) {
+	source.mu.RLock()
+	attempt := source.unsolicitedAttempt
+	source.mu.RUnlock()
+	m.cleanupUnsolicitedAttempt(source, attempt)
+}
+
+func (m *Manager) cleanupUnsolicitedAttempt(source *Session, attempt uint64) {
+	op, err := m.beginOperation()
+	if err != nil {
 		return
 	}
-	peer := entry.session.PeerAddr()
-	m.mu.RUnlock()
+	defer op.finish()
 
-	if err := m.DestroySession(ctx, localDiscr); err != nil {
-		m.logger.Debug("unsolicited cleanup skipped",
+	m.ownershipMu.Lock()
+	localDiscr := source.LocalDiscriminator()
+	if !m.retireUnsolicitedAttempt(source, attempt) {
+		m.ownershipMu.Unlock()
+		return
+	}
+	peer := source.PeerAddr()
+
+	wireDestroyed, retired, err := m.detachSessionClaimByDiscriminator(
+		localDiscr, unsolicitedSessionOwner(),
+	)
+	m.ownershipMu.Unlock()
+	op.unlockMutation()
+	if retired != nil {
+		// RFC 9468 Section 2 failure cleanup must stop Control transmission.
+		err = errors.Join(err, m.finishSessionDestroyError(retired.localDiscr, retired.entry))
+	}
+	if err != nil {
+		m.logger.Warn("unsolicited cleanup incomplete",
 			slog.Uint64("local_discr", uint64(localDiscr)),
 			slog.String("peer", peer.String()),
 			slog.String("error", err.Error()),
 		)
 		return
 	}
-	m.logger.Info("unsolicited session cleaned up",
+	m.logger.Info("unsolicited claim cleaned up",
 		slog.Uint64("local_discr", uint64(localDiscr)),
 		slog.String("peer", peer.String()),
+		slog.Bool("wire_destroyed", wireDestroyed),
 	)
+}
+
+// retireUnsolicitedAttempt requires ownershipMu. Session.mu fences the
+// attempt check with claim detachment or the owner's retirement decision.
+func (m *Manager) retireUnsolicitedAttempt(source *Session, attempt uint64) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	entry, ok := m.sessions[source.LocalDiscriminator()]
+	if !ok || entry.session != source || !entry.unsolicited {
+		return false
+	}
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	if !source.unsolicitedCleanupAllowedLocked(attempt) {
+		return false
+	}
+	if len(entry.owners) > 1 {
+		delete(entry.owners, unsolicitedSessionOwner())
+		entry.unsolicited = false
+		m.unsolicited.release()
+		entry.publishUnsolicitedOwnershipLocked()
+		return false
+	}
+	// The owner cannot resume after this conditional retirement decision.
+	source.unsolicitedRetiring = true
+	return true
 }
 
 // -------------------------------------------------------------------------
 // Graceful Drain — RFC 5880 Section 6.8.16
 // -------------------------------------------------------------------------
 
-// DrainAllSessions transitions all sessions to AdminDown with
-// DiagAdminDown (RFC 5880 Section 6.8.16). This signals peers that the
-// shutdown is intentional, not a failure. The caller should wait briefly
-// for the final AdminDown packets to be transmitted before closing.
-func (m *Manager) DrainAllSessions() {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+// DrainAllSessions waits for captured owners to commit AdminDown/7, write it
+// successfully, and maintain the negotiated notification window. ctx bounds
+// all stages; incomplete drains return DrainIncompleteError. No peer receipt is implied.
+func (m *Manager) DrainAllSessions(ctx context.Context) error {
+	op, err := m.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer op.finish()
 
+	m.mu.RLock()
+	sessions := make([]*Session, 0, len(m.sessions))
 	for _, entry := range m.sessions {
-		entry.session.SetAdminDown()
+		sessions = append(sessions, entry.session)
+	}
+	m.mu.RUnlock()
+	op.unlockMutation()
+
+	errs := make([]error, len(sessions))
+	var workers sync.WaitGroup
+	for i, session := range sessions {
+		workers.Go(func() {
+			if err := session.drainAdminDown(ctx); err != nil {
+				errs[i] = fmt.Errorf("drain session %d: %w", session.localDiscr, err)
+			}
+		})
+	}
+	workers.Wait()
+	if err := errors.Join(errs...); err != nil {
+		return err
 	}
 
-	m.logger.Info("all sessions set to AdminDown for graceful drain",
-		slog.Int("count", len(m.sessions)),
+	m.logger.Info("all captured sessions completed AdminDown notification window",
+		slog.Int("count", len(sessions)),
 	)
+	return nil
 }
 
 // -------------------------------------------------------------------------
 // Lifecycle
 // -------------------------------------------------------------------------
 
-// Close cancels all session goroutines and releases resources.
-// After Close returns, no new sessions can be created and the StateChanges
-// channel should no longer be read.
+// Close cancels all Manager-owned goroutines and releases resources.
+// After Close returns, new mutations are rejected and StateChanges has reached
+// EOF. Close is safe to call concurrently and more than once, blocking every
+// caller until teardown completes.
+//
+// Sender release callbacks run without Manager locks and may reenter Manager
+// read APIs or call InitiateClose to request asynchronous shutdown, but must
+// not recursively call this blocking Close method.
 func (m *Manager) Close() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for discr, entry := range m.sessions {
-		entry.cancel()
-		m.discriminators.Release(discr)
+	if !m.beginClose() {
+		return
 	}
+	m.runClose()
+}
 
-	for discr, entry := range m.echoSessions {
-		entry.cancel()
-		m.discriminators.Release(discr)
+func (m *Manager) beginClose() bool {
+	first, done := m.tryBeginClose()
+	if !first {
+		<-done
 	}
+	return first
+}
 
-	// Clear maps to prevent use-after-close.
-	m.sessions = make(map[uint32]*sessionEntry)
-	m.sessionsByPeer = make(map[sessionKey]*sessionEntry)
-	m.echoSessions = make(map[uint32]*echoSessionEntry)
-	m.microGroups = make(map[string]*MicroBFDGroup)
-
-	m.subMu.Lock()
-	for ch := range m.subscribers {
-		delete(m.subscribers, ch)
-		close(ch)
+// InitiateClose transitions the Manager into its closing state without blocking
+// and returns a channel closed when shutdown completes. Ordinary callers should
+// prefer Close; synchronous SenderLease release callbacks that need to trigger
+// Manager shutdown must call InitiateClose instead of Close to avoid waiting on
+// their own in-flight teardown operation.
+func (m *Manager) InitiateClose() <-chan struct{} {
+	first, done := m.tryBeginClose()
+	if first {
+		go m.runClose()
 	}
-	m.subMu.Unlock()
+	return done
+}
 
+func (m *Manager) runClose() {
+	if m.shutdownNotificationDrain {
+		m.stopAndDrainNotifications()
+	}
+	retired, retiredEcho := m.detachCloseResources()
+	if !m.shutdownNotificationDrain {
+		m.stopAndWait(retired, retiredEcho)
+	}
+	m.releaseCloseResources(retired, retiredEcho)
+	m.completeClose()
 	m.logger.Info("manager closed")
+}
+
+func (m *Manager) tryBeginClose() (bool, <-chan struct{}) {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+	if m.lifecycleState != managerOpen {
+		return false, m.closeDone
+	}
+	m.lifecycleState = managerClosing
+	return true, m.closeDone
+}
+
+func (m *Manager) detachCloseResources() (
+	[]retiredSession,
+	[]retiredEchoSession,
+) {
+	m.ownershipMu.Lock()
+	m.mu.Lock()
+	retired := make([]retiredSession, 0, len(m.sessions))
+	for discr, entry := range m.sessions {
+		retired = append(retired, retiredSession{localDiscr: discr, entry: entry})
+	}
+	retiredEcho := make([]retiredEchoSession, 0, len(m.echoSessions))
+	for discr, entry := range m.echoSessions {
+		retiredEcho = append(retiredEcho, retiredEchoSession{localDiscr: discr, entry: entry})
+	}
+	// Clear public maps; detached operations retain retiring keys until cleanup joins.
+	m.sessions = make(map[uint32]*sessionEntry)
+	m.sessionsByPeer = make(map[packetDemuxKey]*sessionEntry)
+	m.sessionsByKey = make(map[SessionKey]*sessionEntry)
+	m.echoSessions = make(map[uint32]*echoSessionEntry)
+	m.echoSessionsByKey = make(map[SessionKey]*echoSessionEntry)
+	m.microGroups = make(map[string]*MicroBFDGroup)
+	m.microMembers = make(map[microMemberKey]*MicroBFDGroup)
+	m.microResync = nil
+	m.microActuatorFailed.Store(false)
+	m.mu.Unlock()
+	m.ownershipMu.Unlock()
+	return retired, retiredEcho
+}
+
+func (m *Manager) stopAndWait(retired []retiredSession, retiredEcho []retiredEchoSession) {
+	for _, item := range retired {
+		item.entry.cancel()
+	}
+	for _, item := range retiredEcho {
+		item.entry.cancel()
+	}
+	close(m.shutdownCh)
+
+	m.activeOps.Wait()
+	m.workers.Wait()
+	m.subscriberWorkers.Wait()
+	for len(m.rawNotifyCh) > 0 {
+		<-m.rawNotifyCh
+		m.RecordDelivery(DeliveryNotificationDispatch, DeliveryAbandoned)
+	}
+	m.closeLegacyStateChanges()
+}
+
+func (m *Manager) releaseCloseResources(
+	retired []retiredSession,
+	retiredEcho []retiredEchoSession,
+) {
+	slices.SortFunc(retired, func(a, b retiredSession) int {
+		return cmp.Compare(a.localDiscr, b.localDiscr)
+	})
+	for _, item := range retired {
+		m.finishSessionDestroy(item.localDiscr, item.entry)
+	}
+	slices.SortFunc(retiredEcho, func(a, b retiredEchoSession) int {
+		return cmp.Compare(a.localDiscr, b.localDiscr)
+	})
+	for _, item := range retiredEcho {
+		m.finishEchoSessionDestroy(item.localDiscr, item.entry)
+	}
+}
+
+func (m *Manager) completeClose() {
+	m.lifecycleMu.Lock()
+	m.lifecycleState = managerClosed
+	close(m.closeDone)
+	m.lifecycleMu.Unlock()
 }

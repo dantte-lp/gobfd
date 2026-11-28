@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"os"
 	"sync"
 
@@ -28,7 +29,7 @@ func handleSIGHUP(
 	logLevel *slog.LevelVar,
 	mgr *bfd.Manager,
 	sf *udpSenderFactory,
-	overlayRuntime *overlayRuntime,
+	coordinator *reconciliationCoordinator,
 	logger *slog.Logger,
 ) {
 	for {
@@ -37,7 +38,7 @@ func handleSIGHUP(
 			return
 		case <-sigHUP:
 			logger.Info("received SIGHUP, reloading configuration")
-			reloadConfig(ctx, configPath, logLevel, mgr, sf, overlayRuntime, logger)
+			reloadConfig(ctx, configPath, logLevel, mgr, sf, coordinator, logger)
 		}
 	}
 }
@@ -52,7 +53,7 @@ func reloadConfig(
 	logLevel *slog.LevelVar,
 	mgr *bfd.Manager,
 	sf *udpSenderFactory,
-	overlayRuntime *overlayRuntime,
+	coordinator *reconciliationCoordinator,
 	logger *slog.Logger,
 ) {
 	newCfg, err := loadConfig(configPath)
@@ -62,28 +63,11 @@ func reloadConfig(
 		)
 		return
 	}
-
-	// Update log level.
-	oldLevel := logLevel.Level()
-	newLevel := config.ParseLogLevel(newCfg.Log.Level)
-	logLevel.Set(newLevel)
-
-	logger.Info("configuration reloaded",
-		slog.String("old_log_level", oldLevel.String()),
-		slog.String("new_log_level", newLevel.String()),
-	)
-
-	// Reconcile declarative sessions.
-	reconcileSessions(ctx, newCfg, mgr, sf, logger)
-
-	// Reconcile declarative echo sessions (RFC 9747).
-	reconcileEchoSessions(ctx, newCfg, mgr, sf, logger)
-
-	// Reconcile micro-BFD groups (RFC 7130).
-	reconcileMicroBFDGroups(ctx, newCfg, mgr, sf, logger)
-
-	// Reconcile overlay tunnel BFD sessions (VXLAN RFC 8971, Geneve RFC 9521).
-	reconcileOverlayTunnels(ctx, newCfg, mgr, overlayRuntime, logger)
+	if err := coordinator.reconcile(ctx, newCfg, mgr, sf, logLevel); err != nil {
+		logger.Error("invalid control-session candidate, keeping current settings",
+			slog.String("error", err.Error()))
+		return
+	}
 }
 
 // reconcileAllSessions reconciles all declarative session types at startup.
@@ -92,130 +76,314 @@ func reconcileAllSessions(
 	cfg *config.Config,
 	mgr *bfd.Manager,
 	sf *udpSenderFactory,
-	overlayRuntime *overlayRuntime,
+	coordinator *reconciliationCoordinator,
 	logger *slog.Logger,
 ) {
-	reconcileSessions(ctx, cfg, mgr, sf, logger)
-	reconcileEchoSessions(ctx, cfg, mgr, sf, logger)
-	reconcileMicroBFDGroups(ctx, cfg, mgr, sf, logger)
-	reconcileOverlayTunnels(ctx, cfg, mgr, overlayRuntime, logger)
+	if err := coordinator.reconcile(ctx, cfg, mgr, sf, nil); err != nil {
+		logger.Error("invalid startup control-session candidate, skipping reconciliation",
+			slog.String("error", err.Error()))
+	}
+}
+
+func validateCompleteControlSessionCandidate(cfg *config.Config) error {
+	_, err := compileControlSessionCandidate(cfg)
+	return err
 }
 
 // reconcileSessions diffs the declarative sessions from the config against
 // the current session set and creates/destroys sessions as needed.
+type declarativeSenderFactory interface {
+	createSenderForSession(
+		localAddr netip.Addr,
+		multiHop bool,
+		logger *slog.Logger,
+		senderOpts ...netio.SenderOption,
+	) (bfd.PacketSender, uint16, error)
+	CloseSender(srcPort uint16) error
+}
+
 func reconcileSessions(
 	ctx context.Context,
 	cfg *config.Config,
 	mgr *bfd.Manager,
-	sf *udpSenderFactory,
+	sf declarativeSenderFactory,
 	logger *slog.Logger,
 ) {
-	if len(cfg.Sessions) == 0 {
-		logger.Debug("no declarative sessions in config, skipping reconciliation")
+	candidates, err := compileBaseSessionCandidates(cfg)
+	if err != nil {
+		logger.Error("invalid declarative session candidate, keeping current sessions",
+			slog.String("error", err.Error()),
+		)
 		return
 	}
 
+	result := applyBaseSessionCandidates(ctx, candidates, mgr, sf, logger, nil)
+	if err := result.Err(); err != nil {
+		logger.Error("session reconciliation had errors",
+			slog.String("error", err.Error()),
+			slog.Int("created", result.Created),
+			slog.Int("updated", result.Updated),
+			slog.Int("released", result.Released),
+			slog.Int("pending", result.Pending),
+			slog.Int("failed", result.Failed),
+			slog.Any("error_codes", reconcileErrorCodes(result)),
+		)
+		return
+	}
+
+	logger.Info("session reconciliation complete",
+		slog.Int("created", result.Created),
+		slog.Int("updated", result.Updated),
+		slog.Int("released", result.Released),
+	)
+}
+
+func applyBaseSessionCandidates(
+	ctx context.Context,
+	candidates []baseSessionCandidate,
+	mgr *bfd.Manager,
+	sf declarativeSenderFactory,
+	logger *slog.Logger,
+	listeners *listenerOwner,
+) bfd.ReconcileResult {
+	desired := baseReconcileConfigs(candidates)
+	for i, candidate := range candidates {
+		factory := declarativeSenderLeaseFactoryFor(
+			sf,
+			candidate.senderLocal,
+			candidate.multiHop,
+			logger,
+			candidate.senderOpts...,
+		)
+		if listeners != nil {
+			listener := netio.ListenerConfig{
+				Addr: candidate.config.LocalAddr, IfName: candidate.config.Interface,
+				Port: netio.PortSingleHop, MultiHop: candidate.multiHop,
+			}
+			if candidate.multiHop {
+				listener.Port = netio.PortMultiHop
+			}
+			//nolint:contextcheck // The physical session retains RX across configuration withdrawal.
+			factory = receiveSenderLeaseFactory(listeners, listener, factory)
+		}
+		desired[i].SenderLeaseFactory = factory
+	}
+
+	return mgr.ReconcileSessionsForOwnerDetailed(
+		ctx,
+		bfd.ConfigReconciliationOwner(),
+		desired,
+	)
+}
+
+func baseReconcileConfigs(candidates []baseSessionCandidate) []bfd.ReconcileConfig {
+	desired := make([]bfd.ReconcileConfig, len(candidates))
+	for i, candidate := range candidates {
+		desired[i] = candidate.reconcile
+	}
+	return desired
+}
+
+func reconcileErrorCodes(result bfd.ReconcileResult) []string {
+	codes := make([]string, 0, len(result.Errors))
+	for _, reconcileErr := range result.Errors {
+		codes = append(codes, reconcileErr.Code.String())
+	}
+	return codes
+}
+
+func declarativeSenderLeaseFactoryFor(
+	sf declarativeSenderFactory,
+	localAddr netip.Addr,
+	multiHop bool,
+	logger *slog.Logger,
+	senderOpts ...netio.SenderOption,
+) bfd.SenderLeaseFactory {
+	return func() (*bfd.SenderLease, error) {
+		sender, srcPort, err := sf.createSenderForSession(
+			localAddr, multiHop, logger, senderOpts...,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("create session sender: %w", addressUnavailableError(localAddr, err))
+		}
+		return bfd.NewSenderLease(sender, func() error {
+			if err := sf.CloseSender(srcPort); err != nil {
+				return fmt.Errorf("close session sender port %d: %w", srcPort, err)
+			}
+			return nil
+		}), nil
+	}
+}
+
+type baseSessionCandidate struct {
+	peer        string
+	config      bfd.SessionConfig
+	reconcile   bfd.ReconcileConfig
+	multiHop    bool
+	senderOpts  []netio.SenderOption
+	senderLocal netip.Addr
+}
+
+func compileBaseSessionCandidates(cfg *config.Config) ([]baseSessionCandidate, error) {
+	candidates := make([]baseSessionCandidate, 0, len(cfg.Sessions))
 	desired := make([]bfd.ReconcileConfig, 0, len(cfg.Sessions))
 	for _, sc := range cfg.Sessions {
 		sessCfg, err := configSessionToBFD(sc, cfg.BFD)
 		if err != nil {
-			logger.Error("invalid session config, skipping",
-				slog.String("peer", sc.Peer),
-				slog.String("error", err.Error()),
-			)
-			continue
+			return nil, fmt.Errorf("session %q: %w", sc.Peer, err)
 		}
 
-		multiHop := sessCfg.Type == bfd.SessionTypeMultiHop
-		// RFC 9764: set DF bit on the sender socket when padding is configured.
 		var senderOpts []netio.SenderOption
 		if sessCfg.PaddedPduSize > 0 {
 			senderOpts = append(senderOpts, netio.WithDFBit())
 		}
-		//nolint:contextcheck // Socket creation is a quick local operation; SenderFactory API is context-free.
-		sender, err := sf.createSenderForSession(sessCfg.LocalAddr, multiHop, logger, senderOpts...)
-		if err != nil {
-			logger.Error("failed to create sender for session, skipping",
-				slog.String("peer", sc.Peer),
-				slog.String("error", err.Error()),
-			)
-			continue
+		var bindDevice string
+		if sessCfg.Type == bfd.SessionTypeSingleHop {
+			bindDevice = sessCfg.Interface
 		}
-
-		desired = append(desired, bfd.ReconcileConfig{
-			Key:           sc.SessionKey(),
-			SessionConfig: sessCfg,
-			Sender:        sender,
+		senderLocal, senderOpts := singleHopSenderBinding(sessCfg.LocalAddr, bindDevice, senderOpts)
+		rc := bfd.ReconcileConfig{Key: sc.SessionKey(), SessionConfig: sessCfg}
+		candidates = append(candidates, baseSessionCandidate{
+			peer:        sc.Peer,
+			config:      sessCfg,
+			reconcile:   rc,
+			multiHop:    sessCfg.Type == bfd.SessionTypeMultiHop,
+			senderOpts:  senderOpts,
+			senderLocal: senderLocal,
 		})
+		desired = append(desired, rc)
 	}
-
-	created, destroyed, err := mgr.ReconcileSessions(ctx, desired)
-	if err != nil {
-		logger.Error("session reconciliation had errors",
-			slog.String("error", err.Error()),
-		)
+	if err := bfd.ValidateReconcileConfigs(desired); err != nil {
+		return nil, fmt.Errorf("validate complete base session set: %w", err)
 	}
-
-	logger.Info("session reconciliation complete",
-		slog.Int("created", created),
-		slog.Int("destroyed", destroyed),
-	)
+	return candidates, nil
 }
 
-// reconcileEchoSessions diffs the declarative echo sessions from the config
-// against the current echo session set and creates/destroys sessions as needed.
+type echoReconcileOutcome struct {
+	Created   int
+	Destroyed int
+	Err       error
+}
+
+type echoSessionCandidate struct {
+	key    string
+	config bfd.EchoSessionConfig
+}
+
+func compileEchoSessionCandidates(cfg *config.Config) ([]echoSessionCandidate, error) {
+	if !cfg.Echo.Enabled {
+		return nil, nil
+	}
+	candidates := make([]echoSessionCandidate, 0, len(cfg.Echo.Peers))
+	validationSet := make([]bfd.EchoReconcileConfig, 0, len(cfg.Echo.Peers))
+	for _, ep := range cfg.Echo.Peers {
+		echoCfg, err := configEchoToBFD(ep, cfg.Echo)
+		if err != nil {
+			return nil, fmt.Errorf("echo session %q: %w", ep.Peer, err)
+		}
+		candidate := echoSessionCandidate{key: ep.EchoSessionKey(), config: echoCfg}
+		candidates = append(candidates, candidate)
+		validationSet = append(validationSet, bfd.EchoReconcileConfig{
+			Key: candidate.key, EchoSessionConfig: candidate.config,
+		})
+	}
+	if err := bfd.ValidateEchoReconcileConfigs(validationSet); err != nil {
+		return nil, fmt.Errorf("validate complete echo session set: %w", err)
+	}
+	return candidates, nil
+}
+
+// reconcileEchoSessions reconciles the complete declarative Echo desired set
+// and returns its structured apply outcome.
 func reconcileEchoSessions(
 	ctx context.Context,
 	cfg *config.Config,
 	mgr *bfd.Manager,
-	sf *udpSenderFactory,
+	sf declarativeSenderFactory,
 	logger *slog.Logger,
-) {
-	if !cfg.Echo.Enabled || len(cfg.Echo.Peers) == 0 {
-		logger.Debug("no declarative echo sessions in config, skipping echo reconciliation")
-		return
-	}
-
-	desired := make([]bfd.EchoReconcileConfig, 0, len(cfg.Echo.Peers))
-	for _, ep := range cfg.Echo.Peers {
-		echoCfg, err := configEchoToBFD(ep, cfg.Echo)
-		if err != nil {
-			logger.Error("invalid echo session config, skipping",
-				slog.String("peer", ep.Peer),
-				slog.String("error", err.Error()),
-			)
-			continue
-		}
-
-		// Echo sessions send on port 3785 (RFC 5881 Section 4, RFC 9747).
-		//nolint:contextcheck // Socket creation is a quick local operation; SenderFactory API is context-free.
-		sender, err := sf.createSenderForSession(echoCfg.LocalAddr, false, logger, netio.WithDstPort(netio.PortEcho))
-		if err != nil {
-			logger.Error("failed to create sender for echo session, skipping",
-				slog.String("peer", ep.Peer),
-				slog.String("error", err.Error()),
-			)
-			continue
-		}
-
-		desired = append(desired, bfd.EchoReconcileConfig{
-			Key:               ep.EchoSessionKey(),
-			EchoSessionConfig: echoCfg,
-			Sender:            sender,
-		})
-	}
-
-	created, destroyed, err := mgr.ReconcileEchoSessions(ctx, desired)
+) echoReconcileOutcome {
+	candidates, err := compileEchoSessionCandidates(cfg)
 	if err != nil {
+		logger.Error("invalid declarative echo candidate, keeping current sessions",
+			slog.String("error", err.Error()))
+		return echoReconcileOutcome{Err: err}
+	}
+
+	result := applyEchoSessionCandidates(ctx, candidates, mgr, sf, logger, nil)
+	if err := result.Err(); err != nil {
 		logger.Error("echo session reconciliation had errors",
 			slog.String("error", err.Error()),
+			slog.Int("created", result.Created),
+			slog.Int("released", result.Released),
+			slog.Int("pending", result.Pending),
+			slog.Int("failed", result.Failed),
+			slog.Any("error_codes", reconcileErrorCodes(result)),
 		)
+		return echoReconcileOutcome{
+			Created: result.Created, Destroyed: result.Released, Err: err,
+		}
 	}
 
 	logger.Info("echo session reconciliation complete",
-		slog.Int("created", created),
-		slog.Int("destroyed", destroyed),
+		slog.Int("created", result.Created),
+		slog.Int("released", result.Released),
 	)
+	return echoReconcileOutcome{Created: result.Created, Destroyed: result.Released}
+}
+
+func applyEchoSessionCandidates(
+	ctx context.Context,
+	candidates []echoSessionCandidate,
+	mgr *bfd.Manager,
+	sf declarativeSenderFactory,
+	logger *slog.Logger,
+	listeners *listenerOwner,
+) bfd.ReconcileResult {
+	desired := make([]bfd.EchoReconcileConfig, 0, len(candidates))
+	for _, candidate := range candidates {
+		local, opts := singleHopSenderBinding(
+			candidate.config.LocalAddr, candidate.config.Interface,
+			[]netio.SenderOption{netio.WithDstPort(netio.PortEcho)},
+		)
+		factory := declarativeSenderLeaseFactoryFor(sf, local, false, logger, opts...)
+		if listeners != nil {
+			//nolint:contextcheck // Receivers are owner-scoped, not bound to one reconciliation pass.
+			factory = receiveSenderLeaseFactory(listeners, netio.ListenerConfig{
+				Addr: candidate.config.LocalAddr, IfName: candidate.config.Interface,
+				Port: netio.PortEcho, ExpectedTTL: netio.TTLEchoLoopback,
+			}, factory)
+		}
+		desired = append(desired, bfd.EchoReconcileConfig{
+			Key: candidate.key, EchoSessionConfig: candidate.config, SenderLeaseFactory: factory,
+		})
+	}
+
+	return mgr.ReconcileEchoSessionsDetailed(ctx, desired)
+}
+
+// The physical wire retains RX when its original config claim is withdrawn.
+func receiveSenderLeaseFactory(
+	listeners *listenerOwner, cfg netio.ListenerConfig, factory bfd.SenderLeaseFactory,
+) bfd.SenderLeaseFactory {
+	return func() (*bfd.SenderLease, error) {
+		key, err := listeners.claimAPI(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("claim runtime receive listener: %w", err)
+		}
+		lease, err := factory()
+		if err != nil {
+			listeners.releaseAPI(key)
+			return lease, err
+		}
+		return bfd.NewSenderLease(lease.Sender(), func() error {
+			closeErr := lease.Close()
+			listeners.releaseAPI(key)
+			if closeErr != nil {
+				return fmt.Errorf("close runtime sender: %w", closeErr)
+			}
+			return nil
+		}), nil
+	}
 }
 
 // configEchoToBFD converts a config.EchoPeerConfig to a bfd.EchoSessionConfig,
@@ -258,6 +426,7 @@ func configEchoToBFD(ep config.EchoPeerConfig, defaults config.EchoConfig) (bfd.
 // with RFC 5881 source port allocation and TTL=255 (GTSM).
 type udpSenderFactory struct {
 	portAlloc *netio.SourcePortAllocator
+	socket    config.SocketConfig
 	senders   map[uint16]*netio.UDPSender
 	mu        sync.Mutex
 }

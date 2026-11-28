@@ -1,6 +1,9 @@
-FROM docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
+FROM docker.io/library/debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
 
-RUN groupadd -r gobfd && useradd -r -g gobfd -s /usr/sbin/nologin gobfd \
+RUN groupadd -r gobfd && groupadd -r gobfd-admin \
+    && useradd -r -g gobfd -G gobfd-admin -s /usr/sbin/nologin gobfd \
+    && install -d -o gobfd -g gobfd -m 0755 /run/gobfd \
+    && install -d -o gobfd -g gobfd -m 0700 /var/lib/gobfd \
     && apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -14,6 +17,6 @@ COPY ${TARGETPLATFORM}/gobfd \
 
 USER gobfd:gobfd
 
-EXPOSE 3784/udp 4784/udp 50051
+EXPOSE 3784/udp 4784/udp
 
 ENTRYPOINT ["/usr/local/bin/gobfd"]

@@ -25,6 +25,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/dantte-lp/gobfd/test/internal/containertest"
+	"github.com/dantte-lp/gobfd/test/internal/interopproject"
 	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
 
@@ -33,6 +34,8 @@ type observabilityTopology struct {
 	endpoint                     string
 	root                         string
 	runID                        string
+	revision                     string
+	buildDate                    string
 	reportDir                    string
 	networkName                  string
 	containerNames               []string
@@ -40,6 +43,7 @@ type observabilityTopology struct {
 	containers                   []namedContainer
 	imageNames                   []string
 	imageIDs                     []string
+	imageProvenance              map[string]map[string]string
 	volumeNames                  []string
 	gobfdID                      string
 	frrID                        string
@@ -47,6 +51,10 @@ type observabilityTopology struct {
 	grafanaID                    string
 	prometheusURL                string
 	grafanaURL                   string
+	frrImage                     string
+	prometheusImage              string
+	grafanaImage                 string
+	tsharkImageID                string
 	capture                      testcontainers.Container
 	analyzer                     testcontainers.Container
 	client                       *podmanapi.Client
@@ -63,20 +71,15 @@ type namedContainer struct {
 }
 
 type observabilityResourceSnapshot struct {
-	ContainerNames []string `json:"container_names"`
-	ContainerIDs   []string `json:"container_ids"`
-	ImageNames     []string `json:"image_names"`
-	ImageIDs       []string `json:"image_ids"`
-	VolumeNames    []string `json:"volume_names"`
-	RuntimeImages  []string `json:"runtime_images"`
-	NetworkName    string   `json:"network_name"`
-	StartupError   string   `json:"startup_error,omitempty"`
-}
-
-type ownedImageClient interface {
-	ImageExists(ctx context.Context, image string) (bool, error)
-	ImageID(ctx context.Context, image string) (string, error)
-	RemoveImage(ctx context.Context, image string) error
+	ContainerNames  []string                     `json:"container_names"`
+	ContainerIDs    []string                     `json:"container_ids"`
+	ImageNames      []string                     `json:"image_names"`
+	ImageIDs        []string                     `json:"image_ids"`
+	ImageProvenance map[string]map[string]string `json:"image_provenance,omitempty"`
+	VolumeNames     []string                     `json:"volume_names"`
+	RuntimeImages   []string                     `json:"runtime_images"`
+	NetworkName     string                       `json:"network_name"`
+	StartupError    string                       `json:"startup_error,omitempty"`
 }
 
 func TestObservabilityTestcontainers(t *testing.T) {
@@ -146,6 +149,10 @@ func TestObservabilityTestcontainers(t *testing.T) {
 func newObservabilityTopology(t *testing.T, endpoint string) *observabilityTopology {
 	t.Helper()
 	root := repositoryRoot(t)
+	revision, buildDate, err := interopproject.BuildMetadata(t.Context(), root, os.Getenv("GOBFD_BUILD_REVISION"))
+	if err != nil {
+		t.Fatalf("resolve observability build metadata: %v", err)
+	}
 	runID, reportDir := observabilityReportDirectory(t, root)
 	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
 	if err != nil {
@@ -153,7 +160,7 @@ func newObservabilityTopology(t *testing.T, endpoint string) *observabilityTopol
 	}
 	topology := &observabilityTopology{
 		contract: newObservabilityContract(root), endpoint: endpoint, root: root,
-		runID: runID, reportDir: reportDir, client: client,
+		runID: runID, reportDir: reportDir, client: client, revision: revision, buildDate: buildDate,
 	}
 	if err := initializeDiagnostics(reportDir); err != nil {
 		t.Fatalf("initialize observability diagnostics: %v", err)
@@ -184,6 +191,11 @@ func startObservabilityTopology(t *testing.T, topology *observabilityTopology) e
 	)
 	if err != nil {
 		return fmt.Errorf("build bounded observability tshark image: %w", err)
+	}
+	// The analyzer runs the exact tshark image ID; later peer builds append more IDs.
+	topology.tsharkImageID = topology.imageIDs[len(topology.imageIDs)-1]
+	if peerErr := topology.buildPeerImages(ctx, t, buildID); peerErr != nil {
+		return peerErr
 	}
 	networkName := fmt.Sprintf("gobfd-observability-%d", buildID)
 	if recordErr := topology.recordOwnedNetwork(networkName); recordErr != nil {
@@ -239,7 +251,7 @@ func startObservabilityTopology(t *testing.T, topology *observabilityTopology) e
 
 	frr, err := startObservabilityContainer(ctx, t, topology, "frr", networkName+"-frr",
 		testcontainers.ContainerRequest{
-			Image: contract.frrImage, Labels: labels, Networks: []string{networkName},
+			Image: topology.frrImage, Labels: labels, Networks: []string{networkName},
 			Files: []testcontainers.ContainerFile{
 				{HostFilePath: contract.frrDaemons, ContainerFilePath: "/etc/frr/daemons", FileMode: 0o644},
 				{HostFilePath: contract.frrConfig, ContainerFilePath: "/etc/frr/frr.conf", FileMode: 0o644},
@@ -268,11 +280,12 @@ func startObservabilityTopology(t *testing.T, topology *observabilityTopology) e
 
 	prometheus, err := startObservabilityContainer(ctx, t, topology, "prometheus", networkName+"-prometheus",
 		testcontainers.ContainerRequest{
-			Image: contract.prometheusImage, Labels: labels, Networks: []string{networkName},
+			Image: topology.prometheusImage, Labels: labels, Networks: []string{networkName},
 			ExposedPorts: []string{prometheusPort},
 			Files: []testcontainers.ContainerFile{
 				{HostFilePath: contract.prometheusConfig, ContainerFilePath: "/etc/prometheus/prometheus.yml", FileMode: 0o644},
 				{HostFilePath: contract.alertRules, ContainerFilePath: "/etc/prometheus/alert-rules.yml", FileMode: 0o644},
+				{HostFilePath: contract.alertRuleTests, ContainerFilePath: "/etc/prometheus/alert-rules.test.yml", FileMode: 0o644},
 			},
 			WaitingFor:               wait.ForHTTP("/-/ready").WithPort(prometheusPort).WithStartupTimeout(45 * time.Second),
 			EndpointSettingsModifier: staticIP(networkName, contract.prometheusIP),
@@ -294,6 +307,23 @@ func startObservabilityTopology(t *testing.T, topology *observabilityTopology) e
 		return err
 	}
 	topology.prometheusID = prometheus.GetContainerID()
+	ruleCtx, ruleCancel := context.WithTimeout(ctx, 30*time.Second)
+	ruleResult, ruleErr := topology.client.Exec(ruleCtx, topology.prometheusID, []string{
+		"/usr/local/bin/promtool", "test", "rules", "/etc/prometheus/alert-rules.test.yml",
+	})
+	ruleCancel()
+	if ruleErr != nil {
+		return fmt.Errorf("evaluate shipped observability alert rules: %w", ruleErr)
+	}
+	ruleEvidence, err := json.Marshal(map[string]any{
+		"stdout": ruleResult.Stdout, "stderr": ruleResult.Stderr, "exit_code": ruleResult.ExitCode,
+	})
+	if err != nil {
+		return fmt.Errorf("encode observability alert rule evaluation: %w", err)
+	}
+	if recordErr := topology.writeJSONEvidence("prometheus-rule-tests.json", ruleEvidence); recordErr != nil {
+		return fmt.Errorf("record observability alert rule evaluation: %w", recordErr)
+	}
 	topology.prometheusURL, err = prometheus.PortEndpoint(ctx, prometheusPort, "http")
 	if err != nil {
 		return fmt.Errorf("resolve Prometheus mapped endpoint: %w", err)
@@ -302,7 +332,7 @@ func startObservabilityTopology(t *testing.T, topology *observabilityTopology) e
 	datasource := deriveGrafanaDatasource(t, contract.grafanaDatasource, contract.prometheusIP)
 	grafana, err := startObservabilityContainer(ctx, t, topology, "grafana", networkName+"-grafana",
 		testcontainers.ContainerRequest{
-			Image: contract.grafanaImage, Labels: labels, Networks: []string{networkName},
+			Image: topology.grafanaImage, Labels: labels, Networks: []string{networkName},
 			ExposedPorts: []string{grafanaPort},
 			Env: map[string]string{
 				"GF_SECURITY_ADMIN_USER": "admin", "GF_SECURITY_ADMIN_PASSWORD": "admin",
@@ -336,7 +366,7 @@ func startObservabilityTopology(t *testing.T, topology *observabilityTopology) e
 		return fmt.Errorf("resolve Grafana mapped endpoint: %w", err)
 	}
 
-	tsharkImageID := topology.imageIDs[len(topology.imageIDs)-1]
+	tsharkImageID := topology.tsharkImageID
 	analyzer, err := startObservabilityContainer(ctx, t, topology, "tshark-analyzer", networkName+"-tshark-analyzer",
 		testcontainers.ContainerRequest{
 			Image: tsharkImageID, Labels: labels, Entrypoint: []string{"sleep"}, Cmd: []string{"infinity"},
@@ -360,6 +390,7 @@ func startObservabilityContainer(
 	request testcontainers.ContainerRequest,
 ) (testcontainers.Container, error) {
 	t.Helper()
+	request = observabilityContainerRequest(role, request)
 	request.Name = name
 	if err := topology.recordOwnedContainer(name, ""); err != nil {
 		return nil, err
@@ -375,6 +406,45 @@ func startObservabilityContainer(
 		err = fmt.Errorf("start observability %s container: %w", role, err)
 	}
 	return testContainer, errors.Join(err, recordErr)
+}
+
+func observabilityContainerRequest(
+	role string, request testcontainers.ContainerRequest,
+) testcontainers.ContainerRequest {
+	modifyRole := request.HostConfigModifier
+	request.HostConfigModifier = func(config *container.HostConfig) {
+		if modifyRole != nil {
+			modifyRole(config)
+		}
+		config.CPUPeriod, config.CPUQuota = 100000, 100000
+		config.Memory = observabilityRuntimeMemory(role)
+		config.MemorySwap = config.Memory
+		config.PidsLimit = new(int64(128))
+	}
+	return request
+}
+
+func observabilityRuntimeMemory(role string) int64 {
+	if role == "grafana" {
+		return 512 << 20
+	}
+	return 256 << 20
+}
+
+func validateObservabilityResources(role string, config *container.HostConfig) error {
+	if config == nil {
+		return fmt.Errorf("exact %s runtime container has no host configuration", role)
+	}
+	pids := int64(0)
+	if config.PidsLimit != nil {
+		pids = *config.PidsLimit
+	}
+	if config.CPUPeriod != 100000 || config.CPUQuota != 100000 ||
+		config.Memory != observabilityRuntimeMemory(role) || config.MemorySwap != config.Memory || pids != 128 {
+		return fmt.Errorf("exact %s runtime limits: CPU %d/%d, memory %d, memory+swap %d, PIDs %d",
+			role, config.CPUQuota, config.CPUPeriod, config.Memory, config.MemorySwap, pids)
+	}
+	return nil
 }
 
 func staticIP(networkName, address string) func(map[string]*network.EndpointSettings) {
@@ -397,6 +467,9 @@ func (topology *observabilityTopology) assertRuntimeContract(ctx context.Context
 		inspection, err := item.container.Inspect(ctx)
 		if err != nil {
 			return fmt.Errorf("inspect exact %s runtime container: %w", item.name, err)
+		}
+		if err := validateObservabilityResources(item.name, inspection.HostConfig); err != nil {
+			return err
 		}
 		volumeName, mountErr := validateObservabilityMounts(item.name, inspection.Mounts)
 		if mountErr != nil {
@@ -466,7 +539,7 @@ func (topology *observabilityTopology) waitForInitialHealth(t *testing.T, timeou
 				return false, err
 			}
 			health, healthJSON, err := topology.grafanaHealth(ctx)
-			if err != nil || health.Database != "ok" || health.Version != "13.2.0" {
+			if err != nil || health.Database != "ok" || health.Version != topology.contract.grafanaVersion {
 				return false, err
 			}
 			datasources, datasourcesJSON, err := topology.grafanaDatasources(ctx)
@@ -700,15 +773,14 @@ func (topology *observabilityTopology) recordStartupFailure(startupErr error) er
 
 func (topology *observabilityTopology) writeResourceSnapshot() error {
 	snapshot := observabilityResourceSnapshot{
-		ContainerNames: slices.Clone(topology.containerNames),
-		ContainerIDs:   slices.Clone(topology.containerIDs),
-		ImageNames:     slices.Clone(topology.imageNames),
-		ImageIDs:       slices.Clone(topology.imageIDs),
-		VolumeNames:    slices.Clone(topology.volumeNames),
-		RuntimeImages: []string{
-			topology.contract.frrImage, topology.contract.prometheusImage, topology.contract.grafanaImage,
-		},
-		NetworkName: topology.networkName, StartupError: topology.startupError,
+		ContainerNames:  slices.Clone(topology.containerNames),
+		ContainerIDs:    slices.Clone(topology.containerIDs),
+		ImageNames:      slices.Clone(topology.imageNames),
+		ImageIDs:        slices.Clone(topology.imageIDs),
+		ImageProvenance: topology.imageProvenance,
+		VolumeNames:     slices.Clone(topology.volumeNames),
+		RuntimeImages:   []string{topology.frrImage, topology.prometheusImage, topology.grafanaImage},
+		NetworkName:     topology.networkName, StartupError: topology.startupError,
 	}
 	contents, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
@@ -807,6 +879,29 @@ func writeAtomicResourceSnapshot(
 func closeResourceSnapshotTemporary(file *os.File) error {
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("close resource snapshot temporary: %w", err)
+	}
+	return nil
+}
+
+// buildPeerImages builds the FRR, Prometheus and Grafana peers from the shared
+// Debian trixie recipes as bounded test-owned images.
+func (topology *observabilityTopology) buildPeerImages(ctx context.Context, t *testing.T, buildID int64) error {
+	t.Helper()
+	contract := topology.contract
+	for _, peer := range []struct {
+		name, recipe string
+		image        *string
+	}{
+		{"frr", contract.frrRecipe, &topology.frrImage},
+		{"prometheus", contract.prometheusRecipe, &topology.prometheusImage},
+		{"grafana", contract.grafanaRecipe, &topology.grafanaImage},
+	} {
+		image, err := buildOwnedImage(ctx, t, topology, peer.recipe,
+			fmt.Sprintf("localhost/gobfd-observability-%s:test-%d", peer.name, buildID))
+		if err != nil {
+			return fmt.Errorf("build bounded observability %s image: %w", peer.name, err)
+		}
+		*peer.image = image
 	}
 	return nil
 }

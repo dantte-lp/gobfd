@@ -1,168 +1,53 @@
-# GoBFD Documentation
+# GoBFD manual
 
-![Version](https://img.shields.io/badge/Version-0.6.1-1a73e8?style=for-the-badge)
-![Language](https://img.shields.io/badge/Lang-English-ea4335?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
+English is canonical. [Russian](../ru/README.md) mirrors the technical
+contract. Use pages from the deployed binary's commit: `release/v1.0`,
+`release/v0.6`, `master` and `dev` have different delivery and compatibility
+boundaries.
 
-> Canonical technical documentation for **GoBFD** -- a production-oriented BFD protocol daemon (RFC 5880/5881) written in Go 1.27.
+## Operator references
 
----
+| Task | Document |
+|:---|:---|
+| Identify components and state owners | [01 Architecture](01-architecture.md) |
+| Calculate timers and inspect packet processing | [02 Protocol](02-protocol.md) |
+| Configure sessions, credentials and reload | [03 Configuration](03-configuration.md) |
+| Inspect and modify managed resources | [04 CLI](04-cli.md) |
+| Select peer and packet qualification | [05 Interoperability](05-interop.md) |
+| Install packages, services and containers | [06 Deployment](06-deployment.md) |
+| Interpret metrics and alerts | [07 Monitoring](07-monitoring.md) |
+| Check implemented RFC procedures and exclusions | [08 RFC matrix](08-rfc-compliance.md) |
+| Connect routing and application clients | [11 Integrations](11-integrations.md) |
+| Secure management and credentials | [15 Security](15-security.md) |
+| Validate startup, failure and recovery | [16 Runbooks](16-production-runbooks.md) |
+| Configure equipment peers | [Cisco, Arista, Juniper and Huawei](reference/vendor-bfd.md) |
 
-## Documentation Map
+## Engineering references
 
-```mermaid
-graph TD
-    IDX["docs/en/README.md"]
+| Task | Document |
+|:---|:---|
+| Build, review and test | [09 Development](09-development.md) |
+| Maintain changelogs and release evidence | [10 Release process](10-changelog.md) |
+| Reproduce micro-benchmarks | [12 Benchmarks](12-benchmarks.md) |
+| Compare implementations by supported profile | [13 Comparisons](13-competitive-analysis.md) |
+| Evaluate runtime and workload evidence | [14 Performance](14-performance-analysis.md) |
+| Check architectural constraints | [ADRs](adr/README.md) |
+| Check the product contract and timer ownership | [Production contract](reference/production-contract.md), [timer transactions](reference/timer-transactions.md) |
+| Write and review documentation | [Documentation standard](reference/documentation-standard.md) |
+| Inspect dependency risks | [References](reference/README.md) |
+| Check outstanding release acceptance | [Dated status](roadmap.md) |
 
-    subgraph "Architecture"
-        A1["01-architecture.md"]
-        A2["02-protocol.md"]
-    end
+## Reading rules
 
-    subgraph "Operations"
-        B1["03-configuration.md"]
-        B2["04-cli.md"]
-        B3["06-deployment.md"]
-        B4["15-security.md"]
-        B5["16-production-runbooks.md"]
-    end
+- Treat an RFC requirement as normative; treat a vendor manual as a
+  platform-specific contract. Neither proves a GoBFD interoperability result.
+- Distinguish implemented, locally tested, wire-qualified and released behavior.
+- Apply imperative procedures only to the explicitly selected environment.
+  Retain the pre-change configuration and verify the documented postcondition.
+- Verify acceptance against the exact candidate and deployment profile.
 
-    subgraph "Testing & Quality"
-        C1["05-interop.md"]
-        C2["07-monitoring.md"]
-        C3["09-development.md"]
-    end
-
-    subgraph "Performance"
-        E1["12-benchmarks.md"]
-        E2["13-competitive-analysis.md"]
-        E3["14-performance-analysis.md"]
-    end
-
-    subgraph "Reference"
-        D1["08-rfc-compliance.md"]
-        D2["10-changelog.md"]
-        D3["11-integrations.md"]
-        D4["adr/"]
-        D5["reference/"]
-        D6["rfc/"]
-    end
-
-    IDX --> A1
-    IDX --> A2
-    IDX --> B1
-    IDX --> B2
-    IDX --> B3
-    IDX --> B4
-    IDX --> B5
-    IDX --> C1
-    IDX --> C2
-    IDX --> C3
-    IDX --> D1
-    IDX --> D2
-    IDX --> D3
-    IDX --> D4
-    IDX --> D5
-    IDX --> D6
-    IDX --> E1
-    IDX --> E2
-    IDX --> E3
-
-    A1 --> A2
-    A2 --> D1
-    B1 --> B2
-    B3 --> C2
-    C1 --> C3
-    D1 --> D6
-    E1 --> E2
-    E2 --> E3
-
-    style IDX fill:#1a73e8,color:#fff
-```
-
----
-
-## Table of Contents
-
-### Architecture
-
-| # | Document | Description |
-|---|---|---|
-| 01 | [**Architecture**](./01-architecture.md) | System architecture, package diagram, packet flow, FSM design |
-| 02 | [**BFD Protocol**](./02-protocol.md) | FSM, timers, jitter, packet format, authentication (RFC 5880) |
-
-### Operations
-
-| # | Document | Description |
-|---|---|---|
-| 03 | [**Configuration**](./03-configuration.md) | YAML config reference, environment variables, hot reload |
-| 04 | [**CLI Reference**](./04-cli.md) | `gobfdctl` commands, interactive shell, output formats |
-| 05 | [**Interop Testing**](./05-interop.md) | Interop suites: 4-peer, BGP+BFD, RFC-specific, vendor NOS |
-| 06 | [**Deployment**](./06-deployment.md) | systemd, Podman Compose, container image, production |
-| 07 | [**Monitoring**](./07-monitoring.md) | Prometheus metrics, Grafana dashboard, alerting |
-| 15 | [**Security Policy**](./15-security.md) | API, GoBGP, BFD auth, container, and vulnerability policy |
-| 16 | [**Production Runbooks**](./16-production-runbooks.md) | Kubernetes, BGP, Prometheus, packet verification, failure drills |
-
-### Reference
-
-| # | Document | Description |
-|---|---|---|
-| 08 | [**RFC Compliance**](./08-rfc-compliance.md) | RFC compliance matrix, implementation notes, links to RFCs |
-| 09 | [**Development**](./09-development.md) | Dev workflow, Make targets, testing, linting, proto generation |
-| 10 | [**Changelog Guide**](./10-changelog.md) | How to maintain CHANGELOG.md, release process, semantic versioning |
-| 11 | [**Integrations**](./11-integrations.md) | BGP failover, HAProxy, observability, ExaBGP, Kubernetes examples |
-| -- | [**Roadmap**](./roadmap.md) | Published projection of the current Beads release plan |
-
-### Performance
-
-| # | Document | Description |
-|---|---|---|
-| 12 | [**Benchmarks**](./12-benchmarks.md) | How to run, read, and interpret benchmark results |
-| 13 | [**Competitive Analysis**](./13-competitive-analysis.md) | Comparison with FRR, BIRD, Holo, hardware platforms |
-| 14 | [**Performance Analysis**](./14-performance-analysis.md) | GoBFD vs C implementations: benchmarks, architecture, CPU load behavior |
-
-### Architecture Decision Records
-
-Living decision records under [`adr/`](./adr/README.md). Each record states
-context, decision, and consequences. Records carry an immutable date and
-move to `Superseded` when replaced.
-
-### Reference Material
-
-Living technical references under [`reference/`](./reference/README.md):
-dependency risk register and other auxiliary material.
-
-### RFC Source Files
-
-| File | RFC | Title |
-|---|---|---|
-| [rfc5880.txt](../rfc/rfc5880.txt) | RFC 5880 | Bidirectional Forwarding Detection (BFD) |
-| [rfc5881.txt](../rfc/rfc5881.txt) | RFC 5881 | BFD for IPv4 and IPv6 (Single Hop) |
-| [rfc5882.txt](../rfc/rfc5882.txt) | RFC 5882 | Generic Application of BFD |
-| [rfc5883.txt](../rfc/rfc5883.txt) | RFC 5883 | BFD for Multihop Paths |
-| [rfc5884.txt](../rfc/rfc5884.txt) | RFC 5884 | BFD for MPLS Label Switched Paths |
-| [rfc5885.txt](../rfc/rfc5885.txt) | RFC 5885 | BFD for PW VCCV |
-| [rfc7130.txt](../rfc/rfc7130.txt) | RFC 7130 | Bidirectional Forwarding Detection (BFD) on LAG |
-| [rfc7419.txt](../rfc/rfc7419.txt) | RFC 7419 | Common Interval Support |
-| [rfc9384.txt](../rfc/rfc9384.txt) | RFC 9384 | BGP Cease Notification Subcode for BFD |
-| [rfc9468.txt](../rfc/rfc9468.txt) | RFC 9468 | Unsolicited BFD for Sessionless Applications |
-| [rfc9747.txt](../rfc/rfc9747.txt) | RFC 9747 | Unaffiliated BFD Echo |
-| [rfc8971.txt](../rfc/rfc8971.txt) | RFC 8971 | BFD for VXLAN |
-| [rfc9521.txt](../rfc/rfc9521.txt) | RFC 9521 | BFD for Geneve |
-| [rfc9764.txt](../rfc/rfc9764.txt) | RFC 9764 | BFD Encapsulated in Large Packets |
-| [rfc9985.txt](../rfc/rfc9985.txt) | RFC 9985 | Optimizing BFD Authentication |
-| [rfc9986.txt](../rfc/rfc9986.txt) | RFC 9986 | Meticulous Keyed ISAAC for Optimized BFD Authentication |
-
----
-
-## Quick Start
-
-```bash
-git clone https://github.com/dantte-lp/gobfd.git && cd gobfd
-make build
-make test
-sudo ./gobfd -config configs/gobfd.example.yml
-```
-
-See [06-deployment.md](./06-deployment.md) for production deployment and
-[09-development.md](./09-development.md) for the full dev workflow.
+Historical material: [external audit reconciliation](gist-audit-reconciliation.md),
+[independent audit dated 2026-10-23](audits/2026-10-23-independent-retrospective.md),
+[release retrospective dated 2026-10-26](audits/2026-10-26-release-retrospective.md),
+[release retrospective dated 2026-11-27](audits/2026-11-27-release-retrospective.md),
+[release changelog](../../CHANGELOG.md), [verbatim RFC texts](../rfc/).

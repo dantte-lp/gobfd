@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"net/http"
 	"net/netip"
-	"sync"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -33,6 +34,10 @@ var (
 	// ErrDedicatedTransportRequired indicates AddSession received a recognized
 	// session family that needs its own transport-specific configuration path.
 	ErrDedicatedTransportRequired = errors.New("session type requires dedicated transport configuration")
+
+	// ErrReceiveListenerUnavailable indicates that the daemon could not open
+	// the receive listener a new session needs; the session is not created.
+	ErrReceiveListenerUnavailable = errors.New("receive listener unavailable")
 
 	// ErrDetectMultZero indicates a zero detect multiplier in the request.
 	ErrDetectMultZero = errors.New("detect multiplier must be >= 1")
@@ -56,15 +61,18 @@ var (
 // abstracts socket creation so that the server can be tested without
 // real network sockets.
 //
-// On session creation, the factory is called with the session's local
-// address and session type. On session destruction, CloseSender is
-// called to release resources (close socket, release port).
+// On session creation, the factory is called lazily after Manager accepts a
+// new physical session. Manager then owns the matching CloseSender call.
 type SenderFactory interface {
 	// CreateSender allocates a source port and creates a PacketSender
-	// bound to localAddr. Returns the sender and allocated port.
+	// bound to localAddr and, when ifName is not empty, to that single-hop
+	// interface (RFC 5881 Section 6). Returns the sender and allocated port.
+	// kind selects SingleHop, MultiHop or Echo; dedicated transports use their owners.
 	CreateSender(
 		localAddr netip.Addr,
-		multiHop bool,
+		ifName string,
+		kind bfd.SessionType,
+		doNotFragment bool,
 		logger *slog.Logger,
 	) (bfd.PacketSender, uint16, error)
 
@@ -86,6 +94,8 @@ type noopSenderFactory struct{}
 
 func (noopSenderFactory) CreateSender(
 	_ netip.Addr,
+	_ string,
+	_ bfd.SessionType,
 	_ bool,
 	_ *slog.Logger,
 ) (bfd.PacketSender, uint16, error) {
@@ -102,34 +112,28 @@ type BFDServer struct {
 	manager       *bfd.Manager
 	senderFactory SenderFactory
 	logger        *slog.Logger
-
-	// senderPorts tracks allocated source ports per session discriminator
-	// for cleanup on DestroySession.
-	senderPorts   map[uint32]uint16
-	senderPortsMu sync.Mutex
 }
 
 // verify interface compliance at compile time.
 var _ bfdv1connect.BfdServiceHandler = (*BFDServer)(nil)
 
-// New creates a new BFDServer and returns the HTTP handler and path.
-// If sf is nil, a noopSenderFactory is used (for testing without sockets).
-func New(
+// Register registers the BFD service on rpc. If sf is nil, a
+// noopSenderFactory is used (for testing without sockets).
+func Register(
+	rpc *connect.Server,
 	mgr *bfd.Manager,
 	sf SenderFactory,
 	logger *slog.Logger,
-	opts ...connect.HandlerOption,
-) (string, http.Handler) {
+) {
 	if sf == nil {
 		sf = noopSenderFactory{}
 	}
 	srv := &BFDServer{
 		manager:       mgr,
 		senderFactory: sf,
-		senderPorts:   make(map[uint32]uint16),
 		logger:        logger.With(slog.String("component", "server")),
 	}
-	return bfdv1connect.NewBfdServiceHandler(srv, opts...)
+	bfdv1connect.RegisterBfdServiceHandler(rpc, srv)
 }
 
 // AddSession creates a new BFD session with the given parameters.
@@ -144,59 +148,57 @@ func (s *BFDServer) AddSession(
 
 	cfg, err := sessionConfigFromProto(req)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 
-	sender, srcPort, sess, err := s.createSessionWithSender(ctx, cfg)
+	sess, err := s.createSessionWithSenderLease(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	_ = sender // sender is owned by session now
-	s.trackSenderPort(sess.LocalDiscriminator(), srcPort)
-
-	snap := snapshotFromSession(sess, cfg)
+	current, err := s.getSessionByDiscriminator(sess.LocalDiscriminator())
+	if err != nil {
+		return nil, err
+	}
 
 	return &bfdv1.AddSessionResponse{
-		Session: snapshotToProto(snap),
+		Session: current.GetSession(),
 	}, nil
 }
 
-// createSessionWithSender creates the sender and session together.
-// On session creation failure, the sender is cleaned up.
-func (s *BFDServer) createSessionWithSender(
+// createSessionWithSenderLease gives Manager lazy ownership of both the
+// sender socket and its allocated source port.
+func (s *BFDServer) createSessionWithSenderLease(
 	ctx context.Context,
 	cfg bfd.SessionConfig,
-) (bfd.PacketSender, uint16, *bfd.Session, error) {
-	multiHop := cfg.Type == bfd.SessionTypeMultiHop
-
-	sender, srcPort, err := s.senderFactory.CreateSender(
-		cfg.LocalAddr, multiHop, s.logger,
-	)
-	if err != nil {
-		return nil, 0, nil, mapManagerError(
-			fmt.Errorf("create sender: %w", err), "add session",
+) (*bfd.Session, error) {
+	// A link-local zone selects the interface when interface_name is empty,
+	// as Manager canonicalisation does for the session itself.
+	ifName := bfd.SingleHopInterface(cfg.Interface, cfg.LocalAddr, cfg.PeerAddr)
+	if cfg.Type != bfd.SessionTypeSingleHop {
+		ifName = ""
+	}
+	factory := func() (*bfd.SenderLease, error) {
+		sender, srcPort, err := s.senderFactory.CreateSender(
+			cfg.LocalAddr, ifName, cfg.Type, cfg.PaddedPduSize != 0, s.logger,
 		)
-	}
-
-	sess, err := s.manager.CreateSession(ctx, cfg, sender)
-	if err != nil {
-		if closeErr := s.senderFactory.CloseSender(srcPort); closeErr != nil {
-			s.logger.Warn("failed to close sender after session creation failure",
-				slog.String("error", closeErr.Error()),
-			)
+		if err != nil {
+			return nil, fmt.Errorf("create API session sender: %w", err)
 		}
-		return nil, 0, nil, mapManagerError(err, "add session")
+		return bfd.NewSenderLease(sender, func() error {
+			if err := s.senderFactory.CloseSender(srcPort); err != nil {
+				return fmt.Errorf("close API session sender port %d: %w", srcPort, err)
+			}
+			return nil
+		}), nil
 	}
 
-	return sender, srcPort, sess, nil
-}
+	sess, err := s.manager.CreateSessionAs(ctx, cfg, factory, apiOwnerFromContext(ctx))
+	if err != nil {
+		return nil, mapManagerError(err, "add session")
+	}
 
-// trackSenderPort records the source port for cleanup on DestroySession.
-func (s *BFDServer) trackSenderPort(discr uint32, srcPort uint16) {
-	s.senderPortsMu.Lock()
-	s.senderPorts[discr] = srcPort
-	s.senderPortsMu.Unlock()
+	return sess, nil
 }
 
 // DeleteSession removes a BFD session by its local discriminator.
@@ -209,33 +211,18 @@ func (s *BFDServer) DeleteSession(
 		slog.Uint64("discriminator", uint64(discr)),
 	)
 
-	if err := s.manager.DestroySession(ctx, discr); err != nil {
+	owner := apiOwnerFromContext(ctx)
+	if err := s.manager.DestroySessionAs(ctx, discr, owner); err != nil {
+		if errors.Is(err, bfd.ErrSessionOwnerClaimNotFound) {
+			s.logger.WarnContext(ctx, "DeleteSession refused: the caller holds no claim on the session",
+				slog.Uint64("discriminator", uint64(discr)),
+				slog.String("owner", owner.ID),
+			)
+		}
 		return nil, mapManagerError(err, "delete session")
 	}
 
-	s.cleanupSender(discr)
-
 	return &bfdv1.DeleteSessionResponse{}, nil
-}
-
-// cleanupSender closes the sender and releases the source port for a
-// destroyed session.
-func (s *BFDServer) cleanupSender(discr uint32) {
-	s.senderPortsMu.Lock()
-	srcPort, ok := s.senderPorts[discr]
-	if ok {
-		delete(s.senderPorts, discr)
-	}
-	s.senderPortsMu.Unlock()
-
-	if ok {
-		if err := s.senderFactory.CloseSender(srcPort); err != nil {
-			s.logger.Warn("failed to close sender",
-				slog.Uint64("discriminator", uint64(discr)),
-				slog.String("error", err.Error()),
-			)
-		}
-	}
 }
 
 // ListSessions returns all active BFD sessions.
@@ -245,14 +232,23 @@ func (s *BFDServer) ListSessions(
 ) (*bfdv1.ListSessionsResponse, error) {
 	s.logger.InfoContext(ctx, "ListSessions called")
 
-	snapshots := s.manager.Sessions()
+	snapshots, rev := s.manager.SessionsWithRevision()
 	sessions := make([]*bfdv1.BfdSession, 0, len(snapshots))
 	for _, snap := range snapshots {
 		sessions = append(sessions, snapshotToProto(snap))
 	}
+	rows := s.manager.DeliveryCounters()
+	delivery := make([]*bfdv1.DeliveryCounter, 0, len(rows))
+	for _, row := range rows {
+		delivery = append(delivery, &bfdv1.DeliveryCounter{
+			Source: bfdv1.DeliverySource(row.Source), Outcome: bfdv1.DeliveryOutcome(row.Outcome), Count: row.Count,
+		})
+	}
 
 	return &bfdv1.ListSessionsResponse{
-		Sessions: sessions,
+		Sessions:         sessions,
+		Revision:         rev,
+		DeliveryCounters: delivery,
 	}, nil
 }
 
@@ -266,7 +262,8 @@ func (s *BFDServer) GetSession(ctx context.Context, req *bfdv1.GetSessionRequest
 	case *bfdv1.GetSessionRequest_PeerAddress:
 		return s.getSessionByPeerAddress(id.PeerAddress)
 	default:
-		return nil, connect.NewError(connect.CodeInvalidArgument, ErrMissingIdentifier)
+		return nil, connect.NewError(connect.CodeInvalidArgument, ErrMissingIdentifier.Error()).
+			WithCause(ErrMissingIdentifier)
 	}
 }
 
@@ -274,30 +271,39 @@ func (s *BFDServer) GetSession(ctx context.Context, req *bfdv1.GetSessionRequest
 func (s *BFDServer) WatchSessionEvents(
 	ctx context.Context,
 	req *bfdv1.WatchSessionEventsRequest,
-	stream *connect.ServerStream[bfdv1.WatchSessionEventsResponse],
+	stream bfdv1connect.BfdServiceWatchSessionEventsServerStream,
 ) error {
 	s.logger.InfoContext(ctx, "WatchSessionEvents called",
 		slog.Bool("include_current", req.GetIncludeCurrent()),
 	)
 
-	// If requested, send current sessions as SESSION_ADDED events first.
-	if req.GetIncludeCurrent() {
-		snapshots := s.manager.Sessions()
-		for _, snap := range snapshots {
-			resp := &bfdv1.WatchSessionEventsResponse{
-				Type:      bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_ADDED,
-				Session:   snapshotToProto(snap),
-				Timestamp: timestamppb.Now(),
-			}
-			if err := stream.Send(resp); err != nil {
-				return fmt.Errorf("send current session event: %w", err)
-			}
-		}
+	// Subscribe before the snapshot: every change after the revision the
+	// snapshot covers reaches this subscriber (M-08).
+	ch, err := s.manager.SubscribeStateChanges(ctx)
+	if err != nil {
+		return fmt.Errorf("subscribe to session state changes: %w", err)
 	}
+	return s.watchLoop(ctx, ch, req.GetIncludeCurrent(), stream.Send)
+}
 
-	// Stream state changes from a per-client subscription. Multiple watch
-	// clients must observe the same events rather than competing on one channel.
-	ch := s.manager.SubscribeStateChanges(ctx)
+// watchLoop streams state changes from ch. With includeCurrent, and after
+// every gap whatever includeCurrent was, it first sends a snapshot of
+// SESSION_ADDED events closed by SYNC_COMPLETE, then skips changes the
+// snapshot already covers.
+func (s *BFDServer) watchLoop(
+	ctx context.Context,
+	ch <-chan bfd.StateChange,
+	includeCurrent bool,
+	send func(*bfdv1.WatchSessionEventsResponse) error,
+) error {
+	covered := s.manager.Revision()
+	if includeCurrent {
+		rev, err := s.sendSnapshot(send)
+		if err != nil {
+			return err
+		}
+		covered = rev
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -306,12 +312,67 @@ func (s *BFDServer) WatchSessionEvents(
 			if !ok {
 				return nil
 			}
-			resp := stateChangeToProto(sc)
-			if err := stream.Send(resp); err != nil {
-				return fmt.Errorf("send state change event: %w", err)
+			var err error
+			if covered, err = s.forwardStateChange(ctx, sc, covered, send); err != nil {
+				return err
 			}
 		}
 	}
+}
+
+// forwardStateChange sends one state change unless the snapshot at
+// covered already includes it, or answers a gap marker with GAP and a
+// fresh snapshot. It returns the revision now covered.
+func (s *BFDServer) forwardStateChange(
+	ctx context.Context,
+	sc bfd.StateChange,
+	covered uint64,
+	send func(*bfdv1.WatchSessionEventsResponse) error,
+) (uint64, error) {
+	if sc.Gap {
+		s.logger.WarnContext(ctx, "watch stream fell behind, resyncing",
+			slog.Uint64("revision", sc.Revision))
+		if err := send(&bfdv1.WatchSessionEventsResponse{
+			Type:      bfdv1.WatchSessionEventsResponse_EVENT_TYPE_GAP,
+			Revision:  sc.Revision,
+			Timestamp: timestamppb.Now(),
+		}); err != nil {
+			return covered, fmt.Errorf("send gap event: %w", err)
+		}
+		return s.sendSnapshot(send)
+	}
+	if sc.Revision <= covered {
+		return covered, nil
+	}
+	if err := send(stateChangeToProto(sc)); err != nil {
+		return covered, fmt.Errorf("send state change event: %w", err)
+	}
+	return covered, nil
+}
+
+// sendSnapshot sends every session as SESSION_ADDED and closes the
+// snapshot with SYNC_COMPLETE. It returns the revision the snapshot covers.
+func (s *BFDServer) sendSnapshot(send func(*bfdv1.WatchSessionEventsResponse) error) (uint64, error) {
+	snapshots, rev := s.manager.WatchSessionsWithRevision()
+	now := timestamppb.Now()
+	for _, snap := range snapshots {
+		if err := send(&bfdv1.WatchSessionEventsResponse{
+			Type:      bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_ADDED,
+			Session:   snapshotToProto(snap),
+			Timestamp: now,
+			Revision:  rev,
+		}); err != nil {
+			return 0, fmt.Errorf("send current session event: %w", err)
+		}
+	}
+	if err := send(&bfdv1.WatchSessionEventsResponse{
+		Type:      bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SYNC_COMPLETE,
+		Timestamp: now,
+		Revision:  rev,
+	}); err != nil {
+		return 0, fmt.Errorf("send sync complete event: %w", err)
+	}
+	return rev, nil
 }
 
 // -------------------------------------------------------------------------
@@ -321,39 +382,12 @@ func (s *BFDServer) WatchSessionEvents(
 // getSessionByDiscriminator looks up a session by its local discriminator
 // and returns it as a GetSessionResponse.
 func (s *BFDServer) getSessionByDiscriminator(discr uint32) (*bfdv1.GetSessionResponse, error) {
-	sess, ok := s.manager.LookupByDiscriminator(discr)
+	snap, rev, ok := s.manager.SessionWithRevision(discr)
 	if !ok {
 		return nil, connect.NewError(connect.CodeNotFound,
-			fmt.Errorf("session with discriminator %d: %w", discr, bfd.ErrSessionNotFound))
+			fmt.Errorf("session with discriminator %d: %w", discr, bfd.ErrSessionNotFound).Error())
 	}
-
-	snap := bfd.SessionSnapshot{
-		LocalDiscr:           sess.LocalDiscriminator(),
-		RemoteDiscr:          sess.RemoteDiscriminator(),
-		PeerAddr:             sess.PeerAddr(),
-		LocalAddr:            sess.LocalAddr(),
-		Interface:            sess.Interface(),
-		Type:                 sess.Type(),
-		State:                sess.State(),
-		RemoteState:          sess.RemoteState(),
-		LocalDiag:            sess.LocalDiag(),
-		DesiredMinTx:         sess.DesiredMinTxInterval(),
-		RequiredMinRx:        sess.RequiredMinRxInterval(),
-		DetectMultiplier:     sess.DetectMultiplier(),
-		NegotiatedTxInterval: sess.NegotiatedTxInterval(),
-		DetectionTime:        sess.DetectionTime(),
-		LastStateChange:      sess.LastStateChange(),
-		LastPacketReceived:   sess.LastPacketReceived(),
-		Counters: bfd.SessionCounters{
-			PacketsSent:      sess.PacketsSent(),
-			PacketsReceived:  sess.PacketsReceived(),
-			StateTransitions: sess.StateTransitions(),
-		},
-	}
-
-	return &bfdv1.GetSessionResponse{
-		Session: snapshotToProto(snap),
-	}, nil
+	return &bfdv1.GetSessionResponse{Session: snapshotToProto(snap), Revision: rev}, nil
 }
 
 // getSessionByPeerAddress iterates all sessions to find one matching the
@@ -362,20 +396,35 @@ func (s *BFDServer) getSessionByPeerAddress(peerAddrStr string) (*bfdv1.GetSessi
 	addr, err := netip.ParseAddr(peerAddrStr)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument,
-			fmt.Errorf("parse peer address %q: %w", peerAddrStr, err))
+			fmt.Errorf("parse peer address %q: %w", peerAddrStr, err).Error())
 	}
 
-	snapshots := s.manager.Sessions()
+	snapshots, rev := s.manager.SessionsWithRevision()
+	var (
+		match  bfd.SessionSnapshot
+		discrs []string
+	)
 	for _, snap := range snapshots {
 		if snap.PeerAddr == addr {
-			return &bfdv1.GetSessionResponse{
-				Session: snapshotToProto(snap),
-			}, nil
+			match = snap
+			discrs = append(discrs, strconv.FormatUint(uint64(snap.LocalDiscr), 10))
 		}
 	}
-
-	return nil, connect.NewError(connect.CodeNotFound,
-		fmt.Errorf("session with peer address %s: %w", addr, bfd.ErrSessionNotFound))
+	switch len(discrs) {
+	case 0:
+		return nil, connect.NewError(connect.CodeNotFound,
+			fmt.Errorf("session with peer address %s: %w", addr, bfd.ErrSessionNotFound).Error())
+	case 1:
+		return &bfdv1.GetSessionResponse{Session: snapshotToProto(match), Revision: rev}, nil
+	default:
+		// M-07: the peer address is not a session identity. The system
+		// state, not the argument, precludes an answer (gRPC
+		// doc/statuscodes.md, FAILED_PRECONDITION).
+		slices.Sort(discrs)
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Sprintf("peer address %s matches %d sessions; get by local discriminator: %s",
+				addr, len(discrs), strings.Join(discrs, ", ")))
+	}
 }
 
 // sessionConfigFromProto converts an AddSessionRequest into a bfd.SessionConfig.
@@ -407,8 +456,19 @@ func sessionConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.SessionConfig, er
 		return bfd.SessionConfig{}, err
 	}
 
-	desiredMinTx := durationFromProto(req.GetDesiredMinTxInterval())
-	requiredMinRx := durationFromProto(req.GetRequiredMinRxInterval())
+	paddedPduSize, err := paddedPDUSizeFromProto(req.GetPaddedPduSize(), auth != nil)
+	if err != nil {
+		return bfd.SessionConfig{}, err
+	}
+
+	desiredMinTx, err := durationFromProto(req.GetDesiredMinTxInterval())
+	if err != nil {
+		return bfd.SessionConfig{}, fmt.Errorf("invalid desired min TX interval: %w", err)
+	}
+	requiredMinRx, err := durationFromProto(req.GetRequiredMinRxInterval())
+	if err != nil {
+		return bfd.SessionConfig{}, fmt.Errorf("invalid required min RX interval: %w", err)
+	}
 
 	detectMult := req.GetDetectMultiplier()
 	if detectMult == 0 {
@@ -427,9 +487,20 @@ func sessionConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.SessionConfig, er
 		DesiredMinTxInterval:  desiredMinTx,
 		RequiredMinRxInterval: requiredMinRx,
 		DetectMultiplier:      uint8(detectMult),
+		PaddedPduSize:         paddedPduSize,
 		Auth:                  auth,
 		AuthKeys:              authKeys,
 	}, nil
+}
+
+func paddedPDUSizeFromProto(size uint32, authenticated bool) (uint16, error) {
+	if size > bfd.MaxPaddedPduSize {
+		return 0, fmt.Errorf("padded_pdu_size %d: %w", size, bfd.ErrInvalidPaddedPduSize)
+	}
+	if err := bfd.ValidatePaddedPduSize(uint16(size), authenticated); err != nil {
+		return 0, fmt.Errorf("padded_pdu_size %d: %w", size, err)
+	}
+	return uint16(size), nil
 }
 
 func authConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.Authenticator, bfd.AuthKeyStore, error) {
@@ -516,65 +587,49 @@ func isGenericAddSessionType(st bfd.SessionType) bool {
 	return st == bfd.SessionTypeSingleHop || st == bfd.SessionTypeMultiHop
 }
 
-// durationFromProto converts a protobuf Duration to time.Duration.
+// durationFromProto validates and converts a protobuf Duration to time.Duration.
 // Returns 1 second as default if the proto duration is nil (RFC 5880 Section 6.8.1).
-func durationFromProto(d *durationpb.Duration) time.Duration {
+func durationFromProto(d *durationpb.Duration) (time.Duration, error) {
 	if d == nil {
-		return time.Second
+		return time.Second, nil
 	}
-	return d.AsDuration()
-}
-
-// snapshotFromSession creates a SessionSnapshot from a live Session and its config.
-// Used immediately after CreateSession when we have both the session pointer and config.
-func snapshotFromSession(sess *bfd.Session, cfg bfd.SessionConfig) bfd.SessionSnapshot {
-	return bfd.SessionSnapshot{
-		LocalDiscr:           sess.LocalDiscriminator(),
-		RemoteDiscr:          sess.RemoteDiscriminator(),
-		PeerAddr:             sess.PeerAddr(),
-		LocalAddr:            sess.LocalAddr(),
-		Interface:            sess.Interface(),
-		Type:                 cfg.Type,
-		State:                sess.State(),
-		RemoteState:          sess.RemoteState(),
-		LocalDiag:            sess.LocalDiag(),
-		DesiredMinTx:         cfg.DesiredMinTxInterval,
-		RequiredMinRx:        cfg.RequiredMinRxInterval,
-		DetectMultiplier:     cfg.DetectMultiplier,
-		AuthType:             sess.AuthType(),
-		NegotiatedTxInterval: sess.NegotiatedTxInterval(),
-		DetectionTime:        sess.DetectionTime(),
-		LastStateChange:      sess.LastStateChange(),
-		LastPacketReceived:   sess.LastPacketReceived(),
-		Counters: bfd.SessionCounters{
-			PacketsSent:      sess.PacketsSent(),
-			PacketsReceived:  sess.PacketsReceived(),
-			StateTransitions: sess.StateTransitions(),
-		},
+	if err := d.CheckValid(); err != nil {
+		return 0, fmt.Errorf("check protobuf duration: %w", err)
 	}
+	return d.AsDuration(), nil
 }
 
 // snapshotToProto converts an internal SessionSnapshot to a proto BfdSession message.
 func snapshotToProto(snap bfd.SessionSnapshot) *bfdv1.BfdSession {
 	pb := &bfdv1.BfdSession{
-		PeerAddress:           snap.PeerAddr.String(),
-		LocalAddress:          snap.LocalAddr.String(),
-		InterfaceName:         snap.Interface,
-		Type:                  sessionTypeToProto(snap.Type),
-		LocalState:            stateToProto(snap.State),
-		RemoteState:           stateToProto(snap.RemoteState),
-		LocalDiagnostic:       diagToProto(snap.LocalDiag),
-		AuthType:              authTypeToProto(snap.AuthType),
-		LocalDiscriminator:    snap.LocalDiscr,
-		RemoteDiscriminator:   snap.RemoteDiscr,
-		DesiredMinTxInterval:  durationpb.New(snap.DesiredMinTx),
-		RequiredMinRxInterval: durationpb.New(snap.RequiredMinRx),
-		DetectMultiplier:      uint32(snap.DetectMultiplier),
-		NegotiatedTxInterval:  durationpb.New(snap.NegotiatedTxInterval),
-		DetectionTime:         durationpb.New(snap.DetectionTime),
+		PeerAddress:                   snap.PeerAddr.String(),
+		LocalAddress:                  addrString(snap.LocalAddr),
+		InterfaceName:                 snap.Interface,
+		Type:                          sessionTypeToProto(snap.Type),
+		LocalState:                    stateToProto(snap.State),
+		RemoteState:                   observedRemoteState(snap.RemoteKnown, snap.RemoteState),
+		LocalDiagnostic:               diagToProto(snap.LocalDiag),
+		RemoteKnown:                   snap.RemoteKnown,
+		RemoteDiagnostic:              observedRemoteDiag(snap.RemoteKnown, snap.RemoteDiag),
+		LocalControlPlaneIndependent:  snap.LocalC,
+		RemoteControlPlaneIndependent: snap.RemoteC,
+		Cause:                         causeToProto(snap.Cause),
+		ObservationVersion:            snap.ObservationVersion,
+		AuthType:                      authTypeToProto(snap.AuthType),
+		LocalDiscriminator:            snap.LocalDiscr,
+		RemoteDiscriminator:           snap.RemoteDiscr,
+		DesiredMinTxInterval:          durationpb.New(snap.DesiredMinTx),
+		RequiredMinRxInterval:         durationpb.New(snap.RequiredMinRx),
+		RemoteMinRxInterval:           durationpb.New(snap.RemoteMinRx),
+		DetectMultiplier:              uint32(snap.DetectMultiplier),
+		PaddedPduSize:                 uint32(snap.PaddedPduSize),
+		NegotiatedTxInterval:          durationpb.New(snap.NegotiatedTxInterval),
+		DetectionTime:                 durationpb.New(snap.DetectionTime),
 		Counters: &bfdv1.SessionCounters{
 			PacketsSent:      snap.Counters.PacketsSent,
 			PacketsReceived:  snap.Counters.PacketsReceived,
+			PacketsDropped:   snap.Counters.PacketsDropped,
+			AuthFailures:     snap.Counters.AuthFailures,
 			StateTransitions: snap.Counters.StateTransitions,
 		},
 	}
@@ -589,18 +644,61 @@ func snapshotToProto(snap bfd.SessionSnapshot) *bfdv1.BfdSession {
 	return pb
 }
 
+// addrString renders a, or "" when a is unset.
+func addrString(a netip.Addr) string {
+	if !a.IsValid() {
+		return ""
+	}
+	return a.String()
+}
+
 // stateChangeToProto converts an internal StateChange to a WatchSessionEventsResponse.
 func stateChangeToProto(sc bfd.StateChange) *bfdv1.WatchSessionEventsResponse {
+	eventType := bfdv1.WatchSessionEventsResponse_EVENT_TYPE_STATE_CHANGE
+	if sc.Deleted {
+		eventType = bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_DELETED
+	} else if sc.Added {
+		eventType = bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_ADDED
+	}
 	return &bfdv1.WatchSessionEventsResponse{
-		Type: bfdv1.WatchSessionEventsResponse_EVENT_TYPE_STATE_CHANGE,
-		Session: &bfdv1.BfdSession{
-			PeerAddress:        sc.PeerAddr.String(),
-			LocalDiscriminator: sc.LocalDiscr,
-			LocalState:         stateToProto(sc.NewState),
-			LocalDiagnostic:    diagToProto(sc.Diag),
-		},
+		Type:          eventType,
+		Session:       snapshotToProto(sc.Status),
 		PreviousState: stateToProto(sc.OldState),
 		Timestamp:     timestamppb.New(sc.Timestamp),
+		Revision:      sc.Revision,
+	}
+}
+
+func observedRemoteState(known bool, state bfd.State) bfdv1.SessionState {
+	if !known {
+		return bfdv1.SessionState_SESSION_STATE_UNSPECIFIED
+	}
+	return stateToProto(state)
+}
+
+func observedRemoteDiag(known bool, diag bfd.Diag) bfdv1.DiagnosticCode {
+	if !known {
+		return bfdv1.DiagnosticCode_DIAGNOSTIC_CODE_UNSPECIFIED
+	}
+	return diagToProto(diag)
+}
+
+func causeToProto(cause bfd.Cause) bfdv1.ObservationCause {
+	switch cause {
+	case bfd.CauseRemoteAdminDown:
+		return bfdv1.ObservationCause_OBSERVATION_CAUSE_REMOTE_ADMIN_DOWN
+	case bfd.CauseRemoteDown:
+		return bfdv1.ObservationCause_OBSERVATION_CAUSE_REMOTE_DOWN
+	case bfd.CauseDetectionTimeout:
+		return bfdv1.ObservationCause_OBSERVATION_CAUSE_DETECTION_TIMEOUT
+	case bfd.CauseLocalAdmin:
+		return bfdv1.ObservationCause_OBSERVATION_CAUSE_LOCAL_ADMIN
+	case bfd.CausePathDown:
+		return bfdv1.ObservationCause_OBSERVATION_CAUSE_PATH_DOWN
+	case bfd.CauseConfiguration:
+		return bfdv1.ObservationCause_OBSERVATION_CAUSE_CONFIGURATION
+	default:
+		return bfdv1.ObservationCause_OBSERVATION_CAUSE_UNSPECIFIED
 	}
 }
 
@@ -696,17 +794,43 @@ func wrapError(context string, err error) error {
 // mapManagerError translates bfd.Manager errors into appropriate ConnectRPC error codes.
 func mapManagerError(err error, operation string) *connect.Error {
 	switch {
-	case errors.Is(err, bfd.ErrDuplicateSession):
-		return connect.NewError(connect.CodeAlreadyExists, wrapError(operation, err))
-	case errors.Is(err, bfd.ErrSessionNotFound):
-		return connect.NewError(connect.CodeNotFound, wrapError(operation, err))
+	case errors.Is(err, context.DeadlineExceeded):
+		return connect.NewError(connect.CodeDeadlineExceeded, wrapError(operation, err).Error())
+	case errors.Is(err, context.Canceled):
+		return connect.NewError(connect.CodeCanceled, wrapError(operation, err).Error())
+	case errors.Is(err, bfd.ErrDuplicateSession),
+		errors.Is(err, bfd.ErrMicroBFDGroupExists):
+		return connect.NewError(connect.CodeAlreadyExists, wrapError(operation, err).Error())
+	case errors.Is(err, bfd.ErrSessionNotFound),
+		errors.Is(err, bfd.ErrEchoSessionNotFound),
+		errors.Is(err, bfd.ErrMicroBFDGroupNotFound):
+		return connect.NewError(connect.CodeNotFound, wrapError(operation, err).Error())
+	case errors.Is(err, bfd.ErrSessionOwnerClaimNotFound):
+		return connect.NewError(connect.CodePermissionDenied, wrapError(operation, err).Error())
+	case errors.Is(err, bfd.ErrResourceUnavailable):
+		return connect.NewError(connect.CodeUnavailable, wrapError(operation, err).Error())
+	case errors.Is(err, ErrReceiveListenerUnavailable),
+		errors.Is(err, bfd.ErrSessionParameterConflict),
+		errors.Is(err, bfd.ErrInterfaceUnresolved),
+		errors.Is(err, bfd.ErrMicroBFDMemberOwned),
+		errors.Is(err, bfd.ErrMicroBFDGroupOwnerClaimNotFound),
+		errors.Is(err, bfd.ErrMicroBFDConfigConflict):
+		return connect.NewError(connect.CodeFailedPrecondition, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrInvalidPeerAddr),
 		errors.Is(err, bfd.ErrInvalidDetectMult),
 		errors.Is(err, bfd.ErrInvalidTxInterval),
+		errors.Is(err, bfd.ErrInvalidRxInterval),
+		errors.Is(err, bfd.ErrInvalidWireInterval),
+		errors.Is(err, bfd.ErrMicroBFDDuplicateMember),
+		errors.Is(err, bfd.ErrMicroBFDInterfaceRequired),
 		errors.Is(err, bfd.ErrInvalidSessionType),
+		errors.Is(err, bfd.ErrInvalidPaddedPduSize),
+		errors.Is(err, bfd.ErrInvalidMultiHopInterface),
+		errors.Is(err, bfd.ErrInvalidMultiHopMaxHops),
+		errors.Is(err, bfd.ErrInvalidSessionZone),
 		errors.Is(err, bfd.ErrInvalidSessionRole):
-		return connect.NewError(connect.CodeInvalidArgument, wrapError(operation, err))
+		return connect.NewError(connect.CodeInvalidArgument, wrapError(operation, err).Error())
 	default:
-		return connect.NewError(connect.CodeInternal, wrapError(operation, err))
+		return connect.NewError(connect.CodeInternal, wrapError(operation, err).Error())
 	}
 }

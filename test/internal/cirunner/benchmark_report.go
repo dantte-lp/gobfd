@@ -1,0 +1,599 @@
+package cirunner
+
+import (
+	"bytes"
+	"context"
+	"encoding/csv"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"html"
+	"io"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/dantte-lp/gobfd/test/internal/benchreport"
+)
+
+var errCriticalBenchmarkRegression = errors.New(
+	"critical benchmark regression detected; review retained benchmark reports",
+)
+
+const (
+	benchmarkSchemaVersion     = "gobfd.benchmark-comparison.v1"
+	comparisonCellLimit        = 4096
+	criticalRegressionFloor    = 0.0000001
+	reportedRegressionFloor    = 0.000000001
+	regressionPercentThreshold = 10
+)
+
+// BenchmarkReportOptions configures benchstat execution and published artifacts.
+type BenchmarkReportOptions struct {
+	Root        string
+	Old         string
+	New         string
+	Text        string
+	Markdown    string
+	HTML        string
+	JSON        string
+	CSV         string
+	Notes       string
+	StepSummary string
+	// SkipStepSummary is reserved for release reports, which have no Actions step-summary contract.
+	SkipStepSummary bool
+	ReleaseContext  *BenchmarkReleaseContext
+	Warning         io.Writer
+	Runner          SpecRunner
+}
+
+// BenchmarkReleaseContext adds release-only context without changing generic PR reports.
+type BenchmarkReleaseContext struct {
+	Baseline    string
+	Version     string
+	GeneratedAt time.Time
+}
+
+type benchmarkComparison struct {
+	SchemaVersion  string                   `json:"schema_version"`
+	Baseline       string                   `json:"baseline,omitempty"`
+	Version        string                   `json:"version,omitempty"`
+	GeneratedAt    string                   `json:"generated_at,omitempty"`
+	ComparisonRows []benchmarkComparisonRow `json:"comparison_rows"`
+	Notes          []string                 `json:"notes"`
+}
+
+type benchmarkComparisonRow struct {
+	Unit                     string  `json:"unit"`
+	Name                     string  `json:"name"`
+	Base                     float64 `json:"base"`
+	Head                     float64 `json:"head"`
+	Delta                    string  `json:"delta"`
+	Significance             string  `json:"significance"`
+	RegressionClassification string  `json:"regression_classification"`
+}
+
+type benchmarkReportData struct {
+	text       []byte
+	csv        []byte
+	notes      []byte
+	comparison benchmarkComparison
+}
+
+// BenchmarkReport runs benchstat, classifies regressions, and publishes visualizable reports.
+func BenchmarkReport(ctx context.Context, options BenchmarkReportOptions) error {
+	root, rootErr := validateAbsoluteExistingDirectory(options.Root, "repository root")
+	if rootErr != nil {
+		return rootErr
+	}
+	if options.Runner == nil {
+		return fmt.Errorf("benchmark report command runner is required: %w", errInvalidConfig)
+	}
+	if err := validateBenchmarkReleaseContext(options.ReleaseContext); err != nil {
+		return err
+	}
+	if err := validateBenchmarkInputs(root, options); err != nil {
+		return err
+	}
+	outputs, err := prepareBenchmarkOutputs(root, options)
+	if err != nil {
+		return err
+	}
+	report, err := runBenchstatReport(ctx, root, options)
+	if err != nil {
+		return err
+	}
+	if release := options.ReleaseContext; release != nil {
+		report.comparison.Baseline = release.Baseline
+		report.comparison.Version = release.Version
+		report.comparison.GeneratedAt = release.GeneratedAt.UTC().Format(time.RFC3339)
+		applyCrossMajorReleasePolicy(&report, release)
+	}
+	jsonReport, err := json.MarshalIndent(report.comparison, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode structured benchmark report: %w", err)
+	}
+	jsonReport = append(jsonReport, '\n')
+	if err := writeBenchmarkReportArtifacts(outputs, report, jsonReport, options.ReleaseContext); err != nil {
+		return err
+	}
+	return finishBenchmarkReport(options, report.comparison)
+}
+
+func finishBenchmarkReport(options BenchmarkReportOptions, comparison benchmarkComparison) error {
+	var summaryErr error
+	if !options.SkipStepSummary {
+		summaryErr = appendBenchmarkSummary(options.StepSummary, comparison)
+	}
+	var regressionErr error
+	for _, row := range comparison.ComparisonRows {
+		if row.RegressionClassification == "critical" {
+			regressionErr = errCriticalBenchmarkRegression
+			break
+		}
+	}
+	return errors.Join(summaryErr, writeBenchmarkWarnings(options.Warning, comparison), regressionErr)
+}
+
+func validateBenchmarkInputs(root string, options BenchmarkReportOptions) error {
+	oldPath, oldPathErr := validateRootFile(root, options.Old, "old benchmark input", false)
+	if oldPathErr != nil {
+		return oldPathErr
+	}
+	newPath, newPathErr := validateRootFile(root, options.New, "new benchmark input", false)
+	if newPathErr != nil {
+		return newPathErr
+	}
+	for _, input := range []struct{ path, purpose string }{
+		{oldPath, "old benchmark input"}, {newPath, "new benchmark input"},
+	} {
+		data, err := readRegularFile(input.path, input.purpose)
+		if err != nil {
+			return err
+		}
+		if err := benchreport.ValidateGoInput(data); err != nil {
+			return fmt.Errorf("validate %s: %w", input.purpose, err)
+		}
+	}
+	return nil
+}
+
+func prepareBenchmarkOutputs(root string, options BenchmarkReportOptions) (map[string]string, error) {
+	outputs := map[string]string{}
+	for purpose, name := range map[string]string{
+		"benchmark Markdown report": options.Markdown,
+		"benchmark HTML report":     options.HTML,
+		"benchmark JSON report":     options.JSON,
+		"benchstat CSV":             options.CSV,
+		"benchstat notes":           options.Notes,
+	} {
+		path, pathErr := validateRootFile(root, name, purpose, true)
+		if pathErr != nil {
+			return nil, pathErr
+		}
+		outputs[purpose] = path
+	}
+	if options.Text != "" {
+		path, pathErr := validateRootFile(root, options.Text, "benchmark text report", true)
+		if pathErr != nil {
+			return nil, pathErr
+		}
+		outputs["benchmark text report"] = path
+	}
+	if !options.SkipStepSummary {
+		if err := validateStepSummary(options.StepSummary); err != nil {
+			return nil, err
+		}
+	}
+	for purpose, path := range outputs {
+		if err := resetArtifact(path, purpose); err != nil {
+			return nil, err
+		}
+	}
+	return outputs, nil
+}
+
+func runBenchstatReport(ctx context.Context, root string, options BenchmarkReportOptions) (benchmarkReportData, error) {
+	baseArguments := []string{"tool", toolsModuleFlag, "benchstat", options.Old, options.New}
+	var textOutput bytes.Buffer
+	textErr := options.Runner.RunCommand(ctx, CommandSpec{
+		Name: "go", Args: append([]string(nil), baseArguments...), Dir: root,
+		Stdout: &textOutput, Stderr: &textOutput,
+	})
+	if textErr != nil {
+		return benchmarkReportData{}, fmt.Errorf("generate benchstat text: %w", textErr)
+	}
+	if textOutput.Len() == 0 {
+		return benchmarkReportData{}, fmt.Errorf("benchstat text output is empty: %w", errInvalidConfig)
+	}
+
+	var csvOutput bytes.Buffer
+	var notesOutput bytes.Buffer
+	csvArguments := []string{"tool", toolsModuleFlag, "benchstat", "-format", "csv", options.Old, options.New}
+	if err := options.Runner.RunCommand(ctx, CommandSpec{
+		Name: "go", Args: csvArguments, Dir: root, Stdout: &csvOutput, Stderr: &notesOutput,
+	}); err != nil {
+		return benchmarkReportData{}, fmt.Errorf("generate benchstat CSV: %w", err)
+	}
+	if csvOutput.Len() == 0 {
+		return benchmarkReportData{}, fmt.Errorf("benchstat CSV output is empty: %w", errInvalidConfig)
+	}
+	comparison, comparisonErr := parseBenchmarkCSV(csvOutput.Bytes(), notesOutput.String())
+	if comparisonErr != nil {
+		return benchmarkReportData{}, comparisonErr
+	}
+	return benchmarkReportData{
+		text:       textOutput.Bytes(),
+		csv:        csvOutput.Bytes(),
+		notes:      notesOutput.Bytes(),
+		comparison: comparison,
+	}, nil
+}
+
+func benchmarkMarkdown(text []byte) string {
+	markdown := "## Benchmark comparison\n\n```text\n" + string(text)
+	if !strings.HasSuffix(markdown, "\n") {
+		markdown += "\n"
+	}
+	markdown += "```\n"
+	return markdown
+}
+
+func benchmarkHTML(text []byte, release *BenchmarkReleaseContext) string {
+	htmlReport := "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Benchmark Comparison</title>" +
+		"<style>body{font-family:system-ui;margin:2em;background:#1a1a2e;color:#e0e0e0}" +
+		"pre{background:#16213e;padding:1.5em;border-radius:8px;font-size:14px;line-height:1.6;" +
+		"border:1px solid #0f3460;overflow-x:auto}</style></head><body>" +
+		"<h1 style=\"color:#00d4ff\">Benchmark Comparison</h1><pre>" +
+		html.EscapeString(string(text)) + "</pre></body></html>\n"
+	if release != nil {
+		title := "GoBFD Benchmark Comparison: " + html.EscapeString(release.Baseline) +
+			" vs " + html.EscapeString(release.Version)
+		metadata := html.EscapeString(release.Baseline) + " vs " + html.EscapeString(release.Version) +
+			" &mdash; " + html.EscapeString(release.GeneratedAt.UTC().Format(time.RFC3339))
+		htmlReport = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>" + title + "</title>" +
+			"<style>body{font-family:system-ui;margin:2em;background:#1a1a2e;color:#e0e0e0}" +
+			"h1{color:#00d4ff}pre{background:#16213e;padding:1.5em;border-radius:8px;font-size:14px;" +
+			"line-height:1.6;border:1px solid #0f3460;overflow-x:auto}.meta{color:#888;font-size:13px}</style>" +
+			"</head><body><h1>GoBFD Benchmark Comparison</h1><p class=\"meta\">" + metadata + "</p><pre>" +
+			html.EscapeString(string(text)) + "</pre></body></html>\n"
+	}
+	return htmlReport
+}
+
+func writeBenchmarkReportArtifacts(
+	outputs map[string]string,
+	report benchmarkReportData,
+	jsonReport []byte,
+	release *BenchmarkReleaseContext,
+) error {
+	artifacts := []struct {
+		path    string
+		data    []byte
+		purpose string
+	}{
+		{outputs["benchmark Markdown report"], []byte(benchmarkMarkdown(report.text)), "benchmark Markdown report"},
+		{outputs["benchmark HTML report"], []byte(benchmarkHTML(report.text, release)), "benchmark HTML report"},
+		{outputs["benchmark JSON report"], jsonReport, "benchmark JSON report"},
+		{outputs["benchstat CSV"], report.csv, "benchstat CSV"},
+		{outputs["benchstat notes"], report.notes, "benchstat notes"},
+	}
+	if path := outputs["benchmark text report"]; path != "" {
+		artifacts = append(artifacts, struct {
+			path    string
+			data    []byte
+			purpose string
+		}{path, report.text, "benchmark text report"})
+	}
+	for _, artifact := range artifacts {
+		if err := writeAtomicArtifact(artifact.path, artifact.data, artifact.purpose); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateBenchmarkReleaseContext(release *BenchmarkReleaseContext) error {
+	if release == nil {
+		return nil
+	}
+	if release.Baseline == "" || release.Version == "" || release.GeneratedAt.IsZero() ||
+		len(release.Baseline) > comparisonCellLimit || len(release.Version) > comparisonCellLimit ||
+		hasControl(release.Baseline) || hasControl(release.Version) {
+		return fmt.Errorf("release benchmark context is invalid: %w", errInvalidConfig)
+	}
+	return nil
+}
+
+func applyCrossMajorReleasePolicy(report *benchmarkReportData, release *BenchmarkReleaseContext) {
+	baselineMajor, baselineOK := majorFromReleaseRef(release.Baseline)
+	currentMajor, currentOK := majorFromReleaseRef(release.Version)
+	if !baselineOK || !currentOK || baselineMajor == currentMajor {
+		return
+	}
+	reclassified := false
+	for index := range report.comparison.ComparisonRows {
+		if report.comparison.ComparisonRows[index].RegressionClassification == "critical" {
+			report.comparison.ComparisonRows[index].RegressionClassification = "reported"
+			reclassified = true
+		}
+	}
+	if !reclassified {
+		return
+	}
+	note := fmt.Sprintf(
+		"cross-major release baseline transition (v%s to v%s): critical sec/op deltas establish the v%s major baseline",
+		baselineMajor, currentMajor, currentMajor,
+	)
+	report.comparison.Notes = append(report.comparison.Notes, note)
+	if len(report.notes) > 0 && !bytes.HasSuffix(report.notes, []byte("\n")) {
+		report.notes = append(report.notes, '\n')
+	}
+	report.notes = append(report.notes, []byte(note+"\n")...)
+}
+
+func majorFromReleaseRef(value string) (string, bool) {
+	if !strings.HasPrefix(value, "v") {
+		value = "v" + value
+	}
+	parsed, ok := parseDeliveryReleaseTag(value)
+	if !ok {
+		return "", false
+	}
+	return parsed.Major, true
+}
+
+func parseBenchmarkCSV(data []byte, notesText string) (benchmarkComparison, error) {
+	reader := csv.NewReader(bytes.NewReader(data))
+	reader.FieldsPerRecord = -1
+	records, err := reader.ReadAll()
+	if err != nil {
+		return benchmarkComparison{}, fmt.Errorf("parse benchstat CSV: %w", err)
+	}
+	comparison := benchmarkComparison{
+		SchemaVersion: benchmarkSchemaVersion,
+		Notes:         nonemptyLines(notesText),
+	}
+	unit := ""
+	for _, record := range records {
+		var skip bool
+		unit, skip = benchmarkCSVUnit(record, unit)
+		if skip {
+			continue
+		}
+		row, include, rowErr := parseBenchmarkCSVRow(record, unit)
+		if rowErr != nil {
+			return benchmarkComparison{}, rowErr
+		}
+		if !include {
+			continue
+		}
+		comparison.ComparisonRows = append(comparison.ComparisonRows, row)
+	}
+	if len(comparison.ComparisonRows) == 0 {
+		return benchmarkComparison{}, fmt.Errorf("benchstat CSV contains no comparison rows: %w", errInvalidConfig)
+	}
+	return comparison, nil
+}
+
+func benchmarkCSVUnit(record []string, unit string) (string, bool) {
+	if len(record) == 0 || allEmpty(record) {
+		return "", true
+	}
+	if record[0] != "" {
+		return unit, false
+	}
+	if len(record) >= 7 && record[2] == "CI" && record[5] == "vs base" {
+		return record[1], true
+	}
+	return "", true
+}
+
+func parseBenchmarkCSVRow(record []string, unit string) (benchmarkComparisonRow, bool, error) {
+	if unit == "" || len(record) < 7 || record[0] == "geomean" || record[1] == "" || record[3] == "" {
+		return benchmarkComparisonRow{}, false, nil
+	}
+	if err := validateComparisonCell(record[0], "benchmark name"); err != nil {
+		return benchmarkComparisonRow{}, false, err
+	}
+	for index, purpose := range map[int]string{5: "benchmark delta", 6: "benchmark significance"} {
+		if err := validateComparisonCell(record[index], purpose); err != nil {
+			return benchmarkComparisonRow{}, false, err
+		}
+	}
+	base, baseErr := strconv.ParseFloat(record[1], 64)
+	if baseErr != nil {
+		return benchmarkComparisonRow{}, false, fmt.Errorf("parse base value for %s/%s: %w", record[0], unit, baseErr)
+	}
+	head, headErr := strconv.ParseFloat(record[3], 64)
+	if headErr != nil {
+		return benchmarkComparisonRow{}, false, fmt.Errorf("parse head value for %s/%s: %w", record[0], unit, headErr)
+	}
+	row := benchmarkComparisonRow{
+		Unit: unit, Name: record[0], Base: base, Head: head,
+		Delta: record[5], Significance: record[6], RegressionClassification: "none",
+	}
+	row.RegressionClassification = classifyRegression(row)
+	return row, true, nil
+}
+
+func classifyRegression(row benchmarkComparisonRow) string {
+	if row.Unit != "sec/op" || !strings.HasPrefix(row.Delta, "+") || !strings.HasSuffix(row.Delta, "%") {
+		return "none"
+	}
+	percent, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimPrefix(row.Delta, "+"), "%"), 64)
+	if err != nil || percent < regressionPercentThreshold {
+		return "none"
+	}
+	if isCriticalBenchmark(row.Name) &&
+		(row.Base >= criticalRegressionFloor || row.Head >= criticalRegressionFloor) {
+		return "critical"
+	}
+	if row.Base >= reportedRegressionFloor || row.Head >= reportedRegressionFloor {
+		return "reported"
+	}
+	return "none"
+}
+
+func isCriticalBenchmark(name string) bool {
+	for _, benchmark := range []string{
+		"ManagerDemux1000Sessions",
+		"ManagerLookup1000Sessions",
+		"RecvDecodeLookupEnqueue",
+		"RecvDecodeFSM",
+		"TxMarshalJitter",
+		"SessionRecvPacket",
+		"ControlPacketMarshal",
+		"ControlPacketUnmarshal",
+		"ControlPacketRoundTrip",
+		"BuildInnerPacket",
+		"StripInnerPacket",
+		"VXLANHeaderMarshal",
+		"VXLANHeaderUnmarshal",
+		"GeneveHeaderMarshal",
+		"GeneveHeaderUnmarshal",
+	} {
+		if strings.HasPrefix(name, benchmark+"-") {
+			return true
+		}
+	}
+	return false
+}
+
+func validateComparisonCell(value, purpose string) error {
+	if len(value) > comparisonCellLimit || hasControl(value) {
+		return fmt.Errorf("%s contains control characters or is too long: %w", purpose, errInvalidConfig)
+	}
+	return nil
+}
+
+func allEmpty(record []string) bool {
+	for _, field := range record {
+		if field != "" {
+			return false
+		}
+	}
+	return true
+}
+
+func nonemptyLines(value string) []string {
+	lines := make([]string, 0)
+	for line := range strings.SplitSeq(value, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+func validateStepSummary(path string) error {
+	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path || hasControl(path) {
+		return fmt.Errorf(
+			"GITHUB_STEP_SUMMARY must be a clean absolute path without control characters: %w",
+			errInvalidConfig,
+		)
+	}
+	if err := inspectDirectoryTree(filepath.Dir(path), "GITHUB_STEP_SUMMARY parent"); err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect GITHUB_STEP_SUMMARY: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("GITHUB_STEP_SUMMARY has mode %s: %w", info.Mode(), errInvalidConfig)
+	}
+	return nil
+}
+
+func appendBenchmarkSummary(path string, comparison benchmarkComparison) error {
+	var summary strings.Builder
+	for _, row := range comparison.ComparisonRows {
+		if row.RegressionClassification != "reported" {
+			continue
+		}
+		if summary.Len() == 0 {
+			summary.WriteString("### Report-only benchmark regressions\n\n")
+			summary.WriteString("| Benchmark | Delta | Significance |\n| --- | ---: | --- |\n")
+		}
+		fmt.Fprintf(&summary, "| `%s` | %s | %s |\n",
+			escapeMarkdownCell(row.Name), escapeMarkdownCell(row.Delta), escapeMarkdownCell(row.Significance))
+	}
+	if len(comparison.Notes) > 0 {
+		if summary.Len() > 0 {
+			summary.WriteByte('\n')
+		}
+		summary.WriteString("### benchstat notes\n\n")
+		for _, note := range comparison.Notes {
+			summary.WriteString("    ")
+			summary.WriteString(note)
+			summary.WriteByte('\n')
+		}
+	}
+	if summary.Len() == 0 {
+		return nil
+	}
+	// #nosec G304 -- GITHUB_STEP_SUMMARY is runner-selected; validateStepSummary checks its path and regular-file type.
+	output, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		return fmt.Errorf("open GITHUB_STEP_SUMMARY for append: %w", err)
+	}
+	written, writeErr := io.WriteString(output, summary.String())
+	if writeErr == nil && written != summary.Len() {
+		writeErr = io.ErrShortWrite
+	}
+	closeErr := output.Close()
+	if writeErr != nil || closeErr != nil {
+		return errors.Join(
+			wrapOptional("append benchmark step summary", writeErr),
+			wrapOptional("close benchmark step summary", closeErr),
+		)
+	}
+	return nil
+}
+
+func writeBenchmarkWarnings(output io.Writer, comparison benchmarkComparison) error {
+	if output == nil {
+		return nil
+	}
+	wroteHeader := false
+	for _, row := range comparison.ComparisonRows {
+		if row.RegressionClassification != "critical" {
+			continue
+		}
+		if !wroteHeader {
+			if err := writeBenchmarkWarningLine(
+				output,
+				"::warning::Critical benchmark regression detected (>=10%). Review bench-report.md.\n",
+				"header",
+			); err != nil {
+				return err
+			}
+			wroteHeader = true
+		}
+		if err := writeBenchmarkWarningLine(output,
+			fmt.Sprintf("%s,%s,%s\n", row.Name, row.Delta, row.Significance), "row"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeBenchmarkWarningLine(output io.Writer, line, purpose string) error {
+	n, err := io.WriteString(output, line)
+	if err == nil && n < len(line) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		return fmt.Errorf("write critical benchmark warning %s: %w", purpose, err)
+	}
+	return nil
+}
+
+func escapeMarkdownCell(value string) string {
+	value = strings.ReplaceAll(value, "|", "\\|")
+	return strings.ReplaceAll(value, "`", "\\`")
+}

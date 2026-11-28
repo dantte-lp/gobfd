@@ -1,14 +1,16 @@
 # GoBFD — BFD Protocol Daemon
 
-Go 1.27 implementation of Bidirectional Forwarding Detection (RFC 5880/5881).
+Go 1.27 implementation of Bidirectional Forwarding Detection with explicit
+partial RFC 5880/5881 boundaries.
 Four binaries: `gobfd` (daemon), `gobfdctl` (CLI), `gobfd-haproxy-agent` (HAProxy bridge), `gobfd-exabgp-bridge` (ExaBGP bridge).
 
 ## Commands
+
 ```sh
 make build                                         # сборка всех 4 бинарников с ldflags
 go test ./... -race -count=1                       # тесты с race detector
-go test -run '^TestFSMTransition$' ./internal/bfd  # один тест
-go tool -modfile=tools/go.mod golangci-lint run ./... # линтер (v2, строгий)
+go test -race -run '^TestFSMTransition$' ./internal/bfd  # один тест
+make lint                                          # линтер (v2, 92 линтера + 18 build-tag profiles)
 buf generate                                       # генерация proto
 buf lint                                           # проверка proto
 make interop                                       # interop tests (FRR + BIRD3 + Holo + Thoro/bfd, 4 peers)
@@ -24,6 +26,7 @@ make int-k8s                                       # integration: Kubernetes Dae
 ```
 
 ## Architecture
+
 - `internal/bfd/` — FSM (RFC 5880 §6.8), session management, packet codec, auth
 - `internal/server/` — ConnectRPC server, interceptors
 - `internal/netio/` — raw socket abstraction (Linux-specific), UDP listeners 3784/4784
@@ -44,6 +47,7 @@ make int-k8s                                       # integration: Kubernetes Dae
 - `tools/` — isolated Go tool module; never add developer tools to the runtime `go.mod`
 
 ## Code style
+
 - Errors: always wrap with `%w` and context: `fmt.Errorf("send control packet to %s: %w", peer, err)`
 - Use `errors.Is`/`errors.As`, never string matching
 - Context: first param, never store in struct
@@ -59,7 +63,8 @@ make int-k8s                                       # integration: Kubernetes Dae
 - Go 1.27 best practices: use `testing/synctest` and `synctest.Sleep` for virtual-time timer tests, `runtime/trace.FlightRecorder` for debugging, `os.Root` for sandboxed I/O, a deployment-qualified `GOMEMLIMIT` with the default `GOGC` unless measurements justify an override, generic methods only when justified, range-over-func iterators, and `slices`/`maps`/`cmp` stdlib packages
 
 ## Go 1.27 project rules
-The baseline is `go 1.27` with `toolchain go1.27.0`. Keep every first-party
+
+The baseline is `go 1.27` with `toolchain go1.27.4`. Keep every first-party
 compiler pin in Containerfiles, CI, release workflows, and test harnesses on
 that exact toolchain. Use the official
 [Go 1.27 release notes](https://go.dev/doc/go1.27) as the source of truth.
@@ -94,7 +99,9 @@ that exact toolchain. Use the official
   never in release artifacts.
 - Use generic methods only on concrete internal types when they remove an
   existing abstraction cost. Do not churn public protobuf APIs or interfaces;
-  interface methods still cannot declare type parameters.
+  interface methods still cannot declare type parameters. Exception: on
+  2026-10-13 the maintainer approved regenerating `pkg/bfdpb` for
+  connect-go v2; the `bfd.v1` wire protocol stays unchanged.
 - Do not adopt experimental `simd` or `simd/archsimd`, and never use `unsafe`.
   Reconsider SIMD only after its API is stable and both linux/amd64 and
   linux/arm64 benchmarks prove a material codec benefit.
@@ -104,22 +111,28 @@ that exact toolchain. Use the official
   Keep analysis HTTP UIs on loopback and never put secrets or peer addresses
   into goroutine labels.
 
-## Python tooling rules
+## No-Python tooling rule
 
-The only supported Python environment is Python 3.14.7 managed by uv 0.12.6
-from the root `.python-version`, `pyproject.toml`, and `uv.lock`.
+The repository owns no Python source, environment, manifest, or lock file.
+Quality gates and report generation are Go-owned. Do not add `pip`, `uv`,
+requirements files, `pyproject.toml`, or repository-owned Python entrypoints.
+The sole approved runtime exception is external ExaBGP: its checksum-pinned
+upstream source may run with Debian trixie's system Python inside its peer or
+integration image. Do not vendor that source or add a Python development
+environment, package installer, or custom Python launcher to this repository.
+All other Python container stages remain forbidden.
 
-- Keep one lock. Use the `peer`, `runtime`, and `quality` dependency groups;
-  never add a second requirements or lock file.
-- Never use `pip`, `pipx`, or `uv tool install`. Bootstrap uv from the
-  checksum-pinned release archive or digest-pinned OCI image.
-- Run repository Python entrypoints as `uv run --frozen`; CI and image builds
-  must use `uv sync --frozen`.
-- Run `make python-check` after changing Python code, pins, or invocation
-  paths. It executes Ruff, ty, Bandit, and pip-audit over the owned Python
-  file and verifies the exact interpreter.
-- ExaBGP is an external immutable interop image, not a dependency of the
-  repository Python lock.
+## Container base policy
+
+Use digest-pinned Debian trixie for application build and runtime images.
+Oracle Linux 10 is excluded from v1 OCI products and lifecycle qualification
+by maintainer decision on 2026-10-23. Keep generic RPM package generation;
+preserve historical v0.6 artifacts and release-line contracts.
+Do not substitute Alpine, bookworm or a scratch runtime. Scratch stages that
+only hold checksum-verified downloads contain no executable environment and
+are allowed. Remaining legacy and vendor NOS consumers stay unqualified until
+their separately tracked migration or explicit vendor decision is accepted;
+an upstream image name alone is not an exception.
 
 ## Podman Compose rules
 
@@ -134,13 +147,38 @@ from the root `.python-version`, `pyproject.toml`, and `uv.lock`.
 - Run the provider version check and render every tracked Compose file before
   live topology validation.
 
+## Planning
+
+- The project issue tracker is the sole source of executable plans, priorities, dependencies,
+  acceptance criteria, blockers and handoff/resume steps.
+- Do not create or maintain Markdown task/checklist plans. Canonical technical
+  requirements live in `docs/en/reference/production-contract.md` and its Russian
+  counterpart; roadmaps are dated status projections, not task authority.
+  Keep measured evidence separate from executable work items.
+- Read and update the relevant issue before implementation. A skill's
+  Markdown-plan workflow does not override this repository requirement.
+
 ## Release branches
 
+- Stable releases are prepared and published only after development and final
+  qualification are complete. Continue implementation in `dev`; do not create
+  release tags, drafts, or release artifacts during intermediate tasks.
+- Historical alpha exception: on 2026-10-30 under ADR-0008, `release/v1.0`
+  used experimental `v1.0.0-alpha.N` proposals (`latest=false`, no stable OCI
+  alias promotion). On 2026-11-27 under ADR-0014, the maintainer graduated
+  `release/v1.0` to stable `1.0.x` proposals coupled to GoBGP `v4.11.0`,
+  preserving the immutable `v1.0.0-alpha.1` tag and preview RFC boundaries.
+  Release Please creates the PR only; GoReleaser and the Go-owned verifier
+  publish verified drafts.
 - `dev` integrates the next product line and is never tagged for a stable
   release.
+- Acceptance records name the branch, commit, and evidence; closed `dev` tasks
+  do not prove stable delivery. Track each stable gap with an owner or record
+  source-supported inapplicability before release closeout.
 - `master` is the default branch and contains the latest accepted stable state.
 - Supported product lines use branches named `release/vMAJOR.MINOR`.
-- `release/v0.6` retains GoBGP v3.37.0 and the v0.6 public contracts.
+- `release/v1.0` couples to GoBGP v4.11.0 and the v1 public contracts;
+  `release/v0.6` retains GoBGP v3.37.0 and the v0.6 public contracts.
 - Fixes use `fix/vMAJOR.MINOR-*`, enter the supported line through reviewed
   pull requests, and are forward-ported separately when applicable.
 - After a supported patch is published, its accepted stable history and both
@@ -148,10 +186,10 @@ from the root `.python-version`, `pyproject.toml`, and `uv.lock`.
   are forward-ported to `dev` separately.
 - The release-branch ruleset must be active before each new matching release
   branch is created. The tag ruleset must be active before each new matching
-  tag is created, specifically before `v0.6.2`.
+  tag is created.
 - A release tag points to the exact reviewed release-branch commit and is
-  never moved, deleted, or reused. Existing `v0.1.0` through `v0.6.1` tags are
-  preserved unchanged.
+  never moved, deleted, or reused. Existing `v0.1.0` through `v0.6.4` and
+  `v1.0.0-alpha.1` tags are preserved unchanged.
 - GitHub Release assets must be complete and verified while the release is a
   draft, before immutable publication.
 - GitHub Release notes cover every maintenance section since the previous
@@ -160,10 +198,36 @@ from the root `.python-version`, `pyproject.toml`, and `uv.lock`.
   the immutable tag.
 
 ## Git
-- Commits: NEVER add Co-Authored-By or any AI/Claude mentions in commit messages
+
+- Commit messages and pull request titles/descriptions use English.
+- Documentation is English first under `docs/en/`, with complete Russian
+  counterparts under `docs/ru/`; conversation remains technical Russian.
+- Commits: preserve verified human identity; do not add assistant attribution
 - Module: `github.com/dantte-lp/gobfd` — owner dantte-lp, NOT wolfguard
 
+## Documentation contract
+
+- The canonical [documentation standard](docs/en/reference/documentation-standard.md)
+  and its [Russian translation](docs/ru/reference/documentation-standard.md)
+  define prose, Markdown, diagrams, source attribution and public changelog/status rules.
+- Keep internal task identifiers, tracker-specific commands, session transcripts
+  and tool-specific prompts out of current user documentation and release notes.
+  Scan identifiers as well as tracker names; preserve original historical evidence
+  before preparing publishable derivatives.
+- State verified behavior declaratively; write procedures as imperative steps
+  with prerequisites, expected results and rollback where a change needs one.
+- Keep plain Markdown, existing document paths and useful link anchors.
+  Use compact tables for values and Mermaid for ownership, packet flow and
+  lifecycle; use the installed `um-docs` style and diagram skills.
+- Link technical claims to repository source, exact RFC sections and official
+  vendor manuals. Name the platform and NOS scope; a vendor document is not
+  a GoBFD interoperability receipt.
+- Preserve historical measurements, published changelog history, legal text,
+  verbatim RFCs and third-party material. Keep dated evidence separate from
+  current operational references and executable issue-tracker plans.
+
 ## Important: don't
+
 - NEVER modify generated files in `pkg/bfdpb/` — regenerate with `buf generate`
 - NEVER use `unsafe` package — this is a network daemon handling untrusted input
 - NEVER skip error checks on socket operations in `internal/netio/`

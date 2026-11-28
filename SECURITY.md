@@ -1,133 +1,71 @@
-# Security Policy
+# Security policy
 
-## Public Policy Files
+## Private disclosure
 
-| File | Purpose |
-|---|---|
-| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community behavior and enforcement policy |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution workflow and validation gates |
-| [SUPPORT.md](SUPPORT.md) | Non-security support routing |
-| [GOVERNANCE.md](GOVERNANCE.md) | Maintainer and release governance |
+Report vulnerabilities through [GitHub private security advisories](https://github.com/dantte-lp/gobfd/security/advisories/new).
+Do not publish exploit details, credentials or packet captures containing
+secrets in a public issue. Include the affected commit/version, enabled
+profile, deployment boundary, reproducible input, impact and mitigation.
 
-## Reporting a Vulnerability
+The maintainer coordinates disclosure. Reporter acknowledgement follows the
+reporter's disclosure preference. [Support](SUPPORT.md) handles non-security
+defects; [Maintainers](MAINTAINERS.md) identifies release and security ownership.
 
-If you discover a security vulnerability in GoBFD, please report it
-responsibly. **Do not open a public GitHub issue for security vulnerabilities.**
+## Security boundaries
 
-Instead, please use [GitHub Security Advisories](https://github.com/dantte-lp/gobfd/security/advisories/new)
-to report the vulnerability privately.
+| Boundary | Required control | Reference |
+|:---|:---|:---|
+| Untrusted BFD packets | Validate framing, authentication, sequence window and transport metadata | [Protocol](docs/en/02-protocol.md), [packet parser](internal/bfd/packet.go) |
+| Local management | Authorize the peer principal; restrict the Unix socket | [Security manual](docs/en/15-security.md) |
+| Remote management | Configure mTLS and recognized principal policy | [Management configuration](docs/en/03-configuration.md) |
+| Metrics and diagnostics | Keep unauthenticated metrics scoped; protect debug data | [Monitoring](docs/en/07-monitoring.md) |
+| Optional GoBGP API | Restrict its network exposure and configure TLS for remote access | [Integrations](docs/en/11-integrations.md) |
+| Build dependencies | Scan runtime and tools independently; retain raw results | [Dependency risk](docs/en/reference/dependency-risk.md) |
 
-When reporting, please include:
+Handwritten runtime code does not use `unsafe`; generated protocol bindings
+retain their generator's implementation. Regenerate bindings rather than
+editing them. Fuzz tests and static-analysis checks complement runtime
+qualification; their presence alone does not establish security acceptance.
 
-- Description of the vulnerability
-- Steps to reproduce (if applicable)
-- Affected versions
-- Potential impact
+## Dependency exceptions
 
-## Scope
+The executable audit policy is [scripts/vuln-audit.go](scripts/vuln-audit.go)
+and [dependency risk](docs/en/reference/dependency-risk.md). On `release/v1.0`
+(`github.com/osrg/gobgp/v4` `v4.11.0`, `golang.org/x/crypto` `v0.59.0`),
+`scripts/vuln-audit.go` carries zero runtime, tools, `gopls` or Syft allowlist
+entries (`GO-2026-4736` and `GO-2026-5932` are retired) and fails if
+`github.com/osrg/gobgp/v4/pkg/server`, `golang.org/x/crypto/openpgp`,
+`github.com/docker/distribution` or `rsc.io/pdf` enters a selected package
+graph.
 
-GoBFD is a network protocol daemon that processes untrusted input from the
-network. Security-relevant areas include:
+The separately audited GoReleaser `v2.20.3` publisher binary retains bounded
+`COMPONENT_NOT_PRESENT` and `FIXED_SOURCE_RANGE` dispositions through
+`2026-12-31` verified against its compiled ELF `BuildInfo` and binary
+`govulncheck` SBOM. The `release/v0.6` GoBGP `v3.37.0` line retains a separate
+maintainer disposition; `release/v1.0` does not alter `release/v0.6`. Run a
+fresh candidate audit before release acceptance.
 
-- **BFD packet parsing** (`internal/bfd/packet.go`): Buffer handling,
-  length validation, malformed packet handling
-- **Authentication** (`internal/bfd/auth.go`): Sequence number validation,
-  HMAC verification, key management
-- **Raw socket operations** (`internal/netio/`): TTL validation (GTSM),
-  interface binding, privilege management
-- **gRPC API** (`internal/server/`): Input validation, authorization
+Reject reachable affected symbols, disallowed package findings, unexpected
+modules, unknown scanners, expired entries and stale entries without a
+matching finding. Remove an exception when its original module-only finding
+no longer exists. Keep runtime and tools scanner output and SBOMs separate.
 
-## Security Measures
+## Protocol cryptography
 
-- The `unsafe` package is never used
-- All packet parsing uses bounds-checked operations via `encoding/binary`
-- Fuzz testing is implemented for the BFD packet parser
-- `gosec` linter runs with `audit: true` in CI
-- Semgrep OSS can be run locally with `make semgrep`; Pro scans require
-  `semgrep login` and the Semgrep Pro Engine (`make semgrep-pro`)
-- `scripts/vuln-audit.go` runs `govulncheck` and `osv-scanner` in CI to detect
-  known vulnerabilities in dependencies
-- TTL=255 (GTSM, RFC 5082) is enforced on all single-hop BFD packets
-- Packet receive paths use bounded packet buffers and release pooled buffers
-  explicitly after demultiplexing
-- VXLAN/Geneve decapsulation drops expected malformed or non-management packets
-  at debug level to avoid warning-log amplification from untrusted tunnel traffic
-- HAProxy agent-check connections have bounded concurrency and write deadlines
-- Dynamic unsolicited BFD sessions reserve and release quota atomically, and
-  passive Down sessions are cleaned up after `unsolicited.cleanup_timeout`
-- Optional GoBGP integration bounds each external API action with
-  `gobgp.action_timeout`
-- Optional GoBGP integration supports TLS via `gobgp.tls.enabled`,
-  `gobgp.tls.ca_file`, and `gobgp.tls.server_name`; plaintext is intended only
-  for loopback or trusted management networks, and plaintext non-loopback
-  endpoints emit a startup warning
+RFC 5880 authentication interoperates with its MD5/SHA1 algorithms. Treat
+these as protocol compatibility mechanisms, not modern general-purpose
+cryptography or encryption. Match the peer's supported mode and key ID;
+prefer the tighter meticulous sequence policy where compatible. Protect
+session keys and retain an independently trusted network boundary.
 
-## Known Dependency Advisories
+[Authentication rules](docs/en/02-protocol.md) define packet acceptance;
+[deployment security](docs/en/15-security.md) defines principal and secret
+handling. A TTL/Hop Limit check does not authenticate an on-link sender.
 
-### GO-2026-4736 — GoBGP NEXT_HOP denial of service
+## Supported lines
 
-`github.com/osrg/gobgp/v3 v3.37.0` is affected by
-[GO-2026-4736](https://pkg.go.dev/vuln/GO-2026-4736), a denial-of-service
-advisory in GoBGP's handling of the BGP NEXT_HOP path attribute. As of
-2026-08-20, the advisory does not list a fixed GoBGP v3 version.
-
-GoBFD uses GoBGP only for the optional GoBGP integration path. Until an upstream
-fix is available, operators should keep the GoBGP gRPC endpoint bound to
-localhost or another trusted management network. For remote GoBGP API endpoints,
-enable `gobgp.tls.enabled` and configure `gobgp.tls.ca_file` / `server_name`.
-Do not expose plaintext GoBGP gRPC to untrusted peers.
-
-The allowlist entry expires on 2026-09-30. Remove it after upgrading GoBGP to a
-fixed release.
-
-### GO-2026-5932 — x/crypto/openpgp denial of service
-
-`golang.org/x/crypto v0.55.0` is reported at module level for
-[GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932). The advisory affects the
-unmaintained `golang.org/x/crypto/openpgp` package, which is absent from GoBFD's
-build dependency graph.
-
-The module-inventory exception expires on 2026-09-30. It accepts only findings
-for the exact `golang.org/x/crypto` module from `govulncheck` or `osv-scanner`.
-A reachable symbol, an `openpgp` package finding, a package mismatch, or an
-unknown scanner fails the audit. Do not add an `openpgp` import; remove the
-exception when the module no longer produces the inventory finding.
-
-CI allowlists only `GO-2026-4736` and the module-only `GO-2026-5932` exception
-in `scripts/vuln-audit.go`. Any other advisory, expired entry, package mismatch,
-unknown scanner, or disallowed reachability reported by the scanners fails the
-vulnerability audit.
-
-CI scans `go.mod` and the isolated `tools/go.mod` as separate OSV inputs. It
-retains raw runtime/tools vulnerability JSON and separate CycloneDX SBOMs in
-the `dependency-security-reports` artifact so tool-only findings are not
-attributed to the shipped daemon.
-
-## Accepted Protocol Exceptions
-
-### MD5 and SHA1 in BFD authentication
-
-GoBFD implements Keyed MD5, Meticulous Keyed MD5, Keyed SHA1, and Meticulous
-Keyed SHA1 because they are the hash-based authentication types defined by RFC
-5880 Sections 6.7.3 and 6.7.4. Static analyzers such as Gosec and Semgrep flag
-these primitives as weak cryptography, which is correct for new protocol
-designs, but replacing them would break RFC interoperability.
-
-Operational guidance:
-
-- Prefer SHA1 authentication over MD5 when peer compatibility allows.
-- Prefer meticulous authentication modes when a tighter sequence-number replay
-  window is required.
-- Keep BFD sessions inside an already trusted routing/control-plane boundary;
-  BFD authentication does not provide encryption.
-
-## Supported Versions
-
-| Version | Supported |
-|---------|-----------|
-| Latest  | Yes       |
-
-## Acknowledgments
-
-We appreciate responsible disclosure and will acknowledge reporters in
-release notes (unless anonymity is requested).
+Use the latest published release unless its line has a separately documented
+support boundary. `release/v1.0` couples to GoBGP `v4.11.0` and the v1 public
+contracts; `release/v0.6` retains GoBGP `v3.37.0` and its v0.6 contracts.
+`dev` and preview profiles do not inherit stable-release acceptance.
+Consult [release governance](GOVERNANCE.md) and the [dated status](docs/en/roadmap.md).

@@ -1,0 +1,203 @@
+package bfd
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+)
+
+// DrainIncompleteError identifies a drain stage that did not finish. Completion
+// confirms local writes and a notification window, not peer receipt.
+type DrainIncompleteError struct {
+	Stage  string
+	Reason string
+	Err    error
+	// SendErr is the last failed AdminDown write: a local failure that the
+	// peer did not cause.
+	SendErr error
+}
+
+func (e *DrainIncompleteError) Error() string {
+	if e.SendErr != nil {
+		return fmt.Sprintf("AdminDown drain incomplete (%s, %s): %v; last AdminDown write: %v",
+			e.Stage, e.Reason, e.Err, e.SendErr)
+	}
+	return fmt.Sprintf("AdminDown drain incomplete (%s, %s): %v", e.Stage, e.Reason, e.Err)
+}
+func (e *DrainIncompleteError) Unwrap() error { return e.Err }
+
+// Drain reasons distinguish local constraints from peer constraints.
+const (
+	drainReasonPassivePeerUnknown  = "passive peer discriminator unknown"
+	drainReasonPeerSuppressesTX    = "peer suppresses periodic transmission"
+	drainReasonLocalBindingPending = "local interface binding pending during drain"
+)
+
+// PeerAttributed reports whether the drain ran out of time only because the
+// peer never supplied a discriminator or suppresses periodic transmission
+// (RFC 5880 Section 6.8.7), with no local admission, binding, commit, owner or write
+// failure.
+func (e *DrainIncompleteError) PeerAttributed() bool {
+	if e.SendErr != nil {
+		return false
+	}
+	waiting := e.Stage == "transmission" || e.Stage == "notification window"
+	peer := e.Reason == drainReasonPassivePeerUnknown || e.Reason == drainReasonPeerSuppressesTX
+	return waiting && peer && errors.Is(e.Err, context.DeadlineExceeded)
+}
+
+type adminDrainProgress struct {
+	firstSent         chan struct{}
+	firstSentAt       time.Time
+	maxWindow         time.Duration
+	until             time.Time
+	sendErr           error
+	hadPendingBinding bool // Recovery does not restore peer-only attribution for this drain.
+}
+
+func (s *Session) drainAdminDown(ctx context.Context) error {
+	s.mu.Lock()
+	if s.adminDrain == nil {
+		binding := s.receiveBinding.Load()
+		s.adminDrain = &adminDrainProgress{
+			firstSent:         make(chan struct{}),
+			hadPendingBinding: binding != nil && binding.pending,
+		}
+	}
+	progress := s.adminDrain
+	complete := s.adminDrainCompleteLocked()
+	stopped := s.updateClosed
+	s.mu.Unlock()
+	if complete {
+		return nil
+	}
+	if stopped {
+		return s.incompleteDrain("owner stopped", ErrSessionStopped)
+	}
+	receipt, err := s.enqueueAdminDown(ctx)
+	if err != nil {
+		return s.incompleteDrain("admission", err)
+	}
+	if err := s.waitAdminDown(ctx, receipt); err != nil {
+		return s.incompleteDrain("commit", err)
+	}
+	return s.waitAdminDrain(ctx, progress)
+}
+
+func (s *Session) waitAdminDrain(ctx context.Context, progress *adminDrainProgress) error {
+	timer := time.NewTimer(time.Hour)
+	timer.Stop()
+	defer timer.Stop()
+	for {
+		s.mu.RLock()
+		until := progress.until
+		complete := s.adminDrainCompleteLocked()
+		stopped := s.updateClosed
+		s.mu.RUnlock()
+		if complete {
+			return nil
+		}
+		if stopped {
+			return s.incompleteDrain("notification window", ErrSessionStopped)
+		}
+		stage := "transmission"
+		var wake <-chan time.Time
+		var first <-chan struct{}
+		if until.IsZero() {
+			first = progress.firstSent
+		} else {
+			stage = "notification window"
+			timer.Reset(time.Until(until))
+			wake = timer.C
+		}
+		var waitErr error
+		select {
+		case <-first:
+		case <-wake:
+		case <-s.ownerDone:
+			waitErr = ErrSessionStopped
+		case <-ctx.Done():
+			waitErr = ctx.Err()
+		}
+		if waitErr != nil {
+			return s.incompleteDrain(stage, waitErr)
+		}
+	}
+}
+
+func (s *Session) adminDrainCompleteLocked() bool {
+	return s.adminDrain != nil && !s.adminDrain.until.IsZero() && !time.Now().Before(s.adminDrain.until)
+}
+
+func (s *Session) incompleteDrain(stage string, err error) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.adminDrainCompleteLocked() {
+		return nil
+	}
+	reason := "owner or caller stopped"
+	switch {
+	case s.adminDrain != nil && s.adminDrain.hadPendingBinding:
+		reason = drainReasonLocalBindingPending
+	case s.role == RolePassive && s.remoteDiscr == 0:
+		reason = drainReasonPassivePeerUnknown
+	case s.remoteMinRxInterval == 0:
+		reason = drainReasonPeerSuppressesTX
+	}
+	var sendErr error
+	if s.adminDrain != nil {
+		sendErr = s.adminDrain.sendErr
+	}
+	return &DrainIncompleteError{Stage: stage, Reason: reason, Err: err, SendErr: sendErr}
+}
+
+// The negotiated tuple and its extended drain deadline share one lock.
+func (s *Session) updateAdminDrainLocked(now time.Time) {
+	progress := s.adminDrain
+	if progress == nil || s.State() != StateAdminDown {
+		return
+	}
+	remoteBound := time.Duration(s.detectMult) * max(s.advertisedTimers().TX, s.remoteMinRxInterval)
+	localBound := remoteBound
+	if s.remoteDetectMult != 0 {
+		localBound = time.Duration(s.remoteDetectMult) * max(s.requiredMinRxInterval, s.remoteDesiredMinTxInterval)
+	}
+	window := max(localBound, remoteBound)
+	if window <= progress.maxWindow {
+		return
+	}
+	progress.maxWindow = window
+	if !progress.firstSentAt.IsZero() {
+		until := now.Add(window)
+		if until.After(progress.until) {
+			progress.until = until
+		}
+	}
+}
+
+// recordAdminDrainSendError keeps a failed AdminDown write so that an
+// incomplete drain is reported as local, not as the peer's. The owner
+// goroutine calls it after any failed control write.
+func (s *Session) recordAdminDrainSendError(err error) {
+	if s.cachedState != StateAdminDown || s.LocalDiag() != DiagAdminDown {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.adminDrain != nil {
+		s.adminDrain.sendErr = err
+	}
+}
+
+func (s *Session) recordAdminDrainSend(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updateAdminDrainLocked(now)
+	progress := s.adminDrain
+	if progress != nil && progress.firstSentAt.IsZero() {
+		progress.firstSentAt = now
+		progress.until = now.Add(progress.maxWindow)
+		close(progress.firstSent)
+	}
+}

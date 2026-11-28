@@ -5,26 +5,29 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+
+	"github.com/dantte-lp/gobfd/internal/bfd"
+	"github.com/dantte-lp/gobfd/internal/overlay"
 )
 
 // OverlayBackendType selects the owner-specific overlay dataplane integration.
-type OverlayBackendType string
+type OverlayBackendType = overlay.Backend
 
 const (
 	// OverlayBackendUserspaceUDP selects the implemented userspace UDP backend.
-	OverlayBackendUserspaceUDP OverlayBackendType = "userspace-udp"
+	OverlayBackendUserspaceUDP OverlayBackendType = overlay.BackendUserspaceUDP
 	// OverlayBackendKernel selects the reserved Linux kernel backend.
-	OverlayBackendKernel OverlayBackendType = "kernel"
+	OverlayBackendKernel OverlayBackendType = overlay.BackendKernel
 	// OverlayBackendOVS selects the reserved Open vSwitch backend.
-	OverlayBackendOVS OverlayBackendType = "ovs"
+	OverlayBackendOVS OverlayBackendType = overlay.BackendOVS
 	// OverlayBackendOVN selects the reserved OVN backend.
-	OverlayBackendOVN OverlayBackendType = "ovn"
+	OverlayBackendOVN OverlayBackendType = overlay.BackendOVN
 	// OverlayBackendCilium selects the reserved Cilium backend.
-	OverlayBackendCilium OverlayBackendType = "cilium"
+	OverlayBackendCilium OverlayBackendType = overlay.BackendCilium
 	// OverlayBackendCalico selects the reserved Calico backend.
-	OverlayBackendCalico OverlayBackendType = "calico"
+	OverlayBackendCalico OverlayBackendType = overlay.BackendCalico
 	// OverlayBackendNSX selects the reserved NSX backend.
-	OverlayBackendNSX OverlayBackendType = "nsx"
+	OverlayBackendNSX OverlayBackendType = overlay.BackendNSX
 )
 
 var (
@@ -43,6 +46,9 @@ type VXLANOverlayBackendConfig struct {
 	ManagementVNI uint32
 	SourcePort    uint16
 	Logger        *slog.Logger
+	Scopes        []bfd.TransportScope
+	// ReadBufferSize and WriteBufferSize request kernel UDP buffers; zero uses OS defaults.
+	ReadBufferSize, WriteBufferSize int
 }
 
 // GeneveOverlayBackendConfig configures a Geneve BFD overlay backend.
@@ -52,74 +58,51 @@ type GeneveOverlayBackendConfig struct {
 	VNI        uint32
 	SourcePort uint16
 	Logger     *slog.Logger
+	Scopes     []bfd.TransportScope
+	// ReadBufferSize and WriteBufferSize request kernel UDP buffers; zero uses OS defaults.
+	ReadBufferSize, WriteBufferSize int
 }
 
 // NewVXLANOverlayBackend creates the configured VXLAN BFD overlay backend.
 func NewVXLANOverlayBackend(cfg VXLANOverlayBackendConfig) (OverlayConn, error) {
-	backend, err := normalizeOverlayBackend(cfg.Backend)
-	if err != nil {
-		return nil, fmt.Errorf("vxlan overlay backend %q: %w", cfg.Backend, err)
+	backend, recognized := overlay.ParseBackend(string(cfg.Backend))
+	if !recognized {
+		return nil, fmt.Errorf("vxlan overlay backend %q: %w", cfg.Backend, ErrInvalidOverlayBackend)
 	}
 	if !cfg.LocalAddr.IsValid() {
 		return nil, fmt.Errorf("vxlan local address: %w", ErrInvalidOverlayBackendInput)
 	}
 
-	switch backend {
-	case OverlayBackendUserspaceUDP:
-		return NewVXLANConn(cfg.LocalAddr, cfg.ManagementVNI, cfg.SourcePort, overlayBackendLogger(cfg.Logger))
-	case OverlayBackendKernel,
-		OverlayBackendOVS,
-		OverlayBackendOVN,
-		OverlayBackendCilium,
-		OverlayBackendCalico,
-		OverlayBackendNSX:
+	if !backend.Implemented() {
 		return nil, fmt.Errorf("vxlan overlay backend %q: %w", backend, ErrUnsupportedOverlayBackend)
-	default:
-		return nil, fmt.Errorf("vxlan overlay backend %q: %w", backend, ErrInvalidOverlayBackend)
 	}
+	vni := cfg.ManagementVNI
+	if len(cfg.Scopes) > 0 {
+		vni = 0
+	}
+	return newVXLANConn(cfg.LocalAddr, vni, cfg.SourcePort, cfg.Scopes,
+		overlayBackendLogger(cfg.Logger), cfg.ReadBufferSize, cfg.WriteBufferSize)
 }
 
 // NewGeneveOverlayBackend creates the configured Geneve BFD overlay backend.
 func NewGeneveOverlayBackend(cfg GeneveOverlayBackendConfig) (OverlayConn, error) {
-	backend, err := normalizeOverlayBackend(cfg.Backend)
-	if err != nil {
-		return nil, fmt.Errorf("geneve overlay backend %q: %w", cfg.Backend, err)
+	backend, recognized := overlay.ParseBackend(string(cfg.Backend))
+	if !recognized {
+		return nil, fmt.Errorf("geneve overlay backend %q: %w", cfg.Backend, ErrInvalidOverlayBackend)
 	}
 	if !cfg.LocalAddr.IsValid() {
 		return nil, fmt.Errorf("geneve local address: %w", ErrInvalidOverlayBackendInput)
 	}
 
-	switch backend {
-	case OverlayBackendUserspaceUDP:
-		return NewGeneveConn(cfg.LocalAddr, cfg.VNI, cfg.SourcePort, overlayBackendLogger(cfg.Logger))
-	case OverlayBackendKernel,
-		OverlayBackendOVS,
-		OverlayBackendOVN,
-		OverlayBackendCilium,
-		OverlayBackendCalico,
-		OverlayBackendNSX:
+	if !backend.Implemented() {
 		return nil, fmt.Errorf("geneve overlay backend %q: %w", backend, ErrUnsupportedOverlayBackend)
-	default:
-		return nil, fmt.Errorf("geneve overlay backend %q: %w", backend, ErrInvalidOverlayBackend)
 	}
-}
-
-func normalizeOverlayBackend(backend OverlayBackendType) (OverlayBackendType, error) {
-	if backend == "" {
-		return OverlayBackendUserspaceUDP, nil
+	vni := cfg.VNI
+	if len(cfg.Scopes) > 0 {
+		vni = 0
 	}
-	switch backend {
-	case OverlayBackendUserspaceUDP,
-		OverlayBackendKernel,
-		OverlayBackendOVS,
-		OverlayBackendOVN,
-		OverlayBackendCilium,
-		OverlayBackendCalico,
-		OverlayBackendNSX:
-		return backend, nil
-	default:
-		return "", ErrInvalidOverlayBackend
-	}
+	return newGeneveConn(cfg.LocalAddr, vni, cfg.SourcePort, cfg.Scopes,
+		overlayBackendLogger(cfg.Logger), cfg.ReadBufferSize, cfg.WriteBufferSize)
 }
 
 func overlayBackendLogger(logger *slog.Logger) *slog.Logger {

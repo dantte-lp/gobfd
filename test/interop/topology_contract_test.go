@@ -3,6 +3,7 @@ package interop_test
 import (
 	"bytes"
 	"context"
+	"debug/buildinfo"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,8 +16,11 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/dantte-lp/gobfd/test/internal/interopproject"
 )
 
 const holoImage = "ghcr.io/holo-routing/holo-bundle@sha256:" +
@@ -95,6 +99,8 @@ type composeRaw struct {
 }
 
 type composeGobfdService struct {
+	composeResourceLimits `yaml:",inline"`
+
 	Build         composeBuild                 `yaml:"build"`
 	ContainerName string                       `yaml:"container_name"`
 	User          string                       `yaml:"user"`
@@ -106,6 +112,8 @@ type composeGobfdService struct {
 }
 
 type composeHoloService struct {
+	composeResourceLimits `yaml:",inline"`
+
 	Image         string                       `yaml:"image"`
 	ContainerName string                       `yaml:"container_name"`
 	CapAdd        []string                     `yaml:"cap_add"`
@@ -115,6 +123,8 @@ type composeHoloService struct {
 }
 
 type composeHoloConfigService struct {
+	composeResourceLimits `yaml:",inline"`
+
 	Image         string                       `yaml:"image"`
 	ContainerName string                       `yaml:"container_name"`
 	Volumes       []string                     `yaml:"volumes"`
@@ -122,6 +132,13 @@ type composeHoloConfigService struct {
 	Entrypoint    string                       `yaml:"entrypoint"`
 	Command       []string                     `yaml:"command"`
 	Networks      map[string]composeAttachment `yaml:"networks"`
+}
+
+type composeResourceLimits struct {
+	CPUs      int    `yaml:"cpus"`
+	Memory    string `yaml:"mem_limit"`
+	Swap      string `yaml:"memswap_limit"`
+	PidsLimit int    `yaml:"pids_limit"`
 }
 
 type composeBuild struct {
@@ -233,6 +250,242 @@ func TestHoloTopologyContract(t *testing.T) {
 	}
 }
 
+func TestBGPTopologyContract(t *testing.T) {
+	t.Parallel()
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	compose := readContractFile(t, "BGP Compose", filepath.Join(root, "test/interop-bgp/compose.yml"))
+	var topology composeRaw
+	if err := yaml.Unmarshal([]byte(compose), &topology); err != nil {
+		t.Fatalf("decode BGP Compose: %v", err)
+	}
+	assertEqual(t, "BGP service count", len(topology.Services), 7)
+	for _, peer := range []string{"gobgp", "exabgp"} {
+		var service struct {
+			Image string `yaml:"image"`
+			Build struct {
+				Context    string            `yaml:"context"`
+				Dockerfile string            `yaml:"dockerfile"`
+				Args       map[string]string `yaml:"args"`
+			} `yaml:"build"`
+		}
+		node := topology.Services[peer]
+		if err := node.Decode(&service); err != nil {
+			t.Fatalf("decode BGP peer %s: %v", peer, err)
+		}
+		assertEqual(t, peer+" external image", service.Image, "")
+		assertEqual(t, peer+" shared context", service.Build.Context, "../interop/"+peer)
+		assertEqual(t, peer+" recipe", service.Build.Dockerfile, "Containerfile")
+		assertEqual(t, peer+" provenance", service.Build.Args, map[string]string{
+			"VCS_REF": "${VCS_REF:-}", "BUILD_DATE": "${BUILD_DATE:-}",
+		})
+		recipe := readContractFile(t, peer+" recipe", filepath.Join(root, "test/interop", peer, "Containerfile"))
+		assertContainsAll(t, peer+" trixie artifact", recipe, []string{
+			"FROM docker.io/library/debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0",
+			`org.opencontainers.image.revision="${VCS_REF}"`,
+			`org.opencontainers.image.created="${BUILD_DATE}"`,
+		})
+		if peer == "gobgp" {
+			assertContainsAll(t, peer+" source build", recipe, []string{
+				"FROM docker.io/library/golang:1.27.4-trixie@sha256:" +
+					"430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee",
+				"https://codeload.github.com/osrg/gobgp/tar.gz/53ceb78fe284018ce83a92f3039198f0a86dc823",
+				"ADD --checksum=sha256:9706526b6fb76b8d6c4de379755819bed41be312e155f59e85baf55f9f3259a8",
+				"CGO_ENABLED=0", `"go", "build", "-trimpath"`, `"./cmd/gobgp", "./cmd/gobgpd"`,
+				"COPY --from=builder /src/LICENSE /usr/share/licenses/gobgp/LICENSE",
+			})
+		} else {
+			assertContainsAll(t, peer+" source runtime", recipe, []string{
+				"https://codeload.github.com/Exa-Networks/exabgp/tar.gz/b70054ffdf210e3a6001e1dd282d08309d4552dd",
+				"ADD --checksum=sha256:d257c151ee3b3479d70c46c0de1561747b6e02d11d65d2abf0ea6f0acb93ce84",
+				"PYTHONPATH=/opt/exabgp/src", `"python3", "iproute2", "dumb-init"`,
+				`ENTRYPOINT ["/usr/bin/dumb-init", "--", "python3", "-m", "exabgp"]`,
+				"exabgp_daemon_user=exa", "exabgp_daemon_daemonize=false",
+			})
+			for _, forbidden := range []string{"RUN pip", "RUN uv", "CMD [", "ENTRYPOINT [\"/bin/sh\""} {
+				if strings.Contains(recipe, forbidden) {
+					t.Errorf("ExaBGP recipe retains forbidden runtime contract %q", forbidden)
+				}
+			}
+		}
+	}
+	for _, peer := range []struct{ file, service, context string }{
+		{"test/interop/compose.yml", "bird3", "./bird3"},
+		{"test/interop-bgp/compose.yml", "bird3-bgp", "../interop/bird3"},
+	} {
+		var service struct {
+			Build struct {
+				Context string            `yaml:"context"`
+				Args    map[string]string `yaml:"args"`
+			} `yaml:"build"`
+		}
+		var peerTopology composeRaw
+		peerCompose := readContractFile(t, peer.file, filepath.Join(root, peer.file))
+		if err := yaml.Unmarshal([]byte(peerCompose), &peerTopology); err != nil {
+			t.Fatalf("decode %s: %v", peer.file, err)
+		}
+		node := peerTopology.Services[peer.service]
+		if err := node.Decode(&service); err != nil {
+			t.Fatalf("decode %s: %v", peer.service, err)
+		}
+		assertEqual(t, peer.service+" shared context", service.Build.Context, peer.context)
+		assertEqual(t, peer.service+" provenance", service.Build.Args, map[string]string{
+			"VCS_REF": "${VCS_REF:-}", "BUILD_DATE": "${BUILD_DATE:-}",
+		})
+	}
+	for name, node := range topology.Services {
+		var limits composeResourceLimits
+		if err := node.Decode(&limits); err != nil {
+			t.Fatalf("decode %s resource limits: %v", name, err)
+		}
+		assertEqual(t, name+" limits", limits, composeResourceLimits{
+			CPUs: 1, Memory: "256m", Swap: "256m", PidsLimit: 128,
+		})
+	}
+	var frr composeGobfdService
+	node := topology.Services["frr-bgp"]
+	if err := node.Decode(&frr); err != nil {
+		t.Fatalf("decode BGP FRR: %v", err)
+	}
+	assertEqual(t, "BGP FRR recipe", frr.Build, composeBuild{Context: "../interop/frr", Dockerfile: "Containerfile"})
+	assertEqual(t, "BGP FRR daemons", frr.Command, []string{"mgmtd", "zebra", "bgpd", "bfdd", "staticd"})
+	assertEqual(t, "BGP FRR read-only config", frr.Volumes, []string{
+		"./frr/daemons:/etc/frr/daemons:ro,z", "./frr/frr.conf:/etc/frr/frr.conf:ro,z",
+	})
+	topologySource := readContractFile(t, "BGP testcontainers",
+		filepath.Join(root, "test/interop-bgp/testcontainers_topology_test.go"))
+	assertContainsAll(t, "BGP testcontainers contract", topologySource, []string{
+		`filepath.Join(root, "test/interop/frr")`,
+		`filepath.Join(root, "test/interop/gobgp")`,
+		`filepath.Join(root, "test/interop/exabgp")`,
+		`Image:  gobgpImage,`, `Image:  exabgpImage,`,
+		`[]string{"python3", "-m", "exabgp", "version"}`,
+		`interopproject.BuildMetadata(ctx, root, os.Getenv("GOBFD_BUILD_REVISION"))`,
+		`[]string{"mgmtd", "zebra", "bgpd", "bfdd", "staticd"}`,
+		`version: "10.7.1"`,
+		"options.CPUPeriod = 100000", "options.CPUQuota = 200000",
+		"options.Memory = 2 << 30", "options.MemorySwap = 2 << 30",
+		"hostConfig.NanoCPUs = 1_000_000_000", "hostConfig.Memory = 256 << 20",
+		"hostConfig.MemorySwap = hostConfig.Memory", "hostConfig.PidsLimit = new(int64(128))",
+	})
+	build := contractSection(t, topologySource, "func buildBGPTestImage(", "func prepareBGPTestGoContext(")
+	assertOrdered(t, "BGP image cleanup before build", build, []string{
+		"registerBGPTestImageCleanup(ctx, t, endpoint, imageName, resources)", "dockerProvider.BuildImage(ctx,",
+	})
+	for _, contents := range []string{compose, topologySource} {
+		for _, legacy := range []string{"quay.io/frrouting/frr", "docker.io/jauderho/gobgp", "ghcr.io/exa-networks/exabgp"} {
+			if strings.Contains(contents, legacy) {
+				t.Errorf("BGP topology retains legacy peer image %s", legacy)
+			}
+		}
+	}
+	makefile := readContractFile(t, "Makefile", filepath.Join(root, "Makefile"))
+	assertContainsAll(t, "BGP manual ownership", makefile, []string{
+		"interop-bgp-up: interop-project-validate", "interop-bgp-down: interop-project-validate",
+		"interop-bgp-logs: interop-project-validate", "interop-bgp-test: interop-project-validate",
+		"INTEROP_PROJECT_KIND=bgp", `INTEROP_BGP_PROJECT_NAME`,
+	})
+	manual := contractSection(t, makefile, "interop-bgp-up:", "# === RFC Interop Tests")
+	if strings.Contains(manual, "$(INTEROP_BGP_DC)") {
+		t.Error("BGP manual lifecycle bypasses interopctl")
+	}
+}
+
+func TestRFCTopologyContract(t *testing.T) {
+	t.Parallel()
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	compose := readContractFile(t, "RFC Compose", filepath.Join(root, "test/interop-rfc/compose.yml"))
+	var topology composeRaw
+	if err := yaml.Unmarshal([]byte(compose), &topology); err != nil {
+		t.Fatalf("decode RFC Compose: %v", err)
+	}
+	assertEqual(t, "RFC service count", len(topology.Services), 8)
+	for name, node := range topology.Services {
+		var limits composeResourceLimits
+		if err := node.Decode(&limits); err != nil {
+			t.Fatalf("decode %s resource limits: %v", name, err)
+		}
+		assertEqual(t, name+" limits", limits, composeResourceLimits{
+			CPUs: 1, Memory: "256m", Swap: "256m", PidsLimit: 128,
+		})
+	}
+	for _, peer := range []struct{ name, directory, recipe string }{
+		{name: "frr-rfc", directory: "frr", recipe: "frr"},
+		{name: "frr-rfc-unsolicited", directory: "frr-unsolicited", recipe: "frr"},
+		{name: "frr-rfc-bgp", directory: "frr-bgp", recipe: "frr"},
+		{name: "gobgp-rfc", directory: "gobgp", recipe: "gobgp"},
+	} {
+		var service struct {
+			Image   string   `yaml:"image"`
+			Command []string `yaml:"command"`
+			Volumes []string `yaml:"volumes"`
+			Build   struct {
+				Context    string            `yaml:"context"`
+				Dockerfile string            `yaml:"dockerfile"`
+				Args       map[string]string `yaml:"args"`
+			} `yaml:"build"`
+		}
+		node := topology.Services[peer.name]
+		if err := node.Decode(&service); err != nil {
+			t.Fatalf("decode RFC peer %s: %v", peer.name, err)
+		}
+		assertEqual(t, peer.name+" external image", service.Image, "")
+		assertEqual(t, peer.name+" shared context", service.Build.Context, "../interop/"+peer.recipe)
+		assertEqual(t, peer.name+" recipe", service.Build.Dockerfile, "Containerfile")
+		assertEqual(t, peer.name+" provenance", service.Build.Args, map[string]string{
+			"VCS_REF": "${VCS_REF:-}", "BUILD_DATE": "${BUILD_DATE:-}",
+		})
+		if peer.recipe == "frr" {
+			daemons := []string{"mgmtd", "zebra", "bfdd", "staticd"}
+			if peer.directory == "frr-bgp" {
+				daemons = []string{"mgmtd", "zebra", "bgpd", "bfdd", "staticd"}
+			}
+			assertEqual(t, peer.name+" daemons", service.Command, daemons)
+			assertEqual(t, peer.name+" read-only config", service.Volumes, []string{
+				"./" + peer.directory + "/daemons:/etc/frr/daemons:ro,z",
+				"./" + peer.directory + "/frr.conf:/etc/frr/frr.conf:ro,z",
+			})
+			config := readContractFile(t, peer.name+" config",
+				filepath.Join(root, "test/interop-rfc", peer.directory, "frr.conf"))
+			assertContainsAll(t, peer.name+" config version", config, []string{"frr version 10.7.1"})
+		}
+	}
+	topologySource := readContractFile(t, "RFC testcontainers",
+		filepath.Join(root, "test/interop-rfc/testcontainers_topology_test.go"))
+	assertContainsAll(t, "RFC testcontainers contract", topologySource, []string{
+		`filepath.Join(root, "test/interop/frr")`, `filepath.Join(root, "test/interop/gobgp")`,
+		`interopproject.BuildMetadata(ctx, root, os.Getenv("GOBFD_BUILD_REVISION"))`,
+		`[]string{"mgmtd", "zebra", "bfdd", "staticd"}`, `if configDirectory == "frr-bgp"`,
+		`[]string{"mgmtd", "zebra", "bgpd", "bfdd", "staticd"}`, `version: "10.7.1"`,
+		`ContainerFilePath: "/etc/frr/frr.conf"`, "FileMode:          0o644",
+		"options.CPUPeriod = 100000", "options.CPUQuota = 200000",
+		"options.Memory = 2 << 30", "options.MemorySwap = 2 << 30",
+		"modifier(hostConfig)", "hostConfig.NanoCPUs = 1_000_000_000", "hostConfig.Memory = 256 << 20",
+		"hostConfig.MemorySwap = hostConfig.Memory", "hostConfig.PidsLimit = new(int64(128))",
+	})
+	build := contractSection(t, topologySource, "func buildRFCTestImage(", "func prepareRFCTestGoContext(")
+	assertOrdered(t, "RFC image cleanup before build", build, []string{
+		"registerRFCTestImageCleanup(ctx, t, endpoint, imageName, resources)", "dockerProvider.BuildImage(ctx,",
+	})
+	for _, contents := range []string{compose, topologySource} {
+		for _, legacy := range []string{"quay.io/frrouting/frr", "docker.io/jauderho/gobgp"} {
+			if strings.Contains(contents, legacy) {
+				t.Errorf("RFC topology retains legacy peer image %s", legacy)
+			}
+		}
+	}
+	makefile := readContractFile(t, "Makefile", filepath.Join(root, "Makefile"))
+	target := contractSection(t, makefile, "interop-rfc-testcontainers:", "interop-rfc-up:")
+	assertContainsAll(t, "RFC host build revision", target, []string{
+		`GOBFD_BUILD_REVISION="$(shell git rev-parse --verify HEAD^{commit})"`,
+	})
+}
+
 func TestInteropOperationalContract(t *testing.T) {
 	t.Parallel()
 
@@ -245,18 +498,18 @@ func TestInteropOperationalContract(t *testing.T) {
 		name string
 		path string
 	}{
-		{name: "legacy runner", path: filepath.Join(root, "test", "interop", "run.sh")},
 		{name: "Compose topology", path: filepath.Join(root, "test", "interop", "compose.yml")},
 		{name: "FRR configuration", path: filepath.Join(root, "test", "interop", "frr", "frr.conf")},
+		{name: "FRR image", path: filepath.Join(root, "test", "interop", "frr", "Containerfile")},
+		{name: "testcontainers topology", path: filepath.Join(root, "test", "interop", "testcontainers_topology_test.go")},
 		{name: "BIRD image", path: filepath.Join(root, "test", "interop", "bird3", "Containerfile")},
-		{name: "routing runner", path: filepath.Join(root, "test", "e2e", "routing", "run.sh")},
+		{name: "routing runner", path: filepath.Join(root, "test", "internal", "e2erunner", "routing.go")},
 		{name: "target inventory", path: filepath.Join(root, "test", "e2e", "targets.md")},
 		{name: "Makefile", path: filepath.Join(root, "Makefile")},
 		{name: "tagged Go helper", path: filepath.Join(root, "test", "interop", "interop_test.go")},
 		{name: "tagged BGP API helper", path: filepath.Join(root, "test", "interop-bgp", "podman_api_test.go")},
-		{name: "project guard", path: filepath.Join(root, "test", "interop", "project_guard.sh")},
-		{name: "project control", path: filepath.Join(root, "test", "interop", "projectctl.sh")},
-		{name: "gopls gate", path: filepath.Join(root, "scripts", "gopls-check.sh")},
+		{name: "project control", path: filepath.Join(root, "test", "internal", "interopproject", "controller.go")},
+		{name: "gopls gate", path: filepath.Join(root, "test", "internal", "repoquality", "gopls.go")},
 		{name: "English interop guide", path: filepath.Join(root, "docs", "en", "05-interop.md")},
 		{name: "Russian interop guide", path: filepath.Join(root, "docs", "ru", "05-interop.md")},
 		{name: "BGP Compose topology", path: filepath.Join(root, "test", "interop-bgp", "compose.yml")},
@@ -276,65 +529,9 @@ func TestInteropOperationalContract(t *testing.T) {
 		}
 	}
 
-	runner := contents["legacy runner"]
-	assertContainsAll(t, "legacy runner", runner, []string{
-		`INTEROP_PROJECT_NAME="${INTEROP_PROJECT_NAME:-gobfd-interop}"`,
-		`PROJECT_LABEL="com.docker.compose.project=${INTEROP_PROJECT_NAME}"`,
-		`-p "${INTEROP_PROJECT_NAME}"`,
-		`assert_project_available`,
-		`remove_project_resources`,
-		`verify_project_absent`,
-		`acquire_project_lock`,
-		`release_project_lock`,
-		`assert_fixed_names_available`,
-		`HOLO_IP="172.20.0.50"`,
-		`docker.io/debian:trixie-slim (for BIRD 3.3.2 source build)`,
-		`holo-interop`,
-		`holo-config`,
-		`/tmp/holod.err`,
-		`${INTEROP_PROJECT_NAME}_bfdnet`,
-		`for svc in gobfd frr bird3 holo thoro`,
-		`INTEROP_COMPOSE_OVERRIDE_FILE`,
-		`COMPOSE_ARGS`,
-		`=== Holo daemon logs ===`,
-		`=== Holo daemon /tmp/holod.err ===`,
-		`=== Holo configuration loader logs ===`,
-		`interop_verify_holo_running_configuration`,
-	})
-	assertOrdered(t, "legacy runner preflight and startup", runner, []string{
-		"acquire_project_lock",
-		"assert_project_available",
-		"assert_fixed_names_available",
-		"PROJECT_OWNED=true",
-		"build --no-cache",
-		"up -d holo holo-config",
-		"resolve_project_container_id holo-config-interop",
-		`podman wait "${holo_config_id}"`,
-		`podman inspect --format '{{.State.ExitCode}}' "${holo_config_id}"`,
-		`interop_verify_holo_running_configuration`,
-		"up -d --no-deps gobfd frr bird3 tshark thoro",
-	})
-	assertOrdered(t, "legacy runner cleanup", runner, []string{
-		"remove_project_resources",
-		"verify_project_absent",
-		"release_project_lock",
-	})
-	assertContainsAll(t, "legacy runner", runner, []string{
-		"test_bfd_invalid_vectors",
-		"gobfd-bfd-fuzz:latest",
-		"BFD Invalid-Vector Robustness",
-	})
-	obsoleteFuzzContracts := []string{
-		"gobfd-scapy-fuzz", "test_scapy_fuzzing", "--cap-add NET_RAW", "--cap-add NET_ADMIN",
-	}
-	for _, forbidden := range obsoleteFuzzContracts {
-		if strings.Contains(runner, forbidden) {
-			t.Errorf("legacy runner retains obsolete BFD fuzz contract %q", forbidden)
-		}
-	}
 	fuzzImage := contents["BFD fuzz image"]
 	assertContainsAll(t, "BFD fuzz image", fuzzImage, []string{
-		"golang:1.27.0-trixie@sha256:",
+		"golang:1.27.4-trixie@sha256:",
 		"debian:trixie-slim@sha256:",
 		"go build -trimpath -o /out/bfd-fuzz ./test/interop/scapy",
 		`ENTRYPOINT ["/usr/local/bin/bfd-fuzz"]`,
@@ -350,28 +547,25 @@ func TestInteropOperationalContract(t *testing.T) {
 	if strings.Contains(contents["container context"], "!test/interop/scapy/bfd_fuzz.py") {
 		t.Error("container context still permits the removed Python BFD fuzzer")
 	}
-	if strings.Contains(runner, "podman rm -f scapy-interop") {
-		t.Error("legacy runner removes an unlabelled Scapy container by name")
-	}
-	for _, name := range []string{"legacy runner", "routing runner"} {
-		if strings.Contains(contents[name], "podman network ls --no-trunc") ||
-			strings.Contains(contents[name], "podman volume rm --") {
-			t.Errorf("%s duplicates exact-label query/removal implementation outside project_guard.sh", name)
-		}
-	}
-
 	makefile := contents["Makefile"]
 	assertContainsAll(t, "Makefile", makefile, []string{
 		"INTEROP_PROJECT_NAME ?= gobfd-interop",
 		"override INTEROP_PROJECT_NAME := $(value INTEROP_PROJECT_NAME)",
 		"export INTEROP_PROJECT_NAME",
-		"INTEROP_CTL := ./test/interop/projectctl.sh",
+		"INTEROP_CTL := go run ./test/cmd/interopctl",
+		`GOBFD_BUILD_REVISION="$(shell git rev-parse --verify HEAD^{commit})"`,
+		"go test -tags interop_testcontainers -race -count=1 " +
+			"-run '^(TestTimerReload.+|TestCraftedPeerEvidence.+)$$' ./test/interop/",
+		"-run '^(TestFourPeerTopologyTestcontainers|TestFourPeerMeticulousTopologyTestcontainers|" +
+			"TestBIRDFlowSpecValidation|" +
+			"TestCraftedPeerTestcontainers|TestCraftedMultihopTTLTestcontainers)$$' ./test/interop/",
 		"interop-project-validate",
 		`"INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}"`,
 		`bgp_project="$${INTEROP_PROJECT_NAME}-bgp"`,
 		`env "INTEROP_PROJECT_NAME=$${bgp_project}"`,
-		"FRR 10.7.0 + BIRD 3.3.2 + Holo 0.9.0 + Thoro/bfd",
+		"FRR 10.7.1 + BIRD 3.4.0+fix + Holo 0.9.0 + Thoro/bfd",
 		"gopls-check: dev-ensure",
+		"go run ./test/cmd/repoquality gopls --root .",
 		"lint-md: dev-ensure",
 		"lint-yaml: dev-ensure",
 		"proto-lint: dev-ensure",
@@ -379,21 +573,59 @@ func TestInteropOperationalContract(t *testing.T) {
 	assertContainsAll(t, "gopls gate", contents["gopls gate"], []string{
 		"testcontainers",
 		"e2e_core_testcontainers",
-		"gopls-check: no packages discovered",
-		"gopls-check: no Go inputs discovered",
+		"no packages discovered",
+		"no Go inputs discovered",
 	})
 	if strings.Contains(contents["gopls gate"], "e2e_core,e2e_core_testcontainers") {
 		t.Error("gopls gate combines mutually exclusive core test backends in one tag profile")
 	}
 	assertContainsAll(t, "Compose topology", contents["Compose topology"], []string{
-		"quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68",
+		"context: ./frr",
+		"VCS_REF: ${VCS_REF:-}",
+		"BUILD_DATE: ${BUILD_DATE:-}",
 	})
+	assertContainsAll(t, "FRR Debian image", contents["FRR image"], []string{
+		"debian:trixie-slim@sha256:",
+		"frr_10.7.1-0~deb13u1_amd64.deb",
+		`ENTRYPOINT ["/usr/lib/frr/watchfrr"]`,
+	})
+	assertContainsAll(t, "testcontainers resource limits", contents["testcontainers topology"], []string{
+		`interopproject.BuildMetadata(ctx, root, os.Getenv("GOBFD_BUILD_REVISION"))`,
+		"options.CPUPeriod = 100000",
+		"options.CPUQuota = 200000",
+		"options.Memory = 2 << 30",
+		"options.MemorySwap = 2 << 30",
+		"hostConfig.NanoCPUs = 1_000_000_000",
+		"hostConfig.Memory = 256 << 20",
+		"hostConfig.MemorySwap = hostConfig.Memory",
+		"hostConfig.PidsLimit = new(int64(128))",
+	})
+	var boundedCompose composeRaw
+	if err := yaml.Unmarshal([]byte(contents["Compose topology"]), &boundedCompose); err != nil {
+		t.Fatalf("decode base Compose resource limits: %v", err)
+	}
+	for name, service := range boundedCompose.Services {
+		var limits composeResourceLimits
+		if err := service.Decode(&limits); err != nil {
+			t.Fatalf("decode %s resource limits: %v", name, err)
+		}
+		memory, pids := "256m", 128
+		if name == "holo" {
+			memory = "512m"
+		}
+		if name == "scapy" {
+			pids = 64
+		}
+		if limits.CPUs != 1 || limits.Memory != memory || limits.Swap != memory || limits.PidsLimit != pids {
+			t.Errorf("%s resource limits = %+v, want CPU=1 memory/swap=%s pids=%d", name, limits, memory, pids)
+		}
+	}
 	if strings.Contains(contents["Compose topology"], "podman exec") {
 		t.Error("Compose topology documents unguarded fixed-name Podman access")
 	}
 	for _, name := range []string{"English interop guide", "Russian interop guide"} {
 		for _, command := range []string{
-			"make interop-bgp\n", "make interop-rfc\n", "make e2e-rfc\n", "podman logs ", "podman exec ",
+			"make e2e-rfc\n", "podman logs ", "podman exec ",
 		} {
 			if strings.Contains(contents[name], command) {
 				t.Errorf("%s documents unsafe legacy lifecycle command %q", name, command)
@@ -406,12 +638,18 @@ func TestInteropOperationalContract(t *testing.T) {
 		}
 	}
 	assertContainsAll(t, "FRR configuration", contents["FRR configuration"], []string{
-		"frr version 10.7.0",
+		"frr version 10.7.1",
 	})
 	assertContainsAll(t, "BIRD image", contents["BIRD image"], []string{
-		"BIRD 3.3.2",
-		"BIRD_COMMIT=e66773c42f115d80aaaef3b7246953b276a88065",
-		"BIRD_SOURCE_SHA256=ad74ac8bc970f97a137f5df4e0c96777dfc7137b9773b1f95badec3d93e18754",
+		"BIRD 3.4.0",
+		"BIRD_COMMIT=c3669497e3949b942d86d07e343092cc439b4659",
+		"BIRD_SOURCE_SHA256=9d19e6ac4f812423721a27bda5df6fc14cceb24af57609f6287c259b3b38893a",
+		"BIRD_FIX_COMMIT=7cf75587b6f38b87849fe192bf5dfd124b7702bc",
+		"BIRD_FIX_SHA256=ebb9556370e85ea825a03533099b3c1ed7436d9a0a54aa5990375a997b511bde",
+		"ADD --checksum=sha256:${BIRD_FIX_SHA256}",
+		"https://github.com/CZ-NIC/bird/commit/${BIRD_FIX_COMMIT}.patch",
+		"patch --batch --fuzz=0 -p1 < /tmp/flowspec-fix.patch",
+		"0fdd10a135787dd14226cadfaee542d2a4e13444a32444782ed5deb26907c5e5  nest/rt-table.c' | sha256sum -c -",
 	})
 	for _, forbidden := range []string{
 		"-p $(INTEROP_PROJECT_NAME)",
@@ -422,7 +660,9 @@ func TestInteropOperationalContract(t *testing.T) {
 		}
 	}
 	assertContainsAll(t, "Make interop validation prerequisites", makefile, []string{
-		"interop: interop-project-validate",
+		"interop: interop-testcontainers",
+		"interop-bgp: interop-bgp-testcontainers",
+		"interop-rfc: interop-rfc-testcontainers",
 		"interop-test: interop-project-validate",
 		"interop-up: interop-project-validate",
 		"interop-down: interop-project-validate",
@@ -435,40 +675,86 @@ func TestInteropOperationalContract(t *testing.T) {
 		`$(INTEROP_CTL) lock-run --`,
 	})
 	projectControl := contents["project control"]
-	startProject := shellFunctionBody(t, projectControl, "start_project")
-	assertOrdered(t, "direct interop up ownership", startProject, []string{
-		"acquire_lock",
-		"assert_empty_project",
-		"build",
-		"up -d holo holo-config",
-		"podman wait",
-		"podman inspect --format '{{.State.ExitCode}}'",
-		"interop_verify_holo_running_configuration",
-		"up -d --no-deps gobfd frr bird3 tshark thoro",
+	assertContainsAll(t, "manual suite timeout", projectControl, []string{
+		"devExecTimeout = 10 * time.Minute",
+		`c.podmanStream(ctx, devExecTimeout, append([]string{"exec", devID}, command...)...)`,
 	})
-	stopProject := shellFunctionBody(t, projectControl, "stop_project")
+	if strings.Contains(projectControl, `c.compose(ctx, 10*time.Minute, "build")`) {
+		t.Error("project control bypasses the capped builder")
+	}
+	baseBuild := readContractFile(t, "bounded base builds",
+		filepath.Join(root, "test", "internal", "interopproject", "build.go"))
+	assertOrdered(t, "bounded base build metadata", baseBuild, []string{
+		`BuildMetadata(ctx, c.root, os.Getenv("GOBFD_BUILD_REVISION"))`,
+		`"compose", "-p", c.projectName, "-f", c.composeFile, "config", "--format", "json"`,
+		"composeBuildArgs(service.Build, image, revision, buildDate, run)",
+		"c.mutation = true",
+		"c.podmanStream(ctx, 10*time.Minute, build.args...)",
+	})
+	assertContainsAll(t, "bounded base build limits", baseBuild, []string{
+		"func (c *Controller) build(ctx context.Context) error {",
+		`"build", "--cpu-period", "100000", "--cpu-quota", "200000"`,
+		`"--memory", "2g", "--memory-swap", "2g", "--jobs", "1"`,
+		"decoder.DisallowUnknownFields()",
+		`build.Args["VCS_REF"] = &revision`,
+		`build.Args["BUILD_DATE"] = &buildDate`,
+	})
+	startProject := contractSection(
+		t,
+		projectControl,
+		"func (c *Controller) start(ctx context.Context) error {",
+		"func (c *Controller) stop(ctx context.Context) error {",
+	)
+	assertOrdered(t, "direct interop up ownership", startProject, []string{
+		"c.acquireLock()",
+		"c.queryProjectResources(ctx)",
+		"c.assertFixedNamesAvailable(ctx)",
+		"c.build(ctx)",
+		`c.compose(ctx, commandTimeout, "up", "-d", "--no-build", "holo", "holo-config")`,
+		`c.resolveContainerID(ctx, "holo-config-interop")`,
+		`c.podmanText(ctx, 45*time.Second, "wait", loaderID)`,
+		`c.podmanText(ctx, 10*time.Second, "inspect", "--format", "{{.State.ExitCode}}", loaderID)`,
+		"c.verifyHoloConfiguration(ctx, loaderID)",
+		`ctx, commandTimeout, "up", "-d", "--no-build", "--no-deps", "gobfd", "frr", "bird3", "tshark", "thoro"`,
+		"c.keepProject = true",
+	})
+	stopProject := contractSection(
+		t,
+		projectControl,
+		"func (c *Controller) stop(ctx context.Context) error {",
+		"func (c *Controller) lockRun(ctx context.Context, args []string) error {",
+	)
 	assertOrdered(t, "direct interop down ownership", stopProject, []string{
-		"acquire_lock",
-		"interop_cleanup_project_resources",
+		"c.acquireLock()",
+		"c.cleanup(ctx)",
 	})
 	assertContainsAll(t, "direct locked test runner", projectControl, []string{
-		`lock-run)`,
-		`"$@"`,
-		`interop_assert_existing_project`,
-		`REQUIRED_CONTAINER_NAMES`,
-		`OPTIONAL_CONTAINER_NAMES`,
+		`func (c *Controller) lockRun`,
+		`c.assertExistingProject(ctx)`,
+		`exec.CommandContext(ctx, command[0], command[1:]...)`,
+		`required`,
+		`optional`,
 	})
 	assertContainsAll(t, "direct base mandatory containers", projectControl, []string{
-		`gobfd-interop frr-interop bird3-interop tshark-interop`,
-		`holo-interop holo-config-interop thoro-interop`,
-		`OPTIONAL_CONTAINER_NAMES=(scapy-interop)`,
+		`"gobfd-interop", "frr-interop", "bird3-interop", "tshark-interop"`,
+		`"holo-interop", "holo-config-interop", "thoro-interop"`,
+		`optional = []string{"scapy-interop"}`,
 	})
 	assertContainsAll(t, "direct BGP mandatory containers", projectControl, []string{
-		`gobfd-bgp-interop gobgp-interop tshark-bgp-interop frr-bgp-interop`,
-		`bird3-bgp-interop gobfd-exabgp-interop exabgp-interop`,
+		`"gobfd-bgp-interop", "gobgp-interop", "tshark-bgp-interop", "frr-bgp-interop"`,
+		`"bird3-bgp-interop", "gobfd-exabgp-interop", "exabgp-interop"`,
 	})
 
 	taggedGo := contents["tagged Go helper"]
+	vectorBuilder := readContractFile(t, "invalid-vector Compose builder",
+		filepath.Join(root, "test", "interop", "invalid_vector_image_test.go"))
+	assertContainsAll(t, "invalid-vector build resource limits", vectorBuilder, []string{
+		`"--cpu-period", "100000", "--cpu-quota", "200000"`,
+		`"--memory", "2g", "--memory-swap", "2g", "--jobs", "1"`,
+	})
+	assertContainsAll(t, "invalid-vector runtime resource limits", taggedGo, []string{
+		`"--cpus", "1", "--memory", "256m", "--memory-swap", "256m", "--pids-limit", "64"`,
+	})
 	assertContainsAll(t, "tagged Go helper", taggedGo, []string{
 		`defaultInteropProjectName = "gobfd-interop"`,
 		`return projectName + "_bfdnet"`,
@@ -488,266 +774,73 @@ func TestInteropOperationalContract(t *testing.T) {
 	})
 
 	routing := contents["routing runner"]
-	assertContainsAll(t, "routing runner", routing, []string{
-		`date -u +%Y%m%dT%H%M%S%NZ`,
-		`RUN_ID="${RUN_TIMESTAMP}-$$"`,
-		`MERGE_OWNER_LABEL_VALUE="${RUN_ID}"`,
-		`INTEROP_PROJECT_NAME="${INTEROP_PROJECT_NAME:-gobfd-interop}"`,
-		`-p "${project_name}"`,
-		`"INTEROP_PROJECT_NAME=${project_name}"`,
-		`jq -s -e '[.[] | select(.Action == "pass" and has("Test"))] | length > 0'`,
-		"start_holo_interop_suite",
-		"start_generic_suite",
-		"collect_holo_diagnostics",
-		"acquire_project_lock",
-		"release_project_lock",
-		"assert_fixed_names_available",
-		"resolve_project_container_id",
-		"holo-interop",
-		"holo-config-interop",
-		"interop_verify_holo_running_configuration",
+	assertContainsAll(t, "routing Go runner", routing, []string{
+		"func (r *runner) runRouting",
+		"interopproject.NewProject",
+		"controller.Lifecycle",
+		"runRoutingSuite",
+		"passedGoTest",
+		"collectHoloDiagnostics",
+		"collectRoutingPcap",
+		"routingartifacts.WriteImageID",
+		"routingartifacts.ReadImageID",
+		"routingartifacts.Merge",
+		"mergeRunner.createRuntime",
+		"mergeRunner.cleanupRuntime",
 	})
-	holoStartup := shellFunctionBody(t, routing, "start_holo_interop_suite")
-	assertOrdered(t, "routing Holo provider gate", holoStartup, []string{
-		"up -d holo holo-config",
-		`resolve_project_container_id "${project_name}" holo-config-interop`,
-		`podman wait "${loader_id}"`,
-		`podman inspect --format '{{.State.ExitCode}}' "${loader_id}"`,
-		`interop_verify_holo_running_configuration`,
-		"up -d --no-deps gobfd frr bird3 tshark thoro",
+	assertOrdered(t, "routing Go lifecycle", routing, []string{
+		"controller.Lifecycle",
+		"runRoutingSuite",
+		"mergeRoutingArtifacts",
 	})
-	assertContainsAll(t, "routing Holo provider gate", holoStartup, []string{
-		`[[ ! "${wait_status}" =~ ^[0-9]+$ ]]`,
-		`[[ ! "${inspect_status}" =~ ^[0-9]+$ ]]`,
-		`[ "${wait_status}" != "${inspect_status}" ]`,
-		`[ "${wait_status}" -ne 0 ]`,
-		`fail_holo_suite_startup`,
-	})
-	projectGuard := contents["project guard"]
-	sharedHoloVerifier := shellFunctionBody(t, projectGuard, "interop_verify_holo_running_configuration")
-	assertOrdered(t, "shared Holo semantic verifier", sharedHoloVerifier, []string{
-		`"${PODMAN[@]}" logs "${loader_id}"`,
-		`grep -q '^% '`,
-		`interop_resolve_project_container_id "${project_name}" holo-interop`,
-		`holo-cli --version`,
-		`--command 'show running format json'`,
-	})
-	assertContainsAll(t, "shared Holo semantic verifier", sharedHoloVerifier, []string{
-		`Holo command-line interface 0.5.0`,
-		`Holo configuration loader produced unexpected output`,
-		`jq -s -e`,
-		`length == 1`,
-		`($interfaces | length) == 1`,
-		`($protocols | length) == 1`,
-		`($sessions | length) == 1`,
-	})
-	if got := strings.Count(sharedHoloVerifier, "jq -s -e"); got != 1 {
-		t.Errorf("shared Holo semantic verifier jq call count = %d, want 1", got)
-	}
-	for _, name := range []string{"legacy runner", "routing runner", "project control"} {
-		if got := strings.Count(contents[name], "interop_verify_holo_running_configuration"); got != 1 {
-			t.Errorf("%s shared Holo verifier call count = %d, want 1", name, got)
-		}
-	}
-	containerPreflight := shellFunctionBody(t, projectGuard, "interop_validate_container_snapshot")
-	assertContainsAll(t, "generic exact container preflight", containerPreflight, []string{
-		`podman inspect --type container`,
-		`--format '{{json .}}' "${container_id}"`,
-		`jq -s -e`,
-		`length == 1`,
-		`.Id == $container_id`,
-		`.Config.Labels[$label_key] == $label_value`,
-		`(.Mounts | type) == "array"`,
-		`all(.Mounts[];`,
-		`.Type != "volume"`,
-		`container ownership or volume-mount preflight failed`,
-	})
-	projectRemoval := shellFunctionBody(t, projectGuard, "interop_remove_project_resources")
-	assertOrdered(t, "project cleanup preflight before mutation", projectRemoval, []string{
-		`[[ "${#volume_names[@]}" -ne 0 ]]`,
-		`interop_validate_container_snapshot`,
-		`interop_remove_container_snapshot`,
-		`podman network rm`,
-	})
-	labelledRemoval := shellFunctionBody(t, projectGuard, "interop_remove_labelled_containers")
-	assertOrdered(t, "merge-owner cleanup preflight before mutation", labelledRemoval, []string{
-		`snapshot+=("${container_id}")`,
-		`interop_validate_container_snapshot`,
-		`interop_remove_container_snapshot`,
-	})
-	runSuite := shellFunctionBody(t, routing, "run_suite")
-	assertOrdered(t, "routing base suite startup dispatch", runSuite, []string{
-		`acquire_project_lock "${project_name}"`,
-		`assert_project_available "${project_name}"`,
-		`assert_fixed_names_available "${project_name}"`,
-		`build --no-cache`,
-		`start_holo_interop_suite`,
-	})
-	assertContainsAll(t, "routing suite startup modes", routing, []string{
-		`"holo" "${INTEROP_PROJECT_NAME}"`,
-		`"generic" "${INTEROP_BGP_PROJECT_NAME}"`,
-	})
-	assertOrdered(t, "routing lock lifecycle", runSuite, []string{
-		`acquire_project_lock "${project_name}"`,
-		`assert_project_available "${project_name}"`,
-		`cleanup_project "${project_name}"`,
-		`release_project_lock "${project_name}"`,
-	})
-	holoDiagnostics := shellFunctionBody(t, routing, "collect_holo_diagnostics")
-	assertContainsAll(t, "routing Holo artifact diagnostics", holoDiagnostics, []string{
-		`resolve_project_container_id "${project_name}" holo-interop`,
-		`resolve_project_container_id "${project_name}" holo-config-interop`,
-		`logs --tail 100 "${holo_id}"`,
-		`logs --tail 100 "${loader_id}"`,
-		`exec "${holo_id}" sh -c`,
-		`/tmp/holod.err`,
-		`"${suite_dir}/holo.log"`,
-		`"${suite_dir}/holo-config.log"`,
-		`"${suite_dir}/holod.err"`,
-	})
-	recordContainers := shellFunctionBody(t, routing, "record_containers")
-	assertContainsAll(t, "routing container inventory ownership", recordContainers, []string{
-		`resolve_project_container_id "${project_name}" "${container_name}"`,
-		`inspect "${container_ids[@]}"`,
-	})
-	cleanupProject := shellFunctionBody(t, routing, "cleanup_project")
-	assertOrdered(t, "routing label-safe cleanup", cleanupProject, []string{
-		`remove_project_resources "${project_name}"`,
-		`verify_project_absent "${project_name}"`,
-	})
-	mergeArtifacts := shellFunctionBody(t, routing, "merge_artifacts")
-	collectPcap := shellFunctionBody(t, routing, "collect_pcap")
-	assertOrdered(t, "routing tshark image identity collection", collectPcap, []string{
-		`resolve_project_container_id "${project_name}" "${tshark_container}"`,
-		`inspect --type container --format '{{.Image}}'`,
-		`^[0-9a-f]{64}$`,
-		`image exists "${tshark_image_id}"`,
-		`interop_resolve_project_service_container_id "${DEV_PROJECT}" dev`,
-		`write-image-id "/app/${REPORT_REL}" "${suite}/tshark-image-id"`,
-		`exec "${tshark_id}" cat /captures/bfd.pcapng`,
-		`failed to copy tshark packet capture`,
-		`exec "${tshark_id}" tshark`,
-		`failed to decode tshark packet capture`,
-		`append_csv "${suite}" "${suite_dir}/packets.csv"`,
-	})
-	if strings.Contains(collectPcap, "|| true") {
-		t.Error("routing packet collection still swallows a producer failure")
-	}
-	assertContainsAll(t, "routing merge ownership", routing, []string{
-		`MERGE_OWNER_LABEL_KEY="io.gobfd.e2e.merge-owner"`,
-	})
-	assertContainsAll(t, "routing merge ownership", mergeArtifacts, []string{
-		`query_labelled_container_ids`,
-		`remove_labelled_containers`,
-		`verify_labelled_containers_absent`,
-	})
-	assertOrdered(t, "routing merge ownership lifecycle", mergeArtifacts, []string{
-		`interop_query_labelled_container_ids`,
-		`merge ownership label collision`,
-		`interop_resolve_project_service_container_id "${DEV_PROJECT}" dev`,
-		`read-image-id "/app/${REPORT_REL}" "interop/tshark-image-id"`,
-		`image exists "${tshark_image_id}"`,
-		`read-image-id "/app/${REPORT_REL}" "interop-bgp/tshark-image-id"`,
-		`image exists "${bgp_tshark_image_id}"`,
-		`"containers.json"`,
-		`required packet capture is missing, empty, or unsafe`,
-		`"${PODMAN[@]}" run`,
-		`interop_remove_labelled_containers`,
-		`interop_verify_labelled_containers_absent`,
-	})
-	if strings.Contains(mergeArtifacts, "com.docker.compose.project") {
-		t.Error("merge_artifacts reuses a Compose project ownership label")
-	}
-	if strings.Contains(mergeArtifacts, "run --rm") {
-		t.Error("merge_artifacts delegates cleanup to name-based or implicit removal")
-	}
-	for _, forbidden := range []string{"TSHARK_IMAGE", "localhost/interop_tshark", "python3"} {
+	for _, forbidden := range []string{"sh -c", "python3", "localhost/interop_tshark"} {
 		if strings.Contains(routing, forbidden) {
-			t.Errorf("routing runner retains forbidden artifact merge dependency %q", forbidden)
+			t.Errorf("routing Go runner retains forbidden dependency %q", forbidden)
 		}
 	}
-	failHoloStartup := shellFunctionBody(t, routing, "fail_holo_suite_startup")
-	assertContainsAll(t, "routing Holo failure diagnostics", failHoloStartup, []string{
-		`collect_holo_diagnostics "${project_name}" "${compose_file}" "${suite_dir}"`,
-		`for artifact in holo.log holo-config.log holod.err`,
+	assertContainsAll(t, "routing controller lifecycle", projectControl, []string{
+		"func (c *Controller) Lifecycle",
+		"c.start(ctx)",
+		"c.cleanup(cleanupCtx)",
+		"c.releaseLock()",
+		`"interop-bgp"`,
+		"if c.kind != \"base\"",
+		`c.compose(ctx, commandTimeout, "up", "-d", "--no-build")`,
 	})
-	assertOrdered(t, "routing non-zero test guard", routing, []string{
-		`>"${suite_dir}/go-test.json"`,
-		`jq -s -e '[.[] | select(.Action == "pass" and has("Test"))] | length > 0'`,
-		`collect_holo_diagnostics`,
-		`collect_pcap "${suite}"`,
-	})
-	assertOrdered(t, "routing packet collection failure propagation", runSuite, []string{
-		`if ! collect_pcap "${suite}" "${project_name}" "${tshark_container}"; then`,
-		`suite %s packet collection failed`,
-		`test_status=1`,
-		`return "${test_status}"`,
-	})
-	for _, name := range []string{"legacy runner", "routing runner", "project control"} {
-		if strings.Contains(contents[name], "down --volumes --remove-orphans") {
-			t.Errorf("%s retains name-based Compose cleanup", name)
-		}
-	}
-
 	inventory := contents["target inventory"]
-	assertContainsAll(t, "target inventory", inventory, []string{
-		"GoBFD, FRR, BIRD3, Holo, Holo loader, Thoro/bfd, tshark, Go BFD invalid-vector generator",
-		"Exact Compose project label",
-	})
-
-	implementationPlan := readContractFile(
-		t,
-		"Holo implementation plan",
-		filepath.Join(root, "docs", "superpowers", "plans", "2026-08-21-"+"aio"+"bfd-to-holo-interop.md"),
-	)
-	assertContainsAll(t, "Holo Task 6 plan", implementationPlan, []string{
-		`TASK6_ARTIFACT_DIR="$(mktemp -d`,
-		"INVALID_STARTUP=",
-		"PODMAN=(timeout 2m podman)",
-		"INTEROP_COMPOSE_OVERRIDE_FILE",
-		`grep -Fq '=== Holo daemon logs ==='`,
-		`grep -Fq '=== Holo daemon /tmp/holod.err ==='`,
-		`grep -Fq '=== Holo configuration loader logs ==='`,
-		`"${PODMAN[@]}" events`,
-		`.Name == "holo-interop" and .Status == "create"`,
-		`.Name == "holo-interop" and .Status == "start"`,
-		`.Name == "holo-config-interop" and .Status == "create"`,
-		`.Name == "holo-config-interop" and .Status == "start"`,
-		`.Name == "holo-config-interop" and .Status == "died"`,
-		`(.ContainerExitCode | type) == "number"`,
-		`.ContainerExitCode == 0`,
-		`grep -Fq 'Holo running configuration is missing the required BFD session'`,
-		`--command 'show running format json'`,
-		`Holo command-line interface 0.5.0`,
-		`holo-version.txt`,
-		`.["ietf-interfaces:interfaces"].interface[]?`,
-		`.type == "iana-if-type:ethernetCsmacd"`,
-		`.["ietf-ip:ipv4"] | type`,
-		`.type == "ietf-bfd-types:bfdv1"`,
-		`.["dest-addr"] == "172.20.0.10"`,
-		`.["source-addr"] == "172.20.0.50"`,
-		"source ./test/interop/project_guard.sh",
-		"interop_verify_project_absent",
-		"interop_verify_labelled_containers_absent",
-		"make interop-up",
-		"./test/interop/projectctl.sh lock-run --",
-		"go test -json -tags interop",
-		`select(.Action == "pass" and .Test == "TestHoloFailureRecoveryLifecycle")`,
-		`select(.Action == "skip" and .Test == "TestHoloFailureRecoveryLifecycle")`,
-		"make interop-down",
-		"make proto-lint",
-		"gobfd-interop-negative",
-		"gobfd-interop-bgp",
-		"v062-testcontainers",
-		"io.gobfd.e2e.merge-owner",
-		"There is no `podman volume rm` cleanup path.",
-	})
-	if strings.Contains(implementationPlan, `.ContainerExitCode != 0`) {
-		t.Error("Holo Task 6 plan retains the impossible non-zero loader assertion")
+	var interopRows []string
+	for line := range strings.SplitSeq(inventory, "\n") {
+		if strings.HasPrefix(line, "| interop / interop-testcontainers |") {
+			interopRows = append(interopRows, line)
+		}
 	}
-	if strings.Contains(implementationPlan, "\nbuf lint\n") {
-		t.Error("Holo Task 6 plan invokes an unpinned host buf binary")
+	if len(interopRows) != 1 {
+		t.Fatalf("target inventory has %d base interop rows, want 1", len(interopRows))
 	}
+	columns := strings.Split(interopRows[0], "|")
+	if len(columns) != 6 {
+		t.Fatalf("base interop target row has %d cells, want 4", len(columns)-2)
+	}
+	assertContainsAll(t, "base interop runtime", columns[2], []string{
+		"four peers", "meticulous/crafted/TTL", "172.20.0.0/24",
+	})
+	assertContainsAll(t, "base interop evidence", columns[3], []string{
+		"Captures", "config/receipt sidecars", "exact resource cleanup",
+	})
+	assertContainsAll(t, "base interop acceptance boundary", columns[4], []string{
+		"Final candidate/peer matrix", "requires actual run",
+	})
+	// Ownership is enforced by the controller, independently of inventory prose.
+	resolveContainer := contractSection(t, projectControl,
+		"func (c *Controller) resolveContainerID(",
+		"func (c *Controller) resolveServiceContainerID(")
+	assertOrdered(t, "exact Compose project ownership", resolveContainer, []string{
+		`{{.ID}}|{{ index .Config.Labels "com.docker.compose.project" }}`,
+		`id, label, ok := strings.Cut(strings.TrimSpace(details), "|")`,
+		`if !ok || id == "" || label != c.projectName {`,
+		`refusing foreign container`,
+		`return id, nil`,
+	})
 }
 
 func TestInteropJitterAnalyzerContract(t *testing.T) {
@@ -757,31 +850,47 @@ func TestInteropJitterAnalyzerContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve repository root: %v", err)
 	}
-	runner := readContractFile(t, "legacy runner", filepath.Join(root, "test", "interop", "run.sh"))
-	jitterFunction := shellFunctionBody(t, runner, "test_rfc5880_jitter_compliance")
-	assertContainsAll(t, "legacy jitter analyzer", jitterFunction, []string{
-		`go -C "${SCRIPT_DIR}/../.." run ./test/interop/scripts/bfdjitter`,
-		`if ! jitter_tsv="$(tshark_fields`,
-		`"frame.time_epoch" "bfd.sta" "bfd.flags.p" "bfd.flags.f"`,
-	})
-	for _, forbidden := range []string{"python3", "head -200"} {
-		if strings.Contains(jitterFunction, forbidden) {
-			t.Errorf("legacy jitter analyzer retains forbidden command %q", forbidden)
-		}
-	}
-
 	tagged := readContractFile(t, "tagged Go helper", filepath.Join(root, "test", "interop", "interop_test.go"))
 	assertContainsAll(t, "tagged jitter analyzer", tagged, []string{
 		`"github.com/dantte-lp/gobfd/test/internal/bfdjitter"`,
-		`bfdjitter.Evaluate(strings.NewReader(output))`,
-		`[]string{"frame.time_epoch", "bfd.sta", "bfd.flags.p", "bfd.flags.f"}, 0`,
 	})
-	assertOrdered(t, "legacy jitter before mutations", runner, []string{
-		`assert_pass test_rfc5880_jitter_compliance`,
-		`assert_pass test_rfc5880_session_independence`,
-		`assert_pass test_rfc5880_frr_admin_down`,
-		`assert_pass test_rfc5880_poll_final_parameter_change`,
-		`assert_pass test_gobfd_graceful_shutdown`,
+	jitter := contractSection(t, tagged,
+		`t.Run("RFC5880_6.8.7_JitterCompliance"`,
+		`t.Run("RFC5880_6.8.1_SessionIndependence"`)
+	assertOrdered(t, "four-peer jitter stream", jitter, []string{
+		`{"FRR", frrIP}`, `{"BIRD3", bird3IP}`, `{"Holo", holoIP}`, `{"Thoro", thoroIP}`,
+		`for _, p := range peers {`,
+		`output, err := tsharkFieldStream(ctx,`,
+		`"bfd && ip.src == "+gobfdIP+" && ip.dst == "+p.ip`,
+		`[]string{"frame.time_epoch", "bfd.sta", "bfd.flags.p", "bfd.flags.f"}`,
+		`bfdjitter.Evaluate(strings.NewReader(output))`,
+		`switch report.Status {`,
+		`case bfdjitter.StatusSkip:`, `case bfdjitter.StatusFail:`, `case bfdjitter.StatusPass:`,
+	})
+	stream := contractSection(t, tagged, "func tsharkFieldStream(", "func tsharkCount(")
+	assertOrdered(t, "unlimited ordered TSV stream", stream, []string{
+		`args = append(args, "-Y", filter, "-T", "fields")`,
+		`for _, f := range fields {`,
+		`args = append(args, "-e", f)`,
+		`args = append(args, "-E", "separator=\t", "-E", "header=n")`,
+		`return tsharkQuery(ctx, args...)`,
+	})
+	for _, forbidden := range []string{`"-c"`, "maxCount", "parseTsharkFieldRows", "TrimSpace", "TrimPrefix"} {
+		if strings.Contains(stream, forbidden) {
+			t.Errorf("jitter field stream retains limiting or normalizing operation %q", forbidden)
+		}
+	}
+	query := contractSection(t, tagged, "func tsharkQuery(", "func tsharkQueryFile(")
+	assertContainsAll(t, "jitter capture source", query, []string{
+		`return tsharkQueryFile(ctx, "/captures/bfd.pcapng", args...)`,
+	})
+	queryFile := contractSection(t, tagged, "func tsharkQueryFile(", "func tsharkFields(")
+	assertOrdered(t, "jitter capture stdout", queryFile, []string{
+		`resolveProjectContainerID(ctx, "tshark-interop")`,
+		`[]string{"tshark", "-r", capturePath}`,
+		`cmd.Stdout = &stdout`, `cmd.Stderr = &stderr`,
+		`err = commandContextError(ctx, cmd.Run())`, `if err != nil {`,
+		`return stdout.String(), nil`,
 	})
 	assertOrdered(t, "tagged jitter before mutations", tagged, []string{
 		`t.Run("RFC5880_6.8.7_JitterCompliance"`,
@@ -801,116 +910,57 @@ func TestInteropOwnedInlinePythonPortContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve repository root: %v", err)
 	}
-	legacy := readContractFile(t, "legacy runner", filepath.Join(root, "test", "interop", "run.sh"))
-	bgp := readContractFile(t, "BGP runner", filepath.Join(root, "test", "interop-bgp", "run.sh"))
+	bgp := readContractFile(
+		t,
+		"Go BGP lifecycle",
+		filepath.Join(root, "test", "interop-bgp", "testcontainers_topology_test.go"),
+	)
 
-	assertContainsAll(t, "legacy Go interop helper", legacy, []string{
-		`INTEROPCHECK=(go -C "${SCRIPT_DIR}/../.." run ./test/interop/scripts/interopcheck)`,
-		`frr-bfd-peer-status "${peer_ip}"`,
-		`detection-gap "${first_down_epoch}" 3.0`,
+	assertContainsAll(t, "Go BGP lifecycle", bgp, []string{
+		`func runBGPBFDTestcontainers`,
+		`runBGPTestAssertions`,
+		`captureBGPTestPCAP`,
 	})
-	assertContainsAll(t, "BGP Go interop helper", bgp, []string{
-		`INTEROPCHECK=(go -C "${SCRIPT_DIR}/../.." run ./test/interop/scripts/interopcheck)`,
-		`gobgp-neighbor-state "${peer_ip}"`,
-	})
-	for name, runner := range map[string]string{"legacy": legacy, "BGP": bgp} {
-		if strings.Contains(runner, "UV_"+"PYTHON") {
-			t.Errorf("%s runner retains inline Python invocation", name)
-		}
+	if strings.Contains(bgp, "UV_"+"PYTHON") {
+		t.Error("Go BGP lifecycle retains inline Python invocation")
 	}
 }
 
-func TestInteropJitterTsharkFailureIsFatal(t *testing.T) {
+// The RFC test helper accepts only containers of its Compose project. Without
+// -p, Compose names the project after the compose file directory (interop-rfc).
+func TestRFCRunnerUsesHelperComposeProject(t *testing.T) {
 	t.Parallel()
 
 	root, err := repositoryRoot()
 	if err != nil {
 		t.Fatalf("resolve repository root: %v", err)
 	}
-	runner := readContractFile(t, "legacy runner", filepath.Join(root, "test", "interop", "run.sh"))
-	jitterFunction := shellFunctionBody(t, runner, "test_rfc5880_jitter_compliance")
-	goCallLog := filepath.Join(t.TempDir(), "go-called")
-	script := strings.Join([]string{
-		"set -uo pipefail",
-		`info() { :; }`,
-		`fail() { printf '%s\n' "$*" >&2; }`,
-		`pass() { :; }`,
-		`tshark_fields() { return 42; }`,
-		`go() { printf 'skip\tinsufficient-up-packets\t0\t0.000000\t0.000000\t0\n'; printf called >"${GO_CALL_LOG}"; }`,
-		`SCRIPT_DIR=/tmp/repository/test/interop`,
-		`GOBFD_IP=172.20.0.10`,
-		`FRR_IP=172.20.0.20`,
-		`BIRD3_IP=172.20.0.30`,
-		`HOLO_IP=172.20.0.50`,
-		`THORO_IP=172.20.0.60`,
-		"test_rfc5880_jitter_compliance() {\n" + jitterFunction + "\n}",
-		`if test_rfc5880_jitter_compliance; then status=0; else status=$?; fi`,
-		`exit "${status}"`,
-	}, "\n")
-	command := exec.CommandContext(t.Context(), "bash", "-c", script)
-	command.Env = append(os.Environ(), "GO_CALL_LOG="+goCallLog)
-	output, err := command.CombinedOutput()
-	if err == nil {
-		t.Fatalf("jitter check skipped failed tshark query: %s", output)
+	runner := readContractFile(t, "E2E runner", filepath.Join(root, "test", "internal", "e2erunner", "runner.go"))
+	helper := readContractFile(t, "RFC Podman helper", filepath.Join(root, "test", "interop-rfc", "podman_api_test.go"))
+	if !strings.Contains(helper, `defaultInteropRFCProjectName = "gobfd-interop-rfc"`) {
+		t.Fatal("RFC helper default project changed; update the E2E runner project with it")
 	}
-	var exitError *exec.ExitError
-	if !errors.As(err, &exitError) || exitError.ExitCode() != 1 {
-		t.Fatalf("jitter check status = %v, want 1: %s", err, output)
-	}
-	if _, err := os.Stat(goCallLog); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("native analyzer ran after tshark failure: %v", err)
-	}
+	assertContainsAll(t, "E2E runner RFC suite", runner, []string{
+		`const interopRFCProject = "gobfd-interop-rfc"`,
+		`interopproject.NewProject(r.root, interopRFCProject, "rfc", r.stdout, r.stderr)`,
+		`controller.Lifecycle(ctx, r.runRFCSuite)`,
+	})
 }
 
-func TestInteropJitterConsumesCompleteTsharkStream(t *testing.T) {
+// Ubuntu 26.04 AppArmor attaches its tshark profile to /usr/bin/tshark, and
+// rootless Podman runs containers without a profile, so the host profile
+// confines the image binary: it denies /captures reads and container stops.
+func TestTsharkImageAvoidsHostProfileAttachPath(t *testing.T) {
 	t.Parallel()
 
 	root, err := repositoryRoot()
 	if err != nil {
 		t.Fatalf("resolve repository root: %v", err)
 	}
-	runner := readContractFile(t, "legacy runner", filepath.Join(root, "test", "interop", "run.sh"))
-	jitterFunction := shellFunctionBody(t, runner, "test_rfc5880_jitter_compliance")
-	countLog := filepath.Join(t.TempDir(), "analyzer-counts")
-	script := strings.Join([]string{
-		"set -uo pipefail",
-		`info() { :; }`,
-		`fail() { printf '%s\n' "$*" >&2; }`,
-		`pass() { :; }`,
-		`tshark_fields() {
-  local index=0
-  while [ "${index}" -lt 250 ]; do
-    printf '%d.000\t3\tFalse\tFalse\n' "${index}"
-    index=$((index + 1))
-  done
-}`,
-		`go() {
-  local count
-  count="$(awk 'END { print NR }')"
-  printf '%s\n' "${count}" >>"${COUNT_LOG}"
-  [ "${count}" -eq 250 ] || return 9
-  printf 'pass\twithin-bounds\t250\t0.225000\t0.300000\t249\n'
-}`,
-		`SCRIPT_DIR=/tmp/repository/test/interop`,
-		`GOBFD_IP=172.20.0.10`,
-		`FRR_IP=172.20.0.20`,
-		`BIRD3_IP=172.20.0.30`,
-		`HOLO_IP=172.20.0.50`,
-		`THORO_IP=172.20.0.60`,
-		"test_rfc5880_jitter_compliance() {\n" + jitterFunction + "\n}",
-		`test_rfc5880_jitter_compliance`,
-	}, "\n")
-	command := exec.CommandContext(t.Context(), "bash", "-c", script)
-	command.Env = append(os.Environ(), "COUNT_LOG="+countLog)
-	if output, runErr := command.CombinedOutput(); runErr != nil {
-		t.Fatalf("jitter check truncated tshark stream: %v: %s", runErr, output)
-	}
-	counts, err := os.ReadFile(countLog)
-	if err != nil {
-		t.Fatalf("read analyzer row counts: %v", err)
-	}
-	if got, want := strings.Fields(string(counts)), []string{"250", "250", "250", "250"}; !slices.Equal(got, want) {
-		t.Fatalf("native analyzer row counts = %v, want %v", got, want)
+	image := readContractFile(t, "tshark image", filepath.Join(root, "test", "interop", "tshark", "Containerfile"))
+	// tshark starts dumpcap from its own directory, so both binaries move.
+	if !strings.Contains(image, "mv /usr/bin/tshark /usr/bin/dumpcap /usr/local/bin/") {
+		t.Error("tshark image leaves tshark or dumpcap at the host AppArmor attach path /usr/bin")
 	}
 }
 
@@ -949,9 +999,11 @@ func TestInteropCaptureStorageContract(t *testing.T) {
 			)
 			render.Dir = root
 			render.Env = append(os.Environ(), "PODMAN_COMPOSE_WARNING_LOGS=false")
-			rendered, renderErr := render.CombinedOutput()
+			var stderr bytes.Buffer
+			render.Stderr = &stderr
+			rendered, renderErr := render.Output()
 			if renderErr != nil {
-				t.Fatalf("render Compose topology: %v\n%s", renderErr, rendered)
+				t.Fatalf("render Compose topology: %v\nstderr: %s\nstdout: %s", renderErr, &stderr, rendered)
 			}
 			var renderedRaw composeRaw
 			if decodeErr := yaml.Unmarshal(rendered, &renderedRaw); decodeErr != nil {
@@ -1008,12 +1060,65 @@ func TestTrackedOperationalTextHasNoRemovedReferences(t *testing.T) {
 	allowed := map[string]struct{}{
 		"CHANGELOG.md":    {},
 		"CHANGELOG.ru.md": {},
-		"docs/superpowers/plans/2026-08-21-" + "aio" + "bfd-to-holo-interop.md":        {},
-		"docs/superpowers/specs/2026-08-20-" + "aio" + "bfd-to-holo-interop-design.md": {},
 	}
 	removed := []string{"aio" + "bfd", "bit" + "string"}
 	if err := validateTrackedOperationalText(t.Context(), root, allowed, removed); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTrackedOperationalTextBoundsLargeDependencyInventory(t *testing.T) {
+	t.Parallel()
+
+	const inventoryPath = "docs/supply-chain/dependency-inventory.json"
+	removed := "aio" + "bfd"
+	tests := []struct {
+		name     string
+		path     string
+		tail     string
+		oversize bool
+		wantErr  string
+	}{
+		{name: "large inventory", path: inventoryPath},
+		{name: "removed reference at end", path: inventoryPath, tail: removed, wantErr: "retains removed reference"},
+		{name: "oversize inventory", path: inventoryPath, oversize: true, wantErr: "limit is"},
+		{name: "ordinary file keeps original limit", path: "dependency-inventory.json", wantErr: "limit is"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			path := filepath.Join(root, filepath.FromSlash(test.path))
+			if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+				t.Fatalf("create inventory fixture directory: %v", err)
+			}
+			if test.oversize {
+				writeFixture(t, path, "")
+				if err := os.Truncate(path, int64(maxDependencyInventoryFileSize)+1); err != nil {
+					t.Fatalf("extend oversized inventory fixture: %v", err)
+				}
+			} else {
+				writeFixture(t, path, `{"text":"`+strings.Repeat("a", 6<<20)+test.tail+`"}`)
+			}
+			rooted, err := os.OpenRoot(root)
+			if err != nil {
+				t.Fatalf("open fixture root: %v", err)
+			}
+			t.Cleanup(func() {
+				if closeErr := rooted.Close(); closeErr != nil {
+					t.Errorf("close fixture root: %v", closeErr)
+				}
+			})
+			err = validateTrackedOperationalPath(rooted, test.path, false, nil, []string{removed})
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("large inventory scan: %v", err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("inventory scan error = %v, want %q", err, test.wantErr)
+			}
+		})
 	}
 }
 
@@ -1042,6 +1147,47 @@ func TestTrackedOperationalTextScansNonGeneratedPublicAPIFile(t *testing.T) {
 	}
 }
 
+func TestInteropBuildMetadata(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "-q", "--object-format=sha1"},
+		{
+			"-c", "user.name=Interop Test", "-c", "user.email=interop@example.invalid",
+			"-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "metadata fixture",
+		},
+	} {
+		cmd := exec.CommandContext(t.Context(), "git", args...)
+		cmd.Dir = root
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("prepare build metadata fixture: %v\n%s", err, output)
+		}
+	}
+	revision, buildDate, err := interopproject.BuildMetadata(t.Context(), root, "")
+	if err != nil {
+		t.Fatalf("resolve build metadata: %v", err)
+	}
+	if len(revision) != 40 {
+		t.Errorf("checkout revision = %q, want full SHA", revision)
+	}
+	if _, err := time.Parse(time.RFC3339, buildDate); err != nil {
+		t.Errorf("parse build timestamp: %v", err)
+	}
+	missingRoot := t.TempDir()
+	if _, _, err := interopproject.BuildMetadata(t.Context(), missingRoot, ""); err == nil {
+		t.Error("build metadata accepted a directory without a Git checkout")
+	}
+	if got, _, err := interopproject.BuildMetadata(t.Context(), missingRoot, revision); err != nil || got != revision {
+		t.Errorf("explicit build revision = %q, %v; want %q without accessible Git metadata", got, err, revision)
+	}
+	for _, invalid := range []string{revision[:7], strings.Repeat("z", 40), revision + "\n"} {
+		if _, _, err := interopproject.BuildMetadata(t.Context(), root, invalid); err == nil {
+			t.Errorf("build metadata accepted invalid explicit revision %q", invalid)
+		}
+	}
+}
+
 func TestTrackedOperationalTextFallsBackWithoutGitMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -1053,7 +1199,7 @@ func TestTrackedOperationalTextFallsBackWithoutGitMetadata(t *testing.T) {
 		{
 			name: "removed content",
 			path: func(root, _ string) string {
-				return filepath.Join(root, "docs", "notes.md")
+				return filepath.Join(root, "gobfd")
 			},
 			contents: func(removed string) []byte {
 				return []byte("obsolete peer: " + removed + "\n")
@@ -1115,6 +1261,7 @@ func TestTrackedOperationalTextFallbackSkipsOnlyRepositoryMetadataAndBinary(t *t
 	for _, relative := range []string{
 		filepath.Join(".git", "config"),
 		filepath.Join(".beads", "issues.jsonl"),
+		filepath.Join(".worktrees", "other", "ignored.txt"),
 		filepath.Join("reports", "e2e", "report.txt"),
 	} {
 		path := filepath.Join(root, relative)
@@ -1125,15 +1272,44 @@ func TestTrackedOperationalTextFallbackSkipsOnlyRepositoryMetadataAndBinary(t *t
 			t.Fatalf("write metadata fixture: %v", err)
 		}
 	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve Go test executable: %v", err)
+	}
+	if err := os.Link(executable, filepath.Join(root, "gobfd")); err != nil {
+		t.Fatalf("link Go build artifact fixture: %v", err)
+	}
+	for _, relative := range []string{"gobfd", "gobfdctl", "gobfd-haproxy-agent", "gobfd-exabgp-bridge"} {
+		if !fallbackBuildArtifactPath(relative) || fallbackBuildArtifactPath("nested/"+relative) {
+			t.Fatalf("fallback build artifact path classification rejected exact root scope for %s", relative)
+		}
+	}
 	if err := os.WriteFile(filepath.Join(root, "binary.dat"), []byte(removed+"\x00"), 0o600); err != nil {
 		t.Fatalf("write binary fixture: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "safe.txt"), []byte("safe\n"), 0o600); err != nil {
 		t.Fatalf("write safe fixture: %v", err)
 	}
+	nestedWorktree := filepath.Join("nested", ".worktrees", "visible.txt")
+	if err := os.MkdirAll(filepath.Join(root, filepath.Dir(nestedWorktree)), 0o750); err != nil {
+		t.Fatalf("create nested worktree fixture directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, nestedWorktree), []byte("safe\n"), 0o600); err != nil {
+		t.Fatalf("write nested worktree fixture: %v", err)
+	}
 
 	if err := validateTrackedOperationalText(t.Context(), root, nil, []string{removed}); err != nil {
 		t.Fatalf("fallback rejected exact metadata or binary skips: %v", err)
+	}
+	paths, walkErr := walkOperationalPaths(t.Context(), root)
+	if walkErr != nil {
+		t.Fatalf("walk fallback metadata fixture: %v", walkErr)
+	}
+	if slices.Contains(paths, filepath.ToSlash(filepath.Join(".worktrees", "other", "ignored.txt"))) {
+		t.Fatal("fallback exposed top-level .worktrees metadata")
+	}
+	if !slices.Contains(paths, filepath.ToSlash(nestedWorktree)) {
+		t.Fatal("fallback hid nested .worktrees path outside the top-level metadata scope")
 	}
 }
 
@@ -1146,13 +1322,23 @@ func TestTrackedOperationalTextFallbackRejectsUnsafeEntries(t *testing.T) {
 		setup   func(*testing.T, string)
 	}{
 		{
+			name:    "root build artifact directory",
+			wantErr: "is not a regular file",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.Mkdir(filepath.Join(root, "gobfd"), 0o750); err != nil {
+					t.Fatalf("create named build artifact directory: %v", err)
+				}
+			},
+		},
+		{
 			name:    "symlink",
 			wantErr: "is a symlink",
 			setup: func(t *testing.T, root string) {
 				t.Helper()
 				target := filepath.Join(root, "target.txt")
 				writeFixture(t, target, "safe\n")
-				if err := os.Symlink(target, filepath.Join(root, "link.txt")); err != nil {
+				if err := os.Symlink(target, filepath.Join(root, "gobfd")); err != nil {
 					t.Fatalf("create symlink fixture: %v", err)
 				}
 			},
@@ -1163,7 +1349,7 @@ func TestTrackedOperationalTextFallbackRejectsUnsafeEntries(t *testing.T) {
 			setup: func(t *testing.T, root string) {
 				t.Helper()
 				var listenConfig net.ListenConfig
-				listener, err := listenConfig.Listen(t.Context(), "unix", filepath.Join(root, "socket"))
+				listener, err := listenConfig.Listen(t.Context(), "unix", filepath.Join(root, "gobfd"))
 				if err != nil {
 					t.Skipf("Unix socket fixture is unavailable: %v", err)
 				}
@@ -1176,7 +1362,7 @@ func TestTrackedOperationalTextFallbackRejectsUnsafeEntries(t *testing.T) {
 			setup: func(t *testing.T, root string) {
 				t.Helper()
 				contents := bytes.Repeat([]byte{'a'}, maxOperationalFileSize+1)
-				if err := os.WriteFile(filepath.Join(root, "large.txt"), contents, 0o600); err != nil {
+				if err := os.WriteFile(filepath.Join(root, "gobfd"), contents, 0o700); err != nil {
 					t.Fatalf("write oversize fixture: %v", err)
 				}
 			},
@@ -1212,10 +1398,11 @@ func TestTrackedOperationalTextPrefersGitTrackedList(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	writeFixture(t, filepath.Join(root, "tracked.txt"), "safe\n")
+	const tracked = "gobfd"
+	writeFixture(t, filepath.Join(root, tracked), "safe\n")
 	removed := "aio" + "bfd"
 	writeFixture(t, filepath.Join(root, "untracked.txt"), removed+"\n")
-	for _, args := range [][]string{{"init", "-q"}, {"add", "--", "tracked.txt"}} {
+	for _, args := range [][]string{{"init", "-q"}, {"add", "--", tracked}} {
 		command := exec.CommandContext(t.Context(), "git", append([]string{"-C", root}, args...)...)
 		if output, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("prepare tracked-list preference fixture: %v\n%s", err, output)
@@ -1224,6 +1411,11 @@ func TestTrackedOperationalTextPrefersGitTrackedList(t *testing.T) {
 
 	if err := validateTrackedOperationalText(t.Context(), root, nil, []string{removed}); err != nil {
 		t.Fatalf("tracked-list preference scanned untracked content: %v", err)
+	}
+	writeFixture(t, filepath.Join(root, tracked), removed+"\n")
+	err := validateTrackedOperationalText(t.Context(), root, nil, []string{removed})
+	if err == nil || !strings.Contains(err.Error(), "retains removed reference") {
+		t.Fatalf("tracked named build artifact error = %v, want removed-reference diagnostic", err)
 	}
 }
 
@@ -1477,7 +1669,6 @@ func TestBenchmarkReportOperationalContract(t *testing.T) {
 
 	paths := []string{
 		filepath.Join(root, "bench"),
-		filepath.Join(root, "scripts", "gen-report.sh"),
 		filepath.Join(root, "scripts", "report-template.html"),
 	}
 	removedReferences := []string{"aio" + "bfd", "bit" + "string"}
@@ -1491,14 +1682,19 @@ func TestBenchmarkReportOperationalContract(t *testing.T) {
 	if strings.Contains(strings.ToLower(makefile), "bench-"+"python") {
 		t.Error("benchmark-cross retains the removed benchmark service")
 	}
-	generatorPath := filepath.Join(root, "scripts", "gen-report.sh")
-	generator := readContractFile(t, "benchmark report generator", generatorPath)
-	assertContainsAll(t, "benchmark report generator", generator, []string{
-		`go -C "${PROJECT_DIR}" run ./test/cmd/benchreport --`,
-		`"${META_JSON}" "${TEMPLATE}" "${OUTPUT}"`,
+	recipeStart := strings.Index(makefile, "benchmark-report: dev-ensure\n")
+	recipeEnd := strings.Index(makefile, "\n# === Quality ===")
+	if recipeStart < 0 || recipeEnd < recipeStart {
+		t.Fatal("Makefile lacks a bounded benchmark-report recipe")
+	}
+	reportRecipe := makefile[recipeStart:recipeEnd]
+	assertContainsAll(t, "benchmark report generator", reportRecipe, []string{
+		`$(EXEC) env GCC_VERSION="gcc (Debian trixie)" go run ./test/cmd/benchreport --`,
+		`"$(BENCH_REPORT_RESULTS)/bench-go.txt"`,
+		`"$(BENCH_META_JSON)" "$(BENCH_REPORT_TEMPLATE)" "$(BENCH_REPORT_OUTPUT)"`,
 	})
 	for _, removed := range []string{"uv run", "python -", "<<'PY'", "tempfile.NamedTemporaryFile"} {
-		if strings.Contains(generator, removed) {
+		if strings.Contains(reportRecipe, removed) {
 			t.Errorf("benchmark report generator retains removed Python renderer marker %q", removed)
 		}
 	}
@@ -1519,13 +1715,18 @@ func TestBenchmarkResultMountContract(t *testing.T) {
 	if strings.Contains(compose, "\nvolumes:\n  bench-results:") {
 		t.Error("benchmark Compose retains the obsolete named result volume")
 	}
+	if strings.Contains(compose, "sh -c") {
+		t.Error("benchmark Compose retains a shell wrapper")
+	}
 	defaultSource := filepath.Clean(filepath.Join(root, "bench", "..", "bench-results"))
 	assertEqual(t, "default rendered benchmark result source", defaultSource, filepath.Join(root, "bench-results"))
 	render := benchmarkComposeConfigCommand(t.Context(), root)
 	render.Env = append(render.Env, "BENCH_RESULTS_DIR="+defaultSource)
-	rendered, err := render.CombinedOutput()
+	var stderr bytes.Buffer
+	render.Stderr = &stderr
+	rendered, err := render.Output()
 	if err != nil {
-		t.Fatalf("render benchmark Compose: %v\n%s", err, rendered)
+		t.Fatalf("render benchmark Compose: %v\nstderr: %s\nstdout: %s", err, &stderr, rendered)
 	}
 	type renderedBind struct {
 		SELinux string `yaml:"selinux"`
@@ -1579,9 +1780,10 @@ func TestBenchmarkResultMountContract(t *testing.T) {
 		`BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) build`,
 		`BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) run --rm bench-c`,
 		`BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) run --rm bench-go`,
-		`./scripts/gen-report.sh "$(BENCH_RESULTS)"`,
+		`go run ./test/cmd/benchreport --`,
 	})
-	spaceResults := filepath.Join(t.TempDir(), "benchmark results with spaces")
+	spaceRel := filepath.Join("bench-results", "benchmark results with spaces")
+	spaceResults := filepath.Join(root, spaceRel)
 	dryRun := exec.CommandContext(
 		t.Context(), "make", "--no-print-directory", "-n", "benchmark-cross", "benchmark-report",
 		"BENCH_RESULTS="+spaceResults,
@@ -1594,8 +1796,56 @@ func TestBenchmarkResultMountContract(t *testing.T) {
 	assertContainsAll(t, "benchmark Make recipes with spaces", string(dryRunOutput), []string{
 		`mkdir -p "` + spaceResults + `"`,
 		`BENCH_RESULTS_DIR="` + spaceResults + `" podman compose -f bench/compose.yml build`,
-		`./scripts/gen-report.sh "` + spaceResults + `"`,
+		`"` + filepath.ToSlash(filepath.Join(spaceRel, "bench-go.txt")) + `"`,
 	})
+}
+
+func TestGrafanaProvisioningSingleAuthorityContract(t *testing.T) {
+	t.Parallel()
+
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	duplicate := filepath.Join(root, "deployments", "integrations", "observability", "configs", "grafana")
+	if _, statErr := os.Stat(duplicate); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("duplicate observability Grafana assets remain at %s: %v", duplicate, statErr)
+	}
+	datasource := readContractFile(t, "canonical Grafana datasource",
+		filepath.Join(root, "deployments/compose/configs/grafana/provisioning/datasources/prometheus.yml"))
+	if !strings.Contains(datasource, "url: ${PROMETHEUS_URL}") {
+		t.Fatalf("canonical Grafana datasource lacks ${PROMETHEUS_URL}: %q", datasource)
+	}
+	prodCompose := readContractFile(t, "production Compose", filepath.Join(root, "deployments/compose/compose.yml"))
+	assertContainsAll(t, "production Compose Grafana URL", prodCompose, []string{
+		`PROMETHEUS_URL: "http://127.0.0.1:9090"`,
+		`./configs/grafana/provisioning:/etc/grafana/provisioning:ro,z`,
+		`./configs/grafana/dashboards:/var/lib/grafana/dashboards:ro,z`,
+	})
+	obsCompose := readContractFile(
+		t, "observability Compose",
+		filepath.Join(root, "deployments/integrations/observability/compose.yml"),
+	)
+	assertContainsAll(t, "observability Compose Grafana mounts", obsCompose, []string{
+		`PROMETHEUS_URL=http://prometheus-observability:9090`,
+		`../../compose/configs/grafana/provisioning:/etc/grafana/provisioning:ro,z`,
+		`../../compose/configs/grafana/dashboards:/var/lib/grafana/dashboards:ro,z`,
+	})
+	dashboardRaw := readContractFile(
+		t, "canonical Grafana dashboard",
+		filepath.Join(root, "deployments/compose/configs/grafana/dashboards/bfd.json"),
+	)
+	var dashboard struct {
+		UID    string            `json:"uid"`
+		Panels []json.RawMessage `json:"panels"`
+	}
+	if unmarshalErr := json.Unmarshal([]byte(dashboardRaw), &dashboard); unmarshalErr != nil ||
+		dashboard.UID != "gobfd-bfd-sessions" || len(dashboard.Panels) == 0 {
+		t.Fatalf(
+			"canonical Grafana dashboard = uid %q panels %d, err %v",
+			dashboard.UID, len(dashboard.Panels), unmarshalErr,
+		)
+	}
 }
 
 func TestBenchmarkComposeConfigCommandUsesAbsolutePath(t *testing.T) {
@@ -1607,20 +1857,7 @@ func TestBenchmarkComposeConfigCommandUsesAbsolutePath(t *testing.T) {
 
 	fakeBin := t.TempDir()
 	commandLog := filepath.Join(t.TempDir(), "compose-provider.log")
-	if err := writeExecutable(filepath.Join(fakeBin, "podman"), `#!/usr/bin/env bash
-set -euo pipefail
-test "$#" -eq 4
-test "$1" = "compose"
-test "$2" = "-f"
-case "$3" in
-  /*) ;;
-  *) exit 41 ;;
-esac
-test "$4" = "config"
-printf '%s\n' "$*" >"${BENCH_COMMAND_LOG:?}"
-`); err != nil {
-		t.Fatalf("write fake podman compose: %v", err)
-	}
+	fakeModeEnv := installFakeCommand(t, fakeBin, "podman", "benchmark-compose")
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	command := benchmarkComposeConfigCommand(t.Context(), root)
@@ -1634,7 +1871,7 @@ printf '%s\n' "$*" >"${BENCH_COMMAND_LOG:?}"
 	if command.Dir != root {
 		t.Fatalf("benchmark Compose working directory = %q, want %q", command.Dir, root)
 	}
-	command.Env = append(command.Env, "BENCH_COMMAND_LOG="+commandLog)
+	command.Env = append(command.Env, fakeModeEnv, fakeRaceOptions, "BENCH_COMMAND_LOG="+commandLog)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("execute benchmark Compose command: %v\n%s", err, output)
 	}
@@ -1656,25 +1893,7 @@ func TestDevEnsureUsesComposeServiceID(t *testing.T) {
 
 	fakeBin := t.TempDir()
 	commandLog := filepath.Join(t.TempDir(), "podman.log")
-	if err := writeExecutable(filepath.Join(fakeBin, "podman"), `#!/usr/bin/env bash
-set -euo pipefail
-printf '%s\n' "$*" >>"${PODMAN_COMMAND_LOG:?}"
-case "$*" in
-  "compose -p dev-contract -f deployments/compose/compose.dev.yml ps --all --quiet dev")
-    printf '%s\n' immutable-dev-id
-    ;;
-  "inspect immutable-dev-id --format "*Mounts*)
-    printf '%s\n' "${EXPECTED_ROOT:?}"
-    ;;
-  "compose -p dev-contract -f deployments/compose/compose.dev.yml up -d --no-build dev")
-    ;;
-  *)
-    exit 97
-    ;;
-esac
-`); err != nil {
-		t.Fatalf("write fake podman: %v", err)
-	}
+	fakeModeEnv := installFakeCommand(t, fakeBin, "podman", "dev-ensure")
 
 	command := exec.CommandContext(
 		t.Context(),
@@ -1682,6 +1901,8 @@ esac
 	)
 	command.Dir = root
 	command.Env = append(os.Environ(),
+		fakeModeEnv,
+		fakeRaceOptions,
 		"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"PODMAN_COMMAND_LOG="+commandLog,
 		"EXPECTED_ROOT="+root,
@@ -1710,15 +1931,13 @@ func TestBenchmarkReportGenerator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve repository root: %v", err)
 	}
-	script := filepath.Join(root, "scripts", "gen-report.sh")
-
 	t.Run("success", func(t *testing.T) {
 		results := t.TempDir()
 		writeBenchmarkFixtures(t, results)
 		outputDir := t.TempDir()
 		output := filepath.Join(outputDir, "report.html")
 		writeFixture(t, output, "pre-existing report\n")
-		stdout, stderr, runErr := runBenchmarkReport(t, script, results, output, "")
+		stdout, stderr, runErr := runBenchmarkReport(t, root, results, output, "")
 		if runErr != nil {
 			t.Fatalf("generate report: %v\nstdout:\n%s\nstderr:\n%s", runErr, stdout, stderr)
 		}
@@ -1760,7 +1979,7 @@ func TestBenchmarkReportGenerator(t *testing.T) {
 		meta := filepath.Join(t.TempDir(), "meta.json")
 		writeFixture(t, meta, "{}\n")
 		output := filepath.Join(t.TempDir(), "report.html")
-		stdout, stderr, runErr := runBenchmarkReport(t, script, results, output, meta)
+		stdout, stderr, runErr := runBenchmarkReport(t, root, results, output, meta)
 		if runErr != nil {
 			t.Fatalf("generate report: %v\nstdout:\n%s\nstderr:\n%s", runErr, stdout, stderr)
 		}
@@ -1781,7 +2000,7 @@ func TestBenchmarkReportGenerator(t *testing.T) {
 		if err := os.Symlink(target, output); err != nil {
 			t.Fatalf("create output symlink: %v", err)
 		}
-		_, stderr, runErr := runBenchmarkReport(t, script, results, output, "")
+		_, stderr, runErr := runBenchmarkReport(t, root, results, output, "")
 		if runErr == nil {
 			t.Fatal("generator accepted a symlink output target")
 		}
@@ -1940,7 +2159,7 @@ func TestBenchmarkReportGenerator(t *testing.T) {
 			output := filepath.Join(t.TempDir(), "report.html")
 			const previousReport = "previous complete report\n"
 			writeFixture(t, output, previousReport)
-			stdout, stderr, runErr := runBenchmarkReport(t, script, results, output, meta)
+			stdout, stderr, runErr := runBenchmarkReport(t, root, results, output, meta)
 			if runErr == nil {
 				t.Fatalf("generator accepted invalid input\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
 			}
@@ -2007,7 +2226,7 @@ func TestOperationalSurfaceScanRejectsUnsafeEntries(t *testing.T) {
 
 const (
 	maxOperationalFileSize         = 2 << 20
-	maxDependencyInventoryFileSize = 3 << 20
+	maxDependencyInventoryFileSize = 16 << 20 // Matches dependencyinventory.maxJSONFileBytes.
 	maxOperationalEntries          = 10_000
 )
 
@@ -2049,14 +2268,24 @@ func invalidMetadataMutation(contents string) func(*testing.T, string) string {
 	}
 }
 
-func runBenchmarkReport(t *testing.T, script, results, output, meta string) (string, string, error) {
+func runBenchmarkReport(t *testing.T, root, results, output, meta string) (string, string, error) {
 	t.Helper()
 
-	cmd := exec.CommandContext(t.Context(), script, results)
-	cmd.Env = append(os.Environ(), "BENCH_REPORT_OUTPUT="+output)
-	if meta != "" {
-		cmd.Env = append(cmd.Env, "BENCH_META_JSON="+meta)
+	if meta == "" {
+		meta = filepath.Join(root, "testdata", "benchmarks", "v0.4.0", "meta.json")
 	}
+	cmd := exec.CommandContext(
+		t.Context(),
+		"go", "run", "./test/cmd/benchreport", "--",
+		filepath.Join(results, "bench-go.txt"),
+		filepath.Join(results, "bench-c-frr.txt"),
+		filepath.Join(results, "bench-c-bird.txt"),
+		meta,
+		filepath.Join(root, "scripts", "report-template.html"),
+		output,
+	)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "BENCH_REPORT_ROOT="+filepath.Dir(output))
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -2154,7 +2383,7 @@ func validateTrackedOperationalText(
 	allowed map[string]struct{},
 	removedReferences []string,
 ) error {
-	paths, err := trackedOperationalPaths(ctx, root)
+	paths, fallback, err := trackedOperationalPaths(ctx, root)
 	if err != nil {
 		return err
 	}
@@ -2163,7 +2392,7 @@ func validateTrackedOperationalText(
 		return fmt.Errorf("open repository root %s: %w", root, err)
 	}
 
-	validationErr := validateTrackedOperationalPaths(ctx, rooted, paths, allowed, removedReferences)
+	validationErr := validateTrackedOperationalPaths(ctx, rooted, paths, fallback, allowed, removedReferences)
 	closeErr := rooted.Close()
 	if validationErr != nil {
 		return validationErr
@@ -2178,6 +2407,7 @@ func validateTrackedOperationalPaths(
 	ctx context.Context,
 	rooted *os.Root,
 	paths []string,
+	fallback bool,
 	allowed map[string]struct{},
 	removedReferences []string,
 ) error {
@@ -2185,21 +2415,21 @@ func validateTrackedOperationalPaths(
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := validateTrackedOperationalPath(rooted, relative, allowed, removedReferences); err != nil {
+		if err := validateTrackedOperationalPath(rooted, relative, fallback, allowed, removedReferences); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func trackedOperationalPaths(ctx context.Context, root string) ([]string, error) {
+func trackedOperationalPaths(ctx context.Context, root string) ([]string, bool, error) {
 	command := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "-z")
 	output, gitErr := command.Output()
 	if gitErr == nil {
 		deletedCommand := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "-z", "--deleted")
 		deletedOutput, deletedErr := deletedCommand.Output()
 		if deletedErr != nil {
-			return nil, fmt.Errorf("list deleted tracked repository files: %w", deletedErr)
+			return nil, false, fmt.Errorf("list deleted tracked repository files: %w", deletedErr)
 		}
 		deleted := make(map[string]struct{}, bytes.Count(deletedOutput, []byte{0}))
 		for pathBytes := range bytes.SplitSeq(deletedOutput, []byte{0}) {
@@ -2217,14 +2447,14 @@ func trackedOperationalPaths(ctx context.Context, root string) ([]string, error)
 				paths = append(paths, path)
 			}
 		}
-		return paths, nil
+		return paths, false, nil
 	}
 
 	paths, err := walkOperationalPaths(ctx, root)
 	if err != nil {
-		return nil, fmt.Errorf("list tracked repository files: %w; then walk working tree: %w", gitErr, err)
+		return nil, true, fmt.Errorf("list tracked repository files: %w; then walk working tree: %w", gitErr, err)
 	}
-	return paths, nil
+	return paths, true, nil
 }
 
 func walkOperationalPaths(ctx context.Context, root string) ([]string, error) {
@@ -2260,7 +2490,7 @@ func walkOperationalPathsBounded(ctx context.Context, root string, maxEntries in
 		if entries > maxEntries {
 			return fmt.Errorf("working tree exceeds fallback entry limit %d", maxEntries)
 		}
-		if !entry.IsDir() {
+		if !entry.IsDir() || fallbackBuildArtifactPath(relative) {
 			paths = append(paths, relative)
 		}
 		return nil
@@ -2272,7 +2502,7 @@ func walkOperationalPathsBounded(ctx context.Context, root string, maxEntries in
 }
 
 func fallbackMetadataPath(relative string) bool {
-	for _, metadata := range []string{".git", ".beads", ".venv", "reports"} {
+	for _, metadata := range []string{".git", ".beads", ".venv", ".worktrees", "reports"} {
 		if relative == metadata || strings.HasPrefix(relative, metadata+"/") {
 			return true
 		}
@@ -2280,9 +2510,15 @@ func fallbackMetadataPath(relative string) bool {
 	return false
 }
 
+func fallbackBuildArtifactPath(relative string) bool {
+	return relative == "gobfd" || relative == "gobfdctl" ||
+		relative == "gobfd-haproxy-agent" || relative == "gobfd-exabgp-bridge"
+}
+
 func validateTrackedOperationalPath(
 	rooted *os.Root,
 	relative string,
+	fallback bool,
 	allowed map[string]struct{},
 	removedReferences []string,
 ) error {
@@ -2303,6 +2539,15 @@ func validateTrackedOperationalPath(
 	}
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("tracked operational path %s is not a regular file", relative)
+	}
+	if fallback && fallbackBuildArtifactPath(relative) {
+		buildArtifact, inspectErr := isFallbackGoBuildArtifact(rooted, clean, info)
+		if inspectErr != nil {
+			return fmt.Errorf("inspect fallback build artifact %s: %w", relative, inspectErr)
+		}
+		if buildArtifact {
+			return nil
+		}
 	}
 	fileSizeLimit := trackedOperationalFileSizeLimit(relative)
 	if info.Size() > int64(fileSizeLimit) {
@@ -2340,6 +2585,43 @@ func validateTrackedOperationalPath(
 
 func readTrackedOperationalFile(rooted *os.Root, relative string, initial os.FileInfo) ([]byte, error) {
 	return readTrackedOperationalFileWithHook(rooted, relative, initial, nil)
+}
+
+func isFallbackGoBuildArtifact(rooted *os.Root, relative string, initial os.FileInfo) (bool, error) {
+	file, err := rooted.Open(relative)
+	if err != nil {
+		return false, fmt.Errorf("open rooted file: %w", err)
+	}
+	opened, statErr := file.Stat()
+	if statErr != nil {
+		_ = file.Close()
+		return false, fmt.Errorf("stat opened file: %w", statErr)
+	}
+	current, lstatErr := rooted.Lstat(relative)
+	if lstatErr != nil {
+		_ = file.Close()
+		return false, fmt.Errorf("lstat opened path: %w", lstatErr)
+	}
+	if !opened.Mode().IsRegular() || current.Mode()&os.ModeSymlink != 0 ||
+		!os.SameFile(initial, opened) || !os.SameFile(current, opened) {
+		_ = file.Close()
+		return false, errors.New("fallback build artifact changed after lstat")
+	}
+	var magic [4]byte
+	_, readErr := file.ReadAt(magic[:], 0)
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		_ = file.Close()
+		return false, fmt.Errorf("read executable header: %w", readErr)
+	}
+	goBuild := opened.Mode().Perm()&0o111 != 0 && bytes.Equal(magic[:], []byte("\x7fELF"))
+	if goBuild {
+		_, buildInfoErr := buildinfo.Read(file)
+		goBuild = buildInfoErr == nil
+	}
+	if closeErr := file.Close(); closeErr != nil {
+		return false, fmt.Errorf("close rooted file: %w", closeErr)
+	}
+	return goBuild, nil
 }
 
 func readTrackedOperationalFileWithHook(
@@ -2430,20 +2712,18 @@ func trackedGeneratedMarker(path string) (string, bool) {
 	}
 }
 
-func shellFunctionBody(t *testing.T, script, name string) string {
+func contractSection(t *testing.T, contents, startMarker, endMarker string) string {
 	t.Helper()
 
-	startMarker := name + "() {\n"
-	start := strings.Index(script, startMarker)
+	start := strings.Index(contents, startMarker)
 	if start < 0 {
-		t.Fatalf("shell function %s is missing", name)
+		t.Fatalf("contract section start %q is missing", startMarker)
 	}
-	start += len(startMarker)
-	end := strings.Index(script[start:], "\n}\n")
+	end := strings.Index(contents[start:], endMarker)
 	if end < 0 {
-		t.Fatalf("shell function %s has no closing brace", name)
+		t.Fatalf("contract section end %q is missing", endMarker)
 	}
-	return script[start : start+end]
+	return contents[start : start+end]
 }
 
 func TestInteropComposeServiceInventory(t *testing.T) {

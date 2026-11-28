@@ -306,9 +306,8 @@ type ControlPacket struct {
 	// system does not support Echo. Offset: bytes 20-23.
 	RequiredMinEchoRxInterval uint32
 
-	// Auth holds the decoded authentication section, nil if the A bit is
-	// clear (RFC 5880 Section 4.1).
-	Auth *AuthSection
+	// Auth owns its metadata and bounded payload; its zero value denotes no section.
+	Auth AuthSection
 }
 
 // -------------------------------------------------------------------------
@@ -323,7 +322,7 @@ type ControlPacket struct {
 //     Auth Len = password length + 3.
 //
 //   - Keyed MD5 / Meticulous Keyed MD5 (Type=2,3, RFC 5880 Section 4.3):
-//     Auth Type(1) + Auth Len(1) + Key ID(1) + Reserved(1) + SeqNum(4) + Digest(16)
+//     Auth Type(1) + Auth Len(1) + Key ID(1) + Reserved(1) + SeqNum(4) + Data(16)
 //     Auth Len = 24 (fixed).
 //
 //   - Keyed SHA1 / Meticulous Keyed SHA1 (Type=4,5, RFC 5880 Section 4.4):
@@ -341,20 +340,21 @@ type AuthSection struct {
 	// active simultaneously (RFC 5880 Sections 4.2, 4.3, 4.4).
 	KeyID uint8
 
-	// AuthData holds the Simple Password bytes (1-16 bytes) when Type=1
-	// (RFC 5880 Section 4.2: Auth Len = password length + 3).
-	AuthData []byte
+	// DataLen is the logical payload length, independent of the wire Len field.
+	DataLen uint8
 
 	// SequenceNumber provides replay protection for MD5 and SHA1 auth
 	// types (RFC 5880 Sections 4.3, 4.4). Not used for Simple Password.
 	SequenceNumber uint32
 
-	// Digest holds the 16-byte MD5 digest (Type=2,3) or the 20-byte
-	// SHA1 hash (Type=4,5). Not used for Simple Password.
-	// NOTE: after UnmarshalControlPacket, this slice references the
-	// original buffer (zero-copy). Callers must copy if the buffer
-	// will be returned to PacketPool.
-	Digest []byte
+	// Data holds the password (Type=1), MD5 digest (Type=2,3), or SHA1
+	// digest (Type=4,5). Only the first DataLen bytes form the payload.
+	Data [sha1DigestSize]byte
+}
+
+// IsZero reports the absent authentication section.
+func (a AuthSection) IsZero() bool {
+	return a == (AuthSection{})
 }
 
 // -------------------------------------------------------------------------
@@ -426,7 +426,7 @@ const (
 // MarshalControlPacket serializes a ControlPacket into buf.
 // The buffer MUST be at least HeaderSize bytes (24). For packets with
 // authentication, buf MUST be at least HeaderSize + auth section length.
-// Callers typically provide a MaxPacketSize buffer from PacketPool.
+// Typical codec buffers use MaxPacketSize; PacketPool buffers also hold transport padding.
 //
 // Returns the number of bytes written, or an error if the buffer is
 // too small or the packet contains invalid data.
@@ -447,9 +447,15 @@ const (
 //	Bytes 20-23: Required Min Echo RX Interval (big-endian uint32, microseconds)
 //	Bytes 24+: Authentication Section (optional)
 func MarshalControlPacket(pkt *ControlPacket, buf []byte) (int, error) {
-	// Calculate total packet length.
+	// Validate the whole packet before writing, so a rejected packet leaves
+	// buf untouched.
+	if pkt.AuthPresent || !pkt.Auth.IsZero() {
+		if err := validateOutboundAuth(pkt); err != nil {
+			return 0, fmt.Errorf("marshal control packet: %w", err)
+		}
+	}
 	totalLen := HeaderSize
-	if pkt.AuthPresent && pkt.Auth != nil {
+	if pkt.AuthPresent {
 		totalLen += int(pkt.Auth.Len)
 	}
 
@@ -508,23 +514,52 @@ func MarshalControlPacket(pkt *ControlPacket, buf []byte) (int, error) {
 	binary.BigEndian.PutUint32(buf[20:24], pkt.RequiredMinEchoRxInterval)
 
 	// Optional Authentication Section (RFC 5880 Sections 4.2, 4.3, 4.4).
-	if pkt.AuthPresent && pkt.Auth != nil {
-		if err := marshalAuthSection(pkt.Auth, buf[HeaderSize:]); err != nil {
-			return 0, fmt.Errorf("marshal auth section: %w", err)
-		}
+	if pkt.AuthPresent {
+		marshalAuthSection(&pkt.Auth, buf[HeaderSize:])
 	}
 
 	return totalLen, nil
 }
 
-// marshalAuthSection writes the authentication section to buf.
-// buf must be at least Auth.Len bytes. Caller has already verified this.
-func marshalAuthSection(auth *AuthSection, buf []byte) error {
-	if int(auth.Len) > len(buf) {
-		return fmt.Errorf("auth section needs %d bytes, buffer has %d: %w",
-			auth.Len, len(buf), ErrBufTooSmall)
+// validateOutboundAuth checks that the A bit, the authentication section and
+// its per-type length contract agree (RFC 5880 Sections 4.2-4.4).
+func validateOutboundAuth(pkt *ControlPacket) error {
+	if pkt.AuthPresent == pkt.Auth.IsZero() {
+		return fmt.Errorf("auth present bit %t with auth section %t: %w",
+			pkt.AuthPresent, !pkt.Auth.IsZero(), ErrAuthMismatch)
 	}
+	auth := pkt.Auth
 
+	var wantLen, payload int
+	switch auth.Type {
+	case AuthTypeSimplePassword:
+		payload = int(auth.DataLen)
+		if payload < simplePasswordMinLen || payload > simplePasswordMaxLen {
+			return fmt.Errorf("simple password of %d bytes: %w", payload, ErrAuthLenMismatch)
+		}
+		wantLen = authSimpleHeaderSize + payload
+	case AuthTypeKeyedMD5, AuthTypeMeticulousKeyedMD5:
+		wantLen, payload = authLenMD5, int(auth.DataLen)
+		if payload != md5DigestSize {
+			return fmt.Errorf("MD5 digest of %d bytes: %w", payload, ErrAuthLenMismatch)
+		}
+	case AuthTypeKeyedSHA1, AuthTypeMeticulousKeyedSHA1:
+		wantLen, payload = authLenSHA1, int(auth.DataLen)
+		if payload != sha1DigestSize {
+			return fmt.Errorf("SHA1 digest of %d bytes: %w", payload, ErrAuthLenMismatch)
+		}
+	default:
+		return fmt.Errorf("auth type %d: %w", auth.Type, ErrInvalidAuthType)
+	}
+	if int(auth.Len) != wantLen {
+		return fmt.Errorf("auth type %d Len %d, want %d: %w", auth.Type, auth.Len, wantLen, ErrAuthLenMismatch)
+	}
+	return nil
+}
+
+// marshalAuthSection writes an authentication section that
+// validateOutboundAuth accepted into buf, which holds at least auth.Len bytes.
+func marshalAuthSection(auth *AuthSection, buf []byte) {
 	// Common header: Auth Type (byte 0), Auth Len (byte 1).
 	buf[0] = uint8(auth.Type)
 	buf[1] = auth.Len
@@ -533,24 +568,22 @@ func marshalAuthSection(auth *AuthSection, buf []byte) error {
 	case AuthTypeSimplePassword:
 		// RFC 5880 Section 4.2: Type(1) + Len(1) + KeyID(1) + Password(1-16).
 		buf[2] = auth.KeyID
-		copy(buf[3:], auth.AuthData)
+		copy(buf[3:], auth.Data[:auth.DataLen])
 
 	case AuthTypeKeyedMD5, AuthTypeMeticulousKeyedMD5,
 		AuthTypeKeyedSHA1, AuthTypeMeticulousKeyedSHA1:
 		// RFC 5880 Section 4.3 (MD5): Type(1) + Len(1) + KeyID(1) + Reserved(1) +
-		// SeqNum(4) + Digest(16). Auth Len = 24.
-		// RFC 5880 Section 4.4 (SHA1): same layout, Digest(20). Auth Len = 28.
+		// SeqNum(4) + Data(16). Auth Len = 24.
+		// RFC 5880 Section 4.4 (SHA1): same layout, Data(20). Auth Len = 28.
 		// Wire format is identical; digest length is encoded in auth.Length.
 		buf[2] = auth.KeyID
 		buf[3] = 0 // Reserved: MUST be set to zero on transmit.
 		binary.BigEndian.PutUint32(buf[4:8], auth.SequenceNumber)
-		copy(buf[8:], auth.Digest)
+		copy(buf[8:], auth.Data[:auth.DataLen])
 
 	default:
-		return fmt.Errorf("auth type %d: %w", auth.Type, ErrInvalidAuthType)
+		// Unreachable: validateOutboundAuth rejects every other type.
 	}
-
-	return nil
 }
 
 // -------------------------------------------------------------------------
@@ -560,8 +593,8 @@ func marshalAuthSection(auth *AuthSection, buf []byte) error {
 // UnmarshalControlPacket decodes a BFD Control packet from buf into pkt.
 // The buffer must contain at least MinPacketSizeNoAuth bytes (24).
 //
-// Zero-allocation: pkt is filled in-place. Auth.Digest and Auth.AuthData
-// reference slices of buf (no copy). Callers must copy these fields if the
+// Zero-allocation: pkt and its bounded authentication payload are filled in-place.
+// Callers must retain immutable wire for hash verification if the
 // buffer will be returned to PacketPool before the packet is fully processed.
 //
 // Validation performed per RFC 5880 Section 6.8.6 (steps 1-7):
@@ -664,10 +697,10 @@ func UnmarshalControlPacket(buf []byte, pkt *ControlPacket) error {
 	}
 
 	// Decode optional Authentication Section if the A bit is set.
-	pkt.Auth = nil
+	pkt.Auth = AuthSection{}
 	if pkt.AuthPresent {
-		auth := &AuthSection{}
-		if err := unmarshalAuthSection(buf[HeaderSize:pkt.Length], auth); err != nil {
+		var auth AuthSection
+		if err := unmarshalAuthSection(buf[HeaderSize:pkt.Length], &auth); err != nil {
 			return fmt.Errorf(unmarshalWrapErrFormat, unmarshalErrPrefix, err)
 		}
 		pkt.Auth = auth
@@ -688,8 +721,13 @@ func unmarshalAuthSection(buf []byte, auth *AuthSection) error {
 	auth.Type = AuthType(buf[0])
 	auth.Len = buf[1]
 
+	if auth.Len < 2 {
+		return fmt.Errorf("auth section: len field %d below minimum 2: %w",
+			auth.Len, ErrInvalidLength)
+	}
+
 	// Validate that the auth section length fits in the available data.
-	if int(auth.Len) > len(buf)+HeaderSize {
+	if int(auth.Len) > len(buf) {
 		return fmt.Errorf("auth section: len field %d exceeds available data %d: %w",
 			auth.Len, len(buf), ErrAuthSectionTruncated)
 	}
@@ -722,7 +760,8 @@ func unmarshalSimplePassword(buf []byte, auth *AuthSection) error {
 		return fmt.Errorf("auth section: simple password length %d out of range [%d, %d]: %w",
 			pwLen, simplePasswordMinLen, simplePasswordMaxLen, ErrAuthSectionTruncated)
 	}
-	auth.AuthData = buf[3 : 3+pwLen]
+	auth.DataLen = uint8(pwLen) // #nosec G115 -- pwLen is validated in [1, 16].
+	copy(auth.Data[:], buf[3:3+pwLen])
 
 	return nil
 }
@@ -740,16 +779,17 @@ func unmarshalHashAuth(buf []byte, auth *AuthSection, expectedLen uint8, digestS
 	auth.KeyID = buf[2]
 	// buf[3] = Reserved (ignored on receipt per RFC).
 	auth.SequenceNumber = binary.BigEndian.Uint32(buf[4:8])
-	auth.Digest = buf[8 : 8+digestSize]
+	auth.DataLen = uint8(digestSize) // #nosec G115 -- private callers pass only 16 or 20.
+	copy(auth.Data[:], buf[8:8+digestSize])
 
 	return nil
 }
 
 // -------------------------------------------------------------------------
-// PacketPool — sync.Pool for zero-allocation I/O
+// PacketPool — reusable datagram buffers
 // -------------------------------------------------------------------------
 
-// PacketPool provides reusable buffers for BFD packet I/O.
+// PacketPool provides reusable MaxPaddedPduSize buffers for complete BFD datagrams.
 // Callers Get() a *[]byte before receiving, and Put() it after processing.
 //
 // Pattern: gVisor netstack sync.Pool. The pool stores *[]byte (pointer to
@@ -762,7 +802,7 @@ func unmarshalHashAuth(buf []byte, auth *AuthSection, expectedLen uint8, digestS
 //	n, meta, err := conn.ReadPacket(*bufp)
 var PacketPool = sync.Pool{
 	New: func() any {
-		buf := make([]byte, MaxPacketSize)
+		buf := make([]byte, MaxPaddedPduSize)
 		return &buf
 	},
 }

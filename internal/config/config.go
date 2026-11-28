@@ -3,19 +3,26 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/env"
-	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/providers/rawbytes"
 	"github.com/knadh/koanf/v2"
+
+	"github.com/dantte-lp/gobfd/internal/bfd"
+	gobgpendpoint "github.com/dantte-lp/gobfd/internal/gobgp/endpoint"
+	gobgpstrategy "github.com/dantte-lp/gobfd/internal/gobgp/strategy"
+	"github.com/dantte-lp/gobfd/internal/overlay"
 )
 
 // -------------------------------------------------------------------------
@@ -38,9 +45,8 @@ type Config struct {
 	Sessions    []SessionConfig   `koanf:"sessions"`
 }
 
-// SocketConfig holds UDP socket buffer tuning parameters.
-// These control the kernel-level buffer sizes for BFD UDP sockets,
-// helping to prevent packet loss under high session counts.
+// SocketConfig holds startup-owned UDP buffers and ordinary BFD sender QoS.
+// QoS does not configure the outer sockets of overlay transports.
 type SocketConfig struct {
 	// ReadBufferSize is the SO_RCVBUF size for UDP listeners in bytes.
 	// Default: 4 MiB. Set to 0 to use the OS default.
@@ -49,17 +55,83 @@ type SocketConfig struct {
 	// WriteBufferSize is the SO_SNDBUF size for UDP senders in bytes.
 	// Default: 4 MiB. Set to 0 to use the OS default.
 	WriteBufferSize int `koanf:"write_buffer_size"`
+
+	// IPv4DSCP is the six-bit DSCP, excluding ECN; zero selects best effort.
+	IPv4DSCP int `koanf:"ipv4_dscp"`
+	// IPv6TrafficClass is the complete Traffic Class octet; zero selects best effort.
+	IPv6TrafficClass int `koanf:"ipv6_traffic_class"`
+	// Priority is the Linux SO_PRIORITY value, independent of the IP marking.
+	Priority int `koanf:"priority"`
+	// Mark is the Linux SO_MARK value; zero leaves the socket unmarked.
+	Mark uint32 `koanf:"mark"`
+	// PriorityRequired makes an SO_PRIORITY failure reject the sender.
+	PriorityRequired bool `koanf:"priority_required"`
+	// MarkRequired makes a requested nonzero SO_MARK failure reject the sender.
+	MarkRequired bool `koanf:"mark_required"`
 }
 
 // GRPCConfig holds the ConnectRPC server configuration.
 type GRPCConfig struct {
-	// Addr is the gRPC listen address (e.g., ":50051").
+	// Addr is the optional TCP listen address; empty (the default) opens no
+	// TCP listener. Plaintext TCP must be loopback; a non-loopback address
+	// needs TLS (gobfd-330.3).
 	Addr string `koanf:"addr"`
+
+	// Socket configures the optional Unix socket listener. Requests over it
+	// carry the kernel-reported peer UID as principal (gobfd-330).
+	Socket GRPCSocketConfig `koanf:"socket"`
+
+	// TLS turns the TCP listener into mTLS: clients must present a
+	// certificate from ClientCAFile (gobfd-330.2).
+	TLS GRPCTLSConfig `koanf:"tls"`
+
+	// UnsafeLoopbackMutations lets anonymous plaintext loopback TCP clients
+	// call mutating RPCs. Without it they can only read. The gobfd.management
+	// health check is NOT_SERVING while it is set.
+	UnsafeLoopbackMutations bool `koanf:"unsafe_loopback_mutations"`
+
+	// MutatingIdentities, when not empty, lists the mTLS client identities
+	// (URI SAN such as a SPIFFE ID, or "dns:<name>") that may call mutating
+	// RPCs; other mTLS clients are read-only. It requires TLS (gobfd-330.4).
+	MutatingIdentities []string `koanf:"mutating_identities"`
+
+	// FlightRecorder serves the runtime/trace flight recorder dump at
+	// /debug/flightrecorder on the management server, to callers with a
+	// principal only. Off by default (gobfd-qj0.8.2.3.2).
+	FlightRecorder bool `koanf:"flight_recorder"`
+}
+
+// GRPCTLSConfig holds the mTLS files of the TCP management listener. The
+// files are re-read on every handshake, so rotation needs no restart.
+type GRPCTLSConfig struct {
+	CertFile     string `koanf:"cert_file"`
+	KeyFile      string `koanf:"key_file"`
+	ClientCAFile string `koanf:"client_ca_file"`
+}
+
+// Enabled reports whether any mTLS file is configured.
+func (c GRPCTLSConfig) Enabled() bool {
+	return c.CertFile != "" || c.KeyFile != "" || c.ClientCAFile != ""
+}
+
+// GRPCSocketConfig holds the management Unix socket settings.
+type GRPCSocketConfig struct {
+	// Path is the absolute socket path; empty disables the listener.
+	Path string `koanf:"path"`
+
+	// Mode is the octal permission mode of the socket file (default "0660").
+	// Access control is this mode plus Group.
+	Mode string `koanf:"mode"`
+
+	// Group names the group that owns the socket file; empty keeps the
+	// daemon's group.
+	Group string `koanf:"group"`
 }
 
 // MetricsConfig holds the Prometheus metrics endpoint configuration.
 type MetricsConfig struct {
-	// Addr is the HTTP listen address for the metrics endpoint (e.g., ":9100").
+	// Addr is the HTTP listen address for the metrics endpoint (default
+	// "127.0.0.1:9100").
 	Addr string `koanf:"addr"`
 	// Path is the URL path for the metrics endpoint (e.g., "/metrics").
 	Path string `koanf:"path"`
@@ -109,8 +181,8 @@ type UnsolicitedConfig struct {
 	// RFC 9468 Section 2: MUST be disabled by default.
 	Enabled bool `koanf:"enabled"`
 
-	// MaxSessions limits the number of dynamically created sessions.
-	// Zero means no limit.
+	// MaxSessions limits the number of dynamically created sessions. It
+	// must be >= 1 when unsolicited BFD is enabled (RFC 9468 Section 6.1).
 	MaxSessions int `koanf:"max_sessions"`
 
 	// CleanupTimeout is how long to wait after a passive session goes Down
@@ -122,6 +194,10 @@ type UnsolicitedConfig struct {
 
 	// SessionDefaults holds default timer parameters for auto-created sessions.
 	SessionDefaults UnsolicitedSessionDefaultsConfig `koanf:"session_defaults"`
+
+	// Auth authenticates auto-created sessions and the packets that create
+	// them (RFC 9468 Section 6.2). Only meticulous_keyed_sha1 is accepted.
+	Auth AuthConfig `koanf:"auth"`
 }
 
 // UnsolicitedInterfaceConfig holds per-interface unsolicited BFD settings.
@@ -129,8 +205,9 @@ type UnsolicitedInterfaceConfig struct {
 	// Enabled controls unsolicited BFD on this interface.
 	Enabled bool `koanf:"enabled"`
 
-	// AllowedPrefixes restricts which source addresses can create sessions.
-	// RFC 9468 Section 6.1: apply policy from specific subnets/hosts.
+	// AllowedPrefixes further restricts which source addresses can create
+	// sessions (RFC 9468 Section 6.1). The source must also belong to the
+	// subnet of the local address that received the packet (Section 2).
 	AllowedPrefixes []string `koanf:"allowed_prefixes"`
 }
 
@@ -150,7 +227,7 @@ type EchoConfig struct {
 	Enabled bool `koanf:"enabled"`
 
 	// DefaultTxInterval is the default echo transmit interval.
-	// RFC 9747 Section 3.3: locally provisioned, not negotiated.
+	// RFC 9747 Section 2: locally provisioned, not negotiated.
 	DefaultTxInterval time.Duration `koanf:"default_tx_interval"`
 
 	// DefaultDetectMultiplier is the default echo detection multiplier.
@@ -213,9 +290,12 @@ func (ec EchoPeerConfig) LocalAddr() (netip.Addr, error) {
 }
 
 // MicroBFDConfig holds the RFC 7130 Micro-BFD for LAG configuration.
-// When configured, GoBFD runs independent BFD sessions on each LAG member
+// When enabled, GoBFD runs independent BFD sessions on each LAG member
 // link and tracks the aggregate LAG state.
 type MicroBFDConfig struct {
+	// Enabled opts into the incomplete RFC 7130 preview. Changing it requires restart.
+	Enabled bool `koanf:"enabled"`
+
 	// Groups holds per-LAG Micro-BFD group configurations.
 	Groups []MicroBFDGroupConfig `koanf:"groups"`
 
@@ -247,19 +327,19 @@ const (
 	maxBFDWireUint8 = math.MaxUint8
 
 	// OverlayBackendUserspaceUDP selects the implemented userspace UDP backend.
-	OverlayBackendUserspaceUDP = "userspace-udp"
+	OverlayBackendUserspaceUDP = overlay.BackendUserspaceUDP
 	// OverlayBackendKernel selects the reserved Linux kernel backend.
-	OverlayBackendKernel = "kernel"
+	OverlayBackendKernel = overlay.BackendKernel
 	// OverlayBackendOVS selects the reserved Open vSwitch backend.
-	OverlayBackendOVS = "ovs"
+	OverlayBackendOVS = overlay.BackendOVS
 	// OverlayBackendOVN selects the reserved OVN backend.
-	OverlayBackendOVN = "ovn"
+	OverlayBackendOVN = overlay.BackendOVN
 	// OverlayBackendCilium selects the reserved Cilium backend.
-	OverlayBackendCilium = "cilium"
+	OverlayBackendCilium = overlay.BackendCilium
 	// OverlayBackendCalico selects the reserved Calico backend.
-	OverlayBackendCalico = "calico"
+	OverlayBackendCalico = overlay.BackendCalico
 	// OverlayBackendNSX selects the reserved NSX backend.
-	OverlayBackendNSX = "nsx"
+	OverlayBackendNSX = overlay.BackendNSX
 )
 
 // MicroBFDActuatorConfig controls the optional LAG member actuator.
@@ -352,6 +432,12 @@ type VXLANPeerConfig struct {
 	// Local is the local VTEP IP address.
 	Local string `koanf:"local"`
 
+	// PeerMAC is the remote VTEP source MAC expected in Format A.
+	PeerMAC string `koanf:"peer_mac"`
+
+	// LocalMAC is the local VTEP source MAC used in Format A.
+	LocalMAC string `koanf:"local_mac"`
+
 	// DesiredMinTx overrides VXLANConfig.DefaultDesiredMinTx when nonzero.
 	DesiredMinTx time.Duration `koanf:"desired_min_tx"`
 
@@ -364,7 +450,11 @@ type VXLANPeerConfig struct {
 
 // VXLANSessionKey returns a unique identifier for the VXLAN session.
 func (vc VXLANPeerConfig) VXLANSessionKey() string {
-	return "vxlan|" + vc.Peer + "|" + vc.Local
+	key := "vxlan|" + canonicalOverlayAddr(vc.Peer) + "|" + canonicalOverlayAddr(vc.Local)
+	if vc.PeerMAC == "" && vc.LocalMAC == "" {
+		return key
+	}
+	return key + "|" + canonicalOverlayMAC(vc.PeerMAC) + "|" + canonicalOverlayMAC(vc.LocalMAC)
 }
 
 // PeerAddr parses the Peer string as a netip.Addr.
@@ -389,6 +479,16 @@ func (vc VXLANPeerConfig) LocalAddr() (netip.Addr, error) {
 		return netip.Addr{}, fmt.Errorf("parse vxlan local %q: %w", vc.Local, err)
 	}
 	return addr, nil
+}
+
+// PeerMACAddr parses the remote Format A VTEP source MAC.
+func (vc VXLANPeerConfig) PeerMACAddr() ([6]byte, error) {
+	return parseRequiredOverlayMAC("vxlan peer MAC", vc.PeerMAC, ErrVXLANEndpointIdentityUnavailable)
+}
+
+// LocalMACAddr parses the local Format A VTEP source MAC.
+func (vc VXLANPeerConfig) LocalMACAddr() ([6]byte, error) {
+	return parseRequiredOverlayMAC("vxlan local MAC", vc.LocalMAC, ErrVXLANEndpointIdentityUnavailable)
 }
 
 // GeneveConfig holds the RFC 9521 BFD for Geneve configuration.
@@ -432,6 +532,18 @@ type GenevePeerConfig struct {
 	// Zero means use the default.
 	VNI uint32 `koanf:"vni"`
 
+	// InnerPeer is the remote VAP IPv4 address carried in Format A.
+	InnerPeer string `koanf:"inner_peer"`
+
+	// InnerLocal is the local VAP IPv4 address carried in Format A.
+	InnerLocal string `koanf:"inner_local"`
+
+	// PeerMAC is the remote VAP MAC address carried in Format A.
+	PeerMAC string `koanf:"peer_mac"`
+
+	// LocalMAC is the local VAP MAC address carried in Format A.
+	LocalMAC string `koanf:"local_mac"`
+
 	// DesiredMinTx overrides GeneveConfig.DefaultDesiredMinTx when nonzero.
 	DesiredMinTx time.Duration `koanf:"desired_min_tx"`
 
@@ -443,8 +555,18 @@ type GenevePeerConfig struct {
 }
 
 // GeneveSessionKey returns a unique identifier for the Geneve session.
-func (gc GenevePeerConfig) GeneveSessionKey() string {
-	return "geneve|" + gc.Peer + "|" + gc.Local
+func (gc GenevePeerConfig) GeneveSessionKey(defaultVNI ...uint32) string {
+	key := "geneve|" + canonicalOverlayAddr(gc.Peer) + "|" + canonicalOverlayAddr(gc.Local)
+	vni := gc.VNI
+	if vni == 0 && len(defaultVNI) > 0 {
+		vni = defaultVNI[0]
+	}
+	if vni == 0 && gc.InnerPeer == "" && gc.InnerLocal == "" && gc.PeerMAC == "" && gc.LocalMAC == "" {
+		return key
+	}
+	return fmt.Sprintf("%s|%d|%s|%s|%s|%s",
+		key, vni, canonicalOverlayAddr(gc.InnerPeer), canonicalOverlayAddr(gc.InnerLocal),
+		canonicalOverlayMAC(gc.PeerMAC), canonicalOverlayMAC(gc.LocalMAC))
 }
 
 // PeerAddr parses the Peer string as a netip.Addr.
@@ -471,9 +593,66 @@ func (gc GenevePeerConfig) LocalAddr() (netip.Addr, error) {
 	return addr, nil
 }
 
+// InnerPeerAddr parses the remote Format A VAP address.
+func (gc GenevePeerConfig) InnerPeerAddr() (netip.Addr, error) {
+	return parseRequiredOverlayIPv4("geneve inner peer", gc.InnerPeer, ErrGeneveVAPIdentityUnavailable)
+}
+
+// InnerLocalAddr parses the local Format A VAP address.
+func (gc GenevePeerConfig) InnerLocalAddr() (netip.Addr, error) {
+	return parseRequiredOverlayIPv4("geneve inner local", gc.InnerLocal, ErrGeneveVAPIdentityUnavailable)
+}
+
+// PeerMACAddr parses the remote Format A VAP MAC into a comparable value.
+func (gc GenevePeerConfig) PeerMACAddr() ([6]byte, error) {
+	return parseRequiredOverlayMAC("geneve peer MAC", gc.PeerMAC, ErrGeneveVAPIdentityUnavailable)
+}
+
+// LocalMACAddr parses the local Format A VAP MAC into a comparable value.
+func (gc GenevePeerConfig) LocalMACAddr() ([6]byte, error) {
+	return parseRequiredOverlayMAC("geneve local MAC", gc.LocalMAC, ErrGeneveVAPIdentityUnavailable)
+}
+
+func parseRequiredOverlayIPv4(field, value string, identityErr error) (netip.Addr, error) {
+	addr, err := netip.ParseAddr(value)
+	if err != nil || !addr.Is4() || !addr.IsGlobalUnicast() {
+		return netip.Addr{}, fmt.Errorf("%s %q: %w", field, value, identityErr)
+	}
+	return addr.Unmap(), nil
+}
+
+func parseRequiredOverlayMAC(field, value string, identityErr error) ([6]byte, error) {
+	var result [6]byte
+	hardwareAddr, err := net.ParseMAC(value)
+	if err != nil || len(hardwareAddr) != len(result) || hardwareAddr[0]&1 != 0 {
+		return result, fmt.Errorf("%s %q: %w", field, value, identityErr)
+	}
+	copy(result[:], hardwareAddr)
+	if result == [6]byte{} {
+		return result, fmt.Errorf("%s %q: %w", field, value, identityErr)
+	}
+	return result, nil
+}
+
+func canonicalOverlayAddr(value string) string {
+	addr, err := netip.ParseAddr(value)
+	if err != nil {
+		return value
+	}
+	return addr.Unmap().String()
+}
+
+func canonicalOverlayMAC(value string) string {
+	addr, err := net.ParseMAC(value)
+	if err != nil {
+		return value
+	}
+	return addr.String()
+}
+
 // GoBGPConfig holds the GoBGP integration configuration.
 // When enabled, BFD state changes are propagated to a GoBGP instance
-// via its gRPC API (RFC 5882 Section 4.3).
+// via its gRPC API (RFC 5882 Section 10.2).
 type GoBGPConfig struct {
 	// Enabled controls whether the GoBGP integration is active.
 	// When false (default), BFD state changes are not propagated to BGP.
@@ -483,9 +662,14 @@ type GoBGPConfig struct {
 	Addr string `koanf:"addr"`
 
 	// Strategy determines how BFD state changes affect BGP:
-	//   - "disable-peer": disable/enable the BGP peer (default)
-	//   - "withdraw-routes": withdraw/restore routes (future)
+	//   - "disable-peer": disable/enable the BGP peer (default and only
+	//     implemented strategy)
+	//   - "withdraw-routes": reserved and rejected as unsupported
 	Strategy string `koanf:"strategy"`
+
+	// StateFile is the clean absolute path of the GoBGP disable ownership
+	// receipt store. Empty disables disk persistence (memory-only receipts).
+	StateFile string `koanf:"state_file"`
 
 	// ActionTimeout bounds each GoBGP API action.
 	ActionTimeout time.Duration `koanf:"action_timeout"`
@@ -493,7 +677,7 @@ type GoBGPConfig struct {
 	// TLS configures transport security for the GoBGP gRPC API.
 	TLS GoBGPTLSConfig `koanf:"tls"`
 
-	// Dampening configures RFC 5882 Section 3.2 flap dampening.
+	// Dampening configures GoBFD's penalty-based flap dampening policy.
 	Dampening GoBGPDampeningConfig `koanf:"dampening"`
 }
 
@@ -511,10 +695,17 @@ type GoBGPTLSConfig struct {
 }
 
 // GoBGPPlaintextNonLoopback reports whether the GoBGP integration is enabled,
-// TLS is disabled, and the configured endpoint is not a loopback host.
+// TLS is disabled, and the configured endpoint is neither a loopback TCP host
+// nor a valid local filesystem Unix-domain socket.
 func GoBGPPlaintextNonLoopback(cfg GoBGPConfig) bool {
 	if !cfg.Enabled || cfg.TLS.Enabled {
 		return false
+	}
+	if _, ok := gobgpendpoint.LocalUnixSocketPath(cfg.Addr); ok {
+		return false
+	}
+	if strings.Contains(cfg.Addr, "://") || strings.HasPrefix(strings.TrimSpace(cfg.Addr), "unix") {
+		return true
 	}
 
 	host := goBGPAddrHost(cfg.Addr)
@@ -542,7 +733,7 @@ func goBGPAddrHost(addr string) string {
 	return strings.Trim(addr, "[]")
 }
 
-// GoBGPDampeningConfig holds flap dampening parameters (RFC 5882 Section 3.2).
+// GoBGPDampeningConfig holds GoBFD flap dampening policy parameters.
 type GoBGPDampeningConfig struct {
 	// Enabled controls whether flap dampening is active.
 	Enabled bool `koanf:"enabled"`
@@ -581,6 +772,10 @@ type SessionConfig struct {
 	// RequiredMinRx is the required minimum RX interval (e.g., "100ms").
 	RequiredMinRx time.Duration `koanf:"required_min_rx"`
 
+	// RequiredMinRxSet distinguishes an explicit zero from an inherited interval.
+	// Load derives it from YAML presence; it is not a configuration key.
+	RequiredMinRxSet bool `koanf:"-"`
+
 	// DetectMult is the detection multiplier (must be >= 1).
 	DetectMult uint32 `koanf:"detect_mult"`
 
@@ -588,6 +783,14 @@ type SessionConfig struct {
 	// Overrides BFDConfig.DefaultPaddedPduSize when nonzero.
 	// Valid range: 24-9000. Zero means use the global default.
 	PaddedPduSize uint16 `koanf:"padded_pdu_size"`
+
+	// MultihopMaxHops is the multihop hop policy (multi_hop only, 1-254).
+	// Received TTL or Hop Limit must be >= 255 - MultihopMaxHops; absent means 1.
+	MultihopMaxHops uint32 `koanf:"multihop_max_hops"`
+
+	// MultihopMaxHopsSet records YAML presence of multihop_max_hops.
+	// Load derives it; it is not a configuration key.
+	MultihopMaxHopsSet bool `koanf:"-"`
 
 	// Auth configures RFC 5880 Section 6.7 authentication for this session.
 	// Empty Type means authentication is disabled.
@@ -644,6 +847,10 @@ func (sc SessionConfig) LocalAddr() (netip.Addr, error) {
 // Defaults
 // -------------------------------------------------------------------------
 
+// DefaultGoBGPStateFile is the default path where GoBFD persists confirmed
+// Unix speaker-epoch GoBGP disable ownership receipts across daemon restarts.
+const DefaultGoBGPStateFile = "/var/lib/gobfd/gobgp-ownership.json"
+
 // DefaultConfig returns a Config populated with sensible defaults.
 //
 // BFD defaults follow RFC 5880 Section 6.8.3: "When bfd.SessionState is not
@@ -652,11 +859,11 @@ func (sc SessionConfig) LocalAddr() (netip.Addr, error) {
 // conservative starting point for production deployments.
 func DefaultConfig() *Config {
 	return &Config{
-		GRPC: GRPCConfig{
-			Addr: ":50051",
-		},
+		// Only the management socket: callers carry a peer-UID principal.
+		GRPC: GRPCConfig{Socket: GRPCSocketConfig{Path: "/run/gobfd/gobfd.sock", Mode: "0660"}},
 		Metrics: MetricsConfig{
-			Addr: ":9100",
+			// Metrics are unauthenticated; bind beyond loopback explicitly.
+			Addr: "127.0.0.1:9100",
 			Path: "/metrics",
 		},
 		Log: LogConfig{
@@ -670,8 +877,11 @@ func DefaultConfig() *Config {
 			AlignIntervals:          false,
 		},
 		Socket: SocketConfig{
-			ReadBufferSize:  4 * 1024 * 1024, // 4 MiB
-			WriteBufferSize: 4 * 1024 * 1024, // 4 MiB
+			ReadBufferSize:   4 * 1024 * 1024, // 4 MiB
+			WriteBufferSize:  4 * 1024 * 1024, // 4 MiB
+			IPv4DSCP:         48,              // Operational CS6 policy, not an RFC 5881 requirement.
+			IPv6TrafficClass: 192,
+			PriorityRequired: true, MarkRequired: true,
 		},
 		MicroBFD: MicroBFDConfig{
 			Actuator: MicroBFDActuatorConfig{
@@ -683,20 +893,22 @@ func DefaultConfig() *Config {
 				UpAction:      MicroBFDActuatorActionAddMember,
 			},
 		},
-		VXLAN: VXLANConfig{
-			Backend: OverlayBackendUserspaceUDP,
-		},
-		Geneve: GeneveConfig{
-			Backend: OverlayBackendUserspaceUDP,
+		VXLAN:  VXLANConfig{Backend: OverlayBackendUserspaceUDP},
+		Geneve: GeneveConfig{Backend: OverlayBackendUserspaceUDP},
+		Unsolicited: UnsolicitedConfig{
+			SessionDefaults: UnsolicitedSessionDefaultsConfig{
+				DesiredMinTx:  1 * time.Second,
+				RequiredMinRx: 1 * time.Second,
+				DetectMult:    3,
+			},
 		},
 		GoBGP: GoBGPConfig{
 			Enabled:       false,
 			Addr:          "127.0.0.1:50051",
 			Strategy:      "disable-peer",
+			StateFile:     DefaultGoBGPStateFile,
 			ActionTimeout: 5 * time.Second,
-			TLS: GoBGPTLSConfig{
-				Enabled: false,
-			},
+			TLS:           GoBGPTLSConfig{Enabled: false},
 			Dampening: GoBGPDampeningConfig{
 				Enabled:           false,
 				SuppressThreshold: 3,
@@ -720,19 +932,16 @@ const envPrefix = "GOBFD_"
 // variable overrides (GOBFD_ prefix), and merges on top of DefaultConfig().
 // Missing fields inherit defaults.
 //
-// Environment variable mapping:
+// The explicit supported environment mapping is defined by envKeyMapper;
+// unknown or ambiguous GOBFD_ names are ignored.
 //
-//	GOBFD_GRPC_ADDR     -> grpc.addr
-//	GOBFD_METRICS_ADDR  -> metrics.addr
-//	GOBFD_METRICS_PATH  -> metrics.path
-//	GOBFD_LOG_LEVEL     -> log.level
-//	GOBFD_LOG_FORMAT    -> log.format
+// The caller selects the directory, including absolute paths, relative parent
+// components and directory symlinks. The final name is resolved through os.Root
+// beneath that opened directory; this does not impose a trusted base directory.
 //
-// Uses koanf/v2 with file + env providers and YAML parser.
+// Uses koanf/v2 with raw bytes + env providers and YAML parser.
 func Load(path string) (*Config, error) {
-	// os.Root provides sandboxed file access to prevent path traversal.
-	// Validate that the config file is within the expected directory
-	// before allowing koanf to read it.
+	// Open the directory selected by the caller, then resolve only the final name.
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
 	root, err := os.OpenRoot(dir)
@@ -741,12 +950,20 @@ func Load(path string) (*Config, error) {
 	}
 	defer root.Close()
 
-	// Validate the file is accessible within the root.
+	// File symlinks must be relative and remain beneath the opened directory.
 	f, err := root.Open(base)
 	if err != nil {
 		return nil, fmt.Errorf("open config file %s in root %s: %w", base, dir, err)
 	}
 	defer f.Close()
+	return loadOpenedConfig(path, f)
+}
+
+func loadOpenedConfig(path string, file io.Reader) (*Config, error) {
+	contents, err := io.ReadAll(file)
+	if err != nil {
+		return nil, fmt.Errorf("read config from %s: %w", path, err)
+	}
 
 	k := koanf.New(".")
 
@@ -757,14 +974,36 @@ func Load(path string) (*Config, error) {
 	}
 
 	// Load YAML file on top of defaults.
-	if err := k.Load(file.Provider(path), yaml.Parser()); err != nil {
+	if err := k.Load(rawbytes.Provider(contents), yaml.Parser()); err != nil {
 		return nil, fmt.Errorf("load config from %s: %w", path, err)
 	}
 
 	// Load environment variable overrides on top of YAML.
-	// GOBFD_GRPC_ADDR -> grpc.addr (strip prefix, lowercase, _ -> .).
 	if err := k.Load(env.Provider(envPrefix, ".", envKeyMapper), nil); err != nil {
 		return nil, fmt.Errorf("load env overrides: %w", err)
+	}
+	if err := validateRequiredMinRxInput(k); err != nil {
+		return nil, fmt.Errorf("validate required min RX input from %s: %w", path, err)
+	}
+	if !validUint8Scalar(k.Get("unsolicited.session_defaults.detect_mult")) {
+		return nil, fmt.Errorf("unsolicited.session_defaults.detect_mult from %s: %w",
+			path, ErrInvalidUnsolicitedSessionDefaults)
+	}
+	if err := validateDetectMultiplierInput(k); err != nil {
+		return nil, fmt.Errorf("validate detect multipliers from %s: %w", path, err)
+	}
+
+	if err := validateSocketBufferInput(k); err != nil {
+		return nil, fmt.Errorf("validate socket buffer input from %s: %w", path, err)
+	}
+	if err := validateSocketQoSInput(k); err != nil {
+		return nil, fmt.Errorf("validate socket QoS input from %s: %w", path, err)
+	}
+	if err := validatePaddingInput(k); err != nil {
+		return nil, fmt.Errorf("validate padding input from %s: %w", path, err)
+	}
+	if err := validateMultihopMaxHopsInput(k); err != nil {
+		return nil, fmt.Errorf("validate multihop_max_hops input from %s: %w", path, err)
 	}
 
 	cfg := &Config{}
@@ -772,33 +1011,261 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
 
+	// Validate needs presence: an explicit multihop_max_hops of 0 is invalid.
+	for i, session := range k.Slices("sessions") {
+		cfg.Sessions[i].MultihopMaxHopsSet = session.Get("multihop_max_hops") != nil
+	}
 	if err := Validate(cfg); err != nil {
 		return nil, fmt.Errorf("validate config from %s: %w", path, err)
 	}
+	applyRequiredMinRxPresence(k, cfg, defaults.BFD.DefaultRequiredMinRx)
 
 	return cfg, nil
 }
 
-// envKeyMapper transforms GOBFD_GRPC_ADDR -> grpc.addr.
-// Strips the GOBFD_ prefix, lowercases, and replaces _ with .
+// validateRequiredMinRxInput checks raw values before weak decoding can truncate
+// or overflow numbers, or accept a singleton map in place of a session list.
+func validateRequiredMinRxInput(k *koanf.Koanf) error {
+	if !validRequiredMinRxScalar(k.Get("bfd.default_required_min_rx")) {
+		return fmt.Errorf("default_required_min_rx: %w", ErrInvalidRequiredMinRx)
+	}
+	value := k.Get("sessions")
+	if value == nil {
+		return nil
+	}
+	sessions, ok := value.([]any)
+	if !ok {
+		return ErrInvalidSessionShape
+	}
+	for i, value := range sessions {
+		session, ok := value.(map[string]any)
+		if !ok {
+			return fmt.Errorf("session %d: %w", i, ErrInvalidSessionShape)
+		}
+		if !validRequiredMinRxScalar(session["required_min_rx"]) {
+			return fmt.Errorf("session %d required_min_rx: %w", i, ErrInvalidRequiredMinRx)
+		}
+	}
+	return nil
+}
+
+func validRequiredMinRxScalar(value any) bool {
+	switch value := value.(type) {
+	case nil, string:
+		return true // Duration strings are checked by the existing decode hook.
+	case int:
+		return value >= 0
+	case int64:
+		return value >= 0
+	case uint64:
+		return value <= math.MaxInt64
+	case float64:
+		// The strict upper bound excludes 2^63, which float64(MaxInt64) rounds to.
+		return value >= 0 && value < math.MaxInt64 && math.Trunc(value) == value
+	default:
+		return false
+	}
+}
+
+// validUint8Scalar reports whether a raw numeric value fits uint8 before weak
+// decoding into a wider unsigned field can wrap it into range.
+func validUint8Scalar(value any) bool {
+	switch value := value.(type) {
+	case nil:
+		return true
+	case string:
+		_, err := strconv.ParseUint(value, 0, 8)
+		return err == nil
+	case int:
+		return value >= 0 && value <= math.MaxUint8
+	case int64:
+		return value >= 0 && value <= math.MaxUint8
+	case uint32: // the loadDefaults value
+		return value <= math.MaxUint8
+	case uint64:
+		return value <= math.MaxUint8
+	case float64:
+		return value >= 0 && value <= math.MaxUint8 && math.Trunc(value) == value
+	default:
+		return false
+	}
+}
+
+// validateMultihopMaxHopsInput rejects negative, fractional, boolean and
+// wrapping values before weak uint32 decoding; validateSessions applies 1-254.
+func validateMultihopMaxHopsInput(k *koanf.Koanf) error {
+	value, found, err := rawCaseFoldedValue(k.Raw(), "sessions")
+	if err != nil || !found || value == nil {
+		return err
+	}
+	entries, ok := value.([]any)
+	if !ok {
+		return ErrInvalidSessionShape
+	}
+	for i, value := range entries {
+		entry, ok := value.(map[string]any)
+		if !ok {
+			return fmt.Errorf("sessions[%d]: %w", i, ErrInvalidSessionShape)
+		}
+		hops, found, err := rawCaseFoldedValue(entry, "multihop_max_hops")
+		if err != nil {
+			return fmt.Errorf("sessions[%d]: %w", i, err)
+		}
+		if found && !validUint8Scalar(hops) {
+			return fmt.Errorf("sessions[%d].multihop_max_hops: %w", i, ErrInvalidSessionMultihopMaxHops)
+		}
+	}
+	return nil
+}
+
+func validateDetectMultiplierInput(k *koanf.Koanf) error {
+	root := k.Raw()
+	for _, path := range []string{
+		"bfd.default_detect_multiplier", "echo.default_detect_multiplier",
+		"vxlan.default_detect_multiplier", "geneve.default_detect_multiplier",
+		"unsolicited.session_defaults.detect_mult",
+	} {
+		value, found, err := rawCaseFoldedValue(root, path)
+		if err != nil {
+			return err
+		}
+		if found && !validUint8Scalar(value) {
+			return fmt.Errorf("%s: %w", path, ErrDetectMultiplierRange)
+		}
+	}
+	for _, path := range []string{"sessions", "echo.peers", "vxlan.peers", "geneve.peers", "micro_bfd.groups"} {
+		value, found, err := rawCaseFoldedValue(root, path)
+		if err != nil {
+			return err
+		}
+		if !found || value == nil {
+			continue
+		}
+		if err := validatePeerDetectMultipliers(path, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validatePeerDetectMultipliers(path string, value any) error {
+	entries, ok := value.([]any)
+	if !ok {
+		return fmt.Errorf("%s: %w", path, ErrInvalidPeerListShape)
+	}
+	for i, value := range entries {
+		entry, ok := value.(map[string]any)
+		if !ok {
+			return fmt.Errorf("%s[%d]: %w", path, i, ErrInvalidPeerListShape)
+		}
+		multiplier, found, err := rawCaseFoldedValue(entry, "detect_mult")
+		if err != nil {
+			return fmt.Errorf("%s[%d]: %w", path, i, err)
+		}
+		if found && !validUint8Scalar(multiplier) {
+			return fmt.Errorf("%s[%d].detect_mult: %w", path, i, ErrDetectMultiplierRange)
+		}
+	}
+	return nil
+}
+
+// Match the decoder's EqualFold lookup without choosing between case aliases.
+func rawCaseFoldedValue(root map[string]any, path string) (any, bool, error) {
+	var value any = root
+	for part := range strings.SplitSeq(path, ".") {
+		fields, ok := value.(map[string]any)
+		if !ok {
+			return nil, false, nil
+		}
+		var next any
+		found := false
+		for key, field := range fields {
+			if strings.EqualFold(key, part) {
+				if found {
+					return nil, false, fmt.Errorf("%s: %w", path, ErrAmbiguousConfigKey)
+				}
+				next, found = field, true
+			}
+		}
+		if !found {
+			return nil, false, nil
+		}
+		value = next
+	}
+	return value, true, nil
+}
+
+// applyRequiredMinRxPresence runs after raw shape validation, so koanf.Slices
+// preserves each session's index in cfg.Sessions.
+func applyRequiredMinRxPresence(k *koanf.Koanf, cfg *Config, defaultRx time.Duration) {
+	if k.Get("bfd.default_required_min_rx") == nil {
+		cfg.BFD.DefaultRequiredMinRx = defaultRx
+	}
+	for i, session := range k.Slices("sessions") {
+		// Always overwrite the marker, including any value supplied under '-'.
+		cfg.Sessions[i].RequiredMinRxSet = session.Get("required_min_rx") != nil
+	}
+}
+
+// envKeyMapper returns the exact supported configuration key for a daemon
+// environment variable. Returning an empty key makes the env provider ignore
+// unknown or ambiguous GOBFD_ names.
 func envKeyMapper(s string) string {
-	s = strings.TrimPrefix(s, envPrefix)
-	s = strings.ToLower(s)
-	return strings.ReplaceAll(s, "_", ".")
+	supported := map[string]string{
+		"GOBFD_GRPC_ADDR":                 "grpc.addr",
+		"GOBFD_METRICS_ADDR":              "metrics.addr",
+		"GOBFD_METRICS_PATH":              "metrics.path",
+		"GOBFD_LOG_LEVEL":                 "log.level",
+		"GOBFD_LOG_FORMAT":                "log.format",
+		"GOBFD_UNSOLICITED_ENABLED":       "unsolicited.enabled",
+		"GOBFD_ECHO_ENABLED":              "echo.enabled",
+		"GOBFD_MICRO_BFD_ENABLED":         "micro_bfd.enabled",
+		"GOBFD_VXLAN_ENABLED":             "vxlan.enabled",
+		"GOBFD_VXLAN_BACKEND":             "vxlan.backend",
+		"GOBFD_GENEVE_ENABLED":            "geneve.enabled",
+		"GOBFD_GENEVE_BACKEND":            "geneve.backend",
+		"GOBFD_GOBGP_ENABLED":             "gobgp.enabled",
+		"GOBFD_GOBGP_ADDR":                "gobgp.addr",
+		"GOBFD_GOBGP_STRATEGY":            "gobgp.strategy",
+		"GOBFD_GOBGP_STATE_FILE":          "gobgp.state_file",
+		"GOBFD_GOBGP_TLS_ENABLED":         "gobgp.tls.enabled",
+		"GOBFD_GOBGP_DAMPENING_ENABLED":   "gobgp.dampening.enabled",
+		"GOBFD_SOCKET_READ_BUFFER_SIZE":   "socket.read_buffer_size",
+		"GOBFD_SOCKET_WRITE_BUFFER_SIZE":  "socket.write_buffer_size",
+		"GOBFD_SOCKET_IPV4_DSCP":          "socket.ipv4_dscp",
+		"GOBFD_SOCKET_IPV6_TRAFFIC_CLASS": "socket.ipv6_traffic_class",
+		"GOBFD_SOCKET_PRIORITY":           "socket.priority",
+		"GOBFD_SOCKET_MARK":               "socket.mark",
+		"GOBFD_SOCKET_PRIORITY_REQUIRED":  "socket.priority_required",
+		"GOBFD_SOCKET_MARK_REQUIRED":      "socket.mark_required",
+	}
+
+	return supported[s]
 }
 
 // loadDefaults marshals the default config into koanf as the base layer.
 func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 	defaultMap := map[string]any{
 		"grpc.addr":                          defaults.GRPC.Addr,
+		"grpc.socket.path":                   defaults.GRPC.Socket.Path,
+		"grpc.socket.mode":                   defaults.GRPC.Socket.Mode,
 		"metrics.addr":                       defaults.Metrics.Addr,
 		"metrics.path":                       defaults.Metrics.Path,
 		"log.level":                          defaults.Log.Level,
 		"log.format":                         defaults.Log.Format,
+		"socket.read_buffer_size":            defaults.Socket.ReadBufferSize,
+		"socket.write_buffer_size":           defaults.Socket.WriteBufferSize,
+		"socket.ipv4_dscp":                   defaults.Socket.IPv4DSCP,
+		"socket.ipv6_traffic_class":          defaults.Socket.IPv6TrafficClass,
+		"socket.priority":                    defaults.Socket.Priority,
+		"socket.mark":                        defaults.Socket.Mark,
+		"socket.priority_required":           defaults.Socket.PriorityRequired,
+		"socket.mark_required":               defaults.Socket.MarkRequired,
 		"bfd.default_desired_min_tx":         defaults.BFD.DefaultDesiredMinTx.String(),
 		"bfd.default_required_min_rx":        defaults.BFD.DefaultRequiredMinRx.String(),
 		"bfd.default_detect_multiplier":      defaults.BFD.DefaultDetectMultiplier,
 		"bfd.align_intervals":                defaults.BFD.AlignIntervals,
+		"micro_bfd.enabled":                  defaults.MicroBFD.Enabled,
 		"micro_bfd.actuator.mode":            defaults.MicroBFD.Actuator.Mode,
 		"micro_bfd.actuator.backend":         defaults.MicroBFD.Actuator.Backend,
 		"micro_bfd.actuator.ovsdb_endpoint":  defaults.MicroBFD.Actuator.OVSDBEndpoint,
@@ -810,6 +1277,7 @@ func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 		"gobgp.enabled":                      defaults.GoBGP.Enabled,
 		"gobgp.addr":                         defaults.GoBGP.Addr,
 		"gobgp.strategy":                     defaults.GoBGP.Strategy,
+		"gobgp.state_file":                   defaults.GoBGP.StateFile,
 		"gobgp.action_timeout":               defaults.GoBGP.ActionTimeout.String(),
 		"gobgp.tls.enabled":                  defaults.GoBGP.TLS.Enabled,
 		"gobgp.tls.ca_file":                  defaults.GoBGP.TLS.CAFile,
@@ -819,6 +1287,10 @@ func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 		"gobgp.dampening.reuse_threshold":    defaults.GoBGP.Dampening.ReuseThreshold,
 		"gobgp.dampening.max_suppress_time":  defaults.GoBGP.Dampening.MaxSuppressTime.String(),
 		"gobgp.dampening.half_life":          defaults.GoBGP.Dampening.HalfLife.String(),
+
+		"unsolicited.session_defaults.desired_min_tx":  defaults.Unsolicited.SessionDefaults.DesiredMinTx.String(),
+		"unsolicited.session_defaults.required_min_rx": defaults.Unsolicited.SessionDefaults.RequiredMinRx.String(),
+		"unsolicited.session_defaults.detect_mult":     defaults.Unsolicited.SessionDefaults.DetectMult,
 	}
 
 	for key, val := range defaultMap {
@@ -837,19 +1309,42 @@ func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 // Validation errors.
 var (
 	// ErrEmptyGRPCAddr indicates the gRPC listen address is empty.
-	ErrEmptyGRPCAddr = errors.New("grpc.addr must not be empty")
+	ErrEmptyGRPCAddr = errors.New("grpc.addr or grpc.socket.path must be set")
+
+	// ErrInvalidGRPCSocket indicates an invalid management socket setting.
+	ErrInvalidGRPCSocket = errors.New("grpc.socket is invalid")
+
+	// ErrPlaintextNonLoopbackGRPC indicates a plaintext management TCP
+	// listener on a non-loopback or wildcard address.
+	ErrPlaintextNonLoopbackGRPC = errors.New("grpc.addr is not loopback; set grpc.tls for remote management")
+
+	// ErrInvalidGRPCTLS indicates incomplete mTLS settings or mTLS without a
+	// TCP listener.
+	ErrInvalidGRPCTLS = errors.New("grpc.tls needs cert_file, key_file, client_ca_file and grpc.addr")
 
 	// ErrInvalidDetectMultiplier indicates the detect multiplier is zero.
 	ErrInvalidDetectMultiplier = errors.New("bfd.default_detect_multiplier must be >= 1")
+
+	// ErrDetectMultiplierRange indicates raw configuration cannot fit the wire field.
+	ErrDetectMultiplierRange = errors.New("detect multiplier must be an integer between 0 and 255")
+
+	// ErrInvalidPeerListShape rejects weak conversion of a peer/group mapping to a list.
+	ErrInvalidPeerListShape = errors.New("peers or groups must be a sequence of mappings")
+
+	// ErrAmbiguousConfigKey rejects conflicting case aliases for one decoded field.
+	ErrAmbiguousConfigKey = errors.New("configuration contains conflicting case aliases")
 
 	// ErrInvalidDesiredMinTx indicates the desired min TX interval is invalid.
 	ErrInvalidDesiredMinTx = errors.New("bfd.default_desired_min_tx must be > 0")
 
 	// ErrInvalidRequiredMinRx indicates the required min RX interval is invalid.
-	ErrInvalidRequiredMinRx = errors.New("bfd.default_required_min_rx must be > 0")
+	ErrInvalidRequiredMinRx = errors.New("bfd.default_required_min_rx must be >= 0")
 
 	// ErrInvalidSessionPeer indicates a session has an invalid peer address.
 	ErrInvalidSessionPeer = errors.New("session peer address is invalid")
+
+	// ErrInvalidSessionShape indicates sessions is not a sequence of mappings.
+	ErrInvalidSessionShape = errors.New("sessions must be a sequence of mappings")
 
 	// ErrInvalidSessionType indicates a session has an unrecognized type.
 	ErrInvalidSessionType = errors.New("session type must be single_hop or multi_hop")
@@ -859,6 +1354,17 @@ var (
 
 	// ErrDuplicateSessionKey indicates two sessions share the same (peer, local, interface) key.
 	ErrDuplicateSessionKey = errors.New("duplicate session key")
+
+	// ErrInvalidSessionMultiHopInterface indicates a multi_hop session sets interface.
+	ErrInvalidSessionMultiHopInterface = errors.New("session interface is not allowed on multi_hop")
+
+	// ErrInvalidSessionMultihopMaxHops indicates multihop_max_hops is outside 1-254
+	// or set on a session that is not multi_hop.
+	ErrInvalidSessionMultihopMaxHops = errors.New("session multihop_max_hops must be 1-254 on multi_hop")
+
+	// ErrInvalidSessionZone indicates a link-local zone that differs from the
+	// session interface or from the zone of the other address.
+	ErrInvalidSessionZone = errors.New("session address zone must match interface")
 
 	// ErrInvalidSessionAuthType indicates a session has an unrecognized auth type.
 	ErrInvalidSessionAuthType = errors.New("session auth.type is invalid")
@@ -873,7 +1379,10 @@ var (
 	ErrEmptyGoBGPAddr = errors.New("gobgp.addr must not be empty when gobgp is enabled")
 
 	// ErrInvalidGoBGPStrategy indicates an unrecognized GoBGP strategy.
-	ErrInvalidGoBGPStrategy = errors.New("gobgp.strategy must be disable-peer or withdraw-routes")
+	ErrInvalidGoBGPStrategy = errors.New("gobgp.strategy is not recognized")
+
+	// ErrUnsupportedGoBGPStrategy indicates a recognized GoBGP strategy has no implementation.
+	ErrUnsupportedGoBGPStrategy = errors.New("gobgp.strategy is recognized but unsupported")
 
 	// ErrInvalidGoBGPActionTimeout indicates a non-positive GoBGP action timeout.
 	ErrInvalidGoBGPActionTimeout = errors.New("gobgp.action_timeout must be > 0 when gobgp is enabled")
@@ -881,8 +1390,17 @@ var (
 	// ErrInvalidGoBGPTLS indicates inconsistent GoBGP TLS settings.
 	ErrInvalidGoBGPTLS = errors.New("gobgp.tls ca_file/server_name require gobgp.tls.enabled")
 
+	// ErrAmbiguousGoBGPPeer indicates several sessions to one BGP neighbor
+	// while the GoBGP integration is enabled (H-31).
+	ErrAmbiguousGoBGPPeer = errors.New("gobgp peer has more than one BFD session")
+
 	// ErrInvalidDampeningThreshold indicates suppress threshold is not greater than reuse.
-	ErrInvalidDampeningThreshold = errors.New("gobgp.dampening.suppress_threshold must be > reuse_threshold")
+	ErrInvalidDampeningThreshold = errors.New("gobgp.dampening.suppress_threshold must be > reuse_threshold > 0")
+
+	// ErrInvalidDampeningMaxSuppressTime indicates a non-positive
+	// max_suppress_time, which would leave recovery unbounded.
+	ErrInvalidDampeningMaxSuppressTime = errors.New(
+		"gobgp.dampening.max_suppress_time must be > 0 when dampening is enabled")
 
 	// ErrInvalidDampeningHalfLife indicates the half-life is not positive.
 	ErrInvalidDampeningHalfLife = errors.New("gobgp.dampening.half_life must be > 0 when dampening is enabled")
@@ -905,6 +1423,10 @@ var (
 	// ErrDuplicateVXLANSessionKey indicates two VXLAN sessions share the same key.
 	ErrDuplicateVXLANSessionKey = errors.New("duplicate vxlan session key")
 
+	// ErrVXLANEndpointIdentityUnavailable indicates a missing or unsupported
+	// Format A VTEP source MAC identity.
+	ErrVXLANEndpointIdentityUnavailable = errors.New("vxlan Format A VTEP MAC identity is invalid")
+
 	// ErrInvalidGenevePeer indicates a Geneve peer has an invalid peer address.
 	ErrInvalidGenevePeer = errors.New("geneve peer address is invalid")
 
@@ -913,6 +1435,10 @@ var (
 
 	// ErrDuplicateGeneveSessionKey indicates two Geneve sessions share the same key.
 	ErrDuplicateGeneveSessionKey = errors.New("duplicate geneve session key")
+
+	// ErrGeneveVAPIdentityUnavailable indicates missing or unsupported Format A
+	// VAP identity. Geneve remains fail closed unless the exact tuple is valid.
+	ErrGeneveVAPIdentityUnavailable = errors.New("geneve Format A VAP MAC/IP identity is invalid")
 
 	// ErrInvalidOverlayBackend indicates an unrecognized overlay dataplane backend.
 	ErrInvalidOverlayBackend = errors.New(
@@ -927,6 +1453,9 @@ var (
 	// ErrInvalidMicroBFDActuatorMode indicates an unrecognized Micro-BFD actuator mode.
 	ErrInvalidMicroBFDActuatorMode = errors.New("micro_bfd.actuator.mode must be disabled, dry-run, or enforce")
 
+	// ErrMicroBFDPreviewDisabled indicates Micro-BFD configuration without explicit opt-in.
+	ErrMicroBFDPreviewDisabled = errors.New("micro_bfd.enabled must be true to use the incomplete RFC 7130 preview")
+
 	// ErrInvalidMicroBFDActuatorBackend indicates an unrecognized Micro-BFD actuator backend.
 	ErrInvalidMicroBFDActuatorBackend = errors.New(
 		"micro_bfd.actuator.backend must be auto, kernel-bond, ovs, or networkmanager",
@@ -939,25 +1468,45 @@ var (
 
 	// ErrInvalidMicroBFDActuatorAction indicates an unrecognized Micro-BFD actuator action.
 	ErrInvalidMicroBFDActuatorAction = errors.New("micro_bfd.actuator action must be none, remove-member, or add-member")
+
+	// ErrInvalidUnsolicitedAuthType indicates unsolicited authentication
+	// weaker than Meticulous Keyed SHA1 (RFC 9468 Section 6.2).
+	ErrInvalidUnsolicitedAuthType = errors.New("unsolicited.auth.type must be meticulous_keyed_sha1")
+
+	// ErrInvalidUnsolicitedMaxSessions indicates enabled unsolicited BFD
+	// without a positive session limit (RFC 9468 Section 6.1).
+	ErrInvalidUnsolicitedMaxSessions = errors.New("unsolicited.max_sessions must be >= 1 when unsolicited is enabled")
+
+	// ErrInvalidUnsolicitedSessionDefaults indicates unsolicited session
+	// defaults that cannot form a working session: intervals must be
+	// 1µs..2^32-1µs, required_min_rx nonzero, detect_mult 1..255.
+	ErrInvalidUnsolicitedSessionDefaults = errors.New("unsolicited.session_defaults is invalid")
+
+	// ErrInvalidUnsolicitedCleanupTimeout indicates a negative cleanup timeout.
+	ErrInvalidUnsolicitedCleanupTimeout = errors.New("unsolicited.cleanup_timeout must be >= 0")
+
+	// ErrInvalidUnsolicitedInterfaces indicates enabled unsolicited BFD with
+	// no enabled interface or with an unparsable allowed prefix.
+	ErrInvalidUnsolicitedInterfaces = errors.New("unsolicited.interfaces is invalid")
 )
 
 // Validate checks the configuration for logical errors.
 // Returns the first validation error encountered.
 func Validate(cfg *Config) error {
-	if cfg.GRPC.Addr == "" {
-		return ErrEmptyGRPCAddr
+	if err := validateSocket(cfg.Socket); err != nil {
+		return err
 	}
 
-	if cfg.BFD.DefaultDetectMultiplier < 1 {
-		return ErrInvalidDetectMultiplier
+	if err := validateGRPC(cfg.GRPC); err != nil {
+		return err
 	}
 
-	if cfg.BFD.DefaultDesiredMinTx <= 0 {
-		return ErrInvalidDesiredMinTx
+	if err := validateBFD(cfg.BFD); err != nil {
+		return err
 	}
 
-	if cfg.BFD.DefaultRequiredMinRx <= 0 {
-		return ErrInvalidRequiredMinRx
+	if err := validateLog(cfg.Log); err != nil {
+		return err
 	}
 
 	if err := validateGoBGP(cfg.GoBGP); err != nil {
@@ -967,12 +1516,19 @@ func Validate(cfg *Config) error {
 	if err := validateSessions(cfg.Sessions); err != nil {
 		return err
 	}
+	if err := validatePadding(cfg); err != nil {
+		return err
+	}
+
+	if err := validateGoBGPPeers(cfg.GoBGP, cfg.Sessions); err != nil {
+		return err
+	}
 
 	if err := validateEchoPeers(cfg.Echo); err != nil {
 		return err
 	}
 
-	if err := validateMicroBFDActuator(cfg.MicroBFD.Actuator); err != nil {
+	if err := validateMicroBFD(cfg.MicroBFD); err != nil {
 		return err
 	}
 
@@ -984,8 +1540,53 @@ func Validate(cfg *Config) error {
 		return err
 	}
 
+	if cfg.Unsolicited.Enabled {
+		if err := validateUnsolicited(cfg.Unsolicited); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
+
+func validateBFD(cfg BFDConfig) error {
+	if cfg.DefaultDetectMultiplier < 1 {
+		return ErrInvalidDetectMultiplier
+	}
+
+	if cfg.DefaultDesiredMinTx <= 0 {
+		return ErrInvalidDesiredMinTx
+	}
+
+	if cfg.DefaultRequiredMinRx < 0 {
+		return ErrInvalidRequiredMinRx
+	}
+	return nil
+}
+
+// ErrInvalidSocketReadBufferSize rejects invalid nonnegative integer receive buffer requests.
+var ErrInvalidSocketReadBufferSize = errors.New("socket.read_buffer_size must be a nonnegative integer fitting int")
+
+// ErrInvalidSocketWriteBufferSize rejects invalid nonnegative integer send buffer requests.
+var ErrInvalidSocketWriteBufferSize = errors.New("socket.write_buffer_size must be a nonnegative integer fitting int")
+
+// ErrInvalidSocketIPv4DSCP rejects values outside the six-bit DSCP range.
+var ErrInvalidSocketIPv4DSCP = errors.New("socket.ipv4_dscp must be an integer in 0-63")
+
+// ErrInvalidSocketIPv6TrafficClass rejects values outside a Traffic Class octet.
+var ErrInvalidSocketIPv6TrafficClass = errors.New("socket.ipv6_traffic_class must be an integer in 0-255")
+
+// ErrInvalidSocketPriority rejects values outside Linux's nonnegative int32 range.
+var ErrInvalidSocketPriority = errors.New("socket.priority must be an integer in 0-2147483647")
+
+// ErrInvalidSocketMark rejects values outside Linux's uint32 mark range.
+var ErrInvalidSocketMark = errors.New("socket.mark must be an integer in 0-4294967295")
+
+// ErrInvalidSocketPriorityRequired rejects malformed priority failure policy.
+var ErrInvalidSocketPriorityRequired = errors.New("socket.priority_required must be a boolean")
+
+// ErrInvalidSocketMarkRequired rejects malformed mark failure policy.
+var ErrInvalidSocketMarkRequired = errors.New("socket.mark_required must be a boolean")
 
 var validMicroBFDActuatorModes = map[string]bool{
 	MicroBFDActuatorModeDisabled: true,
@@ -1012,14 +1613,19 @@ var validMicroBFDActuatorActions = map[string]bool{
 	MicroBFDActuatorActionAddMember:    true,
 }
 
-var validOverlayBackends = map[string]bool{
-	OverlayBackendUserspaceUDP: true,
-	OverlayBackendKernel:       true,
-	OverlayBackendOVS:          true,
-	OverlayBackendOVN:          true,
-	OverlayBackendCilium:       true,
-	OverlayBackendCalico:       true,
-	OverlayBackendNSX:          true,
+// ValidateMicroBFDPreview rejects configured groups or actuation without opt-in.
+func ValidateMicroBFDPreview(cfg MicroBFDConfig) error {
+	if !cfg.Enabled && (len(cfg.Groups) > 0 || cfg.Actuator.Mode != MicroBFDActuatorModeDisabled) {
+		return ErrMicroBFDPreviewDisabled
+	}
+	return nil
+}
+
+func validateMicroBFD(cfg MicroBFDConfig) error {
+	if err := validateMicroBFDActuator(cfg.Actuator); err != nil {
+		return err
+	}
+	return ValidateMicroBFDPreview(cfg)
 }
 
 func validateMicroBFDActuator(cfg MicroBFDActuatorConfig) error {
@@ -1046,29 +1652,15 @@ func validateMicroBFDActuator(cfg MicroBFDActuatorConfig) error {
 	return nil
 }
 
-func normalizeOverlayBackend(backend string) string {
-	normalized := strings.TrimSpace(backend)
-	if normalized == "" {
-		return OverlayBackendUserspaceUDP
-	}
-	return normalized
-}
-
 func validateOverlayBackend(field string, backend string) error {
-	normalized := normalizeOverlayBackend(backend)
-	if !validOverlayBackends[normalized] {
+	normalized, recognized := overlay.ParseBackend(backend)
+	if !recognized {
 		return fmt.Errorf("%s %q: %w", field, backend, ErrInvalidOverlayBackend)
 	}
-	if normalized != OverlayBackendUserspaceUDP {
+	if !normalized.Implemented() {
 		return fmt.Errorf("%s %q: %w", field, normalized, ErrUnsupportedOverlayBackend)
 	}
 	return nil
-}
-
-// ValidGoBGPStrategies lists the recognized GoBGP strategy strings.
-var ValidGoBGPStrategies = map[string]bool{
-	"disable-peer":    true,
-	"withdraw-routes": true,
 }
 
 // validateGoBGP checks the GoBGP integration configuration for logical errors.
@@ -1081,8 +1673,16 @@ func validateGoBGP(cfg GoBGPConfig) error {
 		return ErrEmptyGoBGPAddr
 	}
 
-	if !ValidGoBGPStrategies[cfg.Strategy] {
+	strategy, recognized := gobgpstrategy.Parse(cfg.Strategy)
+	if !recognized {
 		return fmt.Errorf("gobgp.strategy %q: %w", cfg.Strategy, ErrInvalidGoBGPStrategy)
+	}
+	if !strategy.Implemented() {
+		return fmt.Errorf("gobgp.strategy %q: %w", cfg.Strategy, ErrUnsupportedGoBGPStrategy)
+	}
+
+	if err := validateGoBGPStateFile(cfg.StateFile); err != nil {
+		return err
 	}
 
 	if cfg.ActionTimeout <= 0 {
@@ -1102,10 +1702,32 @@ func validateGoBGP(cfg GoBGPConfig) error {
 	return nil
 }
 
+// ErrInvalidGoBGPStateFile rejects non-canonical or non-absolute GoBGP receipt paths.
+var ErrInvalidGoBGPStateFile = errors.New("gobgp.state_file must be empty or a clean absolute file path")
+
+func validateGoBGPStateFile(stateFile string) error {
+	if stateFile == "" {
+		return nil
+	}
+	if strings.TrimSpace(stateFile) != stateFile || strings.ContainsRune(stateFile, 0) ||
+		!filepath.IsAbs(stateFile) || strings.HasSuffix(stateFile, "/") {
+		return fmt.Errorf("gobgp.state_file %q: %w", stateFile, ErrInvalidGoBGPStateFile)
+	}
+	cleaned := filepath.Clean(stateFile)
+	if cleaned == "/" || cleaned != stateFile {
+		return fmt.Errorf("gobgp.state_file %q: %w", stateFile, ErrInvalidGoBGPStateFile)
+	}
+	return nil
+}
+
 // validateDampening checks the dampening parameters for logical errors.
 func validateDampening(cfg GoBGPDampeningConfig) error {
-	if cfg.SuppressThreshold <= cfg.ReuseThreshold {
+	if cfg.SuppressThreshold <= cfg.ReuseThreshold || cfg.ReuseThreshold <= 0 {
 		return ErrInvalidDampeningThreshold
+	}
+
+	if cfg.MaxSuppressTime <= 0 {
+		return ErrInvalidDampeningMaxSuppressTime
 	}
 
 	if cfg.HalfLife <= 0 {
@@ -1152,6 +1774,10 @@ func validateSessions(sessions []SessionConfig) error {
 			return fmt.Errorf("sessions[%d]: %w", i, err)
 		}
 
+		if err := validateSessionTransport(sc); err != nil {
+			return fmt.Errorf("sessions[%d]: %w", i, err)
+		}
+
 		key := sc.SessionKey()
 		if _, dup := seen[key]; dup {
 			return fmt.Errorf("sessions[%d] key %q: %w", i, key, ErrDuplicateSessionKey)
@@ -1159,6 +1785,66 @@ func validateSessions(sessions []SessionConfig) error {
 		seen[key] = struct{}{}
 	}
 
+	return validateControlListenerBindings(sessions)
+}
+
+// maxMultihopMaxHops keeps the minimum TTL 255 - multihop_max_hops at 1 or above.
+const maxMultihopMaxHops = 254
+
+// validateSessionTransport rejects interface on multi_hop: RFC 5883 Section 4.1
+// demultiplexes multihop sessions by address pair, and the multihop listener
+// is never device-bound. multihop_max_hops is accepted only on multi_hop.
+func validateSessionTransport(sc SessionConfig) error {
+	if sc.Type == "multi_hop" && sc.Interface != "" {
+		return fmt.Errorf("interface %q: %w", sc.Interface, ErrInvalidSessionMultiHopInterface)
+	}
+	if (sc.MultihopMaxHopsSet || sc.MultihopMaxHops != 0) &&
+		(sc.Type != "multi_hop" || sc.MultihopMaxHops < 1 || sc.MultihopMaxHops > maxMultihopMaxHops) {
+		return fmt.Errorf("multihop_max_hops %d: %w", sc.MultihopMaxHops, ErrInvalidSessionMultihopMaxHops)
+	}
+	if sc.Type == "multi_hop" {
+		return nil
+	}
+	// A link-local zone selects the single-hop interface when interface is
+	// empty; a zone naming another interface contradicts the binding.
+	// Address parse errors are reported by their own validation.
+	peer, peerErr := sc.PeerAddr()
+	local, localErr := sc.LocalAddr()
+	if peerErr == nil && localErr == nil {
+		return validateSessionZones(sc.Interface, local, peer)
+	}
+	return nil
+}
+
+func validateSessionZones(ifName string, local, peer netip.Addr) error {
+	ifName = bfd.SingleHopInterface(ifName, local, peer)
+	for _, addr := range [...]netip.Addr{local, peer} {
+		if zone := addr.Zone(); zone != "" && zone != ifName {
+			return fmt.Errorf("address %s on interface %q: %w", addr, ifName, ErrInvalidSessionZone)
+		}
+	}
+	return nil
+}
+
+// validateGoBGPPeers rejects two sessions to one peer address when GoBGP is
+// enabled: the handler acts on the BGP neighbor, so each neighbor needs one
+// canonical BFD session (H-31). Sessions are single-hop or multi-hop only.
+func validateGoBGPPeers(gobgp GoBGPConfig, sessions []SessionConfig) error {
+	if !gobgp.Enabled {
+		return nil
+	}
+	seen := make(map[netip.Addr]struct{}, len(sessions))
+	for i, sc := range sessions {
+		peer, err := sc.PeerAddr()
+		if err != nil {
+			return fmt.Errorf("sessions[%d]: %w: %w", i, ErrInvalidSessionPeer, err)
+		}
+		peer = peer.Unmap()
+		if _, dup := seen[peer]; dup {
+			return fmt.Errorf("sessions[%d] peer %s: %w", i, peer, ErrAmbiguousGoBGPPeer)
+		}
+		seen[peer] = struct{}{}
+	}
 	return nil
 }
 
@@ -1188,6 +1874,141 @@ func validateSessionAuth(auth AuthConfig) error {
 	return nil
 }
 
+// maxWireInterval is the largest interval the 32-bit microsecond fields of a
+// BFD Control packet carry (RFC 5880 Section 4.1).
+const maxWireInterval = time.Duration(math.MaxUint32) * time.Microsecond
+
+// validateUnsolicited checks an enabled RFC 9468 configuration: a positive
+// session limit (Section 6.1), session defaults that form a working session,
+// at least one enabled interface with parsable prefixes and, when
+// authentication is configured, the strongest mechanism GoBFD supports
+// (Section 6.2).
+func validateUnsolicited(cfg UnsolicitedConfig) error {
+	if cfg.MaxSessions < 1 {
+		return ErrInvalidUnsolicitedMaxSessions
+	}
+	if err := validateUnsolicitedSessionDefaults(cfg.SessionDefaults); err != nil {
+		return err
+	}
+	if cfg.CleanupTimeout < 0 {
+		return ErrInvalidUnsolicitedCleanupTimeout
+	}
+	if err := validateUnsolicitedInterfaces(cfg.Interfaces); err != nil {
+		return err
+	}
+	authType := strings.TrimSpace(cfg.Auth.Type)
+	if authType == "" || authType == "none" {
+		return nil
+	}
+	if authType != "meticulous_keyed_sha1" {
+		return fmt.Errorf("unsolicited.auth.type %q: %w", cfg.Auth.Type, ErrInvalidUnsolicitedAuthType)
+	}
+	if err := validateSessionAuth(cfg.Auth); err != nil {
+		return fmt.Errorf("unsolicited.%w", err)
+	}
+	return nil
+}
+
+// validateUnsolicitedSessionDefaults requires intervals representable on the
+// wire and a nonzero required_min_rx: a passive session that asks the peer
+// not to send never detects a failure and holds its session slot forever.
+func validateUnsolicitedSessionDefaults(d UnsolicitedSessionDefaultsConfig) error {
+	for name, interval := range map[string]time.Duration{
+		"desired_min_tx":  d.DesiredMinTx,
+		"required_min_rx": d.RequiredMinRx,
+	} {
+		if interval < time.Microsecond || interval > maxWireInterval {
+			return fmt.Errorf("%s %s outside 1µs..%s: %w",
+				name, interval, maxWireInterval, ErrInvalidUnsolicitedSessionDefaults)
+		}
+	}
+	if d.DetectMult < 1 || d.DetectMult > math.MaxUint8 {
+		return fmt.Errorf("detect_mult %d outside 1..255: %w", d.DetectMult, ErrInvalidUnsolicitedSessionDefaults)
+	}
+	return nil
+}
+
+// validateUnsolicitedInterfaces requires one enabled interface and parsable
+// allowed prefixes on every listed interface.
+func validateUnsolicitedInterfaces(interfaces map[string]UnsolicitedInterfaceConfig) error {
+	enabled := false
+	for name, ifCfg := range interfaces {
+		if ifCfg.Enabled && strings.TrimSpace(name) == "" {
+			return fmt.Errorf("enabled interface name is empty: %w", ErrInvalidUnsolicitedInterfaces)
+		}
+		enabled = enabled || ifCfg.Enabled
+		for _, s := range ifCfg.AllowedPrefixes {
+			if _, err := netip.ParsePrefix(s); err != nil {
+				return fmt.Errorf("interface %q prefix %q: %w: %w", name, s, ErrInvalidUnsolicitedInterfaces, err)
+			}
+		}
+	}
+	if !enabled {
+		return fmt.Errorf("no enabled interface: %w", ErrInvalidUnsolicitedInterfaces)
+	}
+	return nil
+}
+
+// validateGRPC requires at least one management listener and a usable
+// socket path and mode.
+func validateGRPC(cfg GRPCConfig) error {
+	if cfg.Addr == "" && cfg.Socket.Path == "" {
+		return ErrEmptyGRPCAddr
+	}
+	if err := validateGRPCTCP(cfg); err != nil {
+		return err
+	}
+	if cfg.Socket.Path == "" {
+		return nil
+	}
+	if !filepath.IsAbs(cfg.Socket.Path) {
+		return fmt.Errorf("path %q is not absolute: %w", cfg.Socket.Path, ErrInvalidGRPCSocket)
+	}
+	if _, err := ParseSocketMode(cfg.Socket.Mode); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateGRPCTCP requires complete mTLS settings with a TCP address,
+// mutating identities only with mTLS, and plaintext TCP only on loopback.
+func validateGRPCTCP(cfg GRPCConfig) error {
+	if cfg.TLS.Enabled() && (cfg.TLS.CertFile == "" || cfg.TLS.KeyFile == "" ||
+		cfg.TLS.ClientCAFile == "" || cfg.Addr == "") {
+		return ErrInvalidGRPCTLS
+	}
+	if len(cfg.MutatingIdentities) > 0 && !cfg.TLS.Enabled() {
+		return fmt.Errorf("grpc.mutating_identities: %w", ErrInvalidGRPCTLS)
+	}
+	if cfg.Addr != "" && !cfg.TLS.Enabled() && !IsLoopbackListenAddr(cfg.Addr) {
+		return fmt.Errorf("grpc.addr %q: %w", cfg.Addr, ErrPlaintextNonLoopbackGRPC)
+	}
+	return nil
+}
+
+// IsLoopbackListenAddr reports whether a host:port listen address binds only
+// loopback: a loopback IP or "localhost". An empty host is a wildcard.
+func IsLoopbackListenAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.IsLoopback()
+}
+
+// ParseSocketMode parses an octal permission mode such as "0660".
+func ParseSocketMode(mode string) (os.FileMode, error) {
+	perm, err := strconv.ParseUint(mode, 8, 32)
+	if err != nil || perm > 0o777 {
+		return 0, fmt.Errorf("mode %q is not an octal permission 0000-0777: %w", mode, ErrInvalidGRPCSocket)
+	}
+	return os.FileMode(perm), nil
+}
+
 // validateEchoPeers checks each declarative echo peer entry for correctness.
 func validateEchoPeers(cfg EchoConfig) error {
 	if !cfg.Enabled || len(cfg.Peers) == 0 {
@@ -1212,7 +2033,7 @@ func validateEchoPeers(cfg EchoConfig) error {
 		seen[key] = struct{}{}
 	}
 
-	return nil
+	return validateEchoListenerBindings(cfg.Peers)
 }
 
 // vniMax is the maximum valid VNI value (24-bit).
@@ -1233,15 +2054,12 @@ func validateVXLAN(cfg VXLANConfig) error {
 	}
 
 	seen := make(map[string]struct{}, len(cfg.Peers))
+	seenWire := make(map[string]struct{}, len(cfg.Peers))
 
 	for i, peer := range cfg.Peers {
-		if _, err := peer.PeerAddr(); err != nil {
-			return fmt.Errorf("vxlan.peers[%d]: %w: %w", i, ErrInvalidVXLANPeer, err)
-		}
-
-		if peer.DetectMult > maxBFDWireUint8 {
-			return fmt.Errorf("vxlan.peers[%d] detect_mult %d: %w",
-				i, peer.DetectMult, ErrInvalidSessionDetectMult)
+		peerMAC, err := validateVXLANPeer(i, peer)
+		if err != nil {
+			return err
 		}
 
 		key := peer.VXLANSessionKey()
@@ -1249,9 +2067,38 @@ func validateVXLAN(cfg VXLANConfig) error {
 			return fmt.Errorf("vxlan.peers[%d] key %q: %w", i, key, ErrDuplicateVXLANSessionKey)
 		}
 		seen[key] = struct{}{}
+		wireKey := fmt.Sprintf("%s|%s|%x",
+			canonicalOverlayAddr(peer.Peer), canonicalOverlayAddr(peer.Local), peerMAC)
+		if _, dup := seenWire[wireKey]; dup {
+			return fmt.Errorf("vxlan.peers[%d] wire key %q: %w", i, wireKey, ErrDuplicateVXLANSessionKey)
+		}
+		seenWire[wireKey] = struct{}{}
 	}
 
 	return nil
+}
+
+func validateVXLANPeer(index int, peer VXLANPeerConfig) ([6]byte, error) {
+	peerAddr, err := peer.PeerAddr()
+	if err != nil || !peerAddr.Is4() || !peerAddr.IsGlobalUnicast() {
+		return [6]byte{}, fmt.Errorf("vxlan.peers[%d] peer %q: %w", index, peer.Peer, ErrInvalidVXLANPeer)
+	}
+	if peer.DetectMult > maxBFDWireUint8 {
+		return [6]byte{}, fmt.Errorf("vxlan.peers[%d] detect_mult %d: %w",
+			index, peer.DetectMult, ErrInvalidSessionDetectMult)
+	}
+	localAddr, localErr := peer.LocalAddr()
+	if localErr != nil || !localAddr.Is4() || !localAddr.IsGlobalUnicast() {
+		return [6]byte{}, fmt.Errorf("vxlan.peers[%d] local %q: %w", index, peer.Local, ErrInvalidVXLANPeer)
+	}
+	peerMAC, macErr := peer.PeerMACAddr()
+	if macErr != nil {
+		return [6]byte{}, fmt.Errorf("vxlan.peers[%d]: %w", index, macErr)
+	}
+	if _, macErr := peer.LocalMACAddr(); macErr != nil {
+		return [6]byte{}, fmt.Errorf("vxlan.peers[%d]: %w", index, macErr)
+	}
+	return peerMAC, nil
 }
 
 // validateGeneve checks the Geneve BFD configuration for logical errors.
@@ -1269,28 +2116,51 @@ func validateGeneve(cfg GeneveConfig) error {
 	}
 
 	seen := make(map[string]struct{}, len(cfg.Peers))
-
 	for i, peer := range cfg.Peers {
-		if _, err := peer.PeerAddr(); err != nil {
-			return fmt.Errorf("geneve.peers[%d]: %w: %w", i, ErrInvalidGenevePeer, err)
+		if err := validateGenevePeer(i, peer); err != nil {
+			return err
 		}
-
-		if peer.VNI > vniMax {
-			return fmt.Errorf("geneve.peers[%d] vni %d: %w", i, peer.VNI, ErrInvalidGeneveVNI)
-		}
-
-		if peer.DetectMult > maxBFDWireUint8 {
-			return fmt.Errorf("geneve.peers[%d] detect_mult %d: %w",
-				i, peer.DetectMult, ErrInvalidSessionDetectMult)
-		}
-
-		key := peer.GeneveSessionKey()
+		key := peer.GeneveSessionKey(cfg.DefaultVNI)
 		if _, dup := seen[key]; dup {
 			return fmt.Errorf("geneve.peers[%d] key %q: %w", i, key, ErrDuplicateGeneveSessionKey)
 		}
 		seen[key] = struct{}{}
 	}
 
+	return nil
+}
+
+func validateGenevePeer(index int, peer GenevePeerConfig) error {
+	peerAddr, err := peer.PeerAddr()
+	if err != nil {
+		return fmt.Errorf("geneve.peers[%d]: %w: %w", index, ErrInvalidGenevePeer, err)
+	}
+	if !peerAddr.Is4() || !peerAddr.IsGlobalUnicast() {
+		return fmt.Errorf("geneve.peers[%d] peer %q: %w", index, peer.Peer, ErrInvalidGenevePeer)
+	}
+	if peer.VNI > vniMax {
+		return fmt.Errorf("geneve.peers[%d] vni %d: %w", index, peer.VNI, ErrInvalidGeneveVNI)
+	}
+	if peer.DetectMult > maxBFDWireUint8 {
+		return fmt.Errorf("geneve.peers[%d] detect_mult %d: %w",
+			index, peer.DetectMult, ErrInvalidSessionDetectMult)
+	}
+	localAddr, localErr := peer.LocalAddr()
+	if localErr != nil || !localAddr.Is4() || !localAddr.IsGlobalUnicast() {
+		return fmt.Errorf("geneve.peers[%d] local %q: %w", index, peer.Local, ErrInvalidGenevePeer)
+	}
+	if _, innerErr := peer.InnerPeerAddr(); innerErr != nil {
+		return fmt.Errorf("geneve.peers[%d]: %w", index, innerErr)
+	}
+	if _, innerErr := peer.InnerLocalAddr(); innerErr != nil {
+		return fmt.Errorf("geneve.peers[%d]: %w", index, innerErr)
+	}
+	if _, macErr := peer.PeerMACAddr(); macErr != nil {
+		return fmt.Errorf("geneve.peers[%d]: %w", index, macErr)
+	}
+	if _, macErr := peer.LocalMACAddr(); macErr != nil {
+		return fmt.Errorf("geneve.peers[%d]: %w", index, macErr)
+	}
 	return nil
 }
 

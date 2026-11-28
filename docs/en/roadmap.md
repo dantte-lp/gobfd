@@ -1,121 +1,90 @@
-# GoBFD Roadmap
+# Release qualification status
 
-![Current Release](https://img.shields.io/badge/Current-v0.6.4-1a73e8?style=for-the-badge)
-![Next Release](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)
-![Target](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)
+[Russian translation](../ru/roadmap.md).
 
-> Status projection from Beads, reconciled on 2026-08-27. Beads is the task
-> ledger; this document explains the public release sequence and must not be
-> used as an independent checklist.
+Snapshot: **2026-11-27**. This page records the technical acceptance boundary;
+it does not authorize publication. Use the documentation at the candidate's
+commit and the applicable release-line contract.
 
-The latest published GitHub release is
-[`v0.6.4`](https://github.com/dantte-lp/gobfd/releases/tag/v0.6.4). The immutable
-`v0.6.2` and `v0.6.3` tags remain unpublished failed cuts. The v0.6.4 product
-artifacts are verified, while release tracking is reopened to correct the
-published notes and synchronize the stable changelogs to `master`. Three
-pre-existing P1 review findings remain separately tracked in Beads. The
-protected `release/v0.6` line keeps GoBGP v3.37.0; v1 and GoBGP v4 development
-continues on `dev`.
+## Source baseline
 
-## Status key
+Release-line integration baseline:
+[`816fc7e04d411c306fbe430a91a167cdb6481e81`](https://github.com/dantte-lp/gobfd/commit/816fc7e04d411c306fbe430a91a167cdb6481e81)
+on branch `release/v1.0` (incorporating
+[`eae8f0636055de8ac4714199e27ff0c9d18b9859`](https://github.com/dantte-lp/gobfd/commit/eae8f0636055de8ac4714199e27ff0c9d18b9859)
+from `dev`, Go `1.27.4`, GoBGP `v4.11.0`, ADR-0013 Unix restart ownership,
+ADR-0014 `v1.0` GoBGP v4 release-line graduation, RFC 9747 slow Echo pacing,
+Micro-BFD loss resync and `enforce` health gating, bounded inactive per-peer
+Prometheus series, run-owned Compose/stage image cleanup, direct containerd
+gRPC lease import for Kubernetes, and Bash-free `Makefile`/OCI orchestration).
+Stable branches, release tags and backup refs are preserved. No release tag or
+publication follows from source integration.
 
-| Status | Meaning |
-|---|---|
-| Done | Accepted in the current `dev` history |
-| In progress | Active work or independent review is not complete |
-| Open | Planned in Beads and not yet accepted |
+## Stable v1 acceptance
 
-## v0.6 maintenance baseline
+| Area | Implemented | Remaining acceptance |
+|:---|:---|:---|
+| Control workload | Real owner/peer workload and terminal accounting | Calibrated native reference distributions and full reference run |
+| Reference environment | Isolated Debian runner; identity, clock and admission checks | Canonical resource admission and qualified workload measurements |
+| Pressure profiles | CPU, GC, scheduler, loss and session-churn drivers | Measurements in the admitted reference envelope |
+| Echo workload | Real return traffic and owner Down witnesses | Native scale, timing and resource qualification |
+| Session-preserving reload | Source implementation and scoped packet checks | Unified five-field qualification on the exact final candidate and supported peers |
+| Security disposition | Scoped dependency exceptions and management controls | Stable v1 advisory, reachability and final-candidate security evidence |
+| Documentation | Source-linked EN/RU manual and ADR contracts | Independent correspondence, links and language-parity checks |
 
-Beads milestone: `gobfd-qj0.8.1` — **In progress**.
+Under [ADR-0014](adr/0014-v1-gobgp-v4-release-line-baseline.md), `release/v1.0`
+graduates to the `1.0.0` product line coupled to GoBGP v4 while preserving
+explicit preview/experimental boundaries in [RFC coverage](08-rfc-compliance.md);
+users requiring GoBGP v3 remain on `release/v0.6`. Long-horizon 24-hour soak,
+native Control/Echo scale campaigns and external hardware NOS runs remain
+tracked as operational qualification evidence outside the initial `1.0.0`
+branch cut. See [Performance](14-performance-analysis.md) and
+[Interoperability](05-interop.md) for measurement conditions.
 
-The protected `release/v0.6` branch keeps GoBGP v3.37.0 and the existing
-`bfd.v1` and YAML runtime contracts. It updates dependencies, tools, CI,
-reproducibility, documentation, and test infrastructure without adding BFD
-protocol behavior. The v0.6.4 tag, assets, and OCI images are verified, but the
-baseline remains **In progress** until the release notes/default-branch
-closeout and P1 findings `gobfd-qj0.8.1.8.8`, `.8.9`, and `.8.10` are resolved
-and independently reviewed.
+## Release channels and prerelease history
 
-| Delivery slice | Status |
-|---|---|
-| Dependency and tool version inventory | Done |
-| Go 1.27 toolchain and CI refresh | Done |
-| Go-owned Podman testcontainers harness | Done |
-| Interop, integration, and E2E orchestration migration | Done |
-| Python 3.14.7 and Docker Compose v5 tooling contract | Done |
-| License, SBOM, OCI provenance, and vulnerability inventory | Done |
-| Debian trixie / Oracle Linux 10 image boundary | Done |
-| RFC and benchmark public-claim correction | Done |
-| Roadmap, Quick Start, architecture, and EN/RU parity | Done |
-| Independent review of all v0.6 slices and P0/P1 remediation | In progress |
-| Register the isolated `tools/go.mod` with Dependabot | Done |
+[ADR-0008](adr/0008-experimental-prerelease-boundary.md) defines the historical
+`v1.0.0-alpha.N` prerelease boundary dated 2026-10-30, and
+[ADR-0014](adr/0014-v1-gobgp-v4-release-line-baseline.md) graduates
+`release/v1.0` to stable `1.0.0` proposals on 2026-11-27. Release Please
+prepares the reviewed release PR; GoReleaser and the independent verifier
+own draft creation and publication. Policy acceptance does not establish a
+published release until the reviewed release PR merges and the annotated tag
+passes `release.yml`.
 
-Release task `gobfd-qj0.8.1.15` is **In progress** again: immutable `v0.6.4`
-points to `b1c0bcd7d2e9abed00368b2082e34f521084c087`, and all 12 assets and OCI
-indexes remain verified, but the cumulative release notes and stable
-`master` changelogs require correction. Qualification `gobfd-qj0.8.1.7` and
-independent review `gobfd-qj0.8.1.8` remain open on the three P1 findings above.
+## Additional scope
 
-## Legacy S12 reconciliation
+| Capability | Boundary |
+|:---|:---|
+| HAProxy health as anycast VIP policy | Not implemented; the existing agent exports BFD state to HAProxy |
+| Broader ExaBGP process API | A native anycast cycle does not qualify ACK/reload, JSON/EOR or the full dual-stack matrix |
+| Pending-interface validation | Separate from the implemented core pending activation |
+| Runtime global VNI defaults | Separate from startup-default behavior |
 
-The former S12-S20 waterfall document predated the approved Beads release
-plan. Its S12 typed-CRUD scope was only partially delivered in `v0.6.0`:
+For service-driven anycast, [RFC 4786 §4.4.1](https://datatracker.ietf.org/doc/html/rfc4786#section-4.4.1)
+provides availability guidance. A configured hold-down and explicit route
+owner are project requirements. Do not use BFD AdminDown as a portable route
+withdrawal command; client reaction is governed separately.
 
-| S12 contract | Current evidence | Status |
-|---|---|---|
-| `EchoService` CRUD and `gobfdctl echo` | Proto, server, CLI, and tests exist | Done |
-| `MicroBFDService` CRUD and `gobfdctl micro` | Proto, server, CLI, and tests exist | Done |
-| `OverlayService` for VXLAN/Geneve | No service or CLI command exists | Not delivered |
+## Branch-specific maintenance gaps
 
-VXLAN and Geneve configuration/runtime paths do not imply the missing typed
-Overlay API. Their public support boundary remains the one stated in
-[RFC Compliance](./08-rfc-compliance.md).
+| Branch | Contract |
+|:---|:---|
+| `dev` | Next product line; source acceptance does not establish stable delivery |
+| `master` | Latest accepted stable state |
+| `release/v1.0` | Supported v1.0 public and GoBGP v4 dependency contract |
+| `release/v0.6` | Supported v0.6 public and GoBGP v3 dependency contract |
 
-The old S13-S20 sprint checklists are superseded. Capabilities such as secure
-management, GoBGP v4, S-BFD, kernel backends, or AF_XDP must not be inferred
-from those historical targets; only current Beads issues and accepted code are
-authoritative.
+[Release process](10-changelog.md) defines qualification, changelog,
+ruleset, exact-tag and draft-asset checks. Oracle Linux 10 is excluded from
+v1 OCI products; Debian trixie and generic RPM generation retain separate
+contracts. Preserve existing v0.6 assets and tags.
 
-## v1.0.0 production contract
+## Historical records
 
-Beads milestone: `gobfd-qj0.8.2` — **Open; blocked on the accepted v0.6
-maintenance baseline after the v0.6.4 closeout and P1 findings are fixed**.
-
-Development of the v1 product line, including the GoBGP v4 migration, occurs
-on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
-
-### P0 sequence
-
-| Delivery slice | Status |
-|---|---|
-| RFC core correctness and loss accounting | Open |
-| Ownership and configuration reconciliation | Open |
-| Secure management defaults | Open |
-| Safe GoBGP v4 reconciliation | Open |
-| Independent implementation review | Open |
-| Interop, scale, security, and release qualification | Open |
-
-RFC core work begins with the tracked gaps in Poll/Final and Demand procedures,
-diagnostic and authentication reset behavior, atomic BFD/AdminDown delivery,
-RFC 5881/5883 transport demultiplexing, RFC 9764 authenticated padding, and
-fail-closed preview boundaries.
-
-### P1 sequence
-
-| Delivery slice | Status |
-|---|---|
-| Configurable BFD QoS socket policy with packet evidence | Open |
-| Committed-latency measurement and corrected performance gates | Open |
-| Removal of permanent per-session OS-thread pinning with A/B evidence | Open |
-| Companion binary hardening | Open |
-
-Post-v1 scheduler, kernel, warm-restart, S-BFD, and authentication R&D remains
-outside this release contract and is tracked separately in Beads.
-
-## Release contracts
-
-- [v0.6.2 maintenance design](../superpowers/specs/2026-08-18-v0.6.2-dependency-refresh-design.md)
-- [v1 production design](../superpowers/specs/2026-08-18-gobfd-v1-production-contract-design.md)
-- [RFC compliance matrix](./08-rfc-compliance.md)
-- [Development and quality gates](./09-development.md)
+The previous accumulated status and exact receipts remain available at
+[the integration baseline](https://github.com/dantte-lp/gobfd/blob/eae8f0636055de8ac4714199e27ff0c9d18b9859/docs/en/roadmap.md).
+Dated audits remain in [the 2026-11-27 retrospective](audits/2026-11-27-release-retrospective.md),
+[the 2026-10-26 retrospective](audits/2026-10-26-release-retrospective.md)
+and [external-audit reconciliation](gist-audit-reconciliation.md). Historical
+results are not fresh measurements of the current candidate.

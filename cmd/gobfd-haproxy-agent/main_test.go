@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -308,6 +309,26 @@ func TestLoadConfig_FileNotFound(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRejectsInvalidSelectorsAndPorts(t *testing.T) {
+	t.Parallel()
+	for _, backends := range []string{
+		"  - peer: invalid\n    agent_port: 9990\n",
+		"  - peer: 192.0.2.1\n    local: invalid\n    agent_port: 9990\n",
+		"  - peer: 192.0.2.1\n    type: unknown\n    agent_port: 9990\n",
+		"  - peer: 192.0.2.1\n    agent_port: 0\n",
+		"  - peer: 192.0.2.1\n    agent_port: 65536\n",
+		"  - peer: 192.0.2.1\n    agent_port: 9990\n  - peer: 192.0.2.2\n    agent_port: 9990\n",
+	} {
+		path := filepath.Join(t.TempDir(), "agent.yml")
+		if err := os.WriteFile(path, []byte("backends:\n"+backends), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := loadConfig(path); err == nil {
+			t.Fatalf("accepted invalid backend config %q", backends)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // envOrDefault tests
 // ---------------------------------------------------------------------------
@@ -330,5 +351,42 @@ func TestEnvOrDefault_EnvUnset(t *testing.T) {
 	got := envOrDefault(key, "fallback")
 	if got != "fallback" {
 		t.Errorf("envOrDefault(%q) = %q, want %q", key, got, "fallback")
+	}
+}
+
+// gh-87: agent-check listeners are unauthenticated and bind to loopback
+// unless listen_addr names another address.
+func TestAgentCheckListenAddr(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		host string
+		port int
+		want string
+	}{
+		{"", 9990, "127.0.0.1:9990"},
+		{"0.0.0.0", 9990, "0.0.0.0:9990"},
+		{"::1", 9991, "[::1]:9991"},
+	} {
+		if got := agentCheckListenAddr(tc.host, tc.port); got != tc.want {
+			t.Errorf("agentCheckListenAddr(%q, %d) = %q, want %q", tc.host, tc.port, got, tc.want)
+		}
+	}
+}
+
+func TestLoadConfigListenAddr(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "agent.yml")
+	content := "listen_addr: \"0.0.0.0\"\nbackends:\n  - peer: \"10.0.0.2\"\n    agent_port: 5555\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.ListenAddr != "0.0.0.0" {
+		t.Fatalf("ListenAddr = %q, want 0.0.0.0", cfg.ListenAddr)
 	}
 }

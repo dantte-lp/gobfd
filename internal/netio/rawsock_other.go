@@ -13,6 +13,9 @@ import (
 // NewUDPSender always returns ErrUnsupportedPlatform on this platform.
 type UDPSender struct{}
 
+// PaddingPrepared returns false because no Linux sender socket is available.
+func (*UDPSender) PaddingPrepared() bool { return false }
+
 // SenderOption preserves the sender configuration API on non-Linux builds.
 type SenderOption func(*UDPSender)
 
@@ -45,6 +48,13 @@ func WithBindDevice(_ string) SenderOption {
 func WithWriteBuffer(_ int) SenderOption {
 	return func(*UDPSender) {
 		// No-op: no socket exists whose write buffer could be configured.
+	}
+}
+
+// WithSocketQoS preserves the Linux sender option API on non-Linux builds.
+func WithSocketQoS(_ SocketQoS) SenderOption {
+	return func(*UDPSender) {
+		// No-op: non-Linux transports cannot configure a sender socket.
 	}
 }
 

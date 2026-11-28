@@ -87,6 +87,22 @@ func containerExec(ctx context.Context, container string, command ...string) (st
 	return output, nil
 }
 
+func containerExecStdout(ctx context.Context, container string, command ...string) (string, error) {
+	client, err := newRFCContainerClient()
+	if err != nil {
+		return "", err
+	}
+	containerID, err := resolveRFCProjectContainerID(ctx, client, container)
+	if err != nil {
+		return "", err
+	}
+	result, err := client.Exec(ctx, containerID, command)
+	if err != nil {
+		return result.Stdout + result.Stderr, fmt.Errorf("exec exact container %s: %w: %s", container, err, result.Stderr)
+	}
+	return result.Stdout, nil
+}
+
 func containerPause(ctx context.Context, container string) error {
 	client, err := newRFCContainerClient()
 	if err != nil {

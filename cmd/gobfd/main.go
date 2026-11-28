@@ -21,23 +21,18 @@ import (
 	"github.com/dantte-lp/gobfd/internal/config"
 	"github.com/dantte-lp/gobfd/internal/gobgp"
 	bfdmetrics "github.com/dantte-lp/gobfd/internal/metrics"
+	"github.com/dantte-lp/gobfd/internal/netio"
 	"github.com/dantte-lp/gobfd/internal/sdnotify"
 	appversion "github.com/dantte-lp/gobfd/internal/version"
 )
 
 const systemdWatchdogTickDivisor = 2
 
-// shutdownTimeout is the maximum time to wait for HTTP servers to drain
-// active connections during graceful shutdown.
+// shutdownTimeout bounds the full BFD drain and each HTTP shutdown stage.
 const shutdownTimeout = 10 * time.Second
 
 // errDetectMultOverflow indicates the detect multiplier exceeds uint8 range.
 var errDetectMultOverflow = errors.New("detect multiplier exceeds maximum 255")
-
-// drainTimeout is the time to wait after setting sessions to AdminDown
-// before proceeding with shutdown. This ensures the final AdminDown
-// packets are transmitted to peers (RFC 5880 Section 6.8.16).
-const drainTimeout = 2 * time.Second
 
 // flightRecorderMinAge is the minimum window age for the flight recorder.
 // Captures the last 500ms of execution traces for debugging BFD failures.
@@ -90,7 +85,10 @@ func run() int {
 	collector := bfdmetrics.NewCollector(reg)
 
 	// 6. Create BFD session manager with metrics and unsolicited BFD (RFC 9468).
-	mgr, err := newManager(cfg, collector, logger)
+	// One UDP sender factory owns the RFC 5881 source-port allocator for
+	// configured, API and unsolicited sessions.
+	sf := newUDPSenderFactory(cfg.Socket)
+	mgr, err := newManager(cfg, collector, sf, logger)
 	if err != nil {
 		logger.Error("failed to create BFD manager",
 			slog.String("error", err.Error()),
@@ -100,7 +98,10 @@ func run() int {
 	defer mgr.Close()
 
 	// 7. Run servers.
-	if err := runServers(cfg, mgr, reg, logger, *configPath, logLevel, fr); err != nil {
+	warnUnauthenticatedBinds(logger, map[string]string{
+		"grpc": unauthenticatedGRPCAddr(cfg.GRPC), "metrics": cfg.Metrics.Addr,
+	})
+	if err := runServers(cfg, mgr, sf, reg, collector, logger, *configPath, logLevel, fr); err != nil {
 		logger.Error("gobfd exited with error",
 			slog.String("error", err.Error()),
 		)
@@ -116,25 +117,31 @@ func run() int {
 func runServers(
 	cfg *config.Config,
 	mgr *bfd.Manager,
+	sf *udpSenderFactory,
 	reg *prometheus.Registry,
+	collector *bfdmetrics.Collector,
 	logger *slog.Logger,
 	configPath string,
 	logLevel *slog.LevelVar,
 	fr *trace.FlightRecorder,
 ) error {
-	// Create real UDP sender factory backed by SourcePortAllocator.
-	sf := newUDPSenderFactory()
-
-	metricsSrv := newMetricsServer(cfg.Metrics, reg, fr)
-	grpcSrv := newGRPCServer(cfg.GRPC, mgr, sf, logger)
+	metricsSrv := newMetricsServer(cfg.Metrics, reg)
+	healthChecker := newDaemonHealthChecker()
+	coordinator := newReconciliationCoordinator(cfg, logger, healthChecker)
+	listeners, overlays := attachReceiveOwners(cfg, mgr, sf, coordinator, logger)
+	defer coordinator.closeReceivePaths()
+	grpcSrv := newGRPCServer(cfg.GRPC, cfg.MicroBFD.Enabled, mgr, newAPIListenerSenderFactory(sf, listeners, false),
+		newAPIListenerSenderFactory(sf, listeners, true), healthChecker, fr, logger, coordinator)
+	bgpStatus := goBGPStatusFor(cfg.GoBGP, healthChecker, collector)
+	bgpStatus.configuredPeers(goBGPManagedPeers(cfg.Sessions))
+	coordinator.onConfiguredPeers = bgpStatus.configuredPeers
 
 	// errgroup with signal-aware context.
-	ctx, stop := signal.NotifyContext(
-		context.Background(),
-		syscall.SIGINT,
-		syscall.SIGTERM,
-	)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	sigHUP := make(chan os.Signal, 1)
+	signal.Notify(sigHUP, syscall.SIGHUP)
+	defer signal.Stop(sigHUP)
 
 	g, gCtx := errgroup.WithContext(ctx)
 
@@ -142,48 +149,115 @@ func runServers(
 	// sessions are created so that state change notifications are forwarded
 	// from the internal rawNotifyCh to the public StateChanges channel.
 	// Also handles micro-BFD aggregate state dispatch (RFC 7130).
-	g.Go(func() error {
-		mgr.RunDispatch(gCtx)
-		return nil
-	})
-
-	startInterfaceMonitor(gCtx, g, mgr, logger)
+	startManagerDispatch(gCtx, g, mgr, coordinator.readiness)
+	startInterfaceMonitor(gCtx, g, mgr, sf, coordinator, logger)
 
 	// Start BFD packet listeners and receivers for incoming packets.
-	lnCleanup, err := startListenersAndReceivers(gCtx, g, cfg, mgr, logger)
-	if err != nil {
+	g.Go(func() error { return overlays.run(gCtx) })
+	if err := startListenerOwner(gCtx, g, cfg, listeners); err != nil {
 		return fmt.Errorf("create BFD listeners: %w", err)
 	}
-	defer lnCleanup()
 
 	startHTTPServers(gCtx, g, cfg, grpcSrv, metricsSrv, logger)
-	// GoBGP integration goroutine (RFC 5882 Section 4.3).
-	bgpCloser, err := startGoBGPHandler(gCtx, g, cfg.GoBGP, mgr, logger)
+	// GoBGP integration goroutine (RFC 5882 Section 10.2).
+	bgpCloser, err := startGoBGPHandler(gCtx, g, cfg.GoBGP, goBGPManagedPeers(cfg.Sessions), mgr,
+		bgpStatus, logger)
 	if err != nil {
 		return fmt.Errorf("start gobgp handler: %w", err)
 	}
 	defer closeGoBGPClient(bgpCloser, logger)
 
-	// Start overlay tunnel receivers (VXLAN on port 4789, Geneve on port 6081).
-	overlayRuntime, overlayCleanup := startOverlayReceivers(gCtx, g, cfg, mgr, sf, logger)
-	defer overlayCleanup()
-
-	startDaemonGoroutines(gCtx, g, configPath, logLevel, mgr, sf, overlayRuntime, logger)
-
-	reconcileAllSessions(gCtx, cfg, mgr, sf, overlayRuntime, logger)
+	startReconciliationRuntime(
+		gCtx, g, sigHUP, configPath, logLevel, cfg, mgr, sf, coordinator, logger,
+	)
 
 	notifyReady(logger)
 
 	// Shutdown goroutine: waits for context cancellation.
-	g.Go(func() error {
-		<-gCtx.Done()
-		return gracefulShutdown(gCtx, mgr, logger, fr, grpcSrv, metricsSrv)
-	})
+	startShutdown(gCtx, g, mgr, logger, fr, coordinator.readiness, coordinator.closeReceivePaths,
+		grpcSrv, metricsSrv)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("run servers: %w", err)
 	}
 	return nil
+}
+
+// attachReceiveOwners creates the listener and overlay owners before API
+// requests and interface events can reach them: API sessions claim their
+// listeners through one, and every generation claims its listeners and
+// backends through both. A backend failure fails its source only.
+func attachReceiveOwners(
+	cfg *config.Config, mgr *bfd.Manager, sf *udpSenderFactory, coordinator *reconciliationCoordinator,
+	logger *slog.Logger,
+) (*listenerOwner, *overlayOwner) {
+	coordinator.listeners = newListenerOwner(mgr, coordinator.readiness, cfg.Socket.ReadBufferSize, logger)
+	coordinator.overlays = newOverlayOwner(cfg, sf, mgr, coordinator.readiness, logger)
+	coordinator.checkAddresses = netio.CheckLocalAddressesAvailable
+	coordinator.readiness.checkAddresses = netio.CheckLocalAddressesAvailable
+	bindMicroActuatorReadiness(cfg.MicroBFD.Actuator, mgr, coordinator.readiness)
+	return coordinator.listeners, coordinator.overlays
+}
+
+// closeReceivePaths stops every listener and overlay backend after the
+// shutdown drain; both owners close idempotently.
+func (c *reconciliationCoordinator) closeReceivePaths() {
+	c.listeners.close()
+	c.overlays.close()
+}
+
+func startManagerDispatch(ctx context.Context, g *errgroup.Group, mgr *bfd.Manager, readiness *daemonReadiness) {
+	g.Go(func() error {
+		return readiness.runRequired(ctx, "BFD dispatch", func() error {
+			mgr.RunDispatch(ctx)
+			return nil
+		})
+	})
+}
+
+func startShutdown(
+	ctx context.Context,
+	g *errgroup.Group,
+	mgr *bfd.Manager,
+	logger *slog.Logger,
+	fr *trace.FlightRecorder,
+	readiness *daemonReadiness,
+	closeReceivers func(),
+	servers ...*http.Server,
+) {
+	g.Go(func() error {
+		<-ctx.Done()
+		readiness.setNotReady(componentRuntime)
+		err := gracefulShutdown(ctx, mgr, logger, fr, servers...)
+		// Receive reads take no context; closing after the AdminDown drain
+		// keeps the drain receiving and lets idle receivers return.
+		closeReceivers()
+		return err
+	})
+}
+
+func startReconciliationRuntime(
+	ctx context.Context,
+	g *errgroup.Group,
+	sigHUP <-chan os.Signal,
+	configPath string,
+	logLevel *slog.LevelVar,
+	cfg *config.Config,
+	mgr *bfd.Manager,
+	sf *udpSenderFactory,
+	coordinator *reconciliationCoordinator,
+	logger *slog.Logger,
+) {
+	startReloadAfterStartup(
+		func() {
+			reconcileAllSessions(ctx, cfg, mgr, sf, coordinator, logger)
+		},
+		func() {
+			startDaemonGoroutines(
+				ctx, g, sigHUP, configPath, logLevel, mgr, sf, coordinator, logger,
+			)
+		},
+	)
 }
 
 // startHTTPServers registers the gRPC and metrics HTTP server goroutines.
@@ -197,10 +271,16 @@ func startHTTPServers(
 ) {
 	lc := net.ListenConfig{}
 
-	g.Go(func() error {
-		logger.Info("gRPC server listening", slog.String("addr", cfg.GRPC.Addr))
-		return listenAndServe(ctx, &lc, grpcSrv, cfg.GRPC.Addr)
-	})
+	if cfg.GRPC.Addr != "" {
+		g.Go(func() error {
+			return serveGRPCTCP(ctx, &lc, grpcSrv, cfg.GRPC, logger)
+		})
+	}
+	if cfg.GRPC.Socket.Path != "" {
+		g.Go(func() error {
+			return serveManagementSocket(ctx, grpcSrv, cfg.GRPC.Socket, logger)
+		})
+	}
 
 	g.Go(func() error {
 		logger.Info("metrics server listening",
@@ -215,22 +295,26 @@ func startHTTPServers(
 func startDaemonGoroutines(
 	ctx context.Context,
 	g *errgroup.Group,
+	sigHUP <-chan os.Signal,
 	configPath string,
 	logLevel *slog.LevelVar,
 	mgr *bfd.Manager,
 	sf *udpSenderFactory,
-	overlayRuntime *overlayRuntime,
+	coordinator *reconciliationCoordinator,
 	logger *slog.Logger,
 ) {
 	g.Go(func() error {
 		return runWatchdog(ctx, logger)
 	})
-
-	sigHUP := make(chan os.Signal, 1)
-	signal.Notify(sigHUP, syscall.SIGHUP)
 	g.Go(func() error {
-		defer signal.Stop(sigHUP)
-		handleSIGHUP(ctx, sigHUP, configPath, logLevel, mgr, sf, overlayRuntime, logger)
+		coordinator.runTimerUpdateCompletion(ctx, mgr)
+		return nil
+	})
+
+	g.Go(func() error {
+		handleSIGHUP(
+			ctx, sigHUP, configPath, logLevel, mgr, sf, coordinator, logger,
+		)
 		return nil
 	})
 }

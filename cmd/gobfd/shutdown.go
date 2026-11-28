@@ -10,8 +10,9 @@ import (
 	"runtime/trace"
 	"time"
 
-	"connectrpc.com/connect"
-	"connectrpc.com/grpchealth"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
+	"connectrpc.com/grpchealth/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
@@ -29,7 +30,7 @@ import (
 // recorder trace, then shuts down HTTP servers.
 //
 // The parent context is already cancelled when this function is called.
-// A fresh timeout context is created internally for server drain.
+// Fresh timeout contexts bound the BFD notification window and HTTP separately.
 func gracefulShutdown(
 	ctx context.Context,
 	mgr *bfd.Manager,
@@ -40,12 +41,13 @@ func gracefulShutdown(
 	logger.Info("initiating graceful shutdown")
 	notifyStopping(logger)
 
-	// Drain all BFD sessions: set to AdminDown with DiagAdminDown.
-	// This ensures peers see an intentional shutdown, not a failure.
-	mgr.DrainAllSessions()
-
-	// Wait for final AdminDown packets to be transmitted.
-	time.Sleep(drainTimeout)
+	// The drain deadline is independent of the cancelled signal context.
+	drainCtx, cancelDrain := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
+	var shutdownErr error
+	if err := localDrainErrors(logger, mgr.DrainAllSessions(drainCtx)); err != nil {
+		shutdownErr = fmt.Errorf("drain BFD sessions: %w", err)
+	}
+	cancelDrain()
 
 	// Explicitly cancel all session goroutines after the drain period.
 	// Sessions use context.WithoutCancel so they don't see SIGTERM directly;
@@ -64,13 +66,31 @@ func gracefulShutdown(
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
 
-	var shutdownErr error
 	for _, srv := range servers {
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			shutdownErr = errors.Join(shutdownErr, fmt.Errorf("shutdown server: %w", err))
 		}
 	}
 	return shutdownErr
+}
+
+// localDrainErrors logs drains that only lack a reachable or known peer as
+// warnings, so an orderly stop exits 0, and returns every other drain failure.
+func localDrainErrors(logger *slog.Logger, err error) error {
+	errs := []error{err}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		errs = joined.Unwrap()
+	}
+	local := make([]error, 0, len(errs))
+	for _, drainErr := range errs {
+		if incomplete, ok := errors.AsType[*bfd.DrainIncompleteError](drainErr); ok && incomplete.PeerAttributed() {
+			logger.Warn("AdminDown drain incomplete for an unreachable or unknown peer",
+				slog.String("error", drainErr.Error()))
+			continue
+		}
+		local = append(local, drainErr)
+	}
+	return errors.Join(local...)
 }
 
 // -------------------------------------------------------------------------
@@ -125,17 +145,9 @@ func listenAndServe(ctx context.Context, lc *net.ListenConfig, srv *http.Server,
 
 // newMetricsServer creates an HTTP server for the Prometheus metrics endpoint
 // and optional debug endpoints (flight recorder trace dump).
-func newMetricsServer(
-	cfg config.MetricsConfig,
-	reg *prometheus.Registry,
-	fr *trace.FlightRecorder,
-) *http.Server {
+func newMetricsServer(cfg config.MetricsConfig, reg *prometheus.Registry) *http.Server {
 	mux := http.NewServeMux()
 	mux.Handle(cfg.Path, promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
-
-	if fr != nil {
-		mux.HandleFunc("/debug/flightrecorder", flightRecorderHandler(fr))
-	}
 
 	return &http.Server{
 		Addr:                cfg.Addr,
@@ -163,35 +175,51 @@ func flightRecorderHandler(fr *trace.FlightRecorder) http.HandlerFunc {
 // The server explicitly enables h2c, which is required for gRPC clients that
 // connect over plaintext (for example, gobfdctl), alongside HTTP/1.1.
 // Includes standard gRPC health checking (grpc.health.v1).
-func newGRPCServer(cfg config.GRPCConfig, mgr *bfd.Manager, sf server.SenderFactory, logger *slog.Logger) *http.Server {
+func newGRPCServer(
+	cfg config.GRPCConfig,
+	microEnabled bool,
+	mgr *bfd.Manager,
+	sf server.SenderFactory,
+	echoSF server.SenderFactory,
+	checker *grpchealth.StaticChecker,
+	fr *trace.FlightRecorder,
+	logger *slog.Logger,
+	capabilities server.CapabilitySource,
+) *http.Server {
 	mux := http.NewServeMux()
 
-	interceptors := []connect.HandlerOption{
-		server.LoggingInterceptorOption(logger),
-		server.RecoveryInterceptorOption(logger),
+	// BFD, Echo (RFC 9747) and Micro-BFD (RFC 7130) services share one server
+	// with logging and panic recovery. connect v2 bounds each message to its
+	// default read limit (4 MiB) instead of the unbounded v1 behavior.
+	// Anonymous loopback TCP callers may only read unless the unsafe opt-in
+	// is set (gobfd-330.3).
+	policy := server.MutationPolicy{
+		AllowAnonymous:     cfg.UnsafeLoopbackMutations,
+		MutatingIdentities: cfg.MutatingIdentities,
 	}
+	rpc := connect.NewServer(server.LoggingInterceptor(logger), server.RecoveryInterceptor(logger),
+		server.MutationGuardInterceptor(policy))
+	if cfg.FlightRecorder && fr != nil {
+		mux.Handle("/debug/flightrecorder", server.RequirePrincipal(policy, flightRecorderHandler(fr)))
+	}
+	server.Register(rpc, mgr, sf, logger)
+	server.RegisterEcho(rpc, mgr, echoSF, logger)
+	server.RegisterMicroBFD(rpc, mgr, microEnabled, logger)
+	server.RegisterCapabilities(rpc, capabilities)
+	connecthttp.Mount(mux, rpc)
 
-	// BFD service handler.
-	path, handler := server.New(mgr, sf, logger, interceptors...)
-	mux.Handle(path, handler)
-
-	// Echo service handler (RFC 9747).
-	echoPath, echoHandler := server.NewEcho(mgr, sf, logger, interceptors...)
-	mux.Handle(echoPath, echoHandler)
-
-	// Micro-BFD service handler (RFC 7130).
-	microPath, microHandler := server.NewMicroBFD(mgr, logger, interceptors...)
-	mux.Handle(microPath, microHandler)
-
-	// gRPC health check handler (grpc.health.v1).
-	// Reports SERVING for the overall server and the registered BFD services.
-	checker := grpchealth.NewStaticChecker(
-		grpchealth.HealthV1ServiceName,
-		"bfd.v1.BfdService",
-		"bfd.v1.EchoService",
-		"bfd.v1.MicroBFDService",
-	)
-	mux.Handle(grpchealth.NewHandler(checker))
+	// gRPC health check (grpc.health.v1) on its own server without the RPC
+	// interceptors, as in v1. daemonReadiness writes the empty service and
+	// the bfd.v1 services as the AND of their reconciliation, runtime and
+	// listener components; grpc.health.v1.Health stays SERVING as liveness.
+	health := connect.NewServer()
+	reportManagementSafety(checker, cfg)
+	if cfg.UnsafeLoopbackMutations {
+		logger.Warn("anonymous loopback TCP clients may mutate sessions (grpc.unsafe_loopback_mutations)",
+			slog.String("addr", cfg.Addr))
+	}
+	grpchealth.Register(health, checker)
+	connecthttp.Mount(mux, health)
 	protocols := new(http.Protocols)
 	protocols.SetHTTP1(true)
 	protocols.SetUnencryptedHTTP2(true)
@@ -202,5 +230,7 @@ func newGRPCServer(cfg config.GRPCConfig, mgr *bfd.Manager, sf server.SenderFact
 		Protocols:           protocols,
 		ReadHeaderTimeout:   10 * time.Second,
 		MaxHeaderValueCount: maxHTTPHeaderValueCount,
+		// Requests over the management socket carry the peer UID principal.
+		ConnContext: server.ConnContext,
 	}
 }

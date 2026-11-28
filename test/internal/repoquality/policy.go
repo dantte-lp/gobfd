@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 )
 
 // Diagnostic identifies one repository policy violation.
@@ -39,6 +40,10 @@ var (
 	emptyImage    = regexp.MustCompile(`!\[\]\(`)
 	shortcutLink  = regexp.MustCompile(`\[([^]]+)\]`)
 	collapsedLink = regexp.MustCompile(`!?\[([^]]+)\]\[\]`)
+
+	reversedLinkPattern          = regexp.MustCompile(`\([^()]+\)\[[^]]+\]`)
+	closedATXMissingSpacePattern = regexp.MustCompile(`^#{1,6} [^#].*[^ \t]#{1,6}[ \t]*$`)
+	nondescriptiveLinkPattern    = regexp.MustCompile(`\[([^]]+)\]\([^)]*\)`)
 )
 
 const (
@@ -144,10 +149,10 @@ func ignoredCommit(message string) bool {
 func subjectIsUpper(subject string) bool {
 	hasLetter := false
 	for _, character := range subject {
-		if character >= 'a' && character <= 'z' {
+		if unicode.IsLower(character) {
 			return false
 		}
-		if character >= 'A' && character <= 'Z' {
+		if unicode.IsUpper(character) {
 			hasLetter = true
 		}
 	}
@@ -542,11 +547,11 @@ func parseDecimal(value string) int {
 }
 
 func reversedLink(line string) bool {
-	return regexp.MustCompile(`\([^()]+\)\[[^]]+\]`).MatchString(line)
+	return reversedLinkPattern.MatchString(line)
 }
 
 func closedATXMissingSpace(line string) bool {
-	return regexp.MustCompile(`^#{1,6} [^#].*[^ \t]#{1,6}[ \t]*$`).MatchString(line)
+	return closedATXMissingSpacePattern.MatchString(line)
 }
 
 func lastRune(value string) rune {
@@ -723,7 +728,7 @@ func normalizeReference(value string) string {
 }
 
 func nondescriptiveLink(line string) bool {
-	match := regexp.MustCompile(`\[([^]]+)\]\([^)]*\)`).FindStringSubmatch(line)
+	match := nondescriptiveLinkPattern.FindStringSubmatch(line)
 	if match == nil {
 		return false
 	}

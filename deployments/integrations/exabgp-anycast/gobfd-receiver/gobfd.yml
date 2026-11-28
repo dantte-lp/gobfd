@@ -3,7 +3,7 @@
 # Responds to BFD sessions from gobfd at 172.24.0.20.
 
 grpc:
-  addr: ":50053"
+  addr: "127.0.0.1:50053"
 
 metrics:
   addr: ":9101"

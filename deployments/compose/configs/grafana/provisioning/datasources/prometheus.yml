@@ -4,6 +4,6 @@ datasources:
   - name: Prometheus
     type: prometheus
     access: proxy
-    url: http://gobfd-prometheus:9090
+    url: ${PROMETHEUS_URL}
     isDefault: true
     editable: false

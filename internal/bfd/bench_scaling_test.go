@@ -69,7 +69,7 @@ func benchmarkManagerCreateDestroy(b *testing.B, count int) {
 				DetectMultiplier:      3,
 			}
 
-			if _, err := mgr.CreateSession(ctx, cfg, sender); err != nil {
+			if _, err := mgr.CreateSession(ctx, cfg, bfd.NonOwningSenderLeaseFactory(sender)); err != nil {
 				b.Fatalf("CreateSession %d: %v", i, err)
 			}
 		}
@@ -118,7 +118,7 @@ func BenchmarkManagerDemux1000Sessions(b *testing.B) {
 			DetectMultiplier:      3,
 		}
 
-		sess, err := mgr.CreateSession(ctx, cfg, sender)
+		sess, err := mgr.CreateSession(ctx, cfg, bfd.NonOwningSenderLeaseFactory(sender))
 		if err != nil {
 			b.Fatalf("CreateSession %d: %v", i, err)
 		}
@@ -154,8 +154,9 @@ func BenchmarkManagerDemux1000Sessions(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = mgr.Demux(pkt, meta)
+		_, _ = mgr.Demux(pkt, meta)
 	}
+	reportDemuxDelivery(b, mgr)
 }
 
 // -------------------------------------------------------------------------
@@ -167,8 +168,8 @@ func BenchmarkManagerDemux1000Sessions(b *testing.B) {
 // channel send that Demux includes. This is the FAIR comparison with
 // C benchmarks, which measure only hashmap lookup without IPC.
 //
-// Compare with BenchmarkManagerDemux1000Sessions to isolate the channel
-// send overhead: demux_ns - lookup_ns = channel_send_ns.
+// Use this as a lookup control. Subtraction cannot isolate channel-send cost
+// because Demux also validates transport and accounts for admission outcomes.
 func BenchmarkManagerLookup1000Sessions(b *testing.B) {
 	logger := slog.New(slog.DiscardHandler)
 	sender := &discardSender{}
@@ -198,7 +199,7 @@ func BenchmarkManagerLookup1000Sessions(b *testing.B) {
 			DetectMultiplier:      3,
 		}
 
-		sess, err := mgr.CreateSession(ctx, cfg, sender)
+		sess, err := mgr.CreateSession(ctx, cfg, bfd.NonOwningSenderLeaseFactory(sender))
 		if err != nil {
 			b.Fatalf("CreateSession %d: %v", i, err)
 		}
@@ -253,7 +254,7 @@ func BenchmarkManagerReconcile(b *testing.B) {
 					RequiredMinRxInterval: 1 * time.Second,
 					DetectMultiplier:      3,
 				},
-				Sender: sender,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(sender),
 			}
 		}
 
@@ -281,7 +282,7 @@ func BenchmarkManagerReconcile(b *testing.B) {
 					RequiredMinRxInterval: 1 * time.Second,
 					DetectMultiplier:      3,
 				},
-				Sender: sender,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(sender),
 			})
 		}
 

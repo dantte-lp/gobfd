@@ -10,19 +10,18 @@ import (
 const penaltyNoiseFloor = 0.001
 
 // -------------------------------------------------------------------------
-// RFC 5882 Section 3.2 — BFD Flap Dampening
+// BFD Flap Dampening — GoBFD implementation policy
 // -------------------------------------------------------------------------
 //
-// "BFD is a relatively aggressive mechanism for detecting failures.
-//  Because of this, implementations SHOULD provide a flap dampening
-//  mechanism to prevent rapid oscillation of the BFD session from
-//  causing excessive route churn."
+// RFC 5882 Section 3.1 permits implementations to hide rapid Up/Down/Up
+// transitions from clients, but does not define a penalty-based algorithm.
 //
 // The dampening algorithm follows the classic route flap dampening model
 // (RFC 2439) adapted for BFD: each Down event accumulates a penalty
 // that decays exponentially. When the penalty exceeds the suppress
-// threshold, subsequent events are suppressed until the penalty decays
-// below the reuse threshold.
+// threshold, the peer is suppressed until the penalty decays below the
+// reuse threshold. The handler never holds a Down for a suppressed peer;
+// it holds only the recovery (H-27).
 
 // -------------------------------------------------------------------------
 // Dampening Configuration
@@ -131,9 +130,10 @@ func NewDampener(cfg DampeningConfig, logger *slog.Logger, opts ...DampenerOptio
 	return d
 }
 
-// ShouldSuppress returns true if the given peer's Down event should be
-// suppressed due to excessive flapping. It also records the Down event
-// by incrementing the penalty.
+// ShouldSuppress records a Down event by incrementing the penalty and
+// reports whether the peer is suppressed due to excessive flapping. The
+// handler applies the Down regardless and uses the result only to skip
+// redundant actions and hold the recovery.
 //
 // If dampening is disabled, always returns false.
 //
@@ -182,7 +182,9 @@ func (d *Dampener) ShouldSuppress(peerAddr string) bool {
 
 // ShouldSuppressUp returns true if an Up event for the given peer should
 // be suppressed. Up events are suppressed while the peer is in suppressed
-// state to prevent partial recovery signals.
+// state to prevent partial recovery signals. It records no penalty and
+// applies suppression expiry, so the handler also uses it to release a
+// held action of either direction.
 //
 // If dampening is disabled, always returns false.
 func (d *Dampener) ShouldSuppressUp(peerAddr string) bool {
@@ -202,19 +204,16 @@ func (d *Dampener) ShouldSuppressUp(peerAddr string) bool {
 
 	d.decayPenalty(pp, now)
 
-	// Check if MaxSuppressTime has been exceeded.
-	if pp.suppressed && now.Sub(pp.suppressedSince) >= d.cfg.MaxSuppressTime {
-		d.unsuppress(pp, peerAddr)
-		return false
-	}
-
-	// Check if penalty has decayed below reuse threshold.
-	if pp.suppressed && pp.penalty < d.cfg.ReuseThreshold {
+	if pp.suppressed && d.suppressionExpired(pp, now) {
 		d.unsuppress(pp, peerAddr)
 		return false
 	}
 
 	return pp.suppressed
+}
+
+func (d *Dampener) suppressionExpired(pp *peerPenalty, now time.Time) bool {
+	return now.Sub(pp.suppressedSince) >= d.cfg.MaxSuppressTime || pp.penalty < d.cfg.ReuseThreshold
 }
 
 // Reset removes the penalty tracking for a peer. Used when a peer is

@@ -98,9 +98,14 @@ func formatSessionDetail(s *bfdv1.BfdSession) (string, error) {
 	fmt.Fprintf(w, "Local State:\t%s\n", shortState(s.GetLocalState()))
 	fmt.Fprintf(w, "Remote State:\t%s\n", shortState(s.GetRemoteState()))
 	fmt.Fprintf(w, "Local Diagnostic:\t%s\n", shortDiag(s.GetLocalDiagnostic()))
+	fmt.Fprintf(w, "Remote Known:\t%t\nRemote Diagnostic:\t%s\n"+
+		"Local C-bit:\t%t\nRemote C-bit:\t%t\nCause:\t%s\nObservation Version:\t%d\n",
+		s.GetRemoteKnown(), shortDiag(s.GetRemoteDiagnostic()), s.GetLocalControlPlaneIndependent(),
+		s.GetRemoteControlPlaneIndependent(), s.GetCause(), s.GetObservationVersion())
 	fmt.Fprintf(w, "Local Discriminator:\t%d\n", s.GetLocalDiscriminator())
 	fmt.Fprintf(w, "Remote Discriminator:\t%d\n", s.GetRemoteDiscriminator())
 	fmt.Fprintf(w, "Detect Multiplier:\t%d\n", s.GetDetectMultiplier())
+	fmt.Fprintf(w, "Padded PDU Target:\t%d bytes\n", s.GetPaddedPduSize())
 
 	if d := s.GetDesiredMinTxInterval(); d != nil {
 		fmt.Fprintf(w, "Desired Min TX:\t%s\n", d.AsDuration())
@@ -160,13 +165,14 @@ func formatEventTable(event *bfdv1.WatchSessionEventsResponse) string {
 		discr = sess.GetLocalDiscriminator()
 	}
 
-	return fmt.Sprintf("[%s] %s  peer=%s  state=%s  prev=%s  discr=%d",
+	return fmt.Sprintf("[%s] %s  peer=%s  state=%s  prev=%s  discr=%d  rev=%d",
 		ts,
 		shortEventType(event.GetType()),
 		peer,
 		state,
 		shortState(event.GetPreviousState()),
 		discr,
+		event.GetRevision(),
 	)
 }
 
@@ -193,6 +199,12 @@ func marshalYAML(v any) (string, error) {
 // --- View types for clean JSON/YAML output ---
 
 type sessionView struct {
+	ObservationVersion  uint64 `json:"observation_version"                yaml:"observation_version"`
+	RemoteKnown         bool   `json:"remote_known"                       yaml:"remote_known"`
+	RemoteDiagnostic    string `json:"remote_diagnostic"                  yaml:"remote_diagnostic"`
+	LocalC              bool   `json:"local_control_plane_independent"    yaml:"local_control_plane_independent"`
+	RemoteC             bool   `json:"remote_control_plane_independent"   yaml:"remote_control_plane_independent"`
+	Cause               string `json:"cause"                              yaml:"cause"`
 	PeerAddress         string `json:"peer_address"                       yaml:"peer_address"`
 	LocalAddress        string `json:"local_address"                      yaml:"local_address"`
 	InterfaceName       string `json:"interface_name,omitempty"           yaml:"interface_name,omitempty"`
@@ -203,6 +215,7 @@ type sessionView struct {
 	LocalDiscriminator  uint32 `json:"local_discriminator"                yaml:"local_discriminator"`
 	RemoteDiscriminator uint32 `json:"remote_discriminator"               yaml:"remote_discriminator"`
 	DetectMultiplier    uint32 `json:"detect_multiplier"                  yaml:"detect_multiplier"`
+	PaddedPduSize       uint32 `json:"padded_pdu_size"                    yaml:"padded_pdu_size"`
 	DesiredMinTx        string `json:"desired_min_tx_interval,omitempty"  yaml:"desired_min_tx_interval,omitempty"`
 	RequiredMinRx       string `json:"required_min_rx_interval,omitempty" yaml:"required_min_rx_interval,omitempty"`
 	RemoteMinRx         string `json:"remote_min_rx_interval,omitempty"   yaml:"remote_min_rx_interval,omitempty"`
@@ -217,11 +230,18 @@ type eventView struct {
 	Timestamp     string       `json:"timestamp"         yaml:"timestamp"`
 	EventType     string       `json:"event_type"        yaml:"event_type"`
 	PreviousState string       `json:"previous_state"    yaml:"previous_state"`
+	Revision      uint64       `json:"revision"          yaml:"revision"`
 	Session       *sessionView `json:"session,omitempty" yaml:"session,omitempty"`
 }
 
 func sessionToView(s *bfdv1.BfdSession) *sessionView {
 	v := &sessionView{
+		ObservationVersion:  s.GetObservationVersion(),
+		RemoteKnown:         s.GetRemoteKnown(),
+		RemoteDiagnostic:    shortDiag(s.GetRemoteDiagnostic()),
+		LocalC:              s.GetLocalControlPlaneIndependent(),
+		RemoteC:             s.GetRemoteControlPlaneIndependent(),
+		Cause:               s.GetCause().String(),
 		PeerAddress:         s.GetPeerAddress(),
 		LocalAddress:        s.GetLocalAddress(),
 		InterfaceName:       s.GetInterfaceName(),
@@ -232,6 +252,7 @@ func sessionToView(s *bfdv1.BfdSession) *sessionView {
 		LocalDiscriminator:  s.GetLocalDiscriminator(),
 		RemoteDiscriminator: s.GetRemoteDiscriminator(),
 		DetectMultiplier:    s.GetDetectMultiplier(),
+		PaddedPduSize:       s.GetPaddedPduSize(),
 		AuthType:            shortAuthType(s.GetAuthType()),
 	}
 
@@ -273,6 +294,7 @@ func eventToView(event *bfdv1.WatchSessionEventsResponse) *eventView {
 	v := &eventView{
 		EventType:     shortEventType(event.GetType()),
 		PreviousState: shortState(event.GetPreviousState()),
+		Revision:      event.GetRevision(),
 	}
 
 	if ts := event.GetTimestamp(); ts != nil {
@@ -373,6 +395,10 @@ func shortEventType(t bfdv1.WatchSessionEventsResponse_EventType) string {
 		return "SessionAdded"
 	case bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_DELETED:
 		return "SessionDeleted"
+	case bfdv1.WatchSessionEventsResponse_EVENT_TYPE_GAP:
+		return "Gap"
+	case bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SYNC_COMPLETE:
+		return "SyncComplete"
 	default:
 		return valueUnknow
 	}

@@ -31,10 +31,12 @@ type observabilityContract struct {
 	subnet, gateway                    string
 	gobfdIP, frrIP                     string
 	prometheusIP, grafanaIP            string
-	frrImage, prometheusImage          string
-	grafanaImage                       string
+	frrRecipe, prometheusRecipe        string
+	grafanaRecipe                      string
+	grafanaVersion                     string
 	gobfdConfig, frrDaemons, frrConfig string
 	prometheusConfig, alertRules       string
+	alertRuleTests                     string
 	grafanaDatasource                  string
 	grafanaDashboardProvider           string
 	grafanaDashboard                   string
@@ -42,6 +44,12 @@ type observabilityContract struct {
 }
 
 type bfdSessionView struct {
+	ObservationVersion  uint64 `json:"observation_version"`
+	RemoteKnown         bool   `json:"remote_known"`
+	RemoteDiagnostic    string `json:"remote_diagnostic"`
+	LocalC              bool   `json:"local_control_plane_independent"`
+	RemoteC             bool   `json:"remote_control_plane_independent"`
+	Cause               string `json:"cause"`
 	PeerAddress         string `json:"peer_address"`
 	LocalAddress        string `json:"local_address"`
 	InterfaceName       string `json:"interface_name,omitempty"`
@@ -52,6 +60,7 @@ type bfdSessionView struct {
 	LocalDiscriminator  uint32 `json:"local_discriminator"`
 	RemoteDiscriminator uint32 `json:"remote_discriminator"`
 	DetectMultiplier    uint32 `json:"detect_multiplier"`
+	PaddedPduSize       uint32 `json:"padded_pdu_size"`
 	DesiredMinTx        string `json:"desired_min_tx_interval,omitempty"`
 	RequiredMinRx       string `json:"required_min_rx_interval,omitempty"`
 	RemoteMinRx         string `json:"remote_min_rx_interval,omitempty"`
@@ -142,24 +151,24 @@ type grafanaSearchResult struct {
 
 func newObservabilityContract(root string) observabilityContract {
 	base := filepath.Join(root, "deployments/integrations/observability")
+	grafanaBase := filepath.Join(root, "deployments/compose/configs/grafana")
 	return observabilityContract{
 		subnet: "172.25.0.0/24", gateway: "172.25.0.1",
 		gobfdIP: "172.25.0.10", frrIP: "172.25.0.20",
 		prometheusIP: "172.25.0.30", grafanaIP: "172.25.0.40",
-		frrImage: "quay.io/frrouting/frr:10.7.0@sha256:" +
-			"65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68",
-		prometheusImage: "docker.io/prom/prometheus:v3.14.0@sha256:" +
-			"5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0",
-		grafanaImage: "docker.io/grafana/grafana:13.2.0@sha256:" +
-			"3fd54ae1214669f8355f065ec9f6445d5279a3d77095ab048ca045685272429b",
+		frrRecipe:                filepath.Join(root, "test/interop/frr"),
+		prometheusRecipe:         filepath.Join(root, "test/interop/prometheus"),
+		grafanaRecipe:            filepath.Join(root, "test/interop/grafana"),
+		grafanaVersion:           "13.2.4",
 		gobfdConfig:              filepath.Join(base, "gobfd/gobfd.yml"),
 		frrDaemons:               filepath.Join(base, "frr/daemons"),
 		frrConfig:                filepath.Join(base, "frr/frr.conf"),
 		prometheusConfig:         filepath.Join(base, "configs/prometheus/prometheus.yml"),
 		alertRules:               filepath.Join(base, "configs/prometheus/alert-rules.yml"),
-		grafanaDatasource:        filepath.Join(base, "configs/grafana/provisioning/datasources/prometheus.yml"),
-		grafanaDashboardProvider: filepath.Join(base, "configs/grafana/provisioning/dashboards/dashboards.yml"),
-		grafanaDashboard:         filepath.Join(base, "configs/grafana/dashboards/bfd.json"),
+		alertRuleTests:           filepath.Join(root, "test/e2e/observability/testdata/alert-rules.yml"),
+		grafanaDatasource:        filepath.Join(grafanaBase, "provisioning/datasources/prometheus.yml"),
+		grafanaDashboardProvider: filepath.Join(grafanaBase, "provisioning/dashboards/dashboards.yml"),
+		grafanaDashboard:         filepath.Join(grafanaBase, "dashboards/bfd.json"),
 		tsharkContainerfile:      filepath.Join(root, "test/interop/tshark/Containerfile"),
 	}
 }
@@ -405,8 +414,11 @@ func prepareGoBFDBuildContext(t *testing.T, root string) string {
 			t.Fatalf("copy %s into bounded GoBFD build context: %v", name, err)
 		}
 	}
-	const containerfile = `FROM docker.io/library/golang:1.27.0-trixie@sha256:` +
-		`ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a AS builder
+	const containerfile = `FROM docker.io/library/golang:1.27.4-trixie@sha256:` +
+		`430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee AS builder
+ARG VCS_REF
+ARG BUILD_DATE
+ENV GOTOOLCHAIN=local GOMAXPROCS=2 GOMEMLIMIT=1500MiB GOFLAGS=-p=1
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download && go mod verify
@@ -414,10 +426,29 @@ COPY cmd/gobfd ./cmd/gobfd
 COPY cmd/gobfdctl ./cmd/gobfdctl
 COPY internal ./internal
 COPY pkg ./pkg
-RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfd ./cmd/gobfd
-RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfdctl ./cmd/gobfdctl
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-X github.com/dantte-lp/gobfd/internal/version.GitCommit=${VCS_REF} \
+-X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" -o /bin/gobfd ./cmd/gobfd
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-X github.com/dantte-lp/gobfd/internal/version.GitCommit=${VCS_REF} \
+-X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" -o /bin/gobfdctl ./cmd/gobfdctl
+ARG GOBFD_IMAGE_RUN=""
+ARG GOBFD_IMAGE_TEST=""
+LABEL io.gobfd.stage-run="${GOBFD_IMAGE_RUN}" \
+      io.gobfd.stage-test="${GOBFD_IMAGE_TEST}"
 FROM docker.io/library/debian:trixie-slim@sha256:` +
-		`d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
+		`8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
+ARG VCS_REF
+ARG BUILD_DATE
+LABEL org.opencontainers.image.source="https://github.com/dantte-lp/gobfd" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.version="${VCS_REF}" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.title="GoBFD observability daemon" \
+      org.opencontainers.image.description="GoBFD daemon and CLI from the qualified candidate" \
+      org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
+      org.opencontainers.image.base.digest="sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0"
 COPY --from=builder /bin/gobfd /bin/gobfd
 COPY --from=builder /bin/gobfdctl /bin/gobfdctl
 ENTRYPOINT ["/bin/gobfd"]
@@ -441,13 +472,13 @@ func deriveGrafanaDatasource(t *testing.T, source, prometheusIP string) string {
 	t.Helper()
 	contents, err := os.ReadFile(source)
 	if err != nil {
-		t.Fatalf("read operational Grafana datasource: %v", err)
+		t.Fatalf("read canonical Grafana datasource: %v", err)
 	}
-	const operationalURL = "http://prometheus-observability:9090"
-	if bytes.Count(contents, []byte(operationalURL)) != 1 {
-		t.Fatalf("operational Grafana datasource URL occurrence count != 1")
+	const placeholder = "${PROMETHEUS_URL}"
+	if bytes.Count(contents, []byte(placeholder)) != 1 {
+		t.Fatalf("canonical Grafana datasource ${PROMETHEUS_URL} occurrence count != 1")
 	}
-	derived := bytes.Replace(contents, []byte(operationalURL), []byte("http://"+prometheusIP+":9090"), 1)
+	derived := bytes.Replace(contents, []byte(placeholder), []byte("http://"+prometheusIP+":9090"), 1)
 	path := filepath.Join(t.TempDir(), "prometheus.yml")
 	if err := os.WriteFile(path, derived, 0o600); err != nil {
 		t.Fatalf("write minimally derived Grafana datasource: %v", err)

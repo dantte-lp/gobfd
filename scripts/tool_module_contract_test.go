@@ -18,11 +18,11 @@ func TestGoToolsUseIsolatedModule(t *testing.T) {
 	for _, required := range []string{
 		"module github.com/dantte-lp/gobfd/tools",
 		"go 1.27",
-		"toolchain go1.27.0",
+		"toolchain go1.27.4",
 		"github.com/golangci/golangci-lint/v2/cmd/golangci-lint",
 		"golang.org/x/perf/cmd/benchstat",
 		"gotest.tools/gotestsum",
-		"connectrpc.com/connect/cmd/protoc-gen-connect-go",
+		"connectrpc.com/connect/v2/cmd/protoc-gen-connect-go",
 		"google.golang.org/protobuf/cmd/protoc-gen-go",
 	} {
 		if !strings.Contains(toolsModule, required) {
@@ -47,23 +47,37 @@ func TestGoToolsUseIsolatedModule(t *testing.T) {
 	}
 
 	makefile := readContractFile(t, "../Makefile")
-	if !strings.Contains(makefile, "go tool -modfile=tools/go.mod golangci-lint") {
-		t.Error("Makefile does not run golangci-lint from the repository root through tools/go.mod")
+	if strings.Contains(makefile, "GOLANGCI_LINT ?=") {
+		t.Error("Makefile retains the obsolete golangci-lint command override")
 	}
+	lintHelper := readContractFile(t, "../test/internal/cirunner/lint.go")
+	requireContractStrings(t, "lint CI helper", lintHelper, []string{
+		`prebuiltLintPath            = "/go/bin/golangci-lint"`,
+		`toolsModuleFlag             = "-modfile=tools/go.mod"`,
+		`name == "GOLANGCI_LINT"`,
+		`goToolSubcommand, toolsModuleFlag, "golangci-lint"`,
+		`case prebuiltLintPath:`,
+	})
 
 	workflow := readContractFile(t, "../.github/workflows/ci.yml")
 	for _, forbidden := range []string{
 		"go install google.golang.org/protobuf/cmd/protoc-gen-go",
 		"go install connectrpc.com/connect/cmd/protoc-gen-connect-go",
+		"go install connectrpc.com/connect/v2/cmd/protoc-gen-connect-go",
 	} {
 		if strings.Contains(workflow, forbidden) {
 			t.Errorf("CI workflow installs generator outside the isolated tools module: %q", forbidden)
 		}
 	}
-	requireContractStrings(t, "CI workflow", workflow, []string{
-		"go build -modfile=tools/go.mod -o \"$RUNNER_TEMP/bin/protoc-gen-go\" google.golang.org/protobuf/cmd/protoc-gen-go",
-		"go build -modfile=tools/go.mod -o \"$RUNNER_TEMP/bin/protoc-gen-connect-go\" " +
-			"connectrpc.com/connect/cmd/protoc-gen-connect-go",
+	if !strings.Contains(workflow, "go run ./test/cmd/cictl proto-verify") {
+		t.Error("CI workflow does not delegate protobuf verification to cictl")
+	}
+	protoHelper := readContractFile(t, "../test/internal/cirunner/proto.go")
+	requireContractStrings(t, "protobuf CI helper", protoHelper, []string{
+		"goBuildSubcommand, toolsModuleFlag, \"-o\", filepath.Join(binDir, \"protoc-gen-go\")",
+		"\"google.golang.org/protobuf/cmd/protoc-gen-go\"",
+		"goBuildSubcommand, toolsModuleFlag, \"-o\", filepath.Join(binDir, \"protoc-gen-connect-go\")",
+		"\"connectrpc.com/connect/v2/cmd/protoc-gen-connect-go\"",
 	})
 }
 

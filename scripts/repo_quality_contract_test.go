@@ -39,40 +39,32 @@ func TestRepositoryQualityGatesHaveNoNodeRuntime(t *testing.T) {
 	releaseWorkflow := readContractFile(t, "../.github/workflows/release.yml")
 	repositorySettings := readContractFile(t, "../.github/repository-settings.md")
 	containerfile := readContractFile(t, "../deployments/docker/Containerfile.dev")
-	pythonProject := readContractFile(t, "../pyproject.toml")
-	sonarProject := readContractFile(t, "../sonar-project.properties")
 
 	requireContractStrings(t, "Makefile", makefile, []string{
+		"lint-ci:\n\tgo run ./test/cmd/cictl lint\n",
 		"go run ./test/cmd/repoquality markdown --root .",
 		"go run ./test/cmd/repoquality commit --message",
-		"uv run --frozen --no-default-groups --group quality -- codespell",
+		"go tool -modfile=tools/go.mod yamlfmt -lint .",
+		"go tool -modfile=tools/go.mod misspell -error",
+		"go run ./test/cmd/junitreport --root .",
 	})
+	for _, marker := range []string{"define run_lint_tag", "LINT_ENABLED_COUNT :=", "grep -RIl --include='*.go'"} {
+		if strings.Contains(makefile, marker) {
+			t.Errorf("Makefile retains shell-owned lint marker %q", marker)
+		}
+	}
 	requireContractStrings(t, "CI workflow", workflow, []string{
 		"go run ./test/cmd/repoquality markdown --root .",
-		"go run ./test/cmd/repoquality commit --message \"$PR_TITLE\"",
-		"uv run --frozen --no-build --no-default-groups --group quality -- codespell",
+		"go run ./test/cmd/cictl commit-policy",
+		"go tool -modfile=tools/go.mod yamlfmt -lint .",
+		"go run ./test/cmd/junitreport --root .",
 	})
-	if got := strings.Count(workflow, "uv run --frozen --no-build"); got != 3 {
-		t.Errorf("CI workflow has %d locked no-build uv runs, want 3", got)
-	}
 	requireContractStrings(t, "release workflow", releaseWorkflow, []string{
-		"uv sync --frozen --no-build --no-default-groups --group quality",
-		"uv run --frozen --no-build --no-default-groups --group quality",
-	})
-	requireContractStrings(t, "Sonar project", sonarProject, []string{
-		"internal/netio/listener_linux.go",
-		"internal/netio/listener_other.go",
-		"internal/netio/rawsock_other.go",
+		"go run ./test/cmd/cictl release-test-report",
 	})
 	requireContractStrings(t, "repository settings", repositorySettings, []string{
 		"Commit policy (PR title)",
 	})
-	requireContractStrings(t, "Python quality project", pythonProject, []string{
-		`"codespell==2.4.3",`,
-		"[tool.codespell]",
-		"ignore-words = \".codespell-ignore\"",
-	})
-
 	for _, surface := range []struct {
 		name    string
 		content string
@@ -90,6 +82,10 @@ func TestRepositoryQualityGatesHaveNoNodeRuntime(t *testing.T) {
 			"markdownlint-cli2",
 			"cspell",
 			"commitlint",
+			"setup-uv",
+			"uv run",
+			"junit2html",
+			"yamllint",
 		} {
 			if strings.Contains(surface.content, forbidden) {
 				t.Errorf("%s retains Node quality marker %q", surface.name, forbidden)
@@ -98,12 +94,44 @@ func TestRepositoryQualityGatesHaveNoNodeRuntime(t *testing.T) {
 	}
 }
 
-func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
+func TestV1ReleaseUsesOnlyDebianOCIAndKeepsRPM(t *testing.T) {
 	t.Parallel()
 
 	configuration := readContractFile(t, "../.goreleaser.yml")
 	requireContractStrings(t, "GoReleaser configuration", configuration, []string{
-		"release:\n  draft: true\n  mode: keep-existing\n",
+		"  - id: gobfd-debian-trixie\n",
+		"    formats:\n      - deb\n      - rpm\n",
+	})
+	for _, path := range []string{
+		"../.goreleaser.yml",
+		"../.github/workflows/e2e.yml",
+		"../test/package-lifecycle/lifecycle_test.go",
+		"../test/internal/cirunner/release_preflight.go",
+		"../test/internal/cirunner/release_oci.go",
+		"../test/internal/cirunner/release_evidence.go",
+		"../test/internal/cirunner/release_promote.go",
+		"../test/internal/cirunner/release_publish.go",
+	} {
+		if strings.Contains(strings.ToLower(readContractFile(t, path)), "oracle") {
+			t.Errorf("%s retains the retired Oracle Linux OCI product", path)
+		}
+	}
+	if _, err := os.Stat("../deployments/docker/Containerfile.release.oraclelinux"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("retired Oracle Linux recipe: stat error = %v, want not exist", err)
+	}
+}
+
+func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
+	t.Parallel()
+
+	configuration := readContractFile(t, "../.goreleaser.yml")
+	release := "\n" + topLevelYAMLSection(t, configuration, "release")
+	requireContractStrings(t, "GoReleaser release configuration", release, []string{
+		"\n  draft: true\n",
+		"\n  prerelease: auto\n",
+		"\n  make_latest: false\n",
+		"\n  mode: keep-existing\n",
+		"\n  skip_upload: true\n",
 	})
 	for _, forbidden := range []string{
 		"use_existing_draft: true",
@@ -119,49 +147,114 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 	}
 
 	workflow := readContractFile(t, "../.github/workflows/release.yml")
-	requireContractStrings(t, "release workflow", workflow, []string{
-		"      - name: Extract release notes from CHANGELOG.md\n" +
-			"        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n        run: |\n",
-		"previous_release_tag=\"$(gh api --paginate",
-		"map(select(.draft == false and .prerelease == false and",
-		". != $current",
-		"startswith($prefix)",
-		"sort_by(.semver)",
-		"// ($published | sort_by(.semver) | last)",
-		"## GoBFD ${GITHUB_REF_NAME}",
-		"blob/${GITHUB_REF_NAME}/CHANGELOG.md",
-		"compare/${previous_release_tag}...${GITHUB_REF_NAME}",
-		"gh release upload \"$GITHUB_REF_NAME\" \\",
-		"Refuse existing release, draft, or versioned OCI tag",
-		"Verify exact release draft",
-		"expected-release-assets.txt",
-		"expected-release-tag-object.txt",
-		"expected-checksummed-assets.txt",
-		"release-image-digests.txt",
-		"release-evidence-checksums.txt",
-		"gh release download \"$GITHUB_REF_NAME\"",
-		"sha256sum --check --strict checksums.txt",
-		"Promote verified OCI aliases",
-		"gh release edit \"$GITHUB_REF_NAME\" --draft=false",
+	for _, step := range []struct {
+		name, command string
+		verifier      bool
+		authenticated bool
+	}{
+		{name: "Refuse existing release, draft, or versioned OCI tag", command: "release-preflight", authenticated: true},
+		{name: "Extract release notes from CHANGELOG.md", command: "release-notes", authenticated: true},
+		{
+			name:    "Verify merged release PR and bind its URL to release notes",
+			command: "release-pr-check", authenticated: true,
+		},
+		{name: "Record exact release asset matrix", command: "release-artifacts", verifier: true},
+		{name: "Upload exact release asset matrix", command: "release-assets-upload", verifier: true, authenticated: true},
+		{name: "Record exact release OCI evidence", command: "release-oci-evidence", verifier: true},
+		{name: "Attach reports to release", command: "release-evidence", verifier: true, authenticated: true},
+		{name: "Verify exact release draft", command: "release-verify", verifier: true, authenticated: true},
+		{name: "Promote verified OCI aliases", command: "release-promote", verifier: true, authenticated: true},
+		{name: "Publish verified release", command: "release-publish", verifier: true, authenticated: true},
+	} {
+		var required []string
+		if step.verifier {
+			required = append(required,
+				"        working-directory: .release-verifier\n",
+				"          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}\n",
+			)
+		}
+		if step.authenticated {
+			required = append(required, "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n")
+		}
+		if step.command == "release-promote" {
+			required = append(required, "        if: ${{ !contains(github.ref_name, '-') }}\n")
+		}
+		assertWorkflowStep(t, workflow, step.name, "go run ./test/cmd/cictl "+step.command,
+			required, []string{"run: |", "run: >", "shell:"}, "embedded shell program")
+	}
+	assertWorkflowStep(t, workflow, "Finalize shellless packages", "go -C tools run ./cmd/packagefinalize",
+		nil, []string{"run: |", "run: >", "shell:"}, "embedded shell program")
+	requireContractStrings(t, "GoReleaser workflow step", namedWorkflowStep(t, workflow, "Run GoReleaser"), []string{
+		"        run: goreleaser release --clean --parallelism=1 --release-notes=release-notes.md\n",
 	})
+	requireContractStrings(t, "immutable release verifier checkout",
+		namedWorkflowStep(t, workflow, "Checkout immutable release verifier"), []string{
+			"          ref: ${{ github.sha }}\n",
+			"          path: .release-verifier\n",
+			"          persist-credentials: false\n",
+		})
 	for _, forbidden := range []string{"--clobber", "--notes-file", " --notes "} {
 		if strings.Contains(workflow, forbidden) {
 			t.Errorf("release workflow retains forbidden mutation marker %q", forbidden)
 		}
 	}
-	upload := strings.LastIndex(workflow, "gh release upload \"$GITHUB_REF_NAME\"")
-	preflight := strings.Index(workflow, "Refuse existing release, draft, or versioned OCI tag")
-	goreleaser := strings.Index(workflow, "Run GoReleaser")
-	verification := strings.LastIndex(workflow, "Verify exact release draft")
-	promotion := strings.LastIndex(workflow, "Promote verified OCI aliases")
-	publication := strings.LastIndex(workflow, "gh release edit \"$GITHUB_REF_NAME\" --draft=false")
-	if preflight < 0 || goreleaser < preflight || upload < goreleaser ||
-		verification < upload || promotion < verification || publication < promotion {
-		t.Error("release ordering is not preflight, draft, upload, verification, alias promotion, then publication")
+	previous := -1
+	for _, name := range []string{
+		"Refuse existing release, draft, or versioned OCI tag",
+		"Extract release notes from CHANGELOG.md",
+		"Verify merged release PR and bind its URL to release notes",
+		"Run GoReleaser",
+		"Finalize shellless packages",
+		"Checkout immutable release verifier",
+		"Record exact release asset matrix",
+		"Upload exact release asset matrix",
+		"Record exact release OCI evidence",
+		"Download reports archive",
+		"Attach reports to release",
+		"Verify exact release draft",
+		"Promote verified OCI aliases",
+		"Publish verified release",
+	} {
+		marker := "      - name: " + name + "\n"
+		position := strings.Index(workflow, marker)
+		if count := strings.Count(workflow, marker); count != 1 || position <= previous {
+			t.Errorf("release stage %q count/order = %d/%d after %d; want one later stage", name, count, position, previous)
+		}
+		previous = position
 	}
-	if strings.LastIndex(workflow, "gh release ") != publication {
-		t.Error("publishing is not the final gh release mutation")
+	publication := strings.LastIndex(workflow, "run: go run ./test/cmd/cictl release-publish")
+	if strings.LastIndex(workflow, "run: go run ./test/cmd/cictl release-") != publication {
+		t.Error("publishing is not the final release command")
 	}
+	publicationStep := strings.LastIndex(workflow, "\n      - name: Publish verified release\n")
+	if publicationStep < 0 || strings.LastIndex(workflow, "\n      - ") != publicationStep {
+		t.Error("release publication is not the final workflow step")
+	}
+	if strings.Contains(namedWorkflowStep(t, workflow, "Publish verified release"), "\n        if:") {
+		t.Error("release publication must follow successful verification for both stable and alpha channels")
+	}
+}
+
+func topLevelYAMLSection(t *testing.T, configuration, name string) string {
+	t.Helper()
+
+	var section strings.Builder
+	found := false
+	for line := range strings.SplitSeq(configuration, "\n") {
+		if !found {
+			found = line == name+":"
+			continue
+		}
+		if line != "" && line[0] != ' ' && line[0] != '#' {
+			break
+		}
+		section.WriteString(line)
+		section.WriteByte('\n')
+	}
+	if !found {
+		t.Fatalf("top-level YAML section %q is missing", name)
+	}
+	return section.String()
 }
 
 func TestReleaseBranchesReceiveRequiredWorkflows(t *testing.T) {
@@ -180,14 +273,21 @@ func TestReleaseBranchesReceiveRequiredWorkflows(t *testing.T) {
 	}
 }
 
-func TestUVInstallerRequiresHTTPSAcrossRedirects(t *testing.T) {
+func TestPythonToolingIsAbsent(t *testing.T) {
 	t.Parallel()
 
-	installer := readContractFile(t, "../.github/scripts/install-uv.sh")
-	requireContractStrings(t, "uv installer", installer, []string{
-		"--proto '=https'",
-		"--proto-redir '=https'",
-	})
+	for _, path := range []string{
+		"../.python-version",
+		"../pyproject.toml",
+		"../uv.lock",
+		"../.codespell-ignore",
+		"../.yamllint.yaml",
+		"../.github/scripts/install-uv.sh",
+	} {
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("legacy Python quality path still exists: %s (%v)", path, err)
+		}
+	}
 }
 
 func requireContractStrings(t *testing.T, surface string, content string, required []string) {

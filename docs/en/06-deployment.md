@@ -1,331 +1,143 @@
 # Deployment
 
-![systemd](https://img.shields.io/badge/systemd-Type%3Dnotify-34a853?style=for-the-badge&logo=linux)
-![Podman](https://img.shields.io/badge/Podman-Compose-892CA0?style=for-the-badge&logo=podman)
-![deb/rpm](https://img.shields.io/badge/Packages-deb%20%7C%20rpm-1a73e8?style=for-the-badge)
-![GoReleaser](https://img.shields.io/badge/GoReleaser-v2-00ADD8?style=for-the-badge)
-![CAP_NET_RAW](https://img.shields.io/badge/CAP__NET__RAW-Required-ea4335?style=for-the-badge)
+[Russian translation](../ru/06-deployment.md).
 
-> Production deployment guide: systemd service, Podman Compose stacks, container images, deb/rpm packages, and security hardening.
+GoBFD runs on Linux with ordinary UDP, raw-socket and interface inventory support. The repository defines archive, DEB/RPM and OCI delivery; these definitions do not establish that a specific candidate is published or accepted. Sources: [release configuration](../../.goreleaser.yml), [application Containerfile](../../deployments/docker/Containerfile), [systemd unit](../../deployments/systemd/gobfd.service).
 
----
+OCI means Open Container Initiative; software bills of materials (SBOMs) describe artifact contents. Out-of-memory (OOM) events indicate memory exhaustion. Resident set size (RSS) measures resident process memory; the heap is only part of it.
 
-## Table of Contents
+## Artifacts and installation
 
-- [Requirements](#requirements)
-- [Release Artifact Matrix](#release-artifact-matrix)
-- [Installation Methods](#installation-methods)
-- [systemd Service](#systemd-service)
-- [Podman Compose](#podman-compose)
-- [Container Image](#container-image)
-- [Security Hardening](#security-hardening)
-- [Production Checklist](#production-checklist)
+| Artifact | Declared contents | Boundary |
+|:---|:---|:---|
+| Linux amd64/arm64 archive | Four binaries, example YAML, systemd unit | Accounts and host installation are operator-owned |
+| DEB/RPM | Four binaries, noreplace config, unit, sysusers/tmpfiles and lifecycle support | Preserve existing configuration on upgrade |
+| Release Debian trixie OCI | Four binaries from [Containerfile.release](../../deployments/docker/Containerfile.release), release labels/SBOM configuration | Verify exact manifest digest and candidate evidence |
+| Application/production Compose OCI | `gobfd` and `gobfdctl` from [Containerfile](../../deployments/docker/Containerfile) | [Production Compose](../../deployments/compose/compose.yml) builds this two-binary image |
+| Development Compose | Source mount and build tools | Development environment; no daemon/file watcher |
 
-### Requirements
+The four application binaries are `gobfd`, `gobfdctl`, `gobfd-haproxy-agent` and `gobfd-exabgp-bridge`. Oracle Linux 10 is excluded from v1 OCI qualification; generic RPM packaging remains. Alpine, bookworm and executable scratch runtimes are outside the repository contract. The dependency/toolchain identities come from the [current manifests](../../go.mod) and digest-pinned Containerfiles, not an unqualified “latest” tag.
 
-- **Linux** kernel (raw sockets require Linux-specific APIs)
-- **CAP_NET_RAW** and **CAP_NET_ADMIN** capabilities (for raw UDP sockets with TTL=255)
-- Go 1.27+ (for building from source only)
+Limit installation to one admitted Linux host and architecture. Use an account authorized for package/file installation and service control; record the existing binary, unit, configuration, permissions and peer state. Keep an independent recovery session and the accepted artifacts before replacement. The steps are source-derived and are not an execution receipt.
 
-Non-Linux targets are compile-only compatibility surfaces. The `internal/netio`
-transport constructors return `ErrUnsupportedPlatform`; GoBFD does not publish
-or support a non-Linux dataplane runtime.
+1. Select an accepted release/candidate and record its source SHA, artifact checksum and architecture.
+2. Verify its published checksum/provenance and retain the verification output.
+3. Install the package or archive according to the selected artifact; preserve the accepted binary and configuration for rollback.
+4. Inspect `gobfd -version` and `gobfdctl version` before service activation.
+5. Compare live configuration with [the configuration contract](03-configuration.md); provide explicit peer/local/interface bindings and protect authentication material.
 
-### Release Artifact Matrix
+Stop before activation on a checksum, architecture, build identity or permission mismatch. Reinstallation depends on the selected package/archive and its hooks; inspect the current state before repeating it. Recover with the preserved accepted artifact, unit and configuration, then repeat version, permission, health and peer checks from the [activation/rollback runbook](16-production-runbooks.md). Stop if the accepted state cannot be restored.
 
-| Artifact | Target systems | Architectures | Base image / package format |
-|---|---|---|---|
-| Static binaries | Linux distributions with glibc or musl user space | `amd64`, `arm64` | `tar.gz` archive |
-| Debian package | Debian 13 `trixie`, Ubuntu-compatible systems | `amd64`, `arm64` | `.deb`, systemd unit |
-| RPM package | Oracle Linux 10, RHEL-compatible systems, Fedora-compatible systems | `amd64`, `arm64` | `.rpm`, systemd unit |
-| Default OCI image | Docker, Podman, Kubernetes CRI runtimes | `linux/amd64`, `linux/arm64` | `docker.io/library/debian:trixie-slim` |
-| Oracle Linux OCI image | Docker, Podman, Kubernetes CRI runtimes requiring Oracle Linux user space | `linux/amd64`, `linux/arm64` | `docker.io/library/oraclelinux:10-slim` |
+Keep `-config PATH` under local operator control. Absolute and relative parent paths are supported; that path selects the directory opened by the loader. Use an absolute path in service definitions and protect the file and containing directories with filesystem permissions. The [configuration path boundary](15-security.md#configuration-paths) defines final-name symlink restrictions.
 
-| Image tag | Base |
-|---|---|
-| `ghcr.io/dantte-lp/gobfd:<version>` | Debian `trixie-slim` |
-| `ghcr.io/dantte-lp/gobfd:latest` | Debian `trixie-slim` |
-| `ghcr.io/dantte-lp/gobfd:<version>-debian-trixie` | Debian `trixie-slim` |
-| `ghcr.io/dantte-lp/gobfd:debian-trixie` | Debian `trixie-slim` |
-| `ghcr.io/dantte-lp/gobfd:<version>-oraclelinux10` | Oracle Linux `10-slim` |
-| `ghcr.io/dantte-lp/gobfd:oraclelinux10` | Oracle Linux `10-slim` |
+No release download URL or mutable image tag substitutes for candidate verification.
 
-### Installation Methods
+## systemd
 
-#### From deb/rpm Packages
+The shipped service starts `/usr/local/bin/gobfd -config /etc/gobfd/gobfd.yml`. It runs as `gobfd:gobfd`, joins `gobfd-admin` for the management socket, uses `Type=notify`, `WatchdogSec=30s`, `Restart=on-failure` and `RestartSec=5s`. `ExecReload` sends SIGHUP; it does not confirm accepted reconciliation.
 
-```bash
-# Install .deb package
-sudo dpkg -i gobfd_*.deb
+| Control | Shipped value | Consequence |
+|:---|:---|:---|
+| Runtime directory | `/run/gobfd`, mode `0755` | Socket lifecycle is service-owned |
+| State directory | `/var/lib/gobfd`, mode `0700` | Preserves Unix GoBGP disable ownership receipts across restarts |
+| UMask | `UMask=0077` | Restrict newly created files |
+| Capabilities | `CAP_NET_RAW CAP_NET_ADMIN` | Networking privileges without full privileged execution |
+| Filesystem | `ProtectSystem=strict`, config read-only, private tmp | Runtime, state and private tmp directories remain writable |
+| Kernel | `ProtectKernelTunables=true`, `ProtectKernelModules=true`, `ProtectControlGroups=true` | Kernel configuration and control groups remain protected |
+| Processes | `ProtectProc=invisible`, `ProcSubset=pid`, `LockPersonality=true` | Restricted process visibility; optional actuators need explicit integration review |
+| System calls | `SystemCallArchitectures=native`, `SystemCallFilter=@system-service`, `SystemCallErrorNumber=EPERM` | Qualify additional actuators against this filter |
+| Address families | `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK` | Management, UDP/TCP and interface monitor |
+| Descriptor limit | `LimitNOFILE=16384` | Source budget `2*sessions+256`; qualify actual workload |
 
-# Install .rpm package
-sudo rpm -i gobfd_*.rpm
+Sources: [unit](../../deployments/systemd/gobfd.service), [accounts](../../deployments/systemd/gobfd.sysusers), [directories](../../deployments/systemd/gobfd.tmpfiles).
 
-# Edit configuration
-sudo vim /etc/gobfd/gobfd.yml
+Operators join `gobfd-admin`, not the daemon group that can read configuration secrets. Check the effective unit and socket permissions after package installation. Use the [runbook](16-production-runbooks.md) for activation, reload and rollback.
 
-# Start the daemon
-sudo systemctl enable --now gobfd
+The optional [kernel-bond drop-in](../../deployments/systemd/gobfd-kernel-bond.conf) reopens one bond's sysfs slaves file and adds `CAP_DAC_OVERRIDE`. This broadens readable root-owned files. The bond must exist at startup. Native acceptance requires an actual member write/readback and forwarding failure/recovery test on a host with the bonding module. Dry-run success or the drop-in's presence does not establish enforcement acceptance.
 
-# Verify
-sudo systemctl status gobfd
-gobfdctl session list
-```
+## Podman Compose
 
-Packages are built by GoReleaser v2 and include:
-- `/usr/local/bin/gobfd`, `/usr/local/bin/gobfdctl`, `/usr/local/bin/gobfd-haproxy-agent`, `/usr/local/bin/gobfd-exabgp-bridge` binaries
-- `/etc/gobfd/gobfd.yml` example configuration
-- `/usr/lib/systemd/system/gobfd.service` systemd unit
-- `gobfd` system user and group
+The supported path uses `podman compose` and the checksum-pinned Go Compose provider. Python `podman-compose` and direct provider invocation are outside the contract. The bootstrap owns the provider pin/checksum; do not copy a version from an older guide.
 
-#### From Source
+Use a supported Linux host with the repository toolchain, an owned writable installation directory and authority over the selected Podman engine. Preserve any accepted provider at the destination and the current provider environment before bootstrap. These are unexecuted preparation commands; they do not activate the production specimen.
 
-```bash
-git clone https://github.com/dantte-lp/gobfd.git
-cd gobfd
-
-# Build all 4 binaries with version info (recommended)
-make build
-
-# Or build manually with ldflags
-VERSION=$(git describe --tags --always --dirty)
-GIT_COMMIT=$(git rev-parse --short HEAD)
-BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-LDFLAGS="-s -w \
-  -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
-  -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
-  -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}"
-
-go build -ldflags="${LDFLAGS}" -o bin/gobfd ./cmd/gobfd
-go build -ldflags="${LDFLAGS}" -o bin/gobfdctl ./cmd/gobfdctl
-go build -ldflags="${LDFLAGS}" -o bin/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
-go build -ldflags="${LDFLAGS}" -o bin/gobfd-exabgp-bridge ./cmd/gobfd-exabgp-bridge
-
-# Install
-sudo install -m 755 bin/gobfd bin/gobfdctl bin/gobfd-haproxy-agent bin/gobfd-exabgp-bridge /usr/local/bin/
-```
-
-### systemd Service
-
-The systemd unit file at `deployments/systemd/gobfd.service`:
-
-```ini
-[Unit]
-Description=GoBFD -- BFD Protocol Daemon
-Documentation=https://github.com/dantte-lp/gobfd
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=notify
-ExecStart=/usr/local/bin/gobfd -config /etc/gobfd/gobfd.yml
-ExecReload=/bin/kill -HUP $MAINPID
-Restart=on-failure
-RestartSec=5s
-WatchdogSec=30s
-
-# Security hardening
-User=gobfd
-Group=gobfd
-AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
-CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadOnlyPaths=/etc/gobfd
-PrivateTmp=true
-ProtectKernelModules=true
-ProtectKernelTunables=true
-ProtectControlGroups=true
-RestrictRealtime=true
-RestrictSUIDSGID=true
-SystemCallArchitectures=native
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Key features:
-
-| Feature | Description |
-|---|---|
-| `Type=notify` | Uses `sd_notify(READY)` for accurate readiness reporting |
-| `WatchdogSec=30s` | systemd watchdog -- daemon sends keepalives at 15s intervals |
-| `ExecReload` | SIGHUP triggers hot reload (log level + session reconciliation) |
-| `Restart=on-failure` | Auto-restart on crash with 5s delay |
-| Security directives | Least-privilege with only `CAP_NET_RAW` and `CAP_NET_ADMIN` |
-
-#### Managing the Service
-
-```bash
-# Start/stop
-sudo systemctl start gobfd
-sudo systemctl stop gobfd
-
-# Reload configuration (hot reload via SIGHUP)
-sudo systemctl reload gobfd
-
-# View logs
-sudo journalctl -u gobfd -f
-
-# Check status
-sudo systemctl status gobfd
-```
-
-### Podman Compose
-
-GoBFD uses Podman's external Compose-provider wrapper with the official Docker
-Compose v5.5.0 Go binary. Install the checksum-pinned provider and select it
-explicitly; Python `podman-compose` is unsupported:
-
-```bash
-scripts/install-compose-provider.sh
+```sh
+go run ./test/cmd/toolbootstrap compose --install-dir "$HOME/.local/bin"
 export PODMAN_COMPOSE_PROVIDER="$HOME/.local/bin/docker-compose"
 export PODMAN_COMPOSE_WARNING_LOGS=false
 export DOCKER_BUILDKIT=0
 podman compose version
+podman compose -f deployments/compose/compose.yml config
 ```
 
-`DOCKER_BUILDKIT=0` keeps builds on the Podman-compatible classic Docker API;
-Docker Buildx/Bake is not part of the repository's Podman runtime.
+Bootstrap runs on the host with the repository toolchain. It requires a real, safely owned install-directory chain and verifies the provider before atomic publication. `DOCKER_BUILDKIT=0` keeps Podman-backed builds on the supported API path. Sources: [bootstrap](../../test/cmd/toolbootstrap), [Makefile](../../Makefile).
 
-#### Development Stack
+Require the expected provider version and a successfully rendered Compose configuration. Stop on bootstrap, version or render failure before creating containers. Repeating bootstrap replaces the destination with a newly verified provider; inspect it before retrying. Restore the protected accepted provider and prior environment on failure, then repeat version/render checks. Sources: [installation and publication](../../test/internal/toolbootstrap/bootstrap.go).
 
-`deployments/compose/compose.dev.yml` -- development environment with hot reload:
+Development targets create/build the selected development project. Record its initial containers, networks and source-mount ownership before running these unexecuted examples:
 
-```bash
-# Start development environment
-podman compose -f deployments/compose/compose.dev.yml up -d --build
-
-# Access the dev container
-podman compose -f deployments/compose/compose.dev.yml exec dev bash
-
-# Build and test inside container
-make build && make test
+```sh
+make up
+make build
+make test-run RUN=TestFSMTransition PKG=./internal/bfd
 ```
 
-#### Production Stack
+Require the development service to run, the build to succeed and the selected test to report a result. Stop on failure and preserve logs before retrying; `make up` includes a build and is not a guaranteed no-op. Use `make down` only for the recorded owned development project when cleanup is authorized, then verify its containers/networks are removed and source/evidence mounts remain. The [Makefile](../../Makefile) defines these targets.
 
-`deployments/compose/compose.yml` -- production stack with Prometheus and Grafana:
+The [production Compose specimen](../../deployments/compose/compose.yml) uses host networking, read-only configuration, `NET_RAW`/`NET_ADMIN` and loopback Prometheus/Grafana listeners. It is a source specimen, not a site deployment receipt. Inspect image identities, socket group availability, host port conflicts and effective permissions before activation. Existing fixed names or shared volumes require explicit ownership review.
 
-```bash
-# Start production stack
-podman compose -f deployments/compose/compose.yml up -d
+Host networking does not share filesystem paths. This Compose file does not mount `/run/gobfd` onto the host; inspect its default management socket inside the container:
 
-# Services:
-#   gobfd gRPC API:   localhost:50051
-#   Prometheus:       http://localhost:9090
-#   Grafana:          http://localhost:3000 (admin/admin)
+```sh
+podman exec gobfd gobfdctl session list
 ```
 
-```mermaid
-graph LR
-    subgraph "Podman Compose"
-        G["gobfd<br/>:50051 gRPC<br/>:9100 metrics"]
-        P["Prometheus<br/>:9090"]
-        GR["Grafana<br/>:3000"]
-    end
+Host CLI access requires a separately reviewed socket-directory mount/permissions or explicitly configured TCP management transport.
 
-    G -->|scrape /metrics| P
-    P -->|data source| GR
+## Kubernetes
 
-    style G fill:#1a73e8,color:#fff
-    style P fill:#E6522C,color:#fff
-    style GR fill:#F46800,color:#fff
+Before running `make int-k8s`, verify operator permissions to read nodes and namespaces, create/delete the isolated namespace, execute pod commands, `get` `pods/proxy` in namespace `gobfd`, and query the selected node's kubelet configuration through `nodes/proxy`. Kubernetes documents `get nodes/proxy` as privileged kubelet API access that can execute commands in node pods; it is not read-only. Bind this access to the local Node with a resource name where the cluster policy permits, and restrict runner credentials to trusted operators. The runner requires namespace `gobfd` to be absent and records ownership before creation. It reads port 9100 through the [Pod proxy API](https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/); it does not install an HTTP client into the application image. Follow the [required post-rollout and teardown checks](11-integrations.md#kubernetes).
+
+The [DaemonSet specimen](../../deployments/integrations/kubernetes/manifests/daemonset.yml) selects Linux, `hostNetwork: true`, `ClusterFirstWithHostNet`, runtime-default seccomp and `NET_RAW`/`NET_ADMIN`. Both containers use local images with `imagePullPolicy: Never`; distribute images to every eligible node's runtime before apply. Node-local port conflicts and unauthenticated host-network metrics need explicit network policy outside a pod-only assumption.
+
+Readiness executes `gobfdctl session list` over the socket; liveness connects to metrics TCP. Those probes do not prove BFD Up or BGP convergence. GoBGP API/probes use loopback. Before acceptance, require successful image import on every selected node, correct runner label/probe selection, rollout and failure/recovery under declared CPU/memory limits in the actual cluster. The specimen does not supply that live-cluster receipt.
+
+Use a principal authorized to apply the specimen and read its workload, logs and pod exec results. Admit one cluster/context, namespace `gobfd` and the intended Linux node set; verify ownership of existing objects and preserve the accepted ConfigMaps, DaemonSet and image identities before mutation. Keep independent cluster access for recovery. Stop on a foreign object, unresolved port conflict or missing node image.
+
+The checked-in image names are template values. For manual deployment, replace both with accepted references and save the reviewed manifest set in `ACCEPTED_MANIFEST_DIRECTORY`. The retained integration runner generates a separate DaemonSet and image plan per build; preserve that exact output for recovery. After admitting the target cluster/context and importing both images on every selected node, run these unexecuted procedure examples:
+
+```sh
+kubectl apply -f ACCEPTED_MANIFEST_DIRECTORY/
+kubectl -n gobfd rollout status daemonset/gobfd --timeout=120s
+kubectl -n gobfd get daemonset gobfd
+kubectl -n gobfd get pods -l app.kubernetes.io/name=gobfd -o wide
+kubectl -n gobfd describe daemonset/gobfd
+kubectl -n gobfd logs -l app.kubernetes.io/name=gobfd -c gobfd --tail=100
 ```
 
-### Container Image
+Require desired/current/ready counts to match and one intended pod placement per eligible node. Inspect each pod's restart/OOM and container status. For every listed pod, substitute its exact name in the readback:
 
-Build the container image:
-
-```bash
-# Standard build
-podman build -f deployments/docker/Containerfile -t gobfd .
-
-# Multi-arch build (via GoReleaser)
-goreleaser release --snapshot --clean
+```sh
+kubectl -n gobfd exec POD_NAME -c gobfd -- /bin/gobfdctl session list
 ```
 
-Release images contain the four GoBFD binaries and no development toolchain:
-`gobfd`, `gobfdctl`, `gobfd-haproxy-agent`, and
-`gobfd-exabgp-bridge`.
+Require the declared peer state and a separate route/forwarding check per node. Stop on apply/rollout failure, count/placement mismatch, restart/OOM or failed peer/forwarding checks. Inspect live objects before repeating apply; do not assume it restarts pods or restores old image contents.
 
-Running the container requires:
-- `CAP_NET_RAW` and `CAP_NET_ADMIN` capabilities
-- `network_mode: host` (recommended) or proper port mapping for UDP 3784/4784
+For an upgrade rollback, restore the accepted manifests and exact node-local images, then apply that set. The integration runner selects unique image references, records source IDs in the Pod template and records published OCI manifest digests in the private run plan. Changing the template triggers the admitted `RollingUpdate`; an unchanged template does not replace running Pods. If the approved recovery requires recreation with an unchanged template, use `kubectl -n gobfd rollout restart daemonset/gobfd` once and wait for completion. Check the running `imageID` for both containers on every node, then repeat rollout, placement, health, peer and forwarding checks. Stop if the strategy or image identities differ from the admitted recovery. Sources: [image owner and renderer](../../test/internal/integrationrunner/kubernetes_build.go), [containerd importer](../../test/internal/integrationrunner/kubernetes_containerd_import.go), [DaemonSet updates](https://kubernetes.io/docs/tasks/manage-daemon/update-daemon-set/), [rollout restart](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_rollout/kubectl_rollout_restart/).
 
-### Security Hardening
+For an initial installation, cleanup covers only recorded newly created objects after ownership verification. Preserve shared namespace/resources. Command reference: [Kubernetes DaemonSet procedure](https://kubernetes.io/docs/tasks/manage-daemon/create-daemon-set/).
 
-GoBFD follows the principle of least privilege:
+## Resource and acceptance gates
 
-| Layer | Mechanism |
-|---|---|
-| **Capabilities** | Only `CAP_NET_RAW` + `CAP_NET_ADMIN` (no root) |
-| **systemd** | `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp` |
-| **Code** | No `unsafe` in handwritten first-party code; generated protobuf runtime code is excluded; all socket errors handled |
-| **TTL** | GTSM (RFC 5082): TTL=255 on transmit, TTL=255 check on receive |
-| **Auth** | Optional BFD authentication (5 types per RFC 5880 Section 6.7) |
+Set `GOMEMLIMIT` from measured resident memory, packet rate, session count and container limit. Keep default `GOGC` unless measurements justify a change. A heap target does not cap RSS; descriptor, kernel buffer, goroutine, trace and peer-process costs remain.
 
-### Memory Tuning (`GOMEMLIMIT` and `GOGC`)
+Before production acceptance, retain:
 
-Go 1.27 treats `GOMEMLIMIT` as a soft limit for memory managed by the Go
-runtime. It excludes the binary mapping, kernel memory, and memory managed
-outside Go. The runtime may increase garbage-collection frequency to respect
-the limit even when `GOGC=off`; this setting does not eliminate GC pauses. A
-limit below the working set can make GC run nearly continuously.
+1. Exact source/artifact identities, configuration and rollback copy.
+2. Management permission and unauthenticated-listener reachability checks.
+3. Negotiated peer state/timers and packet-capture checks.
+4. Consumer route/backend response and independent forwarding probes under failure and recovery.
+5. Resource/OOM/restart behavior at the declared workload.
+6. Relevant [integration evidence](11-integrations.md), [security gates](15-security.md) and remaining preview limitations.
 
-GoBFD does not publish session-count-to-memory sizing tiers. Select a limit
-below the service or container memory limit with headroom for the binary,
-kernel socket buffers, and other non-Go memory, then qualify it with the target
-session count, authentication mode, telemetry, and failure workload. Keep the
-default `GOGC` unless deployment measurements justify an override.
-
-#### systemd Configuration
-
-Add a deployment-qualified byte value to the `[Service]` section of
-`gobfd.service`:
-
-```ini
-# Example only; replace with a deployment-qualified value.
-Environment=GOMEMLIMIT=512MiB
-```
-
-#### Container Configuration
-
-```dockerfile
-# Example only; replace with a deployment-qualified value.
-ENV GOMEMLIMIT=512MiB
-```
-
-#### Monitoring
-
-Monitor process RSS, the container or service memory limit, GC frequency, and
-GC pause time together. RSS is not the same quantity as `GOMEMLIMIT`. Sustained
-GC growth or memory-limit thrashing requires a larger qualified limit or a
-smaller workload; the soft limit is not an OOM guarantee.
-
-### Production Checklist
-
-- [ ] Qualify `GOMEMLIMIT` with deployment headroom and representative load
-- [ ] Keep the default `GOGC` unless measurements justify an override
-- [ ] Monitor RSS, the service memory limit, GC frequency, and GC pauses
-- [ ] Configure `gobfd.yml` with appropriate session parameters
-- [ ] Set `log.format: json` for structured logging
-- [ ] Enable GoBGP integration if using BFD for BGP failover
-- [ ] Enable flap dampening to prevent route churn
-- [ ] Set up Prometheus scraping of `:9100/metrics`
-- [ ] Import Grafana dashboard from `deployments/compose/configs/grafana/dashboards/bfd.json`
-- [ ] Configure alerting on `gobfd_bfd_state_transitions_total{from_state="Up",to_state="Down"}`
-- [ ] Verify `CAP_NET_RAW` is available (test with `gobfdctl session list`)
-- [ ] Test SIGHUP reload: `systemctl reload gobfd`
-- [ ] Verify graceful shutdown sends AdminDown (check peer logs)
-
-### Related Documents
-
-- [03-configuration.md](./03-configuration.md) -- Configuration reference
-- [07-monitoring.md](./07-monitoring.md) -- Prometheus metrics and Grafana
-- [09-development.md](./09-development.md) -- Development environment setup
-
----
-
-*Last updated: 2026-02-21*
+Local tests, an accepted configuration and a healthy HTTP listener each prove only their measured boundary.

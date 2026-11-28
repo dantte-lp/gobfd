@@ -4,10 +4,13 @@ import (
 	"crypto/md5" // #nosec G501 -- MD5 is required by RFC 5880 Section 6.7.3.
 	"crypto/rand"
 	"crypto/sha1" // #nosec G505 -- SHA-1 is required by RFC 5880 Section 6.7.4.
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
+	"slices"
 )
 
 // -------------------------------------------------------------------------
@@ -56,6 +59,13 @@ var (
 	// ErrAuthWireMissing indicates raw wire bytes were not provided for
 	// digest verification.
 	ErrAuthWireMissing = errors.New("auth wire bytes missing")
+
+	// ErrAuthKeyStoreIdentityUnavailable indicates an AuthKeyStore does not
+	// expose the immutable package-owned identity required for shared claims.
+	ErrAuthKeyStoreIdentityUnavailable = errors.New("auth key store has no stable effective identity")
+
+	// ErrAuthDuplicateKeyID indicates ambiguous transmit or receive key selection.
+	ErrAuthDuplicateKeyID = errors.New("duplicate auth key ID")
 )
 
 // -------------------------------------------------------------------------
@@ -81,20 +91,23 @@ type AuthKey struct {
 // -------------------------------------------------------------------------
 
 // AuthKeyStore manages authentication keys for a session.
-// Supports multiple active keys for hitless key rotation.
+// It exposes a selected transmit key and a set of accepted receive keys.
 type AuthKeyStore interface {
-	// LookupKey returns the key with the given ID, or an error if not found.
+	// LookupKey returns a caller-owned key with the given ID, or an error if
+	// not found. Callers may modify the returned Secret.
 	LookupKey(id uint8) (AuthKey, error)
 
-	// CurrentKey returns the currently selected key for transmission.
+	// CurrentKey returns a caller-owned copy of the currently selected key for
+	// transmission. Callers may modify the returned Secret.
 	CurrentKey() AuthKey
 }
 
 // StaticAuthKeyStore is an in-memory AuthKeyStore with one selected
 // transmit key and optional additional receive keys for rotation.
 type StaticAuthKeyStore struct {
-	keys       map[uint8]AuthKey
-	currentKey AuthKey
+	keys        map[uint8]AuthKey
+	currentKey  AuthKey
+	fingerprint authKeyStoreFingerprint
 }
 
 // NewStaticAuthKeyStore creates a key store for a session. The current key is
@@ -104,23 +117,91 @@ func NewStaticAuthKeyStore(current AuthKey, additional ...AuthKey) (*StaticAuthK
 		return nil, err
 	}
 
+	current = cloneAuthKey(current)
 	keys := make(map[uint8]AuthKey, 1+len(additional))
 	keys[current.ID] = current
 	for _, key := range additional {
+		if _, exists := keys[key.ID]; exists {
+			return nil, fmt.Errorf("key ID %d: %w", key.ID, ErrAuthDuplicateKeyID)
+		}
 		if err := validateAuthKey(key); err != nil {
 			return nil, err
 		}
+		key = cloneAuthKey(key)
 		keys[key.ID] = key
 	}
 
 	return &StaticAuthKeyStore{
-		keys:       keys,
-		currentKey: current,
+		keys:        keys,
+		currentKey:  current,
+		fingerprint: fingerprintAuthKeys(current, keys),
 	}, nil
+}
+
+type authKeyStoreFingerprint [sha256.Size]byte
+
+// effectiveAuthKeyStore is intentionally package-private: only stores whose
+// construction-time semantics GoBFD owns may participate in shared claims.
+type effectiveAuthKeyStore interface {
+	effectiveAuthKeyStoreFingerprint() authKeyStoreFingerprint
+}
+
+// internalAuthKeyStore permits built-in authenticators to read immutable key
+// material without allocating. Returned keys are package-private read-only
+// views and must never be exposed to callers or mutated.
+type internalAuthKeyStore interface {
+	currentKeyNoCopy() AuthKey
+	lookupKeyNoCopy(id uint8) (AuthKey, error)
+}
+
+func (s *StaticAuthKeyStore) effectiveAuthKeyStoreFingerprint() authKeyStoreFingerprint {
+	return s.fingerprint
+}
+
+func cloneAuthKey(key AuthKey) AuthKey {
+	key.Secret = slices.Clone(key.Secret)
+	return key
+}
+
+func fingerprintAuthKeys(
+	current AuthKey,
+	keys map[uint8]AuthKey,
+) authKeyStoreFingerprint {
+	ids := make([]uint8, 0, len(keys))
+	for id := range keys {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+
+	material := make([]byte, 0, len("gobfd-effective-auth-v1")+sha256.Size*(1+len(ids)))
+	material = append(material, "gobfd-effective-auth-v1"...)
+	currentFingerprint := fingerprintAuthKey(current)
+	material = append(material, currentFingerprint[:]...)
+	for _, id := range ids {
+		fingerprint := fingerprintAuthKey(keys[id])
+		material = append(material, fingerprint[:]...)
+	}
+
+	return authKeyStoreFingerprint(sha256.Sum256(material))
+}
+
+func fingerprintAuthKey(key AuthKey) [sha256.Size]byte {
+	material := make([]byte, 0, 2+len(key.Secret))
+	material = append(material, key.ID, byte(key.Type))
+	material = append(material, key.Secret...)
+	return sha256.Sum256(material)
 }
 
 // LookupKey returns the key with the given ID.
 func (s *StaticAuthKeyStore) LookupKey(id uint8) (AuthKey, error) {
+	key, err := s.lookupKeyNoCopy(id)
+	if err != nil {
+		return AuthKey{}, err
+	}
+	return cloneAuthKey(key), nil
+}
+
+func (s *StaticAuthKeyStore) lookupKeyNoCopy(id uint8) (AuthKey, error) {
 	key, ok := s.keys[id]
 	if !ok {
 		return AuthKey{}, ErrAuthKeyNotFound
@@ -130,7 +211,29 @@ func (s *StaticAuthKeyStore) LookupKey(id uint8) (AuthKey, error) {
 
 // CurrentKey returns the selected transmit key.
 func (s *StaticAuthKeyStore) CurrentKey() AuthKey {
+	return cloneAuthKey(s.currentKeyNoCopy())
+}
+
+func (s *StaticAuthKeyStore) currentKeyNoCopy() AuthKey {
 	return s.currentKey
+}
+
+func currentAuthKey(keys AuthKeyStore) AuthKey {
+	if store, ok := keys.(internalAuthKeyStore); ok {
+		return store.currentKeyNoCopy()
+	}
+	return keys.CurrentKey()
+}
+
+func lookupAuthKey(keys AuthKeyStore, id uint8) (AuthKey, error) {
+	if store, ok := keys.(internalAuthKeyStore); ok {
+		return store.lookupKeyNoCopy(id)
+	}
+	key, err := keys.LookupKey(id)
+	if err != nil {
+		return AuthKey{}, fmt.Errorf("lookup auth key %d: %w", id, err)
+	}
+	return key, nil
 }
 
 func validateAuthKey(key AuthKey) error {
@@ -246,7 +349,7 @@ type Authenticator interface {
 
 	// Verify checks the authentication of a received packet.
 	// buf is the full received packet buffer, n is valid byte count.
-	Verify(state *AuthState, keys AuthKeyStore, pkt *ControlPacket, buf []byte, n int) error
+	Verify(state *AuthState, keys AuthKeyStore, pkt ControlPacket, buf []byte, n int) error
 }
 
 // -------------------------------------------------------------------------
@@ -283,18 +386,19 @@ func (a SimplePasswordAuth) Sign(
 	_ []byte,
 	_ int,
 ) error {
-	key := keys.CurrentKey()
+	key := currentAuthKey(keys)
 	if err := validateAuthKeyForType(key, AuthTypeSimplePassword); err != nil {
 		return fmt.Errorf("simple password current key: %w", err)
 	}
-	pkt.Auth = &AuthSection{
+	pkt.Auth = AuthSection{
 		Type: AuthTypeSimplePassword,
 		Len: uint8( // #nosec G115 -- validateAuthKey above limits the password to 16 bytes.
 			authSimpleHeaderSize + len(key.Secret),
 		),
-		KeyID:    key.ID,
-		AuthData: key.Secret,
+		KeyID:   key.ID,
+		DataLen: uint8(len(key.Secret)), // #nosec G115 -- validated password length is 1-16.
 	}
+	copy(pkt.Auth.Data[:], key.Secret)
 	pkt.AuthPresent = true
 
 	return nil
@@ -304,11 +408,11 @@ func (a SimplePasswordAuth) Sign(
 func (a SimplePasswordAuth) Verify(
 	_ *AuthState,
 	keys AuthKeyStore,
-	pkt *ControlPacket,
+	pkt ControlPacket,
 	_ []byte,
 	_ int,
 ) error {
-	if err := requireAuthSection(pkt); err != nil {
+	if err := requireAuthSection(&pkt); err != nil {
 		return err
 	}
 
@@ -317,13 +421,13 @@ func (a SimplePasswordAuth) Verify(
 			pkt.Auth.Type, ErrAuthTypeMismatch)
 	}
 
-	key, err := keys.LookupKey(pkt.Auth.KeyID)
+	key, err := lookupAuthKey(keys, pkt.Auth.KeyID)
 	if err != nil {
 		return fmt.Errorf("simple password key %d: %w",
 			pkt.Auth.KeyID, ErrAuthKeyNotFound)
 	}
 
-	return verifyPassword(key, pkt.Auth)
+	return verifyPassword(key, &pkt.Auth)
 }
 
 // verifyPassword checks password length and value match.
@@ -339,7 +443,7 @@ func verifyPassword(key AuthKey, auth *AuthSection) error {
 			auth.Len, expectedLen, ErrAuthLenMismatch)
 	}
 
-	if subtle.ConstantTimeCompare(auth.AuthData, key.Secret) != 1 {
+	if int(auth.DataLen) != len(key.Secret) || subtle.ConstantTimeCompare(auth.Data[:len(key.Secret)], key.Secret) != 1 {
 		return fmt.Errorf("simple password: %w", ErrAuthPasswordMismatch)
 	}
 
@@ -370,11 +474,11 @@ func (a KeyedMD5Auth) Sign(
 func (a KeyedMD5Auth) Verify(
 	state *AuthState,
 	keys AuthKeyStore,
-	pkt *ControlPacket,
+	pkt ControlPacket,
 	buf []byte,
 	n int,
 ) error {
-	return verifyHash(state, keys, pkt, buf, n, hashParamsMD5())
+	return verifyHash(state, keys, &pkt, buf, n, hashParamsMD5())
 }
 
 // -------------------------------------------------------------------------
@@ -405,7 +509,7 @@ func (a MeticulousKeyedMD5Auth) Sign(
 func (a MeticulousKeyedMD5Auth) Verify(
 	state *AuthState,
 	keys AuthKeyStore,
-	pkt *ControlPacket,
+	pkt ControlPacket,
 	buf []byte,
 	n int,
 ) error {
@@ -413,7 +517,7 @@ func (a MeticulousKeyedMD5Auth) Verify(
 	p.meticulous = true
 	p.authType = AuthTypeMeticulousKeyedMD5
 
-	return verifyHash(state, keys, pkt, buf, n, p)
+	return verifyHash(state, keys, &pkt, buf, n, p)
 }
 
 // -------------------------------------------------------------------------
@@ -440,11 +544,11 @@ func (a KeyedSHA1Auth) Sign(
 func (a KeyedSHA1Auth) Verify(
 	state *AuthState,
 	keys AuthKeyStore,
-	pkt *ControlPacket,
+	pkt ControlPacket,
 	buf []byte,
 	n int,
 ) error {
-	return verifyHash(state, keys, pkt, buf, n, hashParamsSHA1())
+	return verifyHash(state, keys, &pkt, buf, n, hashParamsSHA1())
 }
 
 // -------------------------------------------------------------------------
@@ -475,7 +579,7 @@ func (a MeticulousKeyedSHA1Auth) Sign(
 func (a MeticulousKeyedSHA1Auth) Verify(
 	state *AuthState,
 	keys AuthKeyStore,
-	pkt *ControlPacket,
+	pkt ControlPacket,
 	buf []byte,
 	n int,
 ) error {
@@ -483,7 +587,7 @@ func (a MeticulousKeyedSHA1Auth) Verify(
 	p.meticulous = true
 	p.authType = AuthTypeMeticulousKeyedSHA1
 
-	return verifyHash(state, keys, pkt, buf, n, p)
+	return verifyHash(state, keys, &pkt, buf, n, p)
 }
 
 // -------------------------------------------------------------------------
@@ -536,7 +640,7 @@ func signHash(
 	_ int,
 	p hashParams,
 ) error {
-	key := keys.CurrentKey()
+	key := currentAuthKey(keys)
 	if err := validateAuthKeyForType(key, p.authType); err != nil {
 		return fmt.Errorf("sign hash current key: %w", err)
 	}
@@ -556,60 +660,41 @@ func signHash(
 		return fmt.Errorf("sign hash: marshal: %w", err)
 	}
 
-	// Compute hash and write digest into buf and pkt.Auth.Digest.
-	computeAndPlaceDigest(buf, n, p)
-	pkt.Auth.Digest = copyDigest(buf, p)
+	pkt.Auth.Data = computeDigest(buf[:n], p)
+	digestOffset := HeaderSize + 8
+	copy(buf[digestOffset:digestOffset+p.digestSize], pkt.Auth.Data[:p.digestSize])
 
 	return nil
 }
 
 // buildAuthSection creates an AuthSection with the key material placed
 // in the digest slot for hash computation (RFC 5880 Sections 6.7.3/6.7.4).
-func buildAuthSection(key AuthKey, state *AuthState, p hashParams) *AuthSection {
+func buildAuthSection(key AuthKey, state *AuthState, p hashParams) AuthSection {
 	// RFC 5880 Section 6.7.3/6.7.4: "the Auth Key/Hash field is set to
 	// the value of the Authentication Key."
-	digest := make([]byte, p.digestSize)
-	copy(digest, key.Secret)
-
-	return &AuthSection{
+	auth := AuthSection{
 		Type:           p.authType,
 		Len:            p.authLen,
 		KeyID:          key.ID,
 		SequenceNumber: state.XmitAuthSeq,
-		Digest:         digest,
+		DataLen:        uint8(p.digestSize), // #nosec G115 -- private constructors use 16 or 20.
 	}
-}
-
-// computeAndPlaceDigest computes the hash over buf[0:n] and writes
-// the result into the digest slot at the correct offset.
-func computeAndPlaceDigest(buf []byte, n int, p hashParams) {
-	// Auth section digest starts at: HeaderSize + 8 (type+len+keyid+reserved+seq).
-	digestOffset := HeaderSize + 8
-	digest := computeDigest(buf[:n], p)
-	copy(buf[digestOffset:], digest)
-}
-
-// copyDigest extracts a copy of the digest from buf after it has been
-// written by computeAndPlaceDigest.
-func copyDigest(buf []byte, p hashParams) []byte {
-	digestOffset := HeaderSize + 8
-	result := make([]byte, p.digestSize)
-	copy(result, buf[digestOffset:digestOffset+p.digestSize])
-
-	return result
+	copy(auth.Data[:], key.Secret)
+	return auth
 }
 
 // computeDigest computes MD5 or SHA1 hash over the given data.
-func computeDigest(data []byte, p hashParams) []byte {
+func computeDigest(data []byte, p hashParams) [sha1.Size]byte {
 	if p.digestSize == md5DigestSize {
 		// nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5
 		sum := md5.Sum(data) // #nosec G401 -- MD5 is required by RFC 5880 Section 6.7.3.
-		return sum[:]
+		var digest [sha1.Size]byte
+		copy(digest[:], sum[:])
+		return digest
 	}
 
 	// nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-sha1
-	sum := sha1.Sum(data) // #nosec G401 -- SHA-1 is required by RFC 5880 Section 6.7.4.
-	return sum[:]
+	return sha1.Sum(data) // #nosec G401 -- SHA-1 is required by RFC 5880 Section 6.7.4.
 }
 
 // -------------------------------------------------------------------------
@@ -621,9 +706,9 @@ func computeDigest(data []byte, p hashParams) []byte {
 //  1. Check auth section present and type matches.
 //  2. Look up key by Auth Key ID.
 //  3. Check sequence number window.
-//  4. Save received digest, replace with key material.
-//  5. Compute hash over modified packet.
-//  6. Compare computed hash with saved digest.
+//  4. Copy the bounded PDU and replace its digest with key material.
+//  5. Compute hash over the scratch packet.
+//  6. Compare with the unchanged received digest.
 //  7. Update RcvAuthSeq on success.
 func verifyHash(
 	state *AuthState,
@@ -637,32 +722,39 @@ func verifyHash(
 		return err
 	}
 
-	key, err := keys.LookupKey(pkt.Auth.KeyID)
+	key, err := lookupAuthKey(keys, pkt.Auth.KeyID)
 	if err != nil {
 		return fmt.Errorf("hash auth key %d: %w",
 			pkt.Auth.KeyID, ErrAuthKeyNotFound)
 	}
-	if err := validateAuthKeyForType(key, p.authType); err != nil {
+	if err = validateAuthKeyForType(key, p.authType); err != nil {
 		return fmt.Errorf("hash auth key %d: %w", pkt.Auth.KeyID, err)
 	}
 
-	if err := checkSeqWindow(state, pkt, p); err != nil {
+	if err = checkSeqWindow(state, pkt, p); err != nil {
 		return err
 	}
-	if err := validateAuthWire(buf, n, p); err != nil {
+	pduLen, err := validateAuthWire(buf, n, p)
+	if err != nil {
 		return err
 	}
 
-	return verifyAndUpdateSeq(state, pkt, key, buf, n, p)
+	return verifyAndUpdateSeq(state, pkt, key, buf, pduLen, p)
 }
 
-func validateAuthWire(buf []byte, n int, p hashParams) error {
+func validateAuthWire(buf []byte, n int, p hashParams) (int, error) {
 	digestEnd := HeaderSize + 8 + p.digestSize
 	if n < digestEnd || len(buf) < n {
-		return fmt.Errorf("hash auth: wire length %d, buffer length %d: %w",
+		return 0, fmt.Errorf("hash auth: wire length %d, buffer length %d: %w",
 			n, len(buf), ErrAuthWireMissing)
 	}
-	return nil
+	// RFC 9764 padding is outside the BFD Length authenticated by RFC 5880.
+	pduLen := int(buf[3])
+	if pduLen < digestEnd || pduLen > n {
+		return 0, fmt.Errorf("hash auth: BFD length %d, wire length %d: %w",
+			pduLen, n, ErrAuthWireMissing)
+	}
+	return pduLen, nil
 }
 
 // validateHashAuth checks the auth section is present and has the
@@ -670,6 +762,10 @@ func validateAuthWire(buf []byte, n int, p hashParams) error {
 func validateHashAuth(pkt *ControlPacket, p hashParams) error {
 	if err := requireAuthSection(pkt); err != nil {
 		return err
+	}
+
+	if pkt.DetectMult == 0 {
+		return fmt.Errorf("hash auth: %w", ErrZeroDetectMult)
 	}
 
 	if pkt.Auth.Type != p.authType {
@@ -711,8 +807,7 @@ func checkSeqWindow(state *AuthState, pkt *ControlPacket, p hashParams) error {
 	return nil
 }
 
-// verifyAndUpdateSeq saves the digest, computes the expected hash,
-// compares, and updates RcvAuthSeq on success.
+// verifyAndUpdateSeq preserves received wire and updates RcvAuthSeq only on success.
 func verifyAndUpdateSeq(
 	state *AuthState,
 	pkt *ControlPacket,
@@ -721,19 +816,21 @@ func verifyAndUpdateSeq(
 	n int,
 	p hashParams,
 ) error {
-	// Save received digest before overwriting.
-	savedDigest := make([]byte, p.digestSize)
-	copy(savedDigest, pkt.Auth.Digest)
+	// validateAuthWire bounds n by the one-octet BFD Length, excluding padding.
+	var scratch [math.MaxUint8]byte
+	pdu := scratch[:n]
+	copy(pdu, buf[:n])
 
 	// Replace digest slot with key material (zero-padded).
 	digestOffset := HeaderSize + 8
-	clearDigestSlot(buf, digestOffset, p.digestSize)
-	copy(buf[digestOffset:], key.Secret)
+	clearDigestSlot(pdu, digestOffset, p.digestSize)
+	copy(pdu[digestOffset:digestOffset+p.digestSize], key.Secret)
 
 	// Compute hash over the modified packet.
-	computed := computeDigest(buf[:n], p)
+	computed := computeDigest(pdu, p)
 
-	if subtle.ConstantTimeCompare(savedDigest, computed) != 1 {
+	if int(pkt.Auth.DataLen) != p.digestSize ||
+		subtle.ConstantTimeCompare(pkt.Auth.Data[:p.digestSize], computed[:p.digestSize]) != 1 {
 		return fmt.Errorf("hash auth: %w", ErrAuthDigestMismatch)
 	}
 
@@ -757,7 +854,7 @@ func clearDigestSlot(buf []byte, offset, size int) {
 
 // requireAuthSection returns an error if the packet has no auth section.
 func requireAuthSection(pkt *ControlPacket) error {
-	if pkt.Auth == nil {
+	if pkt.Auth.IsZero() {
 		return fmt.Errorf("verify auth: %w", ErrAuthMissingSection)
 	}
 

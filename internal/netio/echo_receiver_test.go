@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -25,11 +26,13 @@ type mockEchoDemuxer struct {
 	err       error // injectable error
 }
 
-func (m *mockEchoDemuxer) DemuxEcho(myDiscr uint32) error {
+func (m *mockEchoDemuxer) DemuxEcho(myDiscr uint32) (bfd.DeliveryOutcome, error) {
 	m.calls.Add(1)
 	m.lastDiscr.Store(myDiscr)
-	return m.err
+	return bfd.DeliveryQueued, m.err
 }
+
+func (*mockEchoDemuxer) RecordDelivery(bfd.DeliverySource, bfd.DeliveryOutcome) {}
 
 // -------------------------------------------------------------------------
 // Test Helpers
@@ -96,6 +99,35 @@ func newEchoTestConn(
 	return echoTestConn{mock: mock, blockCh: blockCh, stopCh: stopCh}
 }
 
+func startEchoReceiverWorker(
+	t *testing.T,
+	recv *netio.EchoReceiver,
+	listener *netio.Listener,
+	tc echoTestConn,
+) func() {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = recv.Run(ctx, listener)
+	}()
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			cancel()
+			close(tc.stopCh)
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Error("echo receiver did not stop")
+			}
+		})
+	}
+	t.Cleanup(stop)
+	return stop
+}
+
 // -------------------------------------------------------------------------
 // Tests -- EchoReceiver
 // -------------------------------------------------------------------------
@@ -137,13 +169,7 @@ func TestEchoReceiverDemuxesPacket(t *testing.T) {
 
 	tc := newEchoTestConn(addr, [][]byte{pktData}, meta)
 	listener := netio.NewListenerFromConn(tc.mock, false)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		_ = recv.Run(ctx, listener)
-		close(done)
-	}()
+	stop := startEchoReceiverWorker(t, recv, listener, tc)
 
 	// Wait until the mock has delivered the packet and starts blocking.
 	select {
@@ -160,15 +186,7 @@ func TestEchoReceiverDemuxesPacket(t *testing.T) {
 		t.Errorf("DemuxEcho discriminator = %d, want 42", got)
 	}
 
-	// Cancel context and unblock mock to stop the receiver.
-	cancel()
-	close(tc.stopCh)
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("echo receiver did not stop")
-	}
+	stop()
 }
 
 // TestEchoReceiverDropsZeroDiscriminator verifies that echo packets with
@@ -189,13 +207,7 @@ func TestEchoReceiverDropsZeroDiscriminator(t *testing.T) {
 
 	tc := newEchoTestConn(addr, [][]byte{pktData}, meta)
 	listener := netio.NewListenerFromConn(tc.mock, false)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		_ = recv.Run(ctx, listener)
-		close(done)
-	}()
+	stop := startEchoReceiverWorker(t, recv, listener, tc)
 
 	select {
 	case <-tc.blockCh:
@@ -208,14 +220,7 @@ func TestEchoReceiverDropsZeroDiscriminator(t *testing.T) {
 		t.Errorf("DemuxEcho calls = %d, want 0 (zero discr packet should be dropped)", got)
 	}
 
-	cancel()
-	close(tc.stopCh)
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("echo receiver did not stop")
-	}
+	stop()
 }
 
 // TestEchoReceiverDropsInvalidPacket verifies that malformed packets are
@@ -237,13 +242,7 @@ func TestEchoReceiverDropsInvalidPacket(t *testing.T) {
 
 	tc := newEchoTestConn(addr, [][]byte{garbage}, meta)
 	listener := netio.NewListenerFromConn(tc.mock, false)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		_ = recv.Run(ctx, listener)
-		close(done)
-	}()
+	stop := startEchoReceiverWorker(t, recv, listener, tc)
 
 	select {
 	case <-tc.blockCh:
@@ -255,14 +254,7 @@ func TestEchoReceiverDropsInvalidPacket(t *testing.T) {
 		t.Errorf("DemuxEcho calls = %d, want 0 (invalid packet should be dropped)", got)
 	}
 
-	cancel()
-	close(tc.stopCh)
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("echo receiver did not stop")
-	}
+	stop()
 }
 
 // TestEchoReceiverContextCancellation verifies that the EchoReceiver's
@@ -277,14 +269,7 @@ func TestEchoReceiverContextCancellation(t *testing.T) {
 	addr := netip.MustParseAddrPort("10.0.0.2:3785")
 	tc := newEchoTestConn(addr, nil, netio.PacketMeta{})
 	listener := netio.NewListenerFromConn(tc.mock, false)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-
-	go func() {
-		_ = recv.Run(ctx, listener)
-		close(done)
-	}()
+	stop := startEchoReceiverWorker(t, recv, listener, tc)
 
 	// Wait for the mock to start blocking (no packets to deliver).
 	select {
@@ -293,14 +278,20 @@ func TestEchoReceiverContextCancellation(t *testing.T) {
 		t.Fatal("timeout waiting for receiver to start blocking")
 	}
 
-	// Cancel context and unblock mock.
-	cancel()
-	close(tc.stopCh)
+	stop()
+}
 
-	select {
-	case <-done:
-		// Receiver stopped cleanly.
-	case <-time.After(2 * time.Second):
-		t.Fatal("echo receiver did not stop after context cancellation")
+func TestEchoReceiverRunReturnsWhenListenerClosedBeforeCancel(t *testing.T) {
+	t.Parallel()
+
+	mock := NewMockPacketConn(netip.MustParseAddrPort("0.0.0.0:3785"))
+	mock.ReadFunc = func([]byte) (int, netio.PacketMeta, error) {
+		return 0, netio.PacketMeta{}, netio.ErrSocketClosed
+	}
+	recv := netio.NewEchoReceiver(&mockEchoDemuxer{}, slog.New(slog.DiscardHandler))
+
+	err := recv.Run(t.Context(), netio.NewListenerFromConn(mock, false))
+	if !errors.Is(err, netio.ErrListenerClosed) {
+		t.Fatalf("Run error = %v, want %v", err, netio.ErrListenerClosed)
 	}
 }

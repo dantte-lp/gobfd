@@ -1,6 +1,11 @@
-FROM docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a AS builder
+FROM docker.io/library/golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee AS builder
 
-RUN groupadd -r gobfd && useradd -r -g gobfd -s /sbin/nologin gobfd
+ENV GOTOOLCHAIN=local GOMAXPROCS=2 GOMEMLIMIT=1500MiB GOFLAGS=-p=1
+
+RUN groupadd -r gobfd && groupadd -r gobfd-admin \
+    && useradd -r -g gobfd -G gobfd-admin -s /sbin/nologin gobfd \
+    && install -d -o gobfd -g gobfd -m 0755 /run/gobfd \
+    && install -d -o gobfd -g gobfd -m 0700 /var/lib/gobfd
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -23,17 +28,25 @@ RUN CGO_ENABLED=0 go build -trimpath \
       -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
     -o /bin/gobfdctl ./cmd/gobfdctl
 
-FROM docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 AS production
+ARG GOBFD_IMAGE_RUN=""
+ARG GOBFD_IMAGE_TEST=""
+LABEL io.gobfd.stage-run="${GOBFD_IMAGE_RUN}" \
+      io.gobfd.stage-test="${GOBFD_IMAGE_TEST}"
+
+FROM docker.io/library/debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0 AS production
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /etc/passwd /etc/passwd
 COPY --from=builder /etc/group /etc/group
 COPY --from=builder /bin/gobfd /bin/gobfdctl /bin/
+# Directory of the default management socket /run/gobfd/gobfd.sock and state /var/lib/gobfd.
+COPY --from=builder --chown=gobfd:gobfd /run/gobfd /run/gobfd
+COPY --from=builder --chown=gobfd:gobfd /var/lib/gobfd /var/lib/gobfd
 
 USER gobfd:gobfd
 
-ENV GOMEMLIMIT=256MiB
+# Set GOMEMLIMIT at deployment time only after workload qualification.
 
-EXPOSE 3784/udp 4784/udp 50051
+EXPOSE 3784/udp 4784/udp
 
 ENTRYPOINT ["/bin/gobfd"]

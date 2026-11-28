@@ -1,404 +1,146 @@
-# Примеры интеграций
+# Интеграции
 
-![BGP](https://img.shields.io/badge/BGP-Fast_Failover-00ADD8?style=for-the-badge)
-![HAProxy](https://img.shields.io/badge/HAProxy-Agent_Check-236530?style=for-the-badge)
-![Prometheus](https://img.shields.io/badge/Prometheus-Alerting-E6522C?style=for-the-badge)
-![ExaBGP](https://img.shields.io/badge/ExaBGP-Anycast-6f42c1?style=for-the-badge)
-![Kubernetes](https://img.shields.io/badge/Kubernetes-DaemonSet-326CE5?style=for-the-badge)
-![tshark](https://img.shields.io/badge/tshark-Packet_Verification-1a73e8?style=for-the-badge)
+[English original](../en/11-integrations.md).
 
-> Готовые к запуску интеграционные стеки, демонстрирующие работу GoBFD с продакшн-системами. Каждый пример включает compose-файлы, конфигурацию, демо-скрипты и верификацию пакетов через tshark.
+GoBFD публикует состояние BFD; потребитель применяет политику маршрутизации или выбора backend. Репозиторий содержит управление GoBGP, HAProxy agent-check, команды для процесса ExaBGP, примеры наблюдаемости и Kubernetes. Для каждого примера необходима отдельная приёмка отказа, восстановления и пересылки трафика.
 
----
+```mermaid
+flowchart LR
+  accTitle: Потребители состояния BFD
+  accDescr: Демон наблюдает соседа BFD; маршрутизация, пригодность backend и наблюдаемость остаются отдельными потребителями.
+  peer["Сосед BFD"]:::brt --> daemon["GoBFD"]:::srv
+  daemon -.-> bgp["Управление соседом GoBGP"]:::brt
+  daemon -.-> agent["Мост агента HAProxy"]:::srv
+  daemon -.-> exa["Мост ExaBGP"]:::brt
+  daemon -.-> obs["Prometheus / Grafana"]:::mgt
+  agent -.-> hap["Пригодность backend HAProxy"]:::srv
+  exa -.-> rib["Анонс маршрута"]:::brt
+  classDef srv fill:#e1bee7,stroke:#7b1fa2,color:#000
+  classDef mgt fill:#d7ccc8,stroke:#5d4037,color:#000
+  classDef brt fill:#fff3e0,stroke:#bf360c,color:#000
+```
 
-## Содержание
+## Допуск изолированного запуска
 
-- [Обзор](#обзор)
-- [Быстрое переключение BGP](#быстрое-переключение-bgp)
-- [Мониторинг бэкендов HAProxy](#мониторинг-бэкендов-haproxy)
-- [Наблюдаемость](#наблюдаемость)
-- [Anycast через ExaBGP](#anycast-через-exabgp)
-- [DaemonSet в Kubernetes](#daemonset-в-kubernetes)
-- [Верификация пакетов через tshark](#верификация-пакетов-через-tshark)
-- [Архитектура интеграций](#архитектура-интеграций)
-- [Связанные документы](#связанные-документы)
+Выполнить [предпосылки разработки](09-development.md#подготовка-рабочей-копии), обеспечить доступ выбранного runner к Podman или кластеру. Согласовать одну одноразовую топологию, до запуска записать имена, подсеть, порты и принадлежность ресурсов. Остановиться при пересечении с существующими ресурсами, отказе готовности, отсутствии проверяемого снятия или восстановления либо отказе очистки; сохранить каталог запуска и конечный результат. Повторный вызов — новое учение отказа, а не откат. Восстановить внесённый отказ и проверить потребителя до отдельно разрешённого удаления своих ресурсов.
 
----
-
-## Обзор
-
-GoBFD интегрируется с системами маршрутизации, балансировки нагрузки, мониторинга и оркестрации для обеспечения обнаружения сбоев за доли секунды. Каждый пример интеграции — самодостаточный запускаемый стек в директории `deployments/integrations/`.
-
-Все стеки используют **podman compose** с OCI-контейнерами и включают sidecar-контейнер **tshark** для захвата BFD-пакетов и проверки соответствия RFC.
-
-| # | Интеграция | Компоненты | Подсеть | Новый код |
-|---|-----------|-----------|---------|-----------|
-| 1 | Быстрое переключение BGP | GoBFD + GoBGP + FRR | 172.22.0.0/24 | Только конфиги |
-| 2 | Мониторинг бэкендов HAProxy | GoBFD + HAProxy + nginx | 172.23.0.0/24 | `gobfd-haproxy-agent` |
-| 3 | Наблюдаемость | GoBFD + Prometheus + Grafana | 172.25.0.0/24 | Правила алертинга |
-| 4 | Anycast через ExaBGP | GoBFD + ExaBGP + GoBGP | 172.24.0.0/24 | `gobfd-exabgp-bridge` |
-| 5 | DaemonSet в Kubernetes | GoBFD + GoBGP + k3s | Host network | K8s-манифесты |
-
----
+Сохранённые точки входа Compose используют общие проверки принадлежности проекта. Завершение Kubernetes требует закрытой записи владения из исходной рабочей копии, совпадения кластера, UID namespace и метки владельца. Сохранить запись после отказа. До очистки проверить точный [runner интеграций](../../test/internal/integrationrunner/runner.go) и [правила допуска E2E](../../test/e2e/README.md).
 
 ## Быстрое переключение BGP
 
-**Директория:** `deployments/integrations/bgp-fast-failover/`
+В [примере FRR/GoBGP](../../deployments/integrations/bgp-fast-failover/README.md) GoBFD и GoBGP используют общий адрес `172.22.0.10`, а FRR — `172.22.0.20`. FRR анонсирует `10.20.0.0/24`. GoBFD отслеживает профиль Control 300 мс × 3 и применяет к GoBGP действие `disable-peer`.
 
-BFD Down инициирует отключение BGP-пира, вызывая немедленный отзыв маршрутов вместо ожидания 90-секундного BGP holdtimer.
+Обязательны совместимость с API GoBGP v4 и единственный владелец BFD. Встроенный BFD GoBGP на управляемых соседях вызывает конфликт; несколько базовых сессий для одного адреса соседа не позволяют однозначно выбрать сессию для управления. Подавление колебаний GoBFD задерживает восстановление, но не обработку Down. Административные переходы отличаются от отказов пересылки. Источники: [предварительная проверка и выбор](../../cmd/gobfd/handlers.go), [обработчик](../../internal/gobgp/handler.go), [RFC 5882, раздел 10.2](https://www.rfc-editor.org/rfc/rfc5882.html#section-10.2).
 
-Подробный runbook: [`deployments/integrations/bgp-fast-failover/README.md`](../../deployments/integrations/bgp-fast-failover/README.md)
+При подключении GoBFD к GoBGP через локальный файловый Unix-сокет (`unix:///abs/path` или `unix:/abs/path`) подтверждённые вызовы `DisablePeer` сохраняют в `gobgp.state_file` квитанцию `0600`, привязанную к эпохе спикера GoBGP ([ADR-0013](adr/0013-gobgp-restart-disable-ownership.md)): после перезапуска GoBFD автоматически включает отключённого им соседа при возврате BFD в Up, оставляя отключёнными соседей, выведенных оператором, имеющих `Conf.AdminDown = true` либо принадлежащих перезапущенному `gobgpd`. При подключении к GoBGP по TCP (где `SO_PEERCRED` ядра недоступен) либо после перезапуска самого `gobgpd` непрерывность эпохи спикера не доказуема, поэтому отключённые соседи остаются без автоматического включения до выполнения [процедуры восстановления](16-production-runbooks.md#22-startup-owned-изменения). Автоматическое включение соседа, отключённого оператором, запрещено.
 
-Лабораторный пример использует RFC 5881 single-hop BFD пакеты на UDP
-destination port 3784 с TTL 255. Таймеры примера: transmit 300 ms, receive
-300 ms и detect multiplier 3, что даёт ожидаемую цель обнаружения около
-900 ms без учёта локального scheduling и задержки BGP control plane.
-
-### Топология
-
-```mermaid
-graph LR
-    subgraph "172.22.0.0/24"
-        subgraph "172.22.0.10 (общее netns)"
-            GOBFD["GoBFD<br/>BFD-демон"]
-            GOBGP["GoBGP<br/>AS 65001"]
-        end
-        FRR["FRR<br/>172.22.0.20<br/>AS 65002<br/>bgpd + bfdd"]
-        TSHARK["tshark<br/>захват"]
-    end
-
-    GOBFD <-->|BFD| FRR
-    GOBGP <-->|BGP| FRR
-    GOBFD -->|DisablePeer/EnablePeer| GOBGP
-    TSHARK -.->|мониторинг| GOBFD
-
-    style GOBFD fill:#1a73e8,color:#fff
-    style GOBGP fill:#00ADD8,color:#fff
-    style FRR fill:#dc3545,color:#fff
+```sh
+make int-bgp-failover-testcontainers
 ```
 
-### Быстрый старт
+Проверка сохраняет `reports/e2e/bgp-fast-failover/run.*/` и подтверждает снятие и восстановление конкретного маршрута при приостановке и возобновлении FRR. Её предел снятия маршрута 20 секунд не подтверждает гарантию BFD 900 мс или непрерывность пересылки. Отдельная ручная топология запускается через `make int-bgp-failover-up`; её фиксированные имена и подсеть пересекаются с другими лабораториями. Перед запуском или очисткой свериться с описанием примера.
 
-```bash
-# Автоматизированный Go testcontainers gate с артефактами и точной очисткой
-make int-bgp-failover
+<a id="здоровье-backend-haproxy"></a>
 
-# Операционный Compose-пример, пошагово
-make int-bgp-failover-up     # Запуск топологии
-make int-bgp-failover-logs   # Просмотр логов
-make int-bgp-failover-down   # Очистка
+## Работоспособность backend HAProxy
+
+`gobfd-haproxy-agent` выбирает одну сессию BFD для каждого настроенного backend и выдаёт ответы агента по TCP без аутентификации. Только Up даёт `up ready\n`; остальные состояния, отсутствие или неоднозначность сессии дают `down\n`. После переподключения Watch получает полные актуальные снимки. Ответы определяют пригодность пути BFD, но не работоспособность приложения по HTTP/TLS.
+
+| Вход | Контракт |
+|:---|:---|
+| Флаги | `-config`, `-gobfd-addr`, `-version` |
+| Приоритет адреса API | Встроенный Unix-сокет → `GOBFD_ADDR` → флаг → непустой YAML `gobfd_addr` |
+| Общие поля YAML | `gobfd_addr`, `listen_addr`, `backends` |
+| Поля backend | `peer`, `local`, `interface`, `type`, `agent_port` |
+| Адрес прослушивания по умолчанию | `127.0.0.1`; для удалённого HAProxy адрес задаётся явно |
+| Переменные TLS | `GOBFD_TLS_CA_FILE`, `GOBFD_TLS_CERT_FILE`, `GOBFD_TLS_KEY_FILE` для HTTPS |
+| Допуск | Не менее одного backend; уникальный порт 1–65535; проверенный селектор сессии |
+| Ограничение запросов | 64 параллельные записи на сокет прослушивания, срок записи 100 мс |
+
+Источники: [реализация агента](../../cmd/gobfd-haproxy-agent/main.go), [пример конфигурации](../../deployments/integrations/haproxy-health/haproxy-agent.yml). Ограничить доступ к удалённому сокету агента: аутентификация отсутствует.
+
+```sh
+make int-haproxy-testcontainers
 ```
 
-### Сценарий демо
+Проверка с жизненным циклом под управлением Go проверяет ответ backend и восстановление, сохраняет `reports/e2e/haproxy-health/run.*/`. Требования к среде выполнения приведены в [проверках разработки](09-development.md). Эта проверка не квалифицирует прикладной протокол production-среды.
 
-1. GoBFD устанавливает BFD-сессию с FRR на 172.22.0.20
-2. GoBGP устанавливает BGP-сессию, получает маршрут 10.20.0.0/24
-3. **Сбой:** FRR приостановлен → BFD обнаруживает сбой (~900мс) → GoBGP отключает пир → маршрут отозван
-4. **Восстановление:** FRR возобновлён → BFD Up → GoBGP включает пир → маршрут восстановлен
+## ExaBGP anycast
 
----
+`gobfd-exabgp-bridge` пишет в stdout только команды для процесса ExaBGP, а журналы — в stderr. Выбранная сессия Up выдаёт `announce route PREFIX next-hop self`; отсутствие, неоднозначность, состояние вне Up или потеря наблюдения приводят к снятию маршрута. Повтор одинакового состояния не дублирует команду; перезапуск процесса согласует начальное состояние маршрута.
 
-## Мониторинг бэкендов HAProxy
+| Переменная окружения | Контракт |
+|:---|:---|
+| `GOBFD_ADDR` | По умолчанию `unix:///run/gobfd/gobfd.sock` |
+| `GOBFD_PEER` | Обязательный адрес соседа |
+| `ANYCAST_PREFIX` | Обязательный корректный IP-префикс; нормализуется до адреса сети |
+| `GOBFD_LOCAL` | Необязательный селектор исходного адреса |
+| `GOBFD_INTERFACE` | Необязательный селектор интерфейса |
+| `GOBFD_SESSION_TYPE` | Необязательный селектор типа |
+| `GOBFD_TLS_CA_FILE`, `GOBFD_TLS_CERT_FILE`, `GOBFD_TLS_KEY_FILE` | Доверие HTTPS API управления и клиентская идентичность |
 
-**Директория:** `deployments/integrations/haproxy-health/`
+Только `-version`/`--version` распознаются как запрос версии. Селектор типа допускает пустое значение, `single_hop`, `multi_hop`, `micro_bfd`, `vxlan`, `geneve`; пустое значение соответствует любому наблюдаемому типу, включая Echo. Селектор только по соседу должен давать единственный результат; при необходимости добавить исходный адрес, интерфейс или тип. Тот же контракт селектора действует для `type` backend HAProxy. Источники: [мост](../../cmd/gobfd-exabgp-bridge/main.go), [селектор и Watch](../../internal/apiclient).
 
-Обнаружение сбоя бэкенда за доли секунды через BFD, интегрированное с протоколом agent-check HAProxy.
-
-### Архитектура
-
-```mermaid
-graph TD
-    GOBFD["GoBFD Monitor<br/>172.23.0.10<br/>BFD-сессии к .30, .40"]
-    AGENT["gobfd-haproxy-agent<br/>(общее netns)<br/>TCP :9990, :9991"]
-    HAPROXY["HAProxy<br/>172.23.0.20<br/>:8080 → бэкенды"]
-    B1["Бэкенд 1<br/>172.23.0.30<br/>nginx + GoBFD sidecar"]
-    B2["Бэкенд 2<br/>172.23.0.40<br/>nginx + GoBFD sidecar"]
-
-    GOBFD -->|gRPC WatchSessionEvents| AGENT
-    HAPROXY -->|agent-check :9990| AGENT
-    HAPROXY -->|agent-check :9991| AGENT
-    HAPROXY -->|HTTP| B1
-    HAPROXY -->|HTTP| B2
-    GOBFD <-->|BFD| B1
-    GOBFD <-->|BFD| B2
-
-    style GOBFD fill:#1a73e8,color:#fff
-    style AGENT fill:#28a745,color:#fff
-    style HAPROXY fill:#236530,color:#fff
-    style B1 fill:#ffc107,color:#000
-    style B2 fill:#ffc107,color:#000
+```sh
+make int-exabgp-anycast
 ```
 
-### Протокол agent-check
-
-Бинарник `gobfd-haproxy-agent` связывает состояние BFD с протоколом agent-check HAProxy:
-
-- HAProxy подключается по TCP к порту агента, читает ASCII-ответ до перевода строки
-- BFD Up → отвечает `"up ready\n"` → HAProxy помечает сервер как рабочий
-- BFD Down → отвечает `"down\n"` → HAProxy убирает сервер из ротации
-
-### Быстрый старт
-
-```bash
-make int-haproxy              # Полное демо
-make int-haproxy-up           # Запуск топологии
-curl http://localhost:8080    # Проверка балансировки
-make int-haproxy-down         # Очистка
-```
-
----
+[Пример anycast](../../deployments/integrations/exabgp-anycast) имеет отдельную границу интеграционной приёмки. Вывод жизненного цикла под управлением Go или сама команда маршрута не доказывают распространение BGP во внешней сети либо пересылку anycast.
 
 ## Наблюдаемость
 
-**Директория:** `deployments/integrations/observability/`
+[Стек наблюдаемости](../../deployments/integrations/observability/compose.yml) содержит соседей BFD, правила Prometheus и Grafana. Его лабораторные порты хоста и стандартные учётные данные Grafana требуют изолированной согласованной среды; публикация в качестве production-панели запрещена.
 
-Продакшн-мониторинг с правилами алертинга Prometheus и преднастроенным дашбордом Grafana.
-
-### Топология
-
-```mermaid
-graph LR
-    subgraph "172.25.0.0/24"
-        GOBFD["GoBFD<br/>172.25.0.10<br/>метрики :9100"]
-        FRR["FRR<br/>172.25.0.20<br/>BFD-пир"]
-    end
-    PROM["Prometheus<br/>:9090"]
-    GRAF["Grafana<br/>:3000"]
-
-    GOBFD <-->|BFD| FRR
-    PROM -->|scrape :9100| GOBFD
-    GRAF -->|query| PROM
-
-    style GOBFD fill:#1a73e8,color:#fff
-    style FRR fill:#dc3545,color:#fff
-    style PROM fill:#E6522C,color:#fff
-    style GRAF fill:#F46800,color:#fff
+```sh
+make int-observability-testcontainers
 ```
 
-### Метрики
+Проверка требует исправного сбора метрик, активного оповещения о переходе при отказе, восстановления BFD и неактивного оповещения после восстановления. Результаты сохраняются в `reports/e2e/observability/run.*/`. Одного HTTP 200 недостаточно. См. [метрики и оповещения](07-monitoring.md).
 
-| Метрика | Тип | Описание |
-|---------|-----|----------|
-| `gobfd_bfd_sessions` | Gauge | Активные BFD-сессии по пирам |
-| `gobfd_bfd_packets_sent_total` | Counter | Отправленные пакеты по пирам |
-| `gobfd_bfd_packets_received_total` | Counter | Полученные пакеты по пирам |
-| `gobfd_bfd_packets_dropped_total` | Counter | Потерянные пакеты по пирам |
-| `gobfd_bfd_state_transitions_total` | Counter | Переходы FSM (метки from/to) |
-| `gobfd_bfd_auth_failures_total` | Counter | Ошибки аутентификации по пирам |
+Сохранённый демонстрационный сценарий `make int-observability` и его цели `-up`, `-logs`, `-down` используют [контроллер Compose с проверкой владения](../../test/internal/interopproject/controller.go). До запуска выполнить [условия сохранённого процесса](05-interop.md#сохранённый-compose-workflow). Контроллер сериализует фиксированный проект, собирает уникальные теги образов, запускает по записанным ID и удаляет только проверенные собственные runtime-ресурсы. Демонстрационный сценарий не заменяет проверку testcontainers выше.
 
-### Правила алертинга
+Файлы захвата сохраняются в `reports/e2e/observability-compose/run.<nonce>/`, включая созданные до частичного отказа запуска; незавершённый запуск может оставить неполный захват. Сохранить каталог для диагностики. Prometheus использует ограниченный tmpfs размером 1 ГиБ для TSDB, поэтому история демонстрационного сценария непостоянна. Это предел хранилища демонстрационного сценария, а не квалификация длительного хранения; перед изменением учесть [хранение WAL и head chunks](https://prometheus.io/docs/prometheus/latest/storage/). Существующие именованные тома сохраняются и автоматически не переносятся. Для восстановления выполнить соответствующую цель `-down` из исходного каталога с теми же UID и выбором движка. Источники: [владелец захватов](../../test/internal/interopproject/capture.go), [монтирования сценария](../../deployments/integrations/observability/compose.yml).
 
-| Алерт | Выражение | Критичность |
-|-------|----------|-------------|
-| BFDNoActiveSessions | `sum(gobfd_bfd_sessions) == 0` за 10с | Warning |
-| BFDSessionDownTransition | `increase(state_transitions{from_state="Up",to_state="Down"}[1m]) > 0` | Critical |
-| BFDSessionFlapping | `sum by (peer_addr, local_addr) (increase(state_transitions[5m])) > 3` за 1м | Warning |
-| BFDAuthFailures | `rate(auth_failures[5m]) > 0` за 30с | Warning |
-| BFDPacketDrops | `rate(packets_dropped[5m]) > 0` за 1м | Warning |
+## Kubernetes
 
-### Быстрый старт
+[Набор манифестов](../../deployments/integrations/kubernetes/manifests) запускает один DaemonSet с сетью хоста на каждом выбранном Linux-узле, с локальными образами и контейнером GoBGP sidecar. Перед применением проверить `imagePullPolicy: Never`, импорт образов на каждом узле, конфликты портов, пробы и границы локального управления хостом.
 
-```bash
-make int-observability        # Полное демо
-make int-observability-up     # Запуск топологии
+`make int-k8s` — пример запуска. Приёмка требует подтверждённого импорта образов на каждом узле, согласованных меток и проб, а также отчёта о развёртывании, ресурсах, отказе и восстановлении в работающем кластере. Одни манифесты не подтверждают принятого развёртывания в кластере. См. [развёртывание](06-deployment.md#kubernetes).
 
-# Открыть в браузере:
-# Grafana:    http://localhost:3000 (admin/admin)
-# Prometheus: http://localhost:9090
+После развёртывания [проверки пода](../../test/internal/integrationrunner/kubernetes_probe.go) выбирают единственный не удаляемый Pod в состоянии `Running` и `Ready` на сопоставленном локальном Node (отсутствует `deletionTimestamp`, `status.phase == "Running"`, `Ready == "True"`, `spec.nodeName` равен локальному узлу) и требуют успешных RPC-запросов к Unix-сокету GoBFD и loopback GoBGP. Успешный пустой список сессий подтверждает только доступность управления. Метрики читаются через Kubernetes Pod proxy с ограничением вывода 1 MiB; оператору требуется право `get` для `pods/proxy` в namespace `gobfd`. Требовать ровно один образец `gobfd_gobgp_endpoint_compatible` без меток с числовым значением `1`; отсутствие, дубли, метки или неуспешные значения завершают команду ошибкой. Эта метрика подтверждает предварительную проверку совместимости API GoBGP, но не BFD Up или пересылку. Ошибки RPC, proxy и вывода останавливают проверки; необязательные средства захвата пакетов не подтверждают приёмку. Источник: [API Pod proxy](https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/).
 
-make int-observability-down   # Очистка
-```
+[Владелец сборки](../../test/internal/integrationrunner/kubernetes_build.go) использует общий жизненный цикл образов для [двух существующих рецептов](../../deployments/integrations/kubernetes/compose.build.yml). Он записывает уникальные теги, проверенные исходные ID и сформированный DaemonSet в закрытый каталог `reports/e2e/kubernetes-build/run.<identity>/` до импорта, а после завершения импорта обновляет `images.json` опубликованными digest OCI-манифестов. DaemonSet выбирает заданные теги и записывает исходные ID в аннотации. До создания namespace исполнитель подключается к image-service endpoint из конфигурации kubelet, передаёт `containerd-namespace: k8s.io` в каждом gRPC-запросе, сохраняет UUID сервера, проверяет namespace и требует отсутствия обоих тегов. Только gRPC `NotFound` от `Images.Get` означает отсутствие образа. Закрытая запись `containerd.json` сохраняет endpoint, namespace и UUID. После callback локальные образы сборки удаляются по проверенным ID, а импортированные образы и файлы отчёта сохраняются. Сохранить план при ошибке импорта или apply. Аутентификация идентичности сервера, владение очисткой импортированного хранилища, ссылки runtime с digest и доставка образов на несколько узлов остаются неквалифицированными.
 
----
+До создания namespace или импорта образов исполнитель требует непустой ограниченный `NodeList` с уникальными именами и UID, условием Ready, метаданными Linux, поддерживаемой архитектурой, machine ID, boot ID и версией runtime `containerd://`. Локальный host должен совпасть ровно с одним узлом по machine ID и boot ID. Исполнитель читает объединённую конфигурацию kubelet через `/api/v1/nodes/{name}/proxy/configz` и принимает только абсолютные Unix socket URI для `containerRuntimeEndpoint` и эффективного `imageServiceEndpoint` (по умолчанию равен runtime endpoint). Закрытая запись запуска сохраняет UID локального узла, оба пути сокетов, отсортированные наблюдаемые узлы и UID кластера до изменения namespace; UID кластера проверяется повторно перед созданием namespace. UUID, возвращённый image-service endpoint, записывается в отчёт, но отдельно доверенной опорой не аутентифицируется. Готовность кластера ограничена 60 секундами и отклоняет пустой список. Эти проверки не доказывают планирование DaemonSet или наличие образа на каждом узле. Готовый, но cordoned-узел остаётся в списке: DaemonSet допускает unschedulable-узлы. Право `nodes/proxy` привилегированное; см. [права оператора](06-deployment.md#kubernetes). Источники: [состояние узла](https://kubernetes.io/docs/reference/node/node-status/), [tolerations DaemonSet](https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/), [API конфигурации kubelet](https://kubernetes.io/docs/reference/config-api/kubelet-config.v1beta1/).
 
-## Anycast через ExaBGP
+[Владелец namespace](../../test/internal/integrationrunner/kubernetes_namespace.go) отклоняет существующий namespace `gobfd`. До исключающего повторное создание запроса он сохраняет случайную метку владельца и наблюдаемый UID `kube-system`, затем записывает UID созданного namespace в закрытый файл `reports/e2e/kubernetes-build/namespace.json`. Запуск и завершение используют общую локальную блокировку. При потере ответа создания сохраняется незавершённая запись; завершение восстанавливает UID только из namespace с совпадающими меткой владельца и UID кластера. Незавершённая запись блокирует следующий запуск даже при отсутствии namespace; сохранить её nonce и установить результат исходного запроса до нового запуска. Автоматического повтора создания нет. Использовать namespace исключительно для этого запуска; не добавлять посторонние ресурсы.
 
-**Директория:** `deployments/integrations/exabgp-anycast/`
+Выполнить `make int-k8s-down` из исходной рабочей копии, с исходными UID пользователя и контекстом кластера. Завершение проверяет запись, метку владельца и UID namespace, передаёт [предусловия DeleteOptions UID и resourceVersion](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/delete-options/) и требует завершения удаления с последующим подтверждением отсутствия. Изменение идентичности, конфликт или ошибка ожидания останавливают завершение; сохранить запись и файлы запросов для диагностики. Записи остаются после успешного завершения; повторное завершение при отсутствующем namespace ничего не удаляет. Импортированные образы containerd сохраняются. Эти проверки исходников не подтверждают приёмку реального кластера или хранилища образов.
 
-Объявление anycast-IP, управляемое состоянием BFD-линка через process API ExaBGP.
+[Импортёр](../../test/internal/integrationrunner/runner.go) и [клиент прямой загрузки containerd](../../test/internal/integrationrunner/kubernetes_containerd_import.go) требуют один полный SHA-256 ID исходного образа до создания архива. Экспорт выбирает этот ID с явными `docker-archive` и `--multi-image-archive=false`; запрошенный тег сохраняется в метаданных архива. Некорректный, неоднозначный или слишком большой вывод идентичности завершает команду ошибкой до экспорта. Импортёр удерживает открытым дескриптор закрытого архива, проверяет, что путь экспорта по-прежнему указывает на исходный обычный файл, и проверяет содержимое без распаковки на диск. Затем создаётся 15-минутная аренда containerd (`Leases.Create` с `containerd.io/gc.expire`, удаляемая при выходе через `Leases.Delete`), проверенные слои и config передаются поточно из открытого дескриптора в `Content.Write` с ожидаемыми digest и размерами, записывается детерминированный манифест образа OCI v1 с метками `containerd.io/gc.ref.content.config` и `containerd.io/gc.ref.content.0..N`, а тег публикуется только через `Images.Create` без вызова `Images.Update` (`AlreadyExists` завершает импорт ошибкой без перезаписи существующего тега). Повторное чтение проверяет `Images.Get` и `Content.Info` на совпадение digest манифеста, размера и корневых меток GC, после чего сохраняется `import-<source-id>.json` и обновляется `images.json` полем `manifest_digest`. Ошибки экспорта, проверки, записи квитанций, хранилища контента, публикации через Create, закрытия дескриптора и очистки завершают команду ошибкой. Очистка удаляет только исходный файл; подменённый файл сохраняется и отражается в диагностике. Владение очисткой импортированного хранилища, ссылки runtime с digest и приёмка на нескольких узлах остаются неквалифицированными.
 
-### Архитектура
+[Проверка архива](../../test/internal/integrationrunner/kubernetes_archive.go) требует один Docker manifest с точным тегом запуска, SHA-256 config, равным выбранному исходному ID, и упорядоченными хешами несжатых слоёв, равными `rootfs.diff_ids`. Отклоняются дубли членов, неоднозначный JSON, небезопасные пути, отсутствующие данные, усечённое обрамление и гибридные OCI layout. Служебные ссылки `layer.tar` допускаются только на проверенные физические слои; соответствующие метаданные `VERSION`, `json` и `repositories` поддерживаются. Содержимое проверяется поточно, без распаковки. До импорта исполнитель записывает рядом с `images.json` файл `archive-<source-id>.json` со схемой, тегом, исходным ID, SHA-256 всего архива и числом байтов, не заменяя существующую запись. Сохранить эти записи после отказа. Источники: [формат экспорта и служебные ссылки](https://github.com/containers/image/blob/df7e80d2d19872b61f352a8a182ec934dc0c2346/docker/internal/tarfile/writer.go), [экспорт несжатых слоёв](https://github.com/containers/image/blob/df7e80d2d19872b61f352a8a182ec934dc0c2346/docker/internal/tarfile/dest.go).
 
-```mermaid
-graph LR
-    subgraph "172.24.0.0/24"
-        GOBGP["GoBGP<br/>172.24.0.10<br/>AS 65001<br/>получатель маршрутов"]
-        subgraph "172.24.0.20 (общее netns)"
-            GOBFD["GoBFD<br/>BFD-сессия"]
-            EXABGP["ExaBGP<br/>AS 65002"]
-            BRIDGE["gobfd-exabgp-bridge<br/>(процесс ExaBGP)"]
-        end
-    end
+| Вход архива | Ограничение |
+|:---|---:|
+| Размер файла | 4 GiB |
+| Число членов | 4096 |
+| JSON manifest | 1 MiB |
+| JSON config | 4 MiB |
+| Нулевое заполнение после завершающих блоков | 10 KiB |
 
-    GOBFD <-->|BFD| GOBGP
-    BRIDGE -->|gRPC WatchSessionEvents| GOBFD
-    BRIDGE -->|STDOUT: announce/withdraw| EXABGP
-    EXABGP <-->|BGP| GOBGP
+Проверка закрытого файла не защищает inode от конкурентной записи его владельцем. Digest архива и ID исходного config отличаются от digest OCI manifest или index, выбранного containerd. Владение целевым хранилищем, неизменяемые ссылки runtime и приёмка на каждом реальном узле остаются неквалифицированными.
 
-    style GOBFD fill:#1a73e8,color:#fff
-    style GOBGP fill:#00ADD8,color:#fff
-    style EXABGP fill:#6f42c1,color:#fff
-    style BRIDGE fill:#28a745,color:#fff
-```
+<a id="квалификация-и-vendor-references"></a>
 
-### Pipe-протокол
+## Квалификация и источники производителей
 
-`gobfd-exabgp-bridge` запускается как процесс ExaBGP:
+| Доказательство | Подтверждает | Не подтверждает |
+|:---|:---|:---|
+| Модульные проверки и проверка исходников | Поведение по контракту на проверенных путях | Совместимость с нативным соседом |
+| Управляемый жизненный цикл testcontainers | Проверенные локальные отказ и восстановление | Ресурсы production или непрерывную пересылку |
+| Захват пакетов | Захваченные поля и события на линии | Исчерпывающее покрытие RFC |
+| Руководство производителя | Описанное поведение выбранного выпуска и платформы | Приёмку GoBFD с этим устройством |
+| Учение в production | Измеренные заявленные топологию, SHA и нагрузку | Другие профили и платформы |
 
-- **BFD Up** → пишет `announce route 198.51.100.1/32 next-hop self` в STDOUT
-- **BFD Down** → пишет `withdraw route 198.51.100.1/32 next-hop self` в STDOUT
-- Логирование в STDERR (соглашение ExaBGP)
-- Переподключение к GoBFD с экспоненциальным backoff
-
-### Быстрый старт
-
-```bash
-make int-exabgp-anycast        # Полное демо
-make int-exabgp-anycast-up     # Запуск топологии
-make int-exabgp-anycast-down   # Очистка
-```
-
----
-
-## DaemonSet в Kubernetes
-
-**Директория:** `deployments/integrations/kubernetes/`
-
-Развёртывание GoBFD как DaemonSet в кластере k3s с sidecar-контейнером GoBGP и host-сетью.
-
-### Архитектура
-
-```mermaid
-graph TD
-    subgraph "Кластер k3s"
-        subgraph "Узел (hostNetwork)"
-            GOBFD["GoBFD<br/>DaemonSet pod<br/>BFD + gRPC + метрики"]
-            GOBGP["GoBGP<br/>sidecar<br/>BGP AS 65001"]
-        end
-    end
-
-    GOBFD -->|DisablePeer/EnablePeer| GOBGP
-    GOBFD ---|"UDP 3784/4784<br/>BFD-сессии"| PEERS["Другие узлы<br/>(межузловой BFD)"]
-    GOBGP ---|"TCP 179<br/>BGP-пиринг"| PEERS
-
-    style GOBFD fill:#1a73e8,color:#fff
-    style GOBGP fill:#00ADD8,color:#fff
-    style PEERS fill:#326CE5,color:#fff
-```
-
-### Предварительные требования
-
-- Root или sudo-доступ
-- `curl`, `podman`, `kubectl`
-- k3s устанавливается автоматически скриптом `setup-cluster.sh`
-
-### Ключевые решения
-
-- **hostNetwork: true** — BFD использует raw-сокеты, требуется прямой доступ к сети хоста
-- **CAP_NET_RAW + CAP_NET_ADMIN** — необходимы для работы с BFD-пакетами
-- **Linux node selector** — пример опирается на Linux socket и capability semantics
-- **TCP probes** — gRPC и metrics sockets дают универсальные readiness/liveness проверки
-- **DaemonSet** — один экземпляр GoBFD на каждый узел для полного покрытия BFD
-- **Динамические сессии** — BFD-сессии добавляются через `gobfdctl` после обнаружения IP узлов
-
-### Быстрый старт
-
-```bash
-# Полное демо (установка k3s, деплой, проверка, очистка)
-sudo make int-k8s
-
-# Пошагово
-sudo ./deployments/integrations/kubernetes/setup-cluster.sh
-kubectl apply -f deployments/integrations/kubernetes/manifests/
-kubectl -n gobfd rollout status daemonset/gobfd
-
-# Очистка
-sudo make int-k8s-down
-```
-
-### Манифесты
-
-| Файл | Ресурс | Описание |
-|------|--------|----------|
-| `namespace.yml` | Namespace | Пространство имён `gobfd` |
-| `configmap-gobfd.yml` | ConfigMap | Конфигурация GoBFD-демона |
-| `configmap-gobgp.yml` | ConfigMap | Конфигурация GoBGP |
-| `daemonset.yml` | DaemonSet | GoBFD + GoBGP sidecar (hostNetwork) |
-| `service.yml` | Service | Headless-сервис для DNS-обнаружения |
-
----
-
-## Верификация пакетов через tshark
-
-Все интеграционные стеки включают sidecar-контейнер **tshark** для захвата BFD-пакетов и проверки соответствия RFC.
-
-### Настройка захвата
-
-Контейнер tshark захватывает весь BFD-трафик в общем сетевом пространстве имён:
-
-- **Фильтр:** `udp port 3784 or udp port 4784`
-- **Формат:** pcapng, записывается в `/captures/bfd.pcapng`
-- **Автостоп:** лимит размера файла 100МБ
-
-### Офлайн-анализ
-
-```bash
-# Полная расшифровка пакетов
-podman exec <tshark-контейнер> tshark -r /captures/bfd.pcapng -V -Y bfd
-
-# CSV-сводка BFD-полей
-podman exec <tshark-контейнер> tshark -r /captures/bfd.pcapng -Y bfd \
-    -T fields -e frame.time_relative -e ip.src -e ip.dst \
-    -e bfd.version -e bfd.diag -e bfd.sta -e bfd.flags \
-    -e bfd.detect_time_multiplier -e bfd.desired_min_tx_interval \
-    -e bfd.required_min_rx_interval -E header=y -E separator=,
-```
-
-### Чек-лист верификации
-
-| Поле | Ожидаемое значение | Ссылка на RFC |
-|------|-------------------|---------------|
-| Version | 1 | RFC 5880 Section 4.1 |
-| TTL | 255 | RFC 5881 Section 5 (GTSM) |
-| Dest Port | 3784 (single-hop) / 4784 (multihop) | RFC 5881 Section 4 |
-| Source Port | 49152-65535 | RFC 5881 Section 4 |
-| Переходы состояний | Down → Init → Up (трёхэтапный) | RFC 5880 Section 6.8.6 |
-
-Справка: [tshark.dev](https://tshark.dev/) — документация и руководства по tshark.
-
----
-
-## Архитектура интеграций
-
-| Стек | Подсеть | Сервисы | Host-порты |
-|------|---------|---------|------------|
-| Быстрое переключение BGP | 172.22.0.0/24 | gobfd, gobgp, frr, tshark | — |
-| Мониторинг HAProxy | 172.23.0.0/24 | gobfd-monitor, haproxy-agent, haproxy, backend1/2, backend1/2-bfd, tshark | 8080 |
-| Наблюдаемость | 172.25.0.0/24 | gobfd, frr, prometheus, grafana, tshark | 9090, 3000 |
-| Anycast ExaBGP | 172.24.0.0/24 | gobgp, gobfd, exabgp, tshark | — |
-| Kubernetes | Host network | DaemonSet (gobfd + gobgp sidecar) | — |
-| **Interop: Базовый** | 172.20.0.0/24 | gobfd, frr, bird3, holo, holo-config, thoro, tshark | — |
-| **Interop: BGP+BFD** | 172.21.0.0/24 | gobfd, gobgp, frr, bird3, exabgp, gobfd-sidecar | — |
-| **Interop: RFC** | 172.22.0.0/24 | gobfd-rfc, gobfd-rfc9384, gobgp-rfc, frr-rfc, frr-rfc-bgp, frr-rfc-unsolicited, tshark-rfc | — |
-| **Interop: Вендоры** | 10.0.x.0/30 | gobfd, gobgp, nokia, arista, frr, sonic, vyos; cisco deferred | — |
-
-### Новые бинарники
-
-| Бинарник | Назначение | Зависимости |
-|----------|-----------|-------------|
-| `gobfd-haproxy-agent` | Мост agent-check для HAProxy | connectrpc, bfdv1connect |
-| `gobfd-exabgp-bridge` | Мост process API для ExaBGP | connectrpc, bfdv1connect |
-
----
-
-## Связанные документы
-
-- [03-configuration.md](./03-configuration.md) — Справочник конфигурации GoBFD
-- [05-interop.md](./05-interop.md) — Тестирование совместимости (FRR, BIRD3, вендорные NOS)
-- [06-deployment.md](./06-deployment.md) — Контейнерный образ, Podman Compose, systemd
-- [07-monitoring.md](./07-monitoring.md) — Метрики Prometheus и дашборд Grafana
-- [16-production-runbooks.md](./16-production-runbooks.md) — Production drills и validation checklist
-
----
-
-*Последнее обновление: 2026-05-01*
+Использовать [покрытие RFC](08-rfc-compliance.md), [эксплуатационный регламент](16-production-runbooks.md) и [официальные источники Cisco/Arista/Juniper/Huawei](reference/vendor-bfd.md). Необязательные [заметки EOS](../../deployments/integrations/bgp-fast-failover/vendor-notes/arista-eos.md) не входят в запускаемую топологию FRR.

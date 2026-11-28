@@ -65,6 +65,9 @@ CLAUDE.local.md
 /.beads/
 /.beads.gate.lock
 
+# Local git worktrees
+/.worktrees/
+
 # Internal planning/research docs (not for public repo)
 docs/tmp/
 

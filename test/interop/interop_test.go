@@ -9,13 +9,15 @@
 //	go test -tags interop -v -count=1 -timeout 300s ./test/interop/
 //
 // Prerequisites:
-//   - test/interop/projectctl.sh up
+//   - go run ./test/cmd/interopctl up
 //   - The gobfd, frr, bird3, Holo, Thoro/bfd, and tshark services must be ready.
 package interop_test
 
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -60,12 +62,11 @@ const (
 	holoConfigStartTimeout = 15 * time.Second
 	holoConfigWaitTimeout  = 10 * time.Second
 	holoInspectTimeout     = 5 * time.Second
-
-	// bfdFuzzImage is the image name for the Go BFD invalid-vector generator.
-	// Built with podman build (not compose) to avoid compose's "run"
-	// behavior that tears down and recreates the entire stack.
-	bfdFuzzImage = "gobfd-bfd-fuzz:latest"
 )
+
+func invalidVectorImageName() string {
+	return "localhost/gobfd-bfd-fuzz:" + strings.ToLower(rand.Text())
+}
 
 var (
 	errSessionStateNotFound      = errors.New("session state not found")
@@ -80,10 +81,19 @@ var (
 var interopProjectNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 type sessionState struct {
-	PeerAddress     string `json:"peer_address"`
-	LocalState      string `json:"local_state"`
-	RemoteState     string `json:"remote_state"`
-	LocalDiagnostic string `json:"local_diagnostic"`
+	PeerAddress         string `json:"peer_address"`
+	LocalState          string `json:"local_state"`
+	RemoteState         string `json:"remote_state"`
+	LocalDiagnostic     string `json:"local_diagnostic"`
+	LocalDiscriminator  uint32 `json:"local_discriminator"`
+	RemoteDiscriminator uint32 `json:"remote_discriminator"`
+	DesiredMinTx        string `json:"desired_min_tx_interval"`
+	RequiredMinRx       string `json:"required_min_rx_interval"`
+	RemoteMinRx         string `json:"remote_min_rx_interval"`
+	NegotiatedTx        string `json:"negotiated_tx_interval"`
+	DetectionTime       string `json:"detection_time"`
+	DetectMultiplier    uint32 `json:"detect_multiplier"`
+	PaddedPduSize       uint32 `json:"padded_pdu_size"`
 }
 
 type holoLifecycleSchedule struct {
@@ -351,19 +361,10 @@ func stopHoloContainer(ctx context.Context) (string, error) {
 func TestProjectContainerCommandUsesExactOwnedID(t *testing.T) {
 	fakeBin := t.TempDir()
 	commandLog := filepath.Join(t.TempDir(), "podman.log")
-	fakePodman := `#!/usr/bin/env bash
-printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
-if [[ "${1:-}" == "inspect" && "$*" == *"index .Config.Labels"* ]]; then
-    case "${@: -1}" in
-        foreign-interop) printf '%s\n' 'foreign-id|foreign-project' ;;
-        *) printf '%s\n' 'immutable-owned-id|gobfd-interop' ;;
-    esac
-fi
-`
-	if err := os.WriteFile(filepath.Join(fakeBin, "podman"), []byte(fakePodman), 0o755); err != nil {
-		t.Fatalf("write fake podman: %v", err)
-	}
+	installFakeCommand(t, fakeBin, "podman", "owned-container")
 	t.Setenv("PATH", fakeBin+":"+os.Getenv("PATH"))
+	t.Setenv(interopFakeMode, "owned-container")
+	t.Setenv("GORACE", "atexit_sleep_ms=0")
 	t.Setenv("INTEROP_FAKE_PODMAN_LOG", commandLog)
 	t.Setenv("INTEROP_PROJECT_NAME", "gobfd-interop")
 
@@ -393,26 +394,10 @@ func TestStopHoloContainerUsesBoundedExactCommand(t *testing.T) {
 	fakeBin := t.TempDir()
 	commandLog := filepath.Join(t.TempDir(), "podman.log")
 	startedPath := filepath.Join(t.TempDir(), "stop-started")
-	fakePodman := `#!/usr/bin/env bash
-printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
-if [[ "${1:-}" == "inspect" && "$*" == *"index .Config.Labels"* ]]; then
-    printf '%s\n' 'immutable-holo-id|gobfd-interop'
-    exit 0
-fi
-if [[ "$*" == "stop --time 5 immutable-holo-id" ]]; then
-    case "${INTEROP_FAKE_STOP_MODE:-success}" in
-        success) printf '%s\n' immutable-holo-id ;;
-        failure) printf '%s\n' 'daemon refused bounded stop' >&2; exit 17 ;;
-        block) : > "${INTEROP_FAKE_STOP_STARTED}"; exec /bin/sleep 10 ;;
-    esac
-    exit 0
-fi
-exit 9
-`
-	if err := os.WriteFile(filepath.Join(fakeBin, "podman"), []byte(fakePodman), 0o755); err != nil {
-		t.Fatalf("write fake podman: %v", err)
-	}
+	installFakeCommand(t, fakeBin, "podman", "holo-stop")
 	t.Setenv("PATH", fakeBin+":"+os.Getenv("PATH"))
+	t.Setenv(interopFakeMode, "holo-stop")
+	t.Setenv("GORACE", "atexit_sleep_ms=0")
 	t.Setenv("INTEROP_FAKE_PODMAN_LOG", commandLog)
 	t.Setenv("INTEROP_FAKE_STOP_STARTED", startedPath)
 	t.Setenv("INTEROP_PROJECT_NAME", "gobfd-interop")
@@ -806,11 +791,15 @@ func waitThoroUp(ctx context.Context, t *testing.T, timeout time.Duration) {
 
 // tsharkQuery runs tshark on the captured pcapng file and returns stdout.
 func tsharkQuery(ctx context.Context, args ...string) (string, error) {
+	return tsharkQueryFile(ctx, "/captures/bfd.pcapng", args...)
+}
+
+func tsharkQueryFile(ctx context.Context, capturePath string, args ...string) (string, error) {
 	containerID, err := resolveProjectContainerID(ctx, "tshark-interop")
 	if err != nil {
 		return "", fmt.Errorf("tshark: resolve capture container: %w", err)
 	}
-	commandArgs := append([]string{"tshark", "-r", "/captures/bfd.pcapng"}, args...)
+	commandArgs := append([]string{"tshark", "-r", capturePath}, args...)
 	commandArgs = append([]string{"exec", containerID}, commandArgs...)
 	cmd := exec.CommandContext(ctx, "podman", commandArgs...)
 	var stdout bytes.Buffer
@@ -832,14 +821,18 @@ func tsharkQuery(ctx context.Context, args ...string) (string, error) {
 // tsharkFields extracts specific fields from packets matching a display filter.
 // Returns [][]string where each row is one packet's field values.
 func tsharkFields(ctx context.Context, filter string, fields []string, maxCount int) ([][]string, error) {
-	output, err := tsharkFieldStream(ctx, filter, fields, maxCount)
+	output, err := tsharkFieldStream(ctx, filter, fields)
 	if err != nil {
 		return nil, err
 	}
 
+	return parseTsharkFieldRows(output, maxCount), nil
+}
+
+func parseTsharkFieldRows(output string, maxCount int) [][]string {
 	output = strings.TrimSpace(output)
 	if output == "" {
-		return nil, nil
+		return nil
 	}
 
 	var rows [][]string
@@ -848,20 +841,20 @@ func tsharkFields(ctx context.Context, filter string, fields []string, maxCount 
 			continue
 		}
 		rows = append(rows, strings.Split(line, "\t"))
+		if maxCount > 0 && len(rows) >= maxCount {
+			break
+		}
 	}
-	return rows, nil
+	return rows
 }
 
-func tsharkFieldStream(ctx context.Context, filter string, fields []string, maxCount int) (string, error) {
-	args := []string{"-Y", filter, "-T", "fields"}
+func tsharkFieldStream(ctx context.Context, filter string, fields []string) (string, error) {
+	args := make([]string, 0, 8+2*len(fields))
+	args = append(args, "-Y", filter, "-T", "fields")
 	for _, f := range fields {
 		args = append(args, "-e", f)
 	}
 	args = append(args, "-E", "separator=\t", "-E", "header=n")
-	if maxCount > 0 {
-		args = append(args, "-c", strconv.Itoa(maxCount))
-	}
-
 	return tsharkQuery(ctx, args...)
 }
 
@@ -997,6 +990,70 @@ func parseHexOrDec(s string) (uint64, error) {
 	return strconv.ParseUint(s, 0, 64)
 }
 
+func validInteropControlPayload(payload []byte, pduLength int, authType byte) bool {
+	if pduLength < 24 || len(payload) < pduLength || int(payload[3]) != pduLength {
+		return false
+	}
+	if authType == 0 {
+		if payload[1]&0x04 != 0 {
+			return false
+		}
+	} else if pduLength < 27 || payload[1]&0x04 == 0 || payload[24] != authType ||
+		int(payload[25]) != pduLength-24 || payload[26] != 7 {
+		return false
+	}
+	return len(bytes.Trim(payload[pduLength:], "\x00")) == 0
+}
+
+func TestValidInteropControlPayload(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		pduLength int
+		authType  byte
+		truncate  int
+		index     int
+		value     byte
+		want      bool
+	}{
+		"simple password": {40, 1, 128, -1, 0, true},
+		"keyed SHA1":      {52, 4, 128, -1, 0, true},
+		"unauthenticated": {24, 0, 24, -1, 0, true},
+		"empty":           {40, 1, 0, -1, 0, false},
+		"short header":    {40, 1, 3, -1, 0, false},
+		"short PDU":       {23, 0, 128, -1, 0, false},
+		"short auth PDU":  {26, 1, 128, -1, 0, false},
+		"truncated auth":  {40, 1, 26, -1, 0, false},
+		"wrong length":    {40, 1, 128, 3, 128, false},
+		"missing A bit":   {40, 1, 128, 1, 0, false},
+		"unexpected auth": {24, 0, 24, 1, 4, false},
+		"wrong type":      {40, 1, 128, 24, 4, false},
+		"wrong auth size": {40, 1, 128, 25, 15, false},
+		"wrong key":       {40, 1, 128, 26, 8, false},
+		"nonzero padding": {52, 4, 128, 127, 1, false},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			payload := make([]byte, 128)
+			payload[3] = byte(test.pduLength)
+			if test.authType != 0 {
+				payload[1] = 0x04
+				payload[24] = test.authType
+				payload[25] = byte(test.pduLength - 24)
+				payload[26] = 7
+			}
+			if test.index >= 0 {
+				payload[test.index] = test.value
+			}
+			if got := validInteropControlPayload(payload[:test.truncate], test.pduLength, test.authType); got != test.want {
+				t.Errorf("validInteropControlPayload() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func dumpTsharkCapture(t *testing.T, count int) {
 	t.Helper()
 	testDeadline, hasTestDeadline := t.Deadline()
@@ -1061,10 +1118,12 @@ func TestParseSessionState(t *testing.T) {
 			}`),
 			peer: "172.20.0.50",
 			want: sessionState{
-				PeerAddress:     "172.20.0.50",
-				LocalState:      "Up",
-				RemoteState:     "Up",
-				LocalDiagnostic: "None",
+				PeerAddress:         "172.20.0.50",
+				LocalState:          "Up",
+				RemoteState:         "Up",
+				LocalDiagnostic:     "None",
+				LocalDiscriminator:  101,
+				RemoteDiscriminator: 202,
 			},
 		},
 		{
@@ -1371,27 +1430,10 @@ func TestTsharkQueryContextError(t *testing.T) {
 	podmanPath := filepath.Join(tempDir, "podman")
 	startedPath := filepath.Join(tempDir, "started")
 	commandLog := filepath.Join(tempDir, "podman.log")
-	fakePodman := `#!/bin/sh
-printf '%s\n' "$*" >> "${TSHARK_QUERY_COMMAND_LOG}"
-case "$*" in
-    "inspect --type container --format "*" tshark-interop")
-        printf '%s\n' 'immutable-tshark-id|gobfd-interop'
-        ;;
-    "exec immutable-tshark-id tshark -r /captures/bfd.pcapng")
-        : > "${TSHARK_QUERY_STARTED}"
-        exec /bin/sleep 10
-        ;;
-    *) exit 9 ;;
-esac
-`
-	if err := os.WriteFile(
-		podmanPath,
-		[]byte(fakePodman),
-		0o700,
-	); err != nil {
-		t.Fatalf("write fake podman command: %v", err)
-	}
+	installFakeCommand(t, tempDir, filepath.Base(podmanPath), "tshark-cancel")
 	t.Setenv("PATH", tempDir)
+	t.Setenv(interopFakeMode, "tshark-cancel")
+	t.Setenv("GORACE", "atexit_sleep_ms=0")
 	t.Setenv("TSHARK_QUERY_STARTED", startedPath)
 	t.Setenv("TSHARK_QUERY_COMMAND_LOG", commandLog)
 	t.Setenv("INTEROP_PROJECT_NAME", "gobfd-interop")
@@ -1446,27 +1488,10 @@ esac
 func TestTsharkQueryKeepsSuccessfulStderrOutOfRows(t *testing.T) {
 	fakeBin := t.TempDir()
 	commandLog := filepath.Join(t.TempDir(), "podman.log")
-	fakePodman := `#!/usr/bin/env bash
-printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
-if [[ "${1:-}" == "inspect" && "$*" == *"index .Config.Labels"* ]]; then
-    printf '%s\n' 'immutable-tshark-id|gobfd-interop'
-    exit 0
-fi
-if [[ "${1:-}" == "exec" && "${2:-}" == "immutable-tshark-id" ]]; then
-    printf '%s\n' 'Running as user "root" and group "root". This could be dangerous.' >&2
-    if [[ "${INTEROP_FAKE_TSHARK_FAIL:-}" == "true" ]]; then
-        printf '%s\n' 'capture read failed' >&2
-        exit 17
-    fi
-    printf '41\t300000\n42\t300000\n'
-    exit 0
-fi
-exit 9
-`
-	if err := os.WriteFile(filepath.Join(fakeBin, "podman"), []byte(fakePodman), 0o755); err != nil {
-		t.Fatalf("write fake podman: %v", err)
-	}
+	installFakeCommand(t, fakeBin, "podman", "tshark-streams")
 	t.Setenv("PATH", fakeBin+":"+os.Getenv("PATH"))
+	t.Setenv(interopFakeMode, "tshark-streams")
+	t.Setenv("GORACE", "atexit_sleep_ms=0")
 	t.Setenv("INTEROP_FAKE_PODMAN_LOG", commandLog)
 	t.Setenv("INTEROP_PROJECT_NAME", "gobfd-interop")
 
@@ -1477,6 +1502,16 @@ exit 9
 	wantRows := [][]string{{"41", "300000"}, {"42", "300000"}}
 	if fmt.Sprint(rows) != fmt.Sprint(wantRows) {
 		t.Fatalf("tshark rows = %v, want stdout-only %v", rows, wantRows)
+	}
+
+	bogus := exec.CommandContext(
+		t.Context(), filepath.Join(fakeBin, "podman"),
+		"exec", "immutable-tshark-id", "definitely-not-tshark",
+	)
+	bogusOutput, bogusErr := bogus.CombinedOutput()
+	var bogusExit *exec.ExitError
+	if !errors.As(bogusErr, &bogusExit) || bogusExit.ExitCode() != 9 {
+		t.Fatalf("bogus tshark helper command error = %v, output = %q; want exit 9", bogusErr, bogusOutput)
 	}
 
 	t.Setenv("INTEROP_FAKE_TSHARK_FAIL", "true")
@@ -1556,6 +1591,11 @@ func TestThoroHandshake(t *testing.T) {
 // clean up after themselves. The stack should be left in a working state
 // for subsequent tests.
 func TestRFCCompliance(t *testing.T) {
+	runRFCCompliance(t, 4)
+}
+
+func runRFCCompliance(t *testing.T, birdAuthType byte) {
+	t.Helper()
 	t.Cleanup(func() {
 		if t.Failed() {
 			dumpTsharkCapture(t, 200)
@@ -1620,10 +1660,49 @@ func TestRFCCompliance(t *testing.T) {
 	})
 
 	t.Run("RFC5880_4.1_PacketLength", func(t *testing.T) {
-		// Without authentication, BFD Control is exactly 24 bytes.
-		assertNoPackets(ctx, t,
-			gobfdPkts+" && bfd.message_length != 24",
-			"packet length must be 24 (no auth)")
+		peers := []struct {
+			name          string
+			ip            string
+			pduLength     int
+			authType      byte
+			payloadLength int
+		}{
+			{"FRR", frrIP, 40, 1, 128},
+			{"BIRD3", bird3IP, 52, birdAuthType, 128},
+			{"Holo", holoIP, 24, 0, 24},
+			{"Thoro", thoroIP, 24, 0, 24},
+		}
+		for _, peer := range peers {
+			t.Run(peer.name, func(t *testing.T) {
+				filter := gobfdPkts + " && ip.dst == " + peer.ip
+				rows, err := tsharkFields(ctx, filter,
+					[]string{"udp.length", "udp.payload"}, 0)
+				if err != nil {
+					t.Fatalf("read %s Control packets: %v", peer.name, err)
+				}
+				if len(rows) == 0 {
+					t.Fatal("no GoBFD Control packets captured")
+				}
+				for i, row := range rows {
+					if len(row) != 2 {
+						t.Fatalf("packet %d fields = %v, want UDP length and payload", i, row)
+					}
+					payload, decodeErr := hex.DecodeString(strings.ReplaceAll(row[1], ":", ""))
+					if decodeErr != nil {
+						t.Fatalf("decode packet %d UDP payload: %v", i, decodeErr)
+					}
+					if row[0] != strconv.Itoa(peer.payloadLength+8) || len(payload) != peer.payloadLength ||
+						!validInteropControlPayload(payload, peer.pduLength, peer.authType) {
+						t.Errorf("packet %d violates BFD Length/authentication/zero-padding bounds: %v", i, row)
+					}
+				}
+				if peer.payloadLength > peer.pduLength {
+					assertNoPackets(ctx, t, filter+" && ip.flags.df != 1", "padded Control packets must set IPv4 DF")
+				}
+				t.Logf("validated %d packets: BFD Length=%d, auth type=%d, UDP length=%d",
+					len(rows), peer.pduLength, peer.authType, peer.payloadLength+8)
+			})
+		}
 	})
 
 	t.Run("RFC5881_5_TTL255", func(t *testing.T) {
@@ -1658,8 +1737,7 @@ func TestRFCCompliance(t *testing.T) {
 		type peer struct {
 			name string
 			ip   string
-			// skipSrcPort: BIRD3 uses a fixed source port outside the
-			// ephemeral range (known RFC 5881 §4 deviation).
+			// BIRD's Linux allocator does not constrain ports to RFC 5881 §4's range.
 			skipSrcPort bool
 		}
 		peers := []peer{
@@ -1686,7 +1764,7 @@ func TestRFCCompliance(t *testing.T) {
 			})
 			t.Run(p.name+"_SrcPortEphemeral", func(t *testing.T) {
 				if p.skipSrcPort {
-					t.Skipf("%s uses a fixed source port (known RFC 5881 §4 deviation)", p.name)
+					t.Skipf("%s delegates source-port allocation to Linux without RFC 5881 §4 range enforcement", p.name)
 				}
 				assertNoPackets(ctx, t,
 					"bfd && ip.src == "+p.ip+" && (udp.srcport < 49152 || udp.srcport > 65535)",
@@ -1866,7 +1944,7 @@ func TestRFCCompliance(t *testing.T) {
 			"bfd && ip.src == "+gobfdIP+" && ip.dst == "+frrIP+" && bfd.sta == 0x01",
 			[]string{"bfd.diag"}, 3)
 		if err != nil || len(rows) == 0 {
-			t.Skipf("no initial Down packets captured (session may have started before capture)")
+			t.Fatalf("initial Down evidence required: rows=%d error=%v", len(rows), err)
 		}
 		diag, err := parseHexOrDec(rows[0][0])
 		if err != nil {
@@ -1923,7 +2001,7 @@ func TestRFCCompliance(t *testing.T) {
 			t.Run(p.name, func(t *testing.T) {
 				output, err := tsharkFieldStream(ctx,
 					"bfd && ip.src == "+gobfdIP+" && ip.dst == "+p.ip,
-					[]string{"frame.time_epoch", "bfd.sta", "bfd.flags.p", "bfd.flags.f"}, 0)
+					[]string{"frame.time_epoch", "bfd.sta", "bfd.flags.p", "bfd.flags.f"})
 				if err != nil {
 					t.Fatalf("read jitter packet fields for %s: %v", p.name, err)
 				}
@@ -2016,7 +2094,7 @@ func TestRFCCompliance(t *testing.T) {
 			"bfd && ip.src == "+gobfdIP+" && ip.dst == "+frrIP+" && bfd.sta == 0x01 && bfd.diag == 0x01",
 			[]string{"frame.time_epoch"}, 1)
 		if err != nil || len(firstDown) == 0 {
-			t.Skipf("no Down(diag=1) packets: %v", err)
+			t.Fatalf("Down(diag=1) evidence required: rows=%d error=%v", len(firstDown), err)
 		}
 		downTime, err := strconv.ParseFloat(strings.TrimSpace(firstDown[0][0]), 64)
 		if err != nil {
@@ -2028,7 +2106,7 @@ func TestRFCCompliance(t *testing.T) {
 			"bfd && ip.src == "+frrIP+" && ip.dst == "+gobfdIP,
 			[]string{"frame.time_epoch"}, 0)
 		if err != nil || len(allFRR) == 0 {
-			t.Skipf("no FRR packets: %v", err)
+			t.Fatalf("FRR evidence required: rows=%d error=%v", len(allFRR), err)
 		}
 
 		var lastFRRTime float64
@@ -2044,7 +2122,7 @@ func TestRFCCompliance(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Skipf("no FRR packets before the Down(diag=1) packet")
+			t.Fatal("FRR input before Down(diag=1) evidence required")
 		}
 
 		gap := downTime - lastFRRTime
@@ -2331,6 +2409,23 @@ func TestHoloFailureRecoveryLifecycle(t *testing.T) {
 // Test 4: Detection timeout (existing, enhanced)
 // =========================================================================
 
+// frrDownTransitions counts FRR session Down transitions in GoBFD logs.
+// Compose runs log text; the testcontainers topology logs JSON for timer receipts.
+func frrDownTransitions(logs string) int {
+	count := 0
+	for line := range strings.Lines(logs) {
+		if !strings.Contains(line, "session state changed") {
+			continue
+		}
+		text := strings.Contains(line, "peer="+frrIP+" ") && strings.Contains(line, "new_state=Down")
+		structured := strings.Contains(line, `"peer":"`+frrIP+`"`) && strings.Contains(line, `"new_state":"Down"`)
+		if text || structured {
+			count++
+		}
+	}
+	return count
+}
+
 // TestFRRDetectionTimeout verifies that GoBFD detects FRR peer failure
 // when FRR is stopped.
 func TestFRRDetectionTimeout(t *testing.T) {
@@ -2342,6 +2437,11 @@ func TestFRRDetectionTimeout(t *testing.T) {
 	ctx := t.Context()
 
 	waitFRRUp(ctx, t, 60*time.Second)
+
+	before, err := projectContainerLogs(ctx, "gobfd-interop")
+	if err != nil {
+		t.Fatalf("get gobfd logs before FRR stop: %v", err)
+	}
 
 	output, err := projectContainerCommand(ctx, "frr-interop", "stop")
 	if err != nil {
@@ -2355,8 +2455,8 @@ func TestFRRDetectionTimeout(t *testing.T) {
 		t.Fatalf("get gobfd logs: %v", err)
 	}
 
-	if !strings.Contains(logs, "session state changed") || !strings.Contains(logs, "new_state=Down") {
-		t.Error("GoBFD did not log session Down transition after FRR stop")
+	if frrDownTransitions(logs) <= frrDownTransitions(before) {
+		t.Error("GoBFD did not log an FRR session Down transition after FRR stop")
 		t.Logf("gobfd logs (tail):\n%s", lastNLines(logs, 30))
 	}
 
@@ -2375,11 +2475,10 @@ func TestFRRDetectionTimeout(t *testing.T) {
 // preserved 1055-packet invalid-vector corpus and verifies GoBFD survives.
 // Tests RFC 5880 Section 6.8.6 validation robustness.
 //
-// Uses podman build + podman run directly (NOT podman compose run) because
-// podman compose's "run" subcommand tears down and recreates the entire
-// compose stack, destroying frr-interop and other containers.
+// The standalone generator joins the existing network because Compose "run"
+// tears down and recreates the stack, destroying frr-interop and other containers.
 func TestBFDInvalidVectors(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 120*time.Second)
 	defer cancel()
 
 	projectName, err := interopProjectName()
@@ -2387,27 +2486,18 @@ func TestBFDInvalidVectors(t *testing.T) {
 		t.Fatalf("resolve interop Compose project: %v", err)
 	}
 
-	// Build directly from the repository root so the Go module and internal BFD
-	// codec are available to the bounded multi-stage build context.
-	buildOut, err := exec.CommandContext(ctx,
-		"podman", "build",
-		"-t", bfdFuzzImage,
-		"-f", "scapy/Containerfile",
-		"../..",
-	).CombinedOutput()
-	if err != nil {
-		t.Fatalf("podman build BFD invalid-vector generator: %v\n%s", err, buildOut)
-	}
+	image := buildInvalidVectorImage(ctx, t)
 
 	// Run on the existing compose network without disturbing other services.
 	runOut, err := exec.CommandContext(ctx,
 		"podman", "run", "--rm",
+		"--cpus", "1", "--memory", "256m", "--memory-swap", "256m", "--pids-limit", "64",
 		"--name", "scapy-interop",
 		"--label", "com.docker.compose.project="+projectName,
 		"--network", interopNetworkName(projectName),
 		"--ip", fuzzIP,
 		"-e", "GOBFD_IP="+gobfdIP,
-		bfdFuzzImage,
+		image,
 	).CombinedOutput()
 	if err != nil {
 		t.Fatalf("BFD invalid-vector generator failed: %v\n%s", err, runOut)
@@ -2441,8 +2531,11 @@ func TestGracefulShutdown(t *testing.T) {
 	waitFRRUp(ctx, t, 60*time.Second)
 
 	// Record AdminDown packet count before shutdown.
-	adminDownBefore, _ := tsharkCount(ctx,
+	adminDownBefore, err := tsharkCount(ctx,
 		"bfd && ip.src == "+gobfdIP+" && bfd.sta == 0x00 && bfd.diag == 0x07")
+	if err != nil {
+		t.Fatalf("tshark query for AdminDown baseline: %v", err)
+	}
 
 	output, err := projectContainerCommand(ctx, "gobfd-interop", "stop")
 	if err != nil {
@@ -2456,7 +2549,7 @@ func TestGracefulShutdown(t *testing.T) {
 		"bfd && ip.src == "+gobfdIP+" && bfd.sta == 0x00 && bfd.diag == 0x07")
 	switch {
 	case err != nil:
-		t.Logf("tshark query for AdminDown packets: %v", err)
+		t.Errorf("tshark query for AdminDown packets: %v", err)
 	case adminDownAfter <= adminDownBefore:
 		t.Error("GoBFD did not send AdminDown (state=0, diag=7) packets on SIGTERM")
 	default:
@@ -2474,7 +2567,7 @@ func TestGracefulShutdown(t *testing.T) {
 		{"Holo", holoIP},
 	}
 	if crashed, statusErr := thoroUnsupportedPollSequenceCrash(ctx); statusErr != nil {
-		t.Logf("Thoro/bfd status lookup failed: %v", statusErr)
+		t.Errorf("Thoro/bfd status lookup failed: %v", statusErr)
 	} else if crashed {
 		t.Log("Thoro/bfd AdminDown verification skipped: upstream peer panicked on " +
 			"unimplemented RFC 5880 poll-sequence interval update")
@@ -2489,7 +2582,7 @@ func TestGracefulShutdown(t *testing.T) {
 			"bfd && ip.src == "+gobfdIP+" && ip.dst == "+peer.ip+
 				" && bfd.sta == 0x00 && bfd.diag == 0x07")
 		if countErr != nil {
-			t.Logf("tshark query for %s AdminDown: %v", peer.name, countErr)
+			t.Errorf("tshark query for %s AdminDown: %v", peer.name, countErr)
 			continue
 		}
 		if count == 0 {

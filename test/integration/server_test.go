@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
@@ -23,12 +25,13 @@ func TestServerSessionLifecycle(t *testing.T) {
 	mgr := bfd.NewManager(logger)
 	t.Cleanup(mgr.Close)
 
-	path, handler := server.New(mgr, nil, logger)
+	rpc := connect.NewServer()
+	server.Register(rpc, mgr, nil, logger)
 	mux := http.NewServeMux()
-	mux.Handle(path, handler)
+	connecthttp.Mount(mux, rpc)
 	srv := httptest.NewTestServer(t, mux)
 
-	client := bfdv1connect.NewBfdServiceClient(srv.Client(), srv.URL)
+	client := bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
 	ctx := t.Context()
 
 	// --- AddSession ---
