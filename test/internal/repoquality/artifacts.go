@@ -16,6 +16,7 @@ const (
 	ruleNoAIArtifact    = "no-ai-artifact"
 	ruleNoAIAttribution = "no-ai-attribution"
 	markdownExtension   = ".md"
+	gitSHA1HexLength    = 40
 
 	beadsDirectoryList = ",.beads,.dolt,"
 
@@ -44,6 +45,7 @@ const (
 var (
 	errArtifactRootNotDirectory = errors.New("artifact policy root is not a directory")
 	errNoTrackedFiles           = errors.New("no tracked Git files discovered")
+	errInvalidCommitSHA         = errors.New("commit SHA must be a complete 40-character hexadecimal object ID")
 )
 
 // ArtifactReport contains the tracked Git file set and any merge-blocking
@@ -232,10 +234,19 @@ func CheckTextAIAttribution(text string) []Diagnostic {
 	return checkCommitAIAttribution(lines)
 }
 
-// CheckGitRecentAttribution checks the recent Git commits reachable from HEAD
-// and optional pullRequestBody text for forbidden AI attribution.
-func CheckGitRecentAttribution(ctx context.Context, rootPath, pullRequestBody string) ([]FileDiagnostic, error) {
-	return checkGitRecentAttribution(ctx, rootPath, pullRequestBody, osGoplsRunner{})
+// AttributionOptions configures commit-range and pull-request body checks.
+type AttributionOptions struct {
+	Root            string
+	BaseSHA         string
+	HeadSHA         string
+	PullRequestBody string
+}
+
+// CheckGitRecentAttribution checks the Git commit range BaseSHA..HeadSHA (or
+// HEAD when both SHAs are empty) and optional PullRequestBody text for
+// forbidden AI attribution.
+func CheckGitRecentAttribution(ctx context.Context, options AttributionOptions) ([]FileDiagnostic, error) {
+	return checkGitRecentAttribution(ctx, options, osGoplsRunner{})
 }
 
 func resolveDirectoryRoot(rootPath, label string) (string, error) {
@@ -258,28 +269,28 @@ func resolveDirectoryRoot(rootPath, label string) (string, error) {
 
 func checkGitRecentAttribution(
 	ctx context.Context,
-	rootPath string,
-	pullRequestBody string,
+	options AttributionOptions,
 	runner goplsRunner,
 ) ([]FileDiagnostic, error) {
-	resolvedRoot, err := resolveDirectoryRoot(rootPath, "attribution")
+	resolvedRoot, err := resolveDirectoryRoot(options.Root, "attribution")
+	if err != nil {
+		return nil, err
+	}
+	arguments, err := attributionGitLogArgs(options.BaseSHA, options.HeadSHA)
 	if err != nil {
 		return nil, err
 	}
 	result, err := runner.run(ctx, goplsCommand{
-		executable: "git",
-		arguments: []string{
-			"-c", "safe.directory=*", "-c", "core.fsmonitor=false",
-			"log", "-n", "5", "--format=%B", "HEAD",
-		},
+		executable:  "git",
+		arguments:   arguments,
 		directory:   resolvedRoot,
 		environment: os.Environ(),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("git log HEAD; output=%s: %w", commandOutput(result), err)
+		return nil, fmt.Errorf("git log attribution range; output=%s: %w", commandOutput(result), err)
 	}
 	commitDiagnostics := CheckTextAIAttribution(result.stdout)
-	bodyDiagnostics := CheckTextAIAttribution(pullRequestBody)
+	bodyDiagnostics := CheckTextAIAttribution(options.PullRequestBody)
 	diagnostics := make([]FileDiagnostic, 0, len(commitDiagnostics)+len(bodyDiagnostics))
 	for _, diagnostic := range commitDiagnostics {
 		diagnostics = append(diagnostics, FileDiagnostic{Diagnostic: diagnostic, Path: "git-log"})
@@ -288,6 +299,37 @@ func checkGitRecentAttribution(
 		diagnostics = append(diagnostics, FileDiagnostic{Diagnostic: diagnostic, Path: "pr-body"})
 	}
 	return diagnostics, nil
+}
+
+func attributionGitLogArgs(baseSHA, headSHA string) ([]string, error) {
+	base := strings.TrimSpace(baseSHA)
+	head := strings.TrimSpace(headSHA)
+	if base == "" && head == "" {
+		return []string{
+			"-c", "safe.directory=*", "-c", "core.fsmonitor=false",
+			"log", "-n", "1", "--format=%B", "HEAD",
+		}, nil
+	}
+	if !isHexSHA1(base) || !isHexSHA1(head) {
+		return nil, fmt.Errorf("validate attribution range %q..%q: %w", base, head, errInvalidCommitSHA)
+	}
+	return []string{
+		"-c", "safe.directory=*", "-c", "core.fsmonitor=false",
+		"log", "--format=%B", base + ".." + head,
+	}, nil
+}
+
+func isHexSHA1(value string) bool {
+	if len(value) != gitSHA1HexLength {
+		return false
+	}
+	for index := range len(value) {
+		ch := value[index]
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') && (ch < 'A' || ch > 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 func checkCommitAIAttribution(lines []string) []Diagnostic {
