@@ -66,15 +66,7 @@ Thumbs.db
 
 # Local-only AI agent state, caches, and personal Markdown overrides
 .aider*
-AGENTS.local.md
-AGENT.local.md
-CLAUDE.local.md
-GEMINI.local.md
-CODEX.local.md
-CURSOR.local.md
-WINDSURF.local.md
-COPILOT.local.md
-.github/copilot-instructions.local.md
+*.local.md
 
 # Non-Markdown AI / agent configuration and rule files (only .md is allowed)
 .mcp.json
@@ -164,6 +156,10 @@ opencode.jsonc
 !.gemini/**/
 !.gemini/**/*.md
 .gemini/**/*.local.md
+.goose/**
+!.goose/**/
+!.goose/**/*.md
+.goose/**/*.local.md
 .junie/**
 !.junie/**/
 !.junie/**/*.md

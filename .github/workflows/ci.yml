@@ -196,6 +196,11 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: go run ./test/cmd/cictl commit-policy
 
+      - name: Validate PR body and commit attribution
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: go run ./test/cmd/repoquality attribution --root .
+
   vulnerability-check:
     name: Vulnerability audit
     runs-on: ubuntu-latest

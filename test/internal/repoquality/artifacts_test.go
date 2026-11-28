@@ -46,6 +46,10 @@ func TestCheckTrackedPathPolicy(t *testing.T) {
 		{name: "claude local markdown forbidden", path: "CLAUDE.local.md", wantRule: ruleNoAIArtifact},
 		{name: "agents local markdown forbidden", path: "AGENTS.local.md", wantRule: ruleNoAIArtifact},
 		{name: "gemini local markdown forbidden", path: "GEMINI.local.md", wantRule: ruleNoAIArtifact},
+		{name: "junie local markdown forbidden", path: "JUNIE.local.md", wantRule: ruleNoAIArtifact},
+		{name: "roo local markdown forbidden", path: "ROO.local.md", wantRule: ruleNoAIArtifact},
+		{name: "goose markdown allowed", path: ".goose/instructions.md"},
+		{name: "goose yaml config forbidden", path: ".goose/config.yaml", wantRule: ruleNoAIArtifact},
 		{name: "nested claude local markdown forbidden", path: ".claude/settings.local.md", wantRule: ruleNoAIArtifact},
 		{name: "claude worktree markdown forbidden", path: ".claude/worktrees/w1/README.md", wantRule: ruleNoAIArtifact},
 		{name: "serena yaml forbidden", path: ".serena/project.yml", wantRule: ruleNoAIArtifact},
@@ -149,6 +153,19 @@ func TestCheckGitTrackedFilesFailsClosedAndDetectsViolations(t *testing.T) {
 	}
 	if dirtyReport.Diagnostics[0].Rule != ruleNoBeadsArtifact || dirtyReport.Diagnostics[1].Rule != ruleNoAIArtifact {
 		t.Fatalf("dirty diagnostics = %#v, want [%s, %s]", dirtyReport.Diagnostics, ruleNoBeadsArtifact, ruleNoAIArtifact)
+	}
+
+	attributionDiags, err := checkGitRecentAttribution(
+		t.Context(),
+		directory,
+		"Summary\n\nGenerated with DeepSeek\n",
+		stubArtifactRunner{stdout: "feat(bfd): add peer\n\nAssisted-by: Jules <jules@example.com>\n"},
+	)
+	if err != nil {
+		t.Fatalf("checkGitRecentAttribution error: %v", err)
+	}
+	if len(attributionDiags) != 2 {
+		t.Fatalf("attribution diagnostics = %#v, want 2 violations", attributionDiags)
 	}
 }
 

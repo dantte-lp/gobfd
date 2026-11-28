@@ -56,6 +56,7 @@ func TestRepositoryQualityGatesHaveNoNodeRuntime(t *testing.T) {
 	}
 	requireContractStrings(t, "CI workflow", workflow, []string{
 		"go run ./test/cmd/repoquality artifacts --root .",
+		"go run ./test/cmd/repoquality attribution --root .",
 		"go run ./test/cmd/repoquality markdown --root .",
 		"go run ./test/cmd/cictl commit-policy",
 		"go tool -modfile=tools/go.mod yamlfmt -lint .",
