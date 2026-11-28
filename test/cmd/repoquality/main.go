@@ -14,9 +14,10 @@ import (
 )
 
 var (
-	errArtifactViolations = errors.New("tracked artifact policy violations")
-	errMarkdownViolations = errors.New("markdown policy violations")
-	errCommitViolations   = errors.New("commit policy violations")
+	errArtifactViolations    = errors.New("tracked artifact policy violations")
+	errAttributionViolations = errors.New("AI attribution policy violations")
+	errMarkdownViolations    = errors.New("markdown policy violations")
+	errCommitViolations      = errors.New("commit policy violations")
 )
 
 func main() {
@@ -28,11 +29,13 @@ func main() {
 
 func run(ctx context.Context, arguments []string) error {
 	if len(arguments) == 0 {
-		return fmt.Errorf("usage: repoquality <artifacts|markdown|commit|gopls|code>: %w", flag.ErrHelp)
+		return fmt.Errorf("usage: repoquality <artifacts|attribution|markdown|commit|gopls|code>: %w", flag.ErrHelp)
 	}
 	switch arguments[0] {
 	case "artifacts":
 		return runArtifacts(ctx, arguments[1:])
+	case "attribution":
+		return runAttribution(ctx, arguments[1:])
 	case "markdown":
 		return runMarkdown(ctx, arguments[1:])
 	case "commit":
@@ -55,6 +58,22 @@ func runArtifacts(ctx context.Context, arguments []string) error {
 		evaluate: func(checkCtx context.Context, root string) (int, []repoquality.FileDiagnostic, error) {
 			report, err := repoquality.CheckGitTrackedFiles(checkCtx, root)
 			return len(report.Files), report.Diagnostics, err
+		},
+	})
+}
+
+func runAttribution(ctx context.Context, arguments []string) error {
+	return runRootPolicyCheck(ctx, arguments, rootPolicySpec{
+		name:         "attribution",
+		failureLabel: "check commit and pull-request AI attribution",
+		unitLabel:    "attribution surfaces",
+		violationErr: errAttributionViolations,
+		evaluate: func(checkCtx context.Context, root string) (int, []repoquality.FileDiagnostic, error) {
+			diagnostics, err := repoquality.CheckGitRecentAttribution(checkCtx, root, os.Getenv("PR_BODY"))
+			if err != nil {
+				return 0, nil, fmt.Errorf("inspect git and PR attribution: %w", err)
+			}
+			return 2, diagnostics, nil
 		},
 	})
 }
