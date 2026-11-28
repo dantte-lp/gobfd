@@ -14,7 +14,8 @@ import (
 
 const maxMarkdownBytes = 2 << 20
 
-const ignoredMarkdownRootList = ",.git,.venv,.worktrees,bin,build,dist,docs/rfc,docs/tmp,node_modules,reports,vendor,"
+const ignoredMarkdownRootList = ",.archive,.beads,.dolt,.git,.serena,.venv,.worktrees," +
+	"bin,build,dist,docs/rfc,docs/tmp,node_modules,reports,vendor,"
 
 var (
 	errNoMarkdownInputs = errors.New("no Markdown files")
