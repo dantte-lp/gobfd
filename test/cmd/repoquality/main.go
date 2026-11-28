@@ -69,7 +69,12 @@ func runAttribution(ctx context.Context, arguments []string) error {
 		unitLabel:    "attribution surfaces",
 		violationErr: errAttributionViolations,
 		evaluate: func(checkCtx context.Context, root string) (int, []repoquality.FileDiagnostic, error) {
-			diagnostics, err := repoquality.CheckGitRecentAttribution(checkCtx, root, os.Getenv("PR_BODY"))
+			diagnostics, err := repoquality.CheckGitRecentAttribution(checkCtx, repoquality.AttributionOptions{
+				Root:            root,
+				BaseSHA:         os.Getenv("PR_BASE_SHA"),
+				HeadSHA:         os.Getenv("PR_HEAD_SHA"),
+				PullRequestBody: os.Getenv("PR_BODY"),
+			})
 			if err != nil {
 				return 0, nil, fmt.Errorf("inspect git and PR attribution: %w", err)
 			}
