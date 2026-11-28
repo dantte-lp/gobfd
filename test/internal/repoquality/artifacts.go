@@ -25,13 +25,9 @@ const (
 	// Directories where intentional Markdown (.md) is allowed, while all
 	// non-Markdown configurations, scripts, databases, and state are forbidden.
 	markdownOnlyAIDirectoryList = ",.agent,.agents,.amp,.antigravity,.augment,.claude,.cline," +
-		".codex,.continue,.copilot,.cursor,.gemini,.junie,.kiro,.opencode,.roo,.trae,.windsurf,"
+		".codex,.continue,.copilot,.cursor,.gemini,.goose,.junie,.kiro,.opencode,.roo,.trae,.windsurf,"
 
 	githubMarkdownOnlySubdirList = ",agents,copilot,instructions,prompts,"
-
-	localAIMarkdownNameList = ",agent.local.md,agents.local.md,claude.local.md,cline.local.md," +
-		"codex.local.md,copilot-instructions.local.md,copilot.local.md,cursor.local.md," +
-		"gemini.local.md,opencode.local.md,roo.local.md,windsurf.local.md,"
 
 	forbiddenAIConfigNameList = ",.aiexclude,.aiignore,.ampignore,.claudeignore,.clineignore," +
 		".clinerules,.codeiumignore,.codexignore,.continueignore,.continuerules,.copilotignore," +
@@ -40,8 +36,9 @@ const (
 		".windsurfignore,.windsurfrules,claude_desktop_config.json,opencode.json,opencode.jsonc,"
 
 	aiIdentityTokenList = ",aider,ampcode,anthropic,antigravity,augment,chatgpt,claude,cline," +
-		"codeium,codex,copilot,cursor,devin,gemini,google-labs-jules,junie,kiro,llm,openai," +
-		"opencode,roo,trae,windsurf,"
+		"codeium,codex,cody,copilot,cursor,cursoragent,deepseek,devin,gemini,google-labs-jules," +
+		"grok,jules,junie,kiro,llm,mistral,openai,opencode,perplexity,qwen,roo,swe-agent,tabnine," +
+		"trae,windsurf,"
 )
 
 var (
@@ -63,19 +60,9 @@ func CheckGitTrackedFiles(ctx context.Context, rootPath string) (ArtifactReport,
 }
 
 func checkGitTrackedFiles(ctx context.Context, rootPath string, runner goplsRunner) (ArtifactReport, error) {
-	if rootPath == "" {
-		rootPath = "."
-	}
-	resolvedRoot, err := filepath.Abs(rootPath)
+	resolvedRoot, err := resolveDirectoryRoot(rootPath, "artifact")
 	if err != nil {
-		return ArtifactReport{}, fmt.Errorf("resolve artifact policy root: %w", err)
-	}
-	info, err := os.Stat(resolvedRoot)
-	if err != nil {
-		return ArtifactReport{}, fmt.Errorf("stat artifact policy root: %w", err)
-	}
-	if !info.IsDir() {
-		return ArtifactReport{}, fmt.Errorf("artifact policy root %s: %w", resolvedRoot, errArtifactRootNotDirectory)
+		return ArtifactReport{}, err
 	}
 	result, err := runner.run(ctx, goplsCommand{
 		executable:  "git",
@@ -190,7 +177,7 @@ func isBeadsOrDoltArtifact(segments []string, lowerBase string) bool {
 }
 
 func isLocalOnlyAIArtifact(segments []string, lowerBase string) bool {
-	if strings.HasPrefix(lowerBase, ".aider") || containsToken(localAIMarkdownNameList, lowerBase) {
+	if strings.HasPrefix(lowerBase, ".aider") || strings.HasSuffix(lowerBase, ".local.md") {
 		return true
 	}
 	for index, segment := range segments[:len(segments)-1] {
@@ -203,7 +190,7 @@ func isLocalOnlyAIArtifact(segments []string, lowerBase string) bool {
 			return true
 		}
 	}
-	return strings.HasSuffix(lowerBase, ".local.md") && inMarkdownOnlyAIDirectory(segments)
+	return false
 }
 
 func inMarkdownOnlyAIDirectory(segments []string) bool {
@@ -235,6 +222,74 @@ func isStandaloneNonMarkdownAIArtifact(lowerBase string) bool {
 	return false
 }
 
+// CheckTextAIAttribution checks arbitrary commit or pull-request body text for
+// forbidden AI attribution trailers and generator notices.
+func CheckTextAIAttribution(text string) []Diagnostic {
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	return checkCommitAIAttribution(lines)
+}
+
+// CheckGitRecentAttribution checks the recent Git commits reachable from HEAD
+// and optional pullRequestBody text for forbidden AI attribution.
+func CheckGitRecentAttribution(ctx context.Context, rootPath, pullRequestBody string) ([]FileDiagnostic, error) {
+	return checkGitRecentAttribution(ctx, rootPath, pullRequestBody, osGoplsRunner{})
+}
+
+func resolveDirectoryRoot(rootPath, label string) (string, error) {
+	if rootPath == "" {
+		rootPath = "."
+	}
+	resolvedRoot, err := filepath.Abs(rootPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s policy root: %w", label, err)
+	}
+	info, err := os.Stat(resolvedRoot)
+	if err != nil {
+		return "", fmt.Errorf("stat %s policy root: %w", label, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%s policy root %s: %w", label, resolvedRoot, errArtifactRootNotDirectory)
+	}
+	return resolvedRoot, nil
+}
+
+func checkGitRecentAttribution(
+	ctx context.Context,
+	rootPath string,
+	pullRequestBody string,
+	runner goplsRunner,
+) ([]FileDiagnostic, error) {
+	resolvedRoot, err := resolveDirectoryRoot(rootPath, "attribution")
+	if err != nil {
+		return nil, err
+	}
+	result, err := runner.run(ctx, goplsCommand{
+		executable: "git",
+		arguments: []string{
+			"-c", "safe.directory=*", "-c", "core.fsmonitor=false",
+			"log", "-n", "5", "--format=%B", "HEAD",
+		},
+		directory:   resolvedRoot,
+		environment: os.Environ(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("git log HEAD; output=%s: %w", commandOutput(result), err)
+	}
+	commitDiagnostics := CheckTextAIAttribution(result.stdout)
+	bodyDiagnostics := CheckTextAIAttribution(pullRequestBody)
+	diagnostics := make([]FileDiagnostic, 0, len(commitDiagnostics)+len(bodyDiagnostics))
+	for _, diagnostic := range commitDiagnostics {
+		diagnostics = append(diagnostics, FileDiagnostic{Diagnostic: diagnostic, Path: "git-log"})
+	}
+	for _, diagnostic := range bodyDiagnostics {
+		diagnostics = append(diagnostics, FileDiagnostic{Diagnostic: diagnostic, Path: "pr-body"})
+	}
+	return diagnostics, nil
+}
+
 func checkCommitAIAttribution(lines []string) []Diagnostic {
 	diagnostics := make([]Diagnostic, 0)
 	for index, line := range lines {
@@ -250,8 +305,10 @@ func checkCommitAIAttribution(lines []string) []Diagnostic {
 
 func hasAIAttributionLine(line string) bool {
 	lower := strings.ToLower(strings.TrimSpace(line))
-	if rest, ok := strings.CutPrefix(lower, "co-authored-by:"); ok {
-		return containsAnyAIToken(rest)
+	for _, prefix := range []string{"co-authored-by:", "assisted-by:", "authored-by:", "helped-by:"} {
+		if rest, ok := strings.CutPrefix(lower, prefix); ok {
+			return containsAnyAIToken(rest)
+		}
 	}
 	for _, marker := range []string{"generated with ", "generated by "} {
 		if _, rest, ok := strings.Cut(lower, marker); ok && containsAnyAIToken(rest) {

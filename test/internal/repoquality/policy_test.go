@@ -55,6 +55,14 @@ func TestCommitPolicyMatchesPinnedCommitlintContract(t *testing.T) {
 			name:    "revert commit with AI trailer still forbidden",
 			message: "Revert accidental change\n\nCo-Authored-By: Codex <noreply@openai.com>",
 		},
+		{
+			name:    "assisted-by jules trailer forbidden",
+			message: "feat(bfd): add peer\n\nAssisted-by: Jules <jules@example.com>",
+		},
+		{
+			name:    "co-authored-by qwen trailer forbidden",
+			message: "feat(bfd): add peer\n\nCo-Authored-By: Qwen <qwen@example.com>",
+		},
 	}
 
 	for _, test := range tests {
