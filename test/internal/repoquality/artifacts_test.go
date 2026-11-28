@@ -157,8 +157,12 @@ func TestCheckGitTrackedFilesFailsClosedAndDetectsViolations(t *testing.T) {
 
 	attributionDiags, err := checkGitRecentAttribution(
 		t.Context(),
-		directory,
-		"Summary\n\nGenerated with DeepSeek\n",
+		AttributionOptions{
+			Root:            directory,
+			BaseSHA:         "3bcdea03d3f05f21b14dd2a785e20805f642bf5f",
+			HeadSHA:         "b24d49a005bcba21fc60da80525fc6cd3d5ec032",
+			PullRequestBody: "Summary\n\nGenerated with DeepSeek\n",
+		},
 		stubArtifactRunner{stdout: "feat(bfd): add peer\n\nAssisted-by: Jules <jules@example.com>\n"},
 	)
 	if err != nil {
@@ -166,6 +170,14 @@ func TestCheckGitTrackedFilesFailsClosedAndDetectsViolations(t *testing.T) {
 	}
 	if len(attributionDiags) != 2 {
 		t.Fatalf("attribution diagnostics = %#v, want 2 violations", attributionDiags)
+	}
+
+	if _, err := checkGitRecentAttribution(
+		t.Context(),
+		AttributionOptions{Root: directory, BaseSHA: "--bad-flag", HeadSHA: "b24d49a005bcba21fc60da80525fc6cd3d5ec032"},
+		stubArtifactRunner{},
+	); !errors.Is(err, errInvalidCommitSHA) {
+		t.Fatalf("invalid SHA error = %v, want %v", err, errInvalidCommitSHA)
 	}
 }
 
