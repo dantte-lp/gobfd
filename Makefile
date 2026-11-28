@@ -56,7 +56,7 @@ SEMGREP ?= semgrep
 SEMGREP_CONFIG ?= p/golang
 SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-version-check --timeout 15 --no-git-ignore --include='*.go' .
 
-.PHONY: all verify build test testcontainers-smoke lint lint-ci lint-fix gopls-check lint-docs lint-md lint-yaml lint-spell lint-commit semgrep semgrep-json semgrep-pro proto-gen proto-lint fuzz vulncheck osv-scan vulncheck-strict osv-scan-strict dependency-inventory dependency-inventory-check \
+.PHONY: all verify build test testcontainers-smoke lint lint-ci lint-fix gopls-check lint-docs lint-artifacts lint-md lint-yaml lint-spell lint-commit semgrep semgrep-json semgrep-pro proto-gen proto-lint fuzz vulncheck osv-scan vulncheck-strict osv-scan-strict dependency-inventory dependency-inventory-check \
         benchmark benchmark-all benchmark-save benchmark-compare \
         test-report report-all \
         coverage profile \
@@ -763,6 +763,9 @@ gopls-check: dev-ensure
 	$(EXEC) env GOMAXPROCS=2 GOMEMLIMIT=1500MiB go run ./test/cmd/repoquality gopls --root . \
 		--goos darwin --profile dependencyinventory_generate
 
+lint-artifacts: dev-ensure
+	$(EXEC) go run ./test/cmd/repoquality artifacts --root .
+
 lint-md: dev-ensure
 	$(EXEC) go run ./test/cmd/repoquality markdown --root .
 
@@ -780,7 +783,7 @@ lint-spell: dev-ensure
 		CHANGELOG.md \
 		docs/en/roadmap.md
 
-lint-docs: lint-md lint-yaml lint-spell
+lint-docs: lint-artifacts lint-md lint-yaml lint-spell
 
 lint-commit:
 	@test -n "$(MSG)" || (echo "Usage: make lint-commit MSG='feat(bfd): add feature'"; exit 1)

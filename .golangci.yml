@@ -276,8 +276,9 @@ linters:
         text: "import 'os/exec' is not allowed"
         linters:
           - depguard
-      # The repository-owned gopls gate executes only fixed go and gopls
-      # argv without a shell; keep the exception on this single boundary.
+      # The repository-owned gopls and tracked-artifact gates execute only
+      # fixed git, go, and gopls argv without a shell; keep the exception on
+      # this single boundary.
       - path: test/internal/repoquality/gopls.go
         text: "import 'os/exec' is not allowed"
         linters:

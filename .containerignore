@@ -14,11 +14,46 @@
 *.swo
 .DS_Store
 
-# Local agent state
+# Local agent and tracker state
 .beads
+.beads*
+.dolt
+*.db
+*.gate.lock*
+.serena
+.aider*
+.agent
 .agents
-.codex
+.amp
+.antigravity
+.augment
 .claude
+.cline*
+.codex*
+.continue*
+.copilot*
+.cursor*
+.gemini*
+.goose*
+.junie*
+.kiro*
+.opencode*
+.roo*
+.trae
+.windsurf*
+.aiignore
+.aiexclude
+.codeiumignore
+.mcp.json
+opencode.json*
+claude_desktop_config.json
+*.mdc
+*.prompt.yml
+*.prompt.yaml
+*.prompt.json
+*.agent.yml
+*.agent.yaml
+*.agent.json
 
 # Build / generated artifacts
 bin/
