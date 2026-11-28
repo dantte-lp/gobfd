@@ -16,6 +16,8 @@ func TestCheckMarkdownTreeDiscoversExactSafeInputs(t *testing.T) {
 	root := t.TempDir()
 	writeMarkdownFixture(t, root, "README.md", "# Valid\n")
 	writeMarkdownFixture(t, root, "docs/guide.md", "# Guide.\n")
+	writeMarkdownFixture(t, root, ".beads/local.md", "# Ignored.\n")
+	writeMarkdownFixture(t, root, ".serena/memories/note.md", "# Ignored.\n")
 	writeMarkdownFixture(t, root, "reports/ignored.md", "# Ignored.\n")
 	writeMarkdownFixture(t, root, "reports-active/checked.md", "# Checked.\n")
 

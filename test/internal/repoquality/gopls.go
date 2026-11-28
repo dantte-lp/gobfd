@@ -93,7 +93,7 @@ type goplsRunner interface {
 type osGoplsRunner struct{}
 
 func (osGoplsRunner) run(ctx context.Context, command goplsCommand) (goplsCommandResult, error) {
-	if command.executable != "go" && command.executable != "gopls" {
+	if command.executable != "go" && command.executable != "gopls" && command.executable != "git" {
 		return goplsCommandResult{}, fmt.Errorf("execute %q: %w", command.executable, errGoplsCommandNotAllowed)
 	}
 	executable, err := exec.LookPath(command.executable)
